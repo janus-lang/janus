@@ -52,12 +52,13 @@ All definitions in this document SHALL follow the normative language defined in 
 
 [RUN:5.1.1] Availability of runtime features SHALL be gated by the active Profile Tier:
 
-| Feature | `:core` | `:service` | `:cluster` | `:sovereign` |
-| :--- | :---: | :---: | :---: | :---: |
-| Nurseries | ∅ No | ⊢ Yes | ⊢ Yes | ⊢ Yes |
-| Local Actors | ∅ No | ⊢ Yes | ⊢ Yes | ⊢ Yes |
-| Distributed Grains | ∅ No | ∅ No | ⊢ Yes | ⊢ Yes |
-| Full Capability Check | ⊢ Yes | ⊢ Yes | ⊢ Yes | ⊢ Yes |
+| Feature | `:core` | `:script` | `:service` | `:cluster` | `:compute` | `:sovereign` |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| Nurseries | ∅ No | ⟁ JIT | ⊢ Yes | ⊢ Yes | ∅ No | ⊢ Yes |
+| Local Actors | ∅ No | ∅ No | ⊢ Yes | ⊢ Yes | ∅ No | ⊢ Yes |
+| Distributed Grains | ∅ No | ∅ No | ∅ No | ⊢ Yes | ∅ No | ⊢ Yes |
+| Accelerator Pipes | ∅ No | ∅ No | ∅ No | ∅ No | ⊢ Yes | ⊢ Yes |
+| Full Capability Check | ⊢ Yes | ⊢ Yes | ⊢ Yes | ⊢ Yes | ⊢ Yes | ⊢ Yes |
 
 ---
 
