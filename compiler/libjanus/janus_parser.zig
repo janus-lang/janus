@@ -498,6 +498,7 @@ fn convertTokenType(janus_type: tokenizer.TokenType) TokenKind {
         // New operators added to tokenizer
         .match_arrow => .arrow, // Use arrow for now, TODO: add match_arrow to core_astdb
         .pipe => .bitwise_or, // Use bitwise_or for |
+        .pipeline => .pipeline, // Pipeline operator |>
         .dot_dot => .range_inclusive, // Use range_inclusive for ..
         .dot_dot_less => .range_exclusive, // Use range_exclusive for ..<
         .ampersand => .bitwise_and, // Address-of operator ( & )
@@ -622,7 +623,7 @@ fn validateS0Tokens(unit: *astdb_core.CompilationUnit) !void {
 
 fn isTokenAllowedInS0(kind: TokenKind) bool {
     return switch (kind) {
-        .func, .return_, .identifier, .integer_literal, .float_literal, .string_literal, .true_, .false_, .left_paren, .right_paren, .left_brace, .right_brace, .semicolon, .comma, .newline, .eof, .left_bracket, .right_bracket, .let, .var_, .plus, .minus, .star, .slash, .equal, .assign, .equal_equal, .not_equal, .less, .less_equal, .greater, .greater_equal, .colon, .if_, .else_, .arrow, .arrow_fat, .while_, .for_, .in_, .match, .when, .break_, .continue_, .defer_, .do_, .end, .struct_, .dot, .test_, .question, .optional_chain, .null_coalesce, .null_, .type_, .logical_and, .logical_or, .logical_not, .exclamation, .tilde, .bitwise_and, .bitwise_or, .bitwise_xor, .bitwise_not, .left_shift, .right_shift, .ampersand, .pipe, .caret, .range_inclusive, .range_exclusive, .walrus_assign, .percent, .and_, .or_, .not_ => true,
+        .func, .return_, .identifier, .integer_literal, .float_literal, .string_literal, .true_, .false_, .left_paren, .right_paren, .left_brace, .right_brace, .semicolon, .comma, .newline, .eof, .left_bracket, .right_bracket, .let, .var_, .plus, .minus, .star, .slash, .equal, .assign, .equal_equal, .not_equal, .less, .less_equal, .greater, .greater_equal, .colon, .if_, .else_, .arrow, .arrow_fat, .while_, .for_, .in_, .match, .when, .break_, .continue_, .defer_, .do_, .end, .struct_, .dot, .test_, .question, .optional_chain, .null_coalesce, .null_, .type_, .logical_and, .logical_or, .logical_not, .exclamation, .tilde, .bitwise_and, .bitwise_or, .bitwise_xor, .bitwise_not, .left_shift, .right_shift, .ampersand, .pipe, .caret, .range_inclusive, .range_exclusive, .walrus_assign, .percent, .and_, .or_, .not_, .pipeline => true,
 
         else => false,
     };
@@ -1368,8 +1369,8 @@ fn parseBlockStatements(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
             const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
             try parser.nodes.append(parser.allocator, for_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
-        } else if (parser.match(.identifier)) {
-            // Parse full expression starting with identifier (handles method calls, assignments, etc.)
+        } else if (parser.match(.identifier) or parser.match(.string_literal) or parser.match(.integer_literal) or parser.match(.float_literal) or parser.match(.true_) or parser.match(.false_) or parser.match(.left_paren)) {
+            // Parse full expression (handles method calls, assignments, pipeline chains, etc.)
             const expr = try parseExpression(parser, nodes, .none);
             const expr_index = @as(u32, @intCast(parser.nodes.items.len));
             try parser.nodes.append(parser.allocator, expr);
@@ -2296,8 +2297,9 @@ const Precedence = enum(u8) {
     term = 12, // + -
     factor = 13, // * / %
     unary = 14, // ! -
-    call = 15, // . ()
-    primary = 16,
+    pipeline = 15, // |>
+    call = 16, // . ()
+    primary = 17,
 };
 
 /// Get precedence for a token kind
@@ -2316,6 +2318,7 @@ fn getTokenPrecedence(kind: TokenKind) Precedence {
         .range_inclusive, .range_exclusive => .range,
         .plus, .minus => .term,
         .star, .slash, .percent => .factor,
+        .pipeline => .pipeline,
         else => .none,
     };
     return prec;
@@ -2659,6 +2662,65 @@ fn parseExpression(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNod
                 .child_lo = child_lo,
                 .child_hi = child_hi,
             };
+            continue;
+        }
+
+        // Handle pipeline operator (|>) - Desugar to call_expr
+        if (token.kind == .pipeline) {
+            _ = parser.advance(); // consume |>
+            // Parse RHS with .none precedence to allow all expressions including calls
+            const rhs = try parseExpression(parser, nodes, .none);
+
+            // Desugar logic: LHS |> RHS -> RHS(LHS, ...)
+            const child_lo = @as(u32, @intCast(parser.edges.items.len));
+
+            if (rhs.kind == .call_expr) {
+                // Copy original edges to avoid stale slice if parser.edges reallocates
+                var orig_edges_buf = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, rhs.child_hi - rhs.child_lo);
+                defer orig_edges_buf.deinit(parser.allocator);
+                orig_edges_buf.appendSliceAssumeCapacity(parser.edges.items[rhs.child_lo..rhs.child_hi]);
+                const orig_edges = orig_edges_buf.items;
+
+                // 1. Function callee
+                try parser.edges.append(parser.allocator, orig_edges[0]);
+
+                // 2. Injected LHS as first argument
+                const left_node_idx = @as(u32, @intCast(nodes.items.len));
+                try nodes.append(parser.allocator, left);
+                try parser.edges.append(parser.allocator, @enumFromInt(left_node_idx));
+
+                // 3. Original arguments
+                if (orig_edges.len > 1) {
+                    try parser.edges.appendSlice(parser.allocator, orig_edges[1..]);
+                }
+            } else {
+                // create call: rhs(left)
+                const rhs_idx = @as(u32, @intCast(nodes.items.len));
+                try nodes.append(parser.allocator, rhs);
+                try parser.edges.append(parser.allocator, @enumFromInt(rhs_idx));
+
+                const left_idx = @as(u32, @intCast(nodes.items.len));
+                try nodes.append(parser.allocator, left);
+                try parser.edges.append(parser.allocator, @enumFromInt(left_idx));
+            }
+
+            const child_hi = @as(u32, @intCast(parser.edges.items.len));
+            const desugared_call = astdb_core.AstNode{
+                .kind = .call_expr,
+                .first_token = left.first_token,
+                .last_token = rhs.last_token,
+                .child_lo = child_lo,
+                .child_hi = child_hi,
+            };
+
+            // Add the desugared call to nodes so it can be referenced by subsequent operations
+            try nodes.append(parser.allocator, desugared_call);
+
+            // Update left to be a reference to the node we just added
+            left = desugared_call;
+            left.child_lo = child_lo; // Preserve the edge indices
+            left.child_hi = child_hi;
+
             continue;
         }
 

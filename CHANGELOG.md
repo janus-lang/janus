@@ -14,6 +14,18 @@ All notable changes to the Janus programming language and compiler will be docum
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-01-09
+
+### Added
+- **Constitutional Stack**: Tier 0-6 specification hierarchy.
+- **SPEC-015**: Ownership & Affinity specification (The Semantic Lock).
+- **Normative Standards**: RFC 2119 language and paragraph indexing across all specs.
+- **Legacy Archive**: Cleanup of outdated documentation.
+
+### Changed
+- **Ratification**: SPEC-001, SPEC-002, SPEC-004, SPEC-005 updated to Normative status.
+- **Docs Structure**: Synchronized `specs/` directory with the new hierarchy.
+
 ## [0.2.0-alpha] - 2025-12-15
  
 ### Added

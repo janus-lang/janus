@@ -1858,4 +1858,21 @@ pub fn build(b: *std.Build) void {
     const test_match_step = b.step("test-match", "Run match expression integration tests");
     test_match_step.dependOn(&run_match_expression_tests.step);
     test_step.dependOn(&run_match_expression_tests.step);
+
+    // Grafting Features (Pipeline + UFCS)
+    const grafting_tests = b.addTest(.{
+        .name = "grafting_features_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("compiler/libjanus/tests/pipeline_desugar_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    grafting_tests.root_module.addImport("libjanus", lib_mod);
+    grafting_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    const run_grafting_tests = b.addRunArtifact(grafting_tests);
+
+    const test_grafting_step = b.step("test-grafting", "Run grafting features (pipeline, UFCS) tests");
+    test_grafting_step.dependOn(&run_grafting_tests.step);
+    test_step.dependOn(&run_grafting_tests.step);
 }

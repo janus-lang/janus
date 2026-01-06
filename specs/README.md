@@ -56,7 +56,7 @@ Type judgment, invariants, and semantic destruction.
 | :--- | :--- | :--- | :--- |
 | **[SPEC-006](SPEC-006-sema.md)** | **Sema Architecture** | 🟡 Architecture | Type Judgments (⊢), Phase Separation |
 | **[SPEC-014](SPEC-014-pattern-matching.md)** | **Pattern Matching** | 🟡 Pending | Semantic Destructuring, Exhaustiveness |
-| **[SPEC-015](SPEC-015-ownership.md)** | **Ownership & Affinity** | 📝 Planned | Move Semantics, Linear Types, Ghost Memory |
+| **[SPEC-015](SPEC-015-ownership.md)** | **Ownership & Affinity** | ⚪ Draft | Move Semantics, Linear Types, Ghost Memory |
 
 ---
 
@@ -66,7 +66,7 @@ Persistent structure and tooling.
 
 | ID | Title | Status | Role |
 | :--- | :--- | :--- | :--- |
-| **[SPEC-007](SPEC-007-astdb-schema.md)** | **ASTDB Schema** | ⚪ Draft | Persistent Representation, Stable IDs |
+| **[SPEC-007](SPEC-007-astdb-schema.md)** | **ASTDB Schema** | 🟢 Canonical | Persistent Representation, Stable IDs |
 | **[SPEC-008](SPEC-008-astdb-query.md)** | **ASTDB Query** | ⚪ Draft | Semantic Queries (JQL) |
 
 ---

@@ -110,6 +110,7 @@ pub const TokenType = enum {
     colon, // :
     colon_equal, // :=
     arrow, // ->
+    pipeline, // |>
     // Types/Structs (extended)
     struct_kw,
     type_kw,
@@ -357,8 +358,15 @@ pub const Tokenizer = struct {
             // Numbers
             '0'...'9' => try self.number(start_pos),
 
-            // Pipe operator
-            '|' => try self.addToken(.pipe, "|", SourceSpan.single(start_pos)),
+            // Pipe and Pipeline operators
+            '|' => {
+                if (self.match('>')) {
+                    const end_pos = self.currentPos();
+                    try self.addToken(.pipeline, "|>", SourceSpan.init(start_pos, end_pos));
+                } else {
+                    try self.addToken(.pipe, "|", SourceSpan.single(start_pos));
+                }
+            },
 
             // Underscore (can be standalone wildcard or start of identifier)
             '_' => {
@@ -668,6 +676,25 @@ test "tokenizer match arrow and range" {
     try std.testing.expect(tokens[2].type == .identifier); // y
     try std.testing.expect(tokens[3].type == .dot_dot); // ..
     try std.testing.expect(tokens[4].type == .identifier); // z
+    try std.testing.expect(tokens[5].type == .eof);
+}
+
+test "tokenizer pipeline operator" {
+    const allocator = std.testing.allocator;
+
+    const source = "data |> process()";
+    var tokenizer = Tokenizer.init(allocator, source);
+    defer tokenizer.deinit();
+
+    const tokens = try tokenizer.tokenize();
+    defer allocator.free(tokens);
+
+    try std.testing.expect(tokens.len == 6); // data, pipeline, process, (, ), eof
+    try std.testing.expect(tokens[0].type == .identifier);
+    try std.testing.expect(tokens[1].type == .pipeline);
+    try std.testing.expect(tokens[2].type == .identifier);
+    try std.testing.expect(tokens[3].type == .left_paren);
+    try std.testing.expect(tokens[4].type == .right_paren);
     try std.testing.expect(tokens[5].type == .eof);
 }
 
