@@ -1841,4 +1841,21 @@ pub fn build(b: *std.Build) void {
     const test_e2e_semantic_step = b.step("test-e2e-semantic", "Run end-to-end semantic pipeline tests");
     test_e2e_semantic_step.dependOn(&run_e2e_semantic_tests.step);
     test_step.dependOn(&run_e2e_semantic_tests.step);
+
+    // Match Expression Parser Tests
+    const match_expression_tests = b.addTest(.{
+        .name = "match_expression_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/semantic/test_match_expression.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    match_expression_tests.root_module.addImport("libjanus", lib_mod);
+    match_expression_tests.root_module.addImport("astdb", astdb_core_mod);
+    const run_match_expression_tests = b.addRunArtifact(match_expression_tests);
+
+    const test_match_step = b.step("test-match", "Run match expression integration tests");
+    test_match_step.dependOn(&run_match_expression_tests.step);
+    test_step.dependOn(&run_match_expression_tests.step);
 }

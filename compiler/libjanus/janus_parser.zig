@@ -2834,12 +2834,37 @@ fn parsePrimary(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode))
             .left_bracket => {
                 return try parseArrayLiteral(parser, nodes);
             },
+            .match => {
+                return try parseMatchStatement(parser, nodes);
+            },
             .identifier => {
                 // Lookahead for struct literal: Identifier '{'
                 const id_index = parser.current;
                 _ = parser.advance(); // consume identifier
 
+                // Disambiguate: Struct Literal vs Block
+                // Struct literal: { ident : ... } or { }
+                // Block: { ident ... } or { ... }
+
+                var is_struct_literal = false;
                 if (parser.match(.left_brace)) {
+                    const next_idx = parser.current + 1;
+                    if (next_idx < parser.tokens.len) {
+                        const next_tok = parser.tokens[next_idx];
+                        if (next_tok.kind == .right_brace) {
+                            is_struct_literal = true; // Empty struct: T {}
+                        } else if (next_tok.kind == .identifier) {
+                            const after_idx = parser.current + 2;
+                            if (after_idx < parser.tokens.len) {
+                                if (parser.tokens[after_idx].kind == .colon) {
+                                    is_struct_literal = true; // T { f : ... }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (is_struct_literal) {
                     // Struct Literal: Type { field: val, ... }
                     _ = try parser.consume(.left_brace);
 
