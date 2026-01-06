@@ -25,13 +25,14 @@ Semantics define syntax, not the reverse:
 - Effect system → syntax for capabilities
 - Type system → syntax for annotations
 
-### 4. The Profile Ladder
+### 4. The Profile Ladder (v2.0 Taxonomy)
 One language, multiple temporal philosophies:
-- `:core` — Raw hardware access (⚠)
-- `:min` — Monastery (deterministic, pedagogical)
-- `:go` — Bazaar (error-as-values, production)
-- `:elixir` — Actors, "let it crash"
-- `:full` — All features unlocked
+- `:core` — The Monastery (minimal, deterministic, pedagogical)
+- `:script` — The Bazaar (fluid scripting, JIT-first)
+- `:service` — Distributed Services (error-as-values, async)
+- `:cluster` — Actor Model & Cluster Logic (fault-tolerant)
+- `:compute` — Accelerated Compute (NPU/GPU/Array kernels)
+- `:sovereign` — Full Systems Mastery (all features unlocked)
 
 ### 5. Syntactic Honesty
 No hidden costs:
