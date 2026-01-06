@@ -184,3 +184,4 @@ packages/
 # Agents
 .agent/
 .venv/
+docs/tools/*_bin

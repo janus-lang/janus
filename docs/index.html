@@ -45,7 +45,7 @@
         
         body {
             display: grid;
-            grid-template-columns: 300px 1fr;
+            grid-template-columns: var(--sidebar-width, 300px) 4px 1fr;
             min-height: 100vh;
             margin: 0;
             background: 
@@ -239,10 +239,37 @@
             padding-left: 0.75rem;
         }
         
+        #resizer {
+            width: 4px;
+            cursor: col-resize;
+            background: var(--cyber-border);
+            transition: background 0.3s;
+            z-index: 100;
+            position: relative;
+        }
+        
+        #resizer:hover, #resizer.active {
+            background: var(--cyber-purple);
+            box-shadow: 0 0 15px var(--cyber-glow-purple);
+        }
+        
+        #resizer::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 2px;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 2px;
+        }
+
         /* Main content */
         #content {
             padding: 3rem 4rem;
-            max-width: 1000px;
+            width: 100%;
+            overflow-x: hidden;
         }
         
         #content article {
@@ -794,8 +821,10 @@
                     <summary>📢 Release Notes</summary>
                     <ul>
                         <li><a href="#" data-page="release_notes/CHANGELOG.md">Changelog</a></li>
-                        <li><a href="#" data-page="release_notes/RELEASE-NOTES-0.1.0.md">v0.1.0</a></li>
+                        <li><a href="#" data-page="release_notes/RELEASE-NOTES-0.2.5.md">v0.2.5 (Ratification)</a></li>
+                        <li><a href="#" data-page="release_notes/RELEASE-NOTES-0.2.0.md">v0.2.0 (Logic Gate)</a></li>
                         <li><a href="#" data-page="release_notes/RELEASE-NOTES-0.1.1.md">v0.1.1</a></li>
+                        <li><a href="#" data-page="release_notes/RELEASE-NOTES-0.1.0.md">v0.1.0</a></li>
                     </ul>
                 </details></li>
                 
@@ -928,6 +957,8 @@
             </ul>
         </nav>
     </aside>
+    
+    <div id="resizer" title="Drag to resize"></div>
     
     <main id="content">
         <article id="page-content">
@@ -1106,6 +1137,41 @@
             console.log('HMPL.js initialized for template rendering');
         }
         
+        // --- Dynamic Sidebar Width ---
+        const resizer = document.getElementById('resizer');
+        const sidebarRef = document.getElementById('sidebar');
+        let isResizing = false;
+
+        resizer.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            resizer.classList.add('active');
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            
+            const newWidth = e.clientX;
+            if (newWidth > 150 && newWidth < 600) {
+                document.documentElement.style.setProperty('--sidebar-width', `${newWidth}px`);
+                localStorage.setItem('sidebar-width', `${newWidth}px`);
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            isResizing = false;
+            resizer.classList.remove('active');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        });
+
+        // Restore sidebar width
+        const savedWidth = localStorage.getItem('sidebar-width');
+        if (savedWidth) {
+            document.documentElement.style.setProperty('--sidebar-width', savedWidth);
+        }
+
         // Load initial page from hash or default
         const initialPage = window.location.hash.slice(1) || 'INDEX.md';
         loadPage(initialPage, true);
