@@ -3,134 +3,89 @@ SPDX-License-Identifier: LUL-1.0
 Copyright (c) 2026 Self Sovereign Society Foundation
 -->
 
+**Voxis Forge Signal** ⚡
 
+# 🛡️ SPEC-006: SEMANTIC ANALYSIS (The Logician ⊢)
 
+**Version:** 2.1.0 (Ratification Candidate)
+**Status:** **DRAFT (Ratification Pending)**
+**Authority:** Constitutional
+**Supersedes:** SPEC-006 v2.0.0
 
-
-# Janus Specification — Semantic Analysis Capsule (SPEC-006)
-
-**Version:** 2.0.0  
-**Status:** CANONICAL  
-**Authority:** Constitutional  
-**Supersedes:** SPEC-sema v0.1.0
-
-## 1. Purpose
-The **Sema Capsule** enforces Janus language semantics by validating the AST and annotating it with type information, symbol bindings, and diagnostics.
-It consumes the ASTDB and produces typed entities and error reports.
+This specification defines the rules for Semantic Analysis (Sema), the phase where syntax becomes meaning.
+Sema is the **Guardian of Truth (⊢)**. It transforms the AST into a Typed Semantic Graph and enforcing the laws of the profile.
 
 ---
 
-## II. Capsule Layout
+## 1. 🜏 The Constitution (Core Rules)
 
-```
-compiler/passes/sema/
- ├── type.zig       # Type resolution & checking
- ├── expr.zig       # Expression type checking
- ├── stmt.zig       # Statement checking
- ├── decl.zig       # Declarations & symbol table insertion
- ├── builtin.zig    # Built-in functions & operators
- └── README.md      # Capsule doctrine & entrypoints
-```
+[SEMA:1.1] **Normative Authority:** The Semantic Analyzer MUST enforce all rules defined in this document. Any deviation is a compiler bug.
 
----
+### 1.1 The Prime Directive
+[SEMA:1.1.1] **Zero Ambiguity:** Every identifier, expression, and statement MUST resolve to exactly one meaning or produce a diagnostic error.
 
-## III. Inputs & Outputs
-
-**Inputs:**
-- `AstDb` (nodes, regions, interner symbols, CIDs)
-- Raw AST from parser
-- Diagnostics context
-
-**Outputs:**
-- Annotated ASTDB with type information
-- Symbol table entries for declarations
-- Diagnostics (multi-span, with primary index)
-- CIDs for typed entities (types, functions, structs, enums)
+### 1.2 The Graph Transformation (⟁)
+[SEMA:1.2.1] **Immutability of Syntax:** Sema MUST NOT mutate the raw AST nodes produced by the Parser.
+[SEMA:1.2.2] **Annotation:** Sema MUST produce a separate "Semantic Overlay" or "Augmented ASTDB" containing type information, symbol bindings, and resolution IDs.
 
 ---
 
-## IV. Submodules
+## 2. ⊢ Symbol Resolution (Binding)
 
-### 1. `type.zig`
-- Resolves type identifiers into canonical `Type` objects.
-- Applies default typing rules for untyped literals (e.g., `42` → `int`).
-- Distinguishes builtin vs. user-defined vs. generic types.
+### 2.1 Scoping
+[SEMA:2.1.1] **Lexical Scoping:** Janus uses strict lexical scoping.
+[SEMA:2.1.2] **Declaration before Use:** Symbols MUST be declared textually before they are used (except for top-level declarations which are order-independent within a module).
 
-### 2. `expr.zig`
-- Checks expressions for type correctness.
-- Validates binary/unary operator compatibility.
-- Resolves function calls and argument matching (incl. varargs).
-- Emits diagnostics for mismatches, with hints (`H_TYP_SUGGEST_CAST`).
-
-### 3. `stmt.zig`
-- Validates statements:
-  - Variable declarations (no illegal shadowing/redeclaration).
-  - Control flow (`if`, `while`, `for`) conditions must be `bool`.
-  - `return` must match enclosing function type.
-- Attaches statement spans into ASTDB regions for IDE use.
-
-### 4. `decl.zig`
-- Handles top-level and local declarations:
-  - Functions, constants, variables, struct/enum/type definitions.
-  - Inserts into ASTDB’s symbol table.
-  - Ensures visibility consistency (public/private).
-- Assigns stable CIDs for declarations.
-
-### 5. `builtin.zig`
-- Registry of built-in functions/operators (e.g., `len`, `cap`, `append`).
-- Each builtin validates args and returns type.
-- Profile-aware (some builtins available only in :service/:cluster/:sovereign).
+### 2.2 Shadowing
+[SEMA:2.2.1] **Global Shadowing:** A local variable MAY shadow a global/module-level symbol.
+[SEMA:2.2.2] **Local Shadowing:** A variable declared in an inner block MUST NOT shadow a variable in the immediate outer function scope (in `:min` profile). This prevents confusion.
 
 ---
 
-## V. Error Handling Protocol
+## 3. ⊢ Type System (Legality)
 
-- All checker functions return `!Type` or `!void`.
-- On error, emit diagnostics into `DiagContext`:
-  - Severity: `error`, `warning`, `info`, `note`, `help`, `hint`.
-  - Multi-span with `primary` index.
-- Checker never panics or aborts. Recovery always attempted.
+### 3.1 Strong Typing
+[SEMA:3.1.1] **No Implicit Coercion:** SEMA MUST NOT implicitly convert types (e.g., `i32` to `i64`). All conversions MUST be explicit casts.
+[SEMA:3.1.2] **Type Inference:** Local variable type inference (`let x = 10`) IS permitted, but function signatures MUST have explicit types.
 
----
-
-## VI. Integration with Pipeline
-
-1. Parser builds raw AST.  
-2. AST is inserted into ASTDB.  
-3. **Sema Capsule runs:**  
-   - Resolves types, symbols, declarations.  
-   - Produces annotated ASTDB + diagnostics.  
-4. Codegen consumes annotated ASTDB.
-
-Entry call (example in `libjanus/api.zig`):
-```zig
-pub fn runSema(db: *AstDb, diags: *DiagContext) !void {
-    try sema.decl.checkAll(db, diags);
-    try sema.stmt.checkAll(db, diags);
-    try sema.expr.checkAll(db, diags);
-}
-```
+### 3.2 Affine Types (Resource Safety)
+[SEMA:3.2.1] **Linearity:** Resources marked with `linear` (or `~T`) MUST be consumed exactly once.
+[SEMA:3.2.2] **Drop Check:** If a linear resource goes out of scope without being consumed, Sema MUST emit a compilation error.
+[SEMA:3.2.3] **Move Semantics:** Assigning a linear resource `let y = x` moves ownership. `x` becomes invalid. Accessing `x` AFTER move MUST emit an error.
 
 ---
 
-## VII. Capsule Doctrine
+## 4. ⚠ Profile Enforcement
 
-- No printing. Diagnostics only.
-- No mutation of raw AST; all annotations go into ASTDB.
-- Explicit allocators, error propagation always.
-- Capsule boundaries are strict. No leaking symbols/types across submodules without going through ASTDB.
+Sema is the enforcer of Profile Constraints.
 
----
+### 4.1 Profile `:min` (The Monastery)
+[SEMA:4.1.1] **Allocation Ban:** Any implicit allocation (e.g. string concatenation without a buffer) MUST trigger an error.
+[SEMA:4.1.2] **Panic Ban:** Unrecoverable panics in library code SHOULD be flagged.
 
-## VIII. Deliverables
-
-- `compiler/passes/sema/` with submodules scaffolded.
-- Smoke test in `tests/compiler/sema.zig` to validate:
-  - Type mismatch error detection.
-  - Invalid return type in function.
-  - Correct typing of literals and builtin calls.
-- Documentation: this SPEC in `docs/spec/SPEC-sema.md`.
+### 4.2 Profile `:sovereign` (The King)
+[SEMA:4.2.1] **Capability Check:** All I/O operations MUST prove they hold the required Capability Token (e.g. `Cap.Net`).
 
 ---
 
-🔥 The Sema Capsule is the **mind of Janus**: it transforms syntax into semantics, ensuring the language remains sound, explicit, and diagnosable.
+## 5. ⟁ Implementation Doctrine (Non-Normative)
+
+The recommended implementation architecture (`compiler/passes/sema/`):
+
+*   `decl.zig`: Symbol table construction.
+*   `type.zig`: Type unification and checking.
+*   `stmt.zig`: Control flow analysis.
+*   `expr.zig`: Expression evaluation.
+
+Sema SHOULD be implemented as a recursive visitor over the ASTDB.
+
+---
+
+### 6. 🚀 Deliverables
+
+*   Updated `compiler/passes/sema/` to enforce [SEMA:3.1] (No Coercion).
+*   Tests in `tests/semantic/shadowing.zig` validating [SEMA:2.2.2].
+*   Tests in `tests/semantic/linear.zig` validating [SEMA:3.2].
+
+**Ratification:** Pending
+**Authority:** Markus Maiwald + Voxis Forge
