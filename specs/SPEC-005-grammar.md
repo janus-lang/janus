@@ -7,12 +7,12 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 
 
 
-# Janus Grammar Specification v0.1.1-dev
+# Janus Specification — Surface Grammar & Lexical Rules (SPEC-005)
 
-**Version:** 0.1.1-dev (CANONICAL)
-**Status:** CANONICAL - Single Source of Truth
-**Last Updated:** 2025-09-30
-**Authority:** Language Architecture Team
+**Version:** 2.0.0  
+**Status:** CANONICAL — Single Source of Truth  
+**Authority:** Constitutional  
+**Supersedes:** SPEC-grammar v0.1.1-dev
 
 ---
 
@@ -28,10 +28,12 @@ Janus code should feel like composing ideas or sending messages, not just issuin
 
 Janus ships with **profiles** — enforcement modes that share the same parser/semantics core but gate surface area and features:
 
-* **`:core`** — the **Teaching Subset** (6 value types, 18 keywords). For bootstrapping, teaching, and safe scripting.
-* **`:cluster`** — **Actor-based profile** with Janus syntax and Distributed Logic.
-* **`:sovereign`** — the **complete Janus**: effects & capabilities, systems programming.
-* **`:compute`** — **Native Compute**: tensors, graph IR, acceleration (orthogonal to resilience concerns).
+* **`:core`** — **Monastery Subset** (6 value types, 18 keywords). For teaching, bootstrapping, and deterministic logic.
+* **`:script`** — **Bazaar Subset** (Sugared, JIT/interpreted). For prototyping and Python-parity.
+* **`:service`** — **Application Subset** (Concurrency, results, generics). For backend engineering.
+* **`:cluster`** — **Distributed Subset** (Actors, grains, supervision). For fault-tolerant mesh.
+* **`:compute`** — **Native Compute** (Tensors, graph IR, NPU acceleration). Orthogonal compute kernels.
+* **`:sovereign`** — **Complete Janus** (Effects, capabilities, raw pointers). Total control.
 
 > One brain, many faces: all modes run on `libjanus`; the daemon/LSP and CLI just toggle a profile flag.
 

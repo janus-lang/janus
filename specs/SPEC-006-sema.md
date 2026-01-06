@@ -7,10 +7,15 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 
 
 
-# SPEC: Janus Semantic Analysis Capsule (Sema)
+# Janus Specification — Semantic Analysis Capsule (SPEC-006)
 
-## I. Purpose
-The **Sema Capsule** enforces Janus language semantics by validating the AST and annotating it with type information, symbol bindings, and diagnostics.  
+**Version:** 2.0.0  
+**Status:** CANONICAL  
+**Authority:** Constitutional  
+**Supersedes:** SPEC-sema v0.1.0
+
+## 1. Purpose
+The **Sema Capsule** enforces Janus language semantics by validating the AST and annotating it with type information, symbol bindings, and diagnostics.
 It consumes the ASTDB and produces typed entities and error reports.
 
 ---

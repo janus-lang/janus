@@ -7,12 +7,12 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 
 
 
-# SPEC-QTJIR-BACKEND: Hardware Accelerator Interface
+# Janus Specification — QTJIR Hardware Accelerator Interface (SPEC-010)
 
-**Status:** DRAFT
-**Version:** 0.1.0
-**Date:** 2025-12-12
-**Author:** Voxis Forge
+**Version:** 2.0.0  
+**Status:** CANONICAL  
+**Authority:** Constitutional  
+**Supersedes:** SPEC-qtjir-backend v0.1.0
 
 ---
 

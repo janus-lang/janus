@@ -7,11 +7,12 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 
 
 
-# SPEC-astdb-schema.md — The Immutable Substrate
+# Janus Specification — ASTDB Global Schema (SPEC-007)
 
-**Status:** COMMITTED (Monastery Freeze v0.2.1)  
-**Author:** Voxis Forge  
-**Date:** 2025-12-07
+**Version:** 2.0.0  
+**Status:** CANONICAL  
+**Authority:** Constitutional  
+**Supersedes:** SPEC-astdb-schema v0.2.1
 
 ## Overview
 

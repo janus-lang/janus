@@ -7,11 +7,19 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 
 
 
-# SPEC-tokenizer.md — The Lexical Truth
+# Janus Specification — Tokenizer & Lexical Structure (SPEC-004)
 
-**Status:** COMMITTED (Monastery Freeze v0.2.1)  
-**Author:** Voxis Forge  
-**Date:** 2025-12-07
+**Version:** 2.0.0  
+**Status:** CANONICAL — Lexical Truth  
+**Authority:** Constitutional  
+**Supersedes:** SPEC-tokenizer v0.2.1
+
+## 1. Introduction
+
+This document defines the **Lexical Truth** of the Janus programming language. It establishes the rules for tokenization, capability recognition, and literal formatting.
+
+### 1.1 Normative References
+All definitions in this document SHALL follow the normative language defined in [SPEC-000: Meta-Specification](meta.md).
 
 ## Overview
 
@@ -19,17 +27,16 @@ The Tokenizer is the first line of defense. It enforces "Honest Sugar" and valid
 
 ---
 
-## 1. Capability Primitives
-
-Capability primitives are a distinct token type: `TOKEN_CAPABILITY`.
+## 2. Capability Primitives
+[LEX:2.1.1] Capability primitives are a distinct token type: `TOKEN_CAPABILITY`.
 
 ### Rules
-1.  **Format:** A dot `.` followed immediately by a lowercase identifier.
+[LEX:2.2.1] **Format:** A dot `.` followed immediately by a lowercase identifier.
     *   Regex: `\.[a-z][a-z0-9_]*`
-2.  **Validation:** The tokenizer matches the identifier against the **closed set of 37 primitives**.
+[LEX:2.2.2] **Validation:** The tokenizer matches the identifier against the **closed set of 37 primitives**.
     *   If valid: Emits `TOKEN_CAPABILITY` (e.g., value = `.fs_read`).
     *   If invalid (e.g., `.fs_hack`, `.magic_42`): Emits `TOKEN_ERROR` with "Unknown Capability Primitive".
-3.  **No Context:** These tokens are recognized anywhere. Usage outside `where ctx.has(...)` is a parser error, but the *lexer* identifies them as special atoms.
+[LEX:2.2.3] **No Context:** These tokens are recognized anywhere. Usage outside `where ctx.has(...)` is a parser error, but the *lexer* identifies them as special atoms.
 
 ### The 37 Keys (Lexer Table)
 The lexer contains a perfect hash (or hardcoded switch) for:
@@ -47,16 +54,15 @@ The lexer contains a perfect hash (or hardcoded switch) for:
 
 ---
 
-## 2. Honest Strings (Interpolation)
-
-String interpolation uses `"Honest Sugar"`. It desugars directly to a formatted write, but the lexer must handle the nested expressions correctly.
+## 3. Honest Strings (Interpolation)
+[LEX:3.1.1] String interpolation uses `"Honest Sugar"`. It desugars directly to a formatted write. The lexer MUST handle nested expressions correctly.
 
 ### Syntax
-*   Format: `$"{expr}"`
-*   Delimiters: `$` followed immediately by `"`.
+[LEX:3.2.1] **Format:** `$"{expr}"`
+[LEX:3.2.2] **Delimiters:** `$` followed immediately by `"`.
 
 ### Lexing States
-The lexer maintains a **mode stack** to handle nesting: `ROOT` -> `STRING_INTERP`.
+[LEX:3.3.1] The lexer SHALL maintain a **mode stack** to handle nesting: `ROOT` -> `STRING_INTERP`.
 
 1.  **Entry:** Encounter `$"` -> Push `STRING_INTERP`, emit `TOKEN_STRING_START`.
 2.  **Content:**
@@ -67,20 +73,21 @@ The lexer maintains a **mode stack** to handle nesting: `ROOT` -> `STRING_INTERP
 3.  **Exit:** Encounter `"`: Pop `STRING_INTERP`, emit `TOKEN_STRING_END`.
 
 ### Honest Rejection
-*   The lexer **rejects** ambiguous or hidden complexity.
+[LEX:3.4.1] The lexer SHALL **reject** ambiguous or hidden complexity.
 *   `$ "${x}"` (nested quotes without braces? No.)
 *   Binary blobs in strings? No. Use `b"..."` syntax.
 
 ---
 
-## 3. Numeric Literals & The "No 42" Rule
+## 4. Numeric Literals & The "No 42" Rule
+[LEX:4.1.1] While generally valid, the lexer SHALL enforce specific cultural norms via warnings or errors in strict mode.
 
-While generally valid, the lexer enforces specific cultural norms via warnings or errors in strict mode.
-
+[LEX:4.1.2] **Formatting:**
 *   **Hex:** `0xDEAD_BEEF` (valid).
 *   **Binary:** `0b1010` (valid).
 *   **Octal:** `0o755` (valid).
-*   **Magic Numbers:** The lexer passes numbers to the parser, but the *Linter* (integrated 2nd pass) flags bare numbers like `42` used as logic codes.
+
+[LEX:4.1.3] **Magic Numbers:** The lexer passes numbers to the parser, but the *Linter* (integrated 2nd pass) SHALL flag bare numbers like `42` used as logic codes.
     *   *Note:* The "No 42" capability rule is enforced at the `TOKEN_CAPABILITY` check. `.cap42` is invalid.
 
 ---

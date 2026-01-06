@@ -7,14 +7,12 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 
 
 
-# SPEC-astdb-query.md
+# Janus Specification — ASTDB & Query Engine (SPEC-008)
 
-**Title:** ASTDB & Query Engine
-**Profile key:** all (core|service|cluster|compute|sovereign)
-**Status:** Draft → Stabilize with Golden Tests
-**Version:** 0.1.0
-**Depends on:** SPEC-syntax, SPEC-semantics, SPEC-profiles, Strategic-Roadmap
-**Doctrine:** Syntactic Honesty · Mechanism>Policy · Revealed Complexity · Honest Sugar
+**Version:** 2.0.0  
+**Status:** CANONICAL  
+**Authority:** Constitutional  
+**Supersedes:** SPEC-astdb-query v0.1.0
 
 ## 0. Purpose & Scope
 
@@ -112,7 +110,7 @@ For each node, compute BLAKE3 over **normalized semantics**:
 ## 6. Diagnostics & Error Codes
 
 * Every query returns `(result, diagset)`; diag rows persist in `diags`.
-* Code ranges: `Pxxxx` (parser), `Sxxxx` (sema), `Ixxxx` (IR), `Dxxxx` (daemon), profile gates: `E20xx/:core`, `E25xx/:service`, `E26xx/:cluster`, `E30xx/:sovereign`.
+* Code ranges: `Pxxxx` (parser), `Sxxxx` (sema), `Ixxxx` (IR), `Dxxxx` (daemon), profile gates: `E20xx/:core`, `E21xx/:script`, `E25xx/:service`, `E26xx/:cluster`, `E27xx/:compute`, `E30xx/:sovereign`.
 * Each diagnostic includes a **single suggested fix** (atomic edit) when available.
 
 ## 7. Concurrency & Sharding

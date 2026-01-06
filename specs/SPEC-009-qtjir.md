@@ -7,11 +7,12 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 
 
 
-# SPEC-qtjir.md — Quantum-Tensor Janus IR
+# Janus Specification — Quantum-Tensor Janus IR (SPEC-009)
 
-**Status:** GRAFTED (Monastery Freeze v0.2.1)
-**Author:** Voxis Forge
-**Date:** 2025-12-07
+**Version:** 2.0.0  
+**Status:** CANONICAL  
+**Authority:** Constitutional  
+**Supersedes:** SPEC-qtjir v0.2.1
 
 ## 1. Overview
 QTJIR is the **Sovereign Intermediate Representation** for Janus. Unlike LLVM IR (which assumes a uniform CPU memory model), QTJIR is a hyper-graph that explicitly models **Hardware Tenancy**.

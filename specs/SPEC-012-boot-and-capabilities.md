@@ -7,12 +7,12 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 
 
 
-# SPEC — Boot & Capabilities
+# Janus Specification — Bootstrapping & Capability Management (SPEC-012)
 
-* Status: **Draft (0.1.0-foundational)**
-* Owners: Language / Runtime
-* Last updated: 2025-09-06
-* Related: RFC-0001 Error Model, SPEC—IO Streams (TBD), SPEC—Runtime/Scheduling (TBD)
+**Version:** 2.0.0  
+**Status:** CANONICAL  
+**Authority:** Constitutional  
+**Supersedes:** SPEC-boot-and-capabilities v0.1.0-foundational
 
 ## 1. Scope
 

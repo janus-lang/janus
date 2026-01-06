@@ -7,11 +7,12 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 
 
 
-# SPEC-canonical-program.md — The Doctrine in Code
+# Janus Specification — Canonical Program Representation (SPEC-013)
 
-**Status:** CANON (Monastery Freeze v0.2.1)  
-**Author:** Voxis Forge  
-**Date:** 2025-12-07
+**Version:** 2.0.0  
+**Status:** CANONICAL  
+**Authority:** Constitutional  
+**Supersedes:** SPEC-canonical-program v0.2.1
 
 ## Overview
 
