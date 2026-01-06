@@ -1804,4 +1804,41 @@ pub fn build(b: *std.Build) void {
     const test_postfix_guards_parser_step = b.step("test-postfix-parser", "Run postfix guard parser unit tests");
     test_postfix_guards_parser_step.dependOn(&run_postfix_guards_parser_tests.step);
     test_step.dependOn(&run_postfix_guards_parser_tests.step);
+
+    // Semantic Pipeline Integration Tests
+    // TODO: This test file needs updating to match current API (TypeInference.init signature, etc.)
+    // For now, use test-e2e-semantic which covers the essential semantic pipeline functionality
+    // const semantic_pipeline_tests = b.addTest(.{
+    //     .name = "semantic_pipeline_integration_tests",
+    //     .root_module = b.createModule(.{
+    //         .root_source_file = b.path("tests/integration/semantic/test_semantic_pipeline_integration.zig"),
+    //         .target = target,
+    //         .optimize = optimize,
+    //     }),
+    // });
+    // semantic_pipeline_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    // semantic_pipeline_tests.root_module.addImport("astdb", lib_mod);
+    // semantic_pipeline_tests.root_module.addImport("semantic", semantic_mod);
+    // const run_semantic_pipeline_tests = b.addRunArtifact(semantic_pipeline_tests);
+    //
+    // const test_semantic_pipeline_step = b.step("test-semantic-pipeline", "Run semantic pipeline integration tests");
+    // test_semantic_pipeline_step.dependOn(&run_semantic_pipeline_tests.step);
+    // test_step.dependOn(&run_semantic_pipeline_tests.step);
+
+    // End-to-End Semantic Pipeline Tests
+    const e2e_semantic_tests = b.addTest(.{
+        .name = "e2e_semantic_pipeline_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/semantic/test_end_to_end_semantic_pipeline.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    e2e_semantic_tests.root_module.addImport("astdb", astdb_core_mod);
+    e2e_semantic_tests.root_module.addImport("semantic", semantic_mod);
+    const run_e2e_semantic_tests = b.addRunArtifact(e2e_semantic_tests);
+
+    const test_e2e_semantic_step = b.step("test-e2e-semantic", "Run end-to-end semantic pipeline tests");
+    test_e2e_semantic_step.dependOn(&run_e2e_semantic_tests.step);
+    test_step.dependOn(&run_e2e_semantic_tests.step);
 }

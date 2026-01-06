@@ -42,16 +42,16 @@ pub const ValidationResult = struct {
         return ValidationResult{
             .allocator = allocator,
             .is_valid = true,
-            .errors = std.ArrayList(SemanticError).init(allocator),
-            .warnings = std.ArrayList(SemanticWarning).init(allocator),
+            .errors = .empty,
+            .warnings = .empty,
             .symbol_table = try SymbolTable.init(allocator),
             .type_annotations = std.AutoHashMap(u32, u32).init(allocator),
         };
     }
 
     pub fn deinit(self: *ValidationResult) void {
-        self.errors.deinit();
-        self.warnings.deinit();
+        self.errors.deinit(self.allocator);
+        self.warnings.deinit(self.allocator);
         self.symbol_table.deinit();
         self.type_annotations.deinit();
     }
@@ -196,7 +196,7 @@ pub const ValidationEngine = struct {
         const current_profile = self.profile_manager.current_profile;
 
         // Basic types and control flow should be available in :min profile
-        if (current_profile == .min) {
+        if (current_profile == .core) {
             // All our test features are validn profile
             return;
         }

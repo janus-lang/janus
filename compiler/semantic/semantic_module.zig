@@ -11,6 +11,7 @@ pub const SymbolTable = @import("symbol_table.zig").SymbolTable;
 pub const SymbolResolver = @import("symbol_resolver.zig").SymbolResolver;
 pub const TypeSystem = @import("type_system.zig").TypeSystem;
 pub const TypeId = @import("type_system.zig").TypeId;
+pub const PrimitiveType = @import("type_system.zig").PrimitiveType;
 pub const TypeChecker = @import("type_checker.zig").TypeChecker;
 pub const TypeInference = @import("type_inference.zig").TypeInference;
 pub const TypeInferenceDiagnostics = @import("type_inference_diagnostics.zig").TypeInferenceDiagnostics;
