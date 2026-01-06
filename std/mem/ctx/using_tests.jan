@@ -1,0 +1,98 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Using Blocks Tests
+// Unit tests for Using Blocks with RAII pattern
+
+:test "using_blocks_basic"
+    // :full profile - using blocks enabled
+    :full {
+        // Mock Resource for testing
+        struct MockResource {
+            let id: String;
+            let closed: bool;
+            
+            fn create(id: String) -> MockResource {
+                return MockResource{ id = id, closed = false };
+            }
+            
+            fn close(self) -> void {
+                self.closed = true;
+                print("✓ Resource closed: " + self.id);
+            }
+        }
+        
+        // Using block should call close() automatically
+        using resource = MockResource.create("test-resource") {
+            assert(resource.closed == false);
+            print("✓ Using block started");
+        }
+        // Resource should be automatically closed here
+        
+        assert(resource.closed == true);
+        print("✓ Using block cleanup completed");
+    }
+
+:test "using_blocks_early_close"
+    // Test idempotent behavior when close() is called manually
+    :full {
+        struct IdempotentResource {
+            let closed: bool = false;
+            
+            fn close(self) -> void {
+                if (!self.closed) {
+                    self.closed = true;
+                    print("✓ Resource actually closed");
+                } else {
+                    print("✓ Resource already closed (idempotent)");
+                }
+            }
+        }
+        
+        using resource = IdempotentResource{} {
+            // Manual close before using block ends
+            resource.close();
+        }
+        // This should be a no-op
+        print("✓ Idempotent close behavior working");
+    }
+
+:test "using_blocks_profile_gating"
+    // Test that using blocks are properly gated by profiles
+    :min {
+        // This should fail in :min profile
+        try {
+            using x = "test" {
+                // Should not compile in :min
+            }
+            assert(false); // Should not reach here
+        } catch ProfileError.UsingBlocksNotSupported {
+            print("✓ Using blocks correctly gated in :min profile");
+        }
+    }
+
+:test "using_blocks_capabilities"
+    // Test capability-aware using blocks
+    :full {
+        struct CapabilityResource {
+            let cap: Capability;
+            
+            fn with_capability(cap: Capability) -> CapabilityResource {
+                return CapabilityResource{ cap = cap };
+            }
+            
+            fn close(self) -> void {
+                // Validate capability on close
+                if (!self.cap.isValid()) {
+                    throw Error.InvalidCapability;
+                }
+                print("✓ Using block with capability validation");
+            }
+        }
+        
+        let cap = Capability.create("using-test");
+        using resource = CapabilityResource.with_capability(cap) {
+            assert(resource.cap.isValid());
+        }
+        print("✓ Capability validation in using block");
+    }

@@ -1,0 +1,59 @@
+{
+  "test_name": "dependency_aware_invalidation",
+  "description": "Only queries depending on changed modules should be invalidated",
+  "scenario": {
+    "initial_state": "Both a.jan and b_depends_on_a.jan compiled and cached",
+    "change": "Modify base_function in a.jan (change multiplier from 2 to 3)",
+    "expected_invalidation": "Surgical invalidation of dependent queries only"
+  },
+  "invalidated_queries": [
+    {
+      "query_type": "TypeOf",
+      "target": "a.base_function",
+      "reason": "Function implementation changed"
+    },
+    {
+      "query_type": "IROf",
+      "target": "a.base_function",
+      "reason": "Function implementation changed"
+    },
+    {
+      "query_type": "TypeOf",
+      "target": "b.dependent_function",
+      "reason": "Depends on changed a.base_function"
+    },
+    {
+      "query_type": "IROf",
+      "target": "b.dependent_function",
+      "reason": "Depends on changed a.base_function"
+    }
+  ],
+  "not_invalidated_queries": [
+    {
+      "query_type": "TypeOf",
+      "target": "a.utility_function",
+      "reason": "Function unchanged"
+    },
+    {
+      "query_type": "TypeOf",
+      "target": "b.independent_function",
+      "reason": "No dependency on changed function"
+    },
+    {
+      "query_type": "DocOf",
+      "target": "a.base_function",
+      "reason": "Documentation queries unaffected by implementation changes"
+    }
+  ],
+  "validation_rules": [
+    "only_dependent_queries_should_be_invalidated",
+    "independent_queries_must_remain_cached",
+    "invalidation_must_be_transitive_through_dependencies",
+    "documentation_queries_should_not_be_invalidated_by_implementation_changes"
+  ],
+  "performance_expectations": {
+    "invalidation_time": "<1ms",
+    "dependency_graph_traversal": "O(dependencies) not O(all_queries)",
+    "cache_hit_rate_after_change": ">80%"
+  }
+}

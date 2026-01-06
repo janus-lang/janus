@@ -1,0 +1,192 @@
+#!/bin/bash
+# Janus Pre-Push Hook - Final Quality Gate
+# Comprehensive validation before code reaches remote repository
+
+set -e
+
+echo "🚀 Janus Pre-Push Quality Gate"
+echo "=============================="
+
+# AI-Airlock Protocol Enforcement
+PROTECTED_BRANCHES="^(stable|dev|main)$"
+AI_EMAIL="voxis-forge@janus-lang.org"
+AI_NAME="Voxis Forge AI"
+CURRENT_EMAIL=$(git config user.email)
+CURRENT_NAME=$(git config user.name)
+
+# Check if we're the AI agent
+IS_AI=false
+if [[ "$CURRENT_EMAIL" == "$AI_EMAIL" ]] || [[ "$CURRENT_NAME" == "$AI_NAME" ]]; then
+    IS_AI=true
+fi
+
+# Get information about what's being pushed
+while read local_ref local_sha remote_ref remote_sha; do
+    # Extract branch name from remote_ref
+    if [[ "$remote_ref" =~ refs/heads/(.+)$ ]]; then
+        BRANCH="${BASH_REMATCH[1]}"
+    else
+        BRANCH="unknown"
+    fi
+
+    # AI-AIRLOCK CHECK: Block AI from protected branches
+    if echo "$BRANCH" | grep -qE "$PROTECTED_BRANCHES"; then
+        if [[ "$IS_AI" == true ]]; then
+            echo ""
+            echo "╔════════════════════════════════════════════════════════════╗"
+            echo "║         AI-AIRLOCK: ACCESS DENIED                          ║"
+            echo "╚════════════════════════════════════════════════════════════╝"
+            echo ""
+            echo "❌ AI agents cannot push directly to protected branch: $BRANCH"
+            echo ""
+            echo "The Airlock Protocol requires:"
+            echo "  1. Create a feature branch: git checkout -b features/ai/your-feature"
+            echo "  2. Push your changes there:  git push origin features/ai/your-feature"
+            echo "  3. Open a Pull Request to '$BRANCH'"
+            echo "  4. Wait for Human Review and Merge"
+            echo ""
+            echo "This is a MECHANISM, not a policy. It enforces Human-in-the-Loop."
+            echo ""
+            echo "📖 See: docs/doctrines/AIRLOCK.md"
+            echo ""
+            exit 1
+        else
+            echo "✅ Human identity: $CURRENT_NAME <$CURRENT_EMAIL>"
+            echo "⚠️  Pushing to protected branch: $BRANCH"
+        fi
+    fi
+
+    if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+        # Branch is being deleted
+        continue
+    fi
+
+    if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+        # New branch
+        range="$local_sha"
+    else
+        # Update to existing branch
+        range="$remote_sha..$local_sha"
+    fi
+
+    echo "🔍 Validating commits: $range"
+
+    # 1. Comprehensive Build Test
+    echo "🔨 Full build validation..."
+    if ! zig build -Doptimize=ReleaseFast; then
+        echo "❌ Release build failed"
+        exit 1
+    fi
+    echo "✅ Release build OK"
+
+    # 2. Complete Test Suite
+    echo "🧪 Complete test suite..."
+    if ! zig build test; then
+        echo "❌ Test suite failed"
+        exit 1
+    fi
+    echo "✅ Test suite OK"
+
+    # 3. Cross-Platform Build Check
+    echo "🌍 Cross-platform build check..."
+
+    # Test key cross-compilation targets
+    TARGETS=(
+        "x86_64-linux-musl"
+        "aarch64-linux-gnu"
+        "x86_64-windows-gnu"
+    )
+
+    for target in "${TARGETS[@]}"; do
+        echo "  🔨 Testing $target..."
+        if ! zig build -Dtarget=$target -Doptimize=ReleaseFast 2>/dev/null; then
+            echo "  ⚠️ Cross-compilation failed for $target (may be expected)"
+        else
+            echo "  ✅ $target OK"
+        fi
+    done
+
+    # 4. Commit Quality Check
+    echo "📝 Commit quality validation..."
+
+    # Check for merge commits (discouraged in main branch)
+    if [ "$remote_ref" = "refs/heads/main" ]; then
+        MERGE_COMMITS=$(git rev-list --merges $range 2>/dev/null | wc -l)
+        if [ "$MERGE_COMMITS" -gt 0 ]; then
+            echo "⚠️ Found $MERGE_COMMITS merge commits in main branch"
+            echo "   Consider using rebase workflow for cleaner history"
+        fi
+    fi
+
+    # Check commit message quality
+    git rev-list $range | while read commit; do
+        MSG=$(git log --format=%s -n 1 $commit)
+        if [ ${#MSG} -gt 72 ]; then
+            echo "⚠️ Long commit subject: $MSG"
+            echo "   Consider keeping subjects under 72 characters"
+        fi
+    done
+
+    # 5. Security Check
+    echo "🔒 Security validation..."
+
+    # Check for potential secrets
+    if git diff --name-only $range | xargs grep -l "password\|secret\|key\|token" 2>/dev/null; then
+        echo "⚠️ Potential secrets found in commit"
+        echo "   Review carefully before pushing"
+    fi
+
+    # Check for debug code
+    DEBUG_PATTERNS="console\.log\|std\.debug\.print.*TODO\|FIXME.*HACK"
+    if git diff $range | grep -E "$DEBUG_PATTERNS" >/dev/null 2>&1; then
+        echo "⚠️ Debug code or TODO items found in diff"
+        echo "   Consider cleaning up before push"
+    fi
+
+    # 6. Critical Quality Checks (only for main/unstable branches)
+    CURRENT_BRANCH=$(git branch --show-current)
+    if [[ "$remote_ref" == "refs/heads/main" || "$remote_ref" == "refs/heads/unstable" ]]; then
+        echo "🔍 Critical quality checks for $CURRENT_BRANCH..."
+
+        # License compliance check - only check changed files, not all files
+        if [[ -x "scripts/validate-license-headers.sh" ]]; then
+            echo "  📜 License header validation..."
+            # Get changed script/shell files only
+            CHANGED_SCRIPTS=$(git diff --name-only $range | grep -E '\.(sh|bash)$' || true)
+            if [[ -n "$CHANGED_SCRIPTS" ]]; then
+                echo "$CHANGED_SCRIPTS" | xargs -I {} scripts/validate-license-headers.sh "{}" >/dev/null 2>&1
+                echo "  ✅ License headers OK"
+            else
+                echo "  ✅ No script changes to validate"
+            fi
+        fi
+
+        # Version consistency check
+        if [[ -x "scripts/check-version.sh" ]]; then
+            echo "  🏷️  Version consistency check..."
+            scripts/check-version.sh >/dev/null 2>&1
+            echo "  ✅ Version OK"
+        fi
+
+        # Profile compatibility check
+        if [[ -x "scripts/check-profiles.sh" ]]; then
+            echo "  🎭 Profile compatibility check..."
+            scripts/check-profiles.sh >/dev/null 2>&1
+            echo "  ✅ Profiles OK"
+        fi
+
+        # Build verification
+        if [[ -x "scripts/check-build.sh" ]]; then
+            echo "  🔨 Build verification..."
+            scripts/check-build.sh >/dev/null 2>&1
+            echo "  ✅ Build OK"
+        fi
+    fi
+
+    echo "✅ Commit range validated: $range"
+done
+
+echo ""
+echo "🎉 All pre-push checks passed!"
+echo "🚀 Code is ready for remote repository"
+echo ""

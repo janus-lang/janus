@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    print("=== String Victory ===");
+    
+    // 1. Get pointer to string data (returns ptr)
+    let str_ptr: ptr = string_data_intrinsic("Janus Voice");
+    
+    // 2. Get length (returns i32)
+    let str_len: i32 = string_len_intrinsic("Janus Voice");
+    let str_len64: i64 = i32_to_i64(str_len);
+    
+    // 3. Create dummy allocator pointer (returns ptr)
+    let alloc_ptr: ptr = string_data_intrinsic("dummy");
+    
+    // 4. Create string handle (returns ptr)
+    let h: ptr = string_create(str_ptr, str_len64, alloc_ptr);
+    
+    print("Output:");
+    string_print(h);
+    print("");
+
+    // Test Length
+    let len_check: i64 = string_len_handle(h);
+    print("Length:");
+    print(len_check);
+
+    // Test Concat
+    let h2: ptr = string_concat_handle(h, h, alloc_ptr);
+    print("Concat:");
+    string_print(h2);
+    print("");
+    
+    // 5. Cleanup
+    string_free(h, alloc_ptr);
+    string_free(h2, alloc_ptr);
+    
+    print("=== Done ===");
+}

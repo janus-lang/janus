@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Placeholder tests for std.fs skeleton
+// Intentionally minimal and non-executing to avoid impacting current test runs.
+// Detailed tests will be added in subsequent tasks (see .codex/specs/std-fs/tasks.md).
+
+import std.sys.fs.path;
+import std.sys.fs.fs;
+
+// No test invocations yet — this file asserts type presence by importing modules.
+// Future:
+// - Path/PathBuf join and inspection tests
+// - FS trait mock implementation shape checks
+// - RAII File read/write behavior

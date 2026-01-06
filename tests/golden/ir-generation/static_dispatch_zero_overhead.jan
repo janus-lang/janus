@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// @description: Static dispatch with zero runtime overhead - canonical truth for static optimization
+// @author: Golden Test Framework
+// @expected-strategy: static_dispatch
+// @performance: dispatch_overhead_ns < 5 ±1% @99%
+// @performance: instruction_count <= 10
+// @performance: memory_usage_bytes <= 64
+// @platforms: all
+// @optimization-levels: release_safe, release_fast
+// @validate: ir_structure:validate_static_dispatch:Ensure no dynamic dispatch instructions
+// @validate: performance_bounds:validate_zero_overhead:Validate zero-overhead abstraction
+// @quality-gate: static_stability:performance_stability:0.01:100
+// @test-group: static_dispatch
+// @test-group: zero_overhead
+
+// Single implementation - should compile to direct function call
+func add(x: i32, y: i32) -> i32 {
+    x + y
+}
+
+func main() {
+    let result = add(42, 58)
+}

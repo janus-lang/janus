@@ -1,0 +1,44 @@
+#!/bin/bash
+# SPDX-License-Identifier: LSL-1.0
+# Copyright (c) 2025 Markus Maiwald
+#
+# Update hook: Additional master branch protection
+# Enforces branch protection rules and merge policies
+
+set -euo pipefail
+
+refname="$1"
+oldrev="$2"
+newrev="$3"
+
+# Master/Main branch protection
+if [[ "$refname" == "refs/heads/master" || "$refname" == "refs/heads/main" ]]; then
+    echo "🔒 Master branch update protection activated"
+
+    # Ensure this is not a force push
+    if ! git merge-base --is-ancestor "$oldrev" "$newrev" 2>/dev/null; then
+        if [[ "$oldrev" != "0000000000000000000000000000000000000000" ]]; then
+            echo "❌ REJECTED: Force push to master branch is forbidden"
+            echo "❌ Master branch history must be linear and immutable"
+            exit 1
+        fi
+    fi
+
+    # Ensure commit messages follow convention
+    commits=$(git rev-list "$oldrev..$newrev" 2>/dev/null || git rev-list "$newrev")
+    for commit in $commits; do
+        message=$(git log -1 --format="%s" "$commit")
+
+        # Check commit message format (type(scope): description)
+        if ! echo "$message" | grep -qE '^(feat|fix|docs|style|refactor|test|chore|release)(\([^)]+\))?: .+'; then
+            echo "❌ REJECTED: Commit $commit has invalid message format"
+            echo "❌ Required format: type(scope): description"
+            echo "❌ Message: $message"
+            exit 1
+        fi
+    done
+
+    echo "✅ Master branch update: All validations passed"
+fi
+
+echo "✅ Update hook: Branch $refname validated"

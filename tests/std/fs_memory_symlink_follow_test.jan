@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// MemoryFS symlink follow semantics for recursive rename_or_copy_opts
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.sys.fs.memory_fs;
+
+func test_symlink_follow_false_errors() -> Result<(), string> {
+    var mfs = memory_fs::MemoryFS::new()
+        .add_dir(path::Path::new("mem/src"))
+        .add_file(path::Path::new("mem/src/real.txt"), "REAL")
+        .add_symlink(path::Path::new("mem/src/link.txt"), "mem/src/real.txt");
+
+    let opts = fs::RenameOptions { recursive: true, follow_symlinks: false, replace: true };
+    let res = mfs.rename_or_copy_opts(path::Path::new("mem/src"), path::Path::new("mem/dst"), fs::CapFsWrite, opts);
+    switch (res) { .ok => @panic("expected EINVAL on symlink"), .err => {} }
+    Ok(())
+}
+
+func test_symlink_follow_true_dereferences() -> Result<(), string> {
+    var mfs = memory_fs::MemoryFS::new()
+        .add_dir(path::Path::new("mem/src"))
+        .add_file(path::Path::new("mem/src/real.txt"), "REAL")
+        .add_symlink(path::Path::new("mem/src/link.txt"), "mem/src/real.txt");
+
+    let opts = fs::RenameOptions { recursive: true, follow_symlinks: true, replace: true };
+    try mfs.rename_or_copy_opts(path::Path::new("mem/src"), path::Path::new("mem/dst"), fs::CapFsWrite, opts);
+
+    // Verify link became file with target content
+    let f = try mfs.open(path::Path::new("mem/dst/link.txt"), fs::CapFsRead, fs::OpenOptions::read_only());
+    let s = try f.read_string();
+    assert(s == "REAL");
+    Ok(())
+}
+
+func main() -> void {
+    test_symlink_follow_false_errors() catch |e| @panic("MemoryFS follow_symlinks=false failed");
+    test_symlink_follow_true_dereferences() catch |e| @panic("MemoryFS follow_symlinks=true failed");
+    print("✅ MemoryFS symlink follow semantics passed");
+}

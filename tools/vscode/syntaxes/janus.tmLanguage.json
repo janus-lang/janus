@@ -1,0 +1,97 @@
+{
+    "scopeName": "source.janus",
+    "patterns": [
+        {
+            "include": "#comments"
+        },
+        {
+            "include": "#strings"
+        },
+        {
+            "include": "#keywords"
+        },
+        {
+            "include": "#constants"
+        },
+        {
+            "include": "#functions"
+        },
+        {
+            "include": "#types"
+        }
+    ],
+    "repository": {
+        "comments": {
+            "patterns": [
+                {
+                    "match": "//.*$",
+                    "name": "comment.line.double-slash.janus"
+                },
+                {
+                    "begin": "/\\*",
+                    "end": "\\*/",
+                    "name": "comment.block.janus"
+                }
+            ]
+        },
+        "strings": {
+            "patterns": [
+                {
+                    "begin": "\"",
+                    "end": "\"",
+                    "name": "string.quoted.double.janus",
+                    "patterns": [
+                        {
+                            "match": "\\\\.",
+                            "name": "constant.character.escape.janus"
+                        }
+                    ]
+                }
+            ]
+        },
+        "keywords": {
+            "patterns": [
+                {
+                    "match": "\\b(if|else|while|for|in|match|do|end|return|defer|break|continue|yield)\\b",
+                    "name": "keyword.control.janus"
+                },
+                {
+                    "match": "\\b(func|let|var|type|enum|struct|graft|test|spec|assert)\\b",
+                    "name": "keyword.declaration.janus"
+                },
+                {
+                    "match": "\\b(import|export|as|use|with|where|requires|ensures)\\b",
+                    "name": "keyword.other.janus"
+                },
+                {
+                    "match": "\\b(true|false|null)\\b",
+                    "name": "constant.language.janus"
+                },
+                {
+                    "match": "\\b(comptime|safe|unsafe)\\b",
+                    "name": "keyword.other.special.janus"
+                }
+            ]
+        },
+        "types": {
+            "match": "\\b(i8|u8|i16|u16|i32|u32|i64|u64|f32|f64|bool|string|void|any|ptr)\\b",
+            "name": "support.type.primitive.janus"
+        },
+        "functions": {
+            "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)(?=\\s*\\()",
+            "name": "support.function.janus"
+        },
+        "constants": {
+            "patterns": [
+                {
+                    "match": "\\b\\d+\\.\\d+([eE][+-]?\\d+)?\\b",
+                    "name": "constant.numeric.float.janus"
+                },
+                {
+                    "match": "\\b\\d+\\b",
+                    "name": "constant.numeric.integer.janus"
+                }
+            ]
+        }
+    }
+}

@@ -1,0 +1,29 @@
+{
+  "test_name": "deterministic_mode",
+  "description": "CIDs must be identical across machines when using --deterministic flag",
+  "deterministic_cids": {
+    "unit_cid": "blake3:deterministic_unit_hash_placeholder",
+    "items": [
+      {
+        "name": "hash_data",
+        "cid": "blake3:deterministic_hash_data_cid",
+        "node_type": "function"
+      },
+      {
+        "name": "process_batch",
+        "cid": "blake3:deterministic_process_batch_cid",
+        "node_type": "function"
+      }
+    ]
+  },
+  "cross_platform_validation": {
+    "platforms": ["linux_x86_64", "linux_aarch64", "macos_x86_64", "macos_aarch64"],
+    "requirement": "all_platforms_must_produce_identical_cids",
+    "tolerance": "zero_variance_allowed"
+  },
+  "validation_rules": [
+    "deterministic_flag_must_produce_identical_results",
+    "cross_platform_cid_stability_required",
+    "no_timestamp_or_machine_specific_data_in_cids"
+  ]
+}

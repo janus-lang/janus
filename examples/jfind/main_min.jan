@@ -1,0 +1,176 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// jfind - Fast File Finder (:min profile version)
+// Demonstrates full :min profile power with procedural purity
+
+import std.os;      // Import filesystem operations
+import std.string; // Import string manipulation
+import std.core;    // Import core types including Allocator
+
+// Configuration state (no structs in :min - use procedural approach)
+let search_path := "."
+let max_depth := 0
+let show_hidden := false
+let extensions := ""  // Comma-separated list like "jan,zig,md"
+let name_query := ""  // Substring to match in filename
+let case_insensitive := false
+let json_output := false
+let ndjson_output := false
+let match_count := 0
+
+// Helper: Get file extension from filename
+func get_file_extension(filename: string) -> string {
+    // Use std.string capabilities - Doctrine of Capabilities in action!
+    let dot_pos = std.string.lastIndexOf(filename, ".")
+    if dot_pos >= 0 do
+        return std.string.substring(filename, dot_pos + 1)
+    end
+    return ""
+}
+
+// Helper: Check if file extension matches our filter list
+func matches_extension(filename: string) -> bool {
+    if extensions == "" do
+        return true  // No extension filter means match all
+    end
+
+    let ext = get_file_extension(filename)
+    if ext == "" do
+        return false  // Files without extension don't match extension filters
+    end
+
+    // Use std.string capabilities - Doctrine of Capabilities in action!
+    // :min profile requires procedural style - no method chaining
+    if case_insensitive do
+        let ext_lower = std.string.to_lower(ext)
+        let extensions_lower = std.string.to_lower(extensions)
+        return std.string.contains(extensions_lower, ext_lower)
+    else
+        return std.string.contains(extensions, ext)
+    end
+}
+
+// Helper: Check if filename contains our query substring
+func matches_name(filename: string) -> bool {
+    if name_query == "" do
+        return true  // No name query means match all
+    end
+
+    // Use std.string capabilities - Doctrine of Capabilities in action!
+    // :min profile requires procedural style - no method chaining
+    if case_insensitive do
+        let filename_lower = std.string.to_lower(filename)
+        let query_lower = std.string.to_lower(name_query)
+        return std.string.contains(filename_lower, query_lower)
+    else
+        return std.string.contains(filename, name_query)
+    end
+}
+
+// Main search function - demonstrates filesystem capabilities
+func search_directory(path: string, depth: i32) -> void {
+    // Debug: Print the path we're searching
+    print("DEBUG: Searching directory: " + path)
+
+    // Use :min profile filesystem capabilities - Doctrine of Capabilities in action!
+    // Note: std.os.listDir requires an allocator parameter for :min profile
+    let allocator = std.mem.global()
+    let entries = std.os.listDir(path, allocator)
+
+    // Debug: Print how many entries we found
+    print("DEBUG: Found entries in " + path)
+
+    // Debug: Check if entries is empty
+    let entry_count = 0
+    for entries do |entry|
+        entry_count = entry_count + 1
+    end
+    print("DEBUG: Entry count: " + entry_count)
+
+    // Process each directory entry
+    for entries do |entry|
+        let entry_name = entry.name
+        let is_directory = entry.isDir()
+        let full_path = path + "/" + entry_name
+
+        // Skip hidden files if requested
+        if show_hidden == false do
+            let is_hidden = false
+            let temp_i = 0
+            for entry_name do |i, char|
+                if char == '.' do
+                    is_hidden = true
+                    break
+                end
+                temp_i = i
+            end
+
+            if is_hidden do
+                continue
+            end
+        end
+
+        if is_directory do
+            // Recursively search subdirectory if depth allows
+            if depth != 0 do  // 0 means unlimited depth
+                search_directory(full_path, depth - 1)
+            end
+        else
+            // Check if file matches our filters
+            if matches_extension(entry_name) and matches_name(entry_name) do
+                if json_output do
+                    print("{\"path\":\"" + full_path + "\"}")
+                else if ndjson_output do
+                    print("{\"path\":\"" + full_path + "\"}")
+                else
+                    print("📄 " + full_path)
+                end
+                match_count = match_count + 1
+            end
+        end
+    end
+}
+
+// Parse command line arguments (simplified for :min profile)
+func parse_args() -> void {
+    // In a real implementation, would parse @args()
+    // For :min profile demo, use simple defaults
+    search_path = "."
+    max_depth = 0  // 0 means unlimited depth for now
+    show_hidden = false
+    extensions = ""
+    name_query = ""
+    case_insensitive = false
+    json_output = false
+    ndjson_output = false
+    match_count = 0
+}
+
+// Main function - demonstrates full :min profile power
+func main() -> i32 {
+    // Initialize configuration
+    parse_args()
+
+    // Print header with k-find style
+    print("jfind v0.1.0 - Fast File Finder (:min profile)")
+    print("Profile: :min - Complete language, not feature subset")
+    print("Search path: " + search_path)
+    print("Max depth: unlimited")
+    print("Extensions: all")
+    print("Name query: none")
+    print("Case insensitive: false")
+    print("Show hidden: false")
+    print("Output: regular")
+    print("")
+
+    // Perform search
+    search_directory(search_path, max_depth)
+
+    // Print summary
+    print("")
+    print("Search complete!")
+    print("Found files")
+
+    return 0
+}

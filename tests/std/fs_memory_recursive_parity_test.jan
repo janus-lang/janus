@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// MemoryFS recursive parity: replace=false/true and integrity checks
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.sys.fs.memory_fs;
+
+func test_replace_false_recursive() -> Result<(), string> {
+    var mfs = memory_fs::MemoryFS::new()
+        .add_dir(path::Path::new("mem"))
+        .add_dir(path::Path::new("mem/src"))
+        .add_dir(path::Path::new("mem/src/a"))
+        .add_dir(path::Path::new("mem/src/a/b"))
+        .add_file(path::Path::new("mem/src/a/b/file.txt"), "deep content")
+        .add_dir(path::Path::new("mem/dst"));
+
+    let opts = fs::RenameOptions { recursive: true, follow_symlinks: false, replace: false };
+    let res = mfs.rename_or_copy_opts(path::Path::new("mem/src"), path::Path::new("mem/dst"), fs::CapFsWrite, opts);
+    switch (res) { .ok => @panic("expected AlreadyExists error"), .err => {} }
+
+    // Ensure unchanged
+    assert(mfs.exists(path::Path::new("mem/src/a/b/file.txt"), fs::CapFsRead));
+    Ok(())
+}
+
+func test_replace_true_recursive() -> Result<(), string> {
+    var mfs = memory_fs::MemoryFS::new()
+        .add_dir(path::Path::new("mem"))
+        .add_dir(path::Path::new("mem/src"))
+        .add_dir(path::Path::new("mem/src/a"))
+        .add_dir(path::Path::new("mem/src/a/b"))
+        .add_file(path::Path::new("mem/src/a/b/file.txt"), "deep content")
+        .add_dir(path::Path::new("mem/dst"))
+        .add_file(path::Path::new("mem/dst/old.txt"), "old");
+
+    let opts = fs::RenameOptions { recursive: true, follow_symlinks: false, replace: true };
+    try mfs.rename_or_copy_opts(path::Path::new("mem/src"), path::Path::new("mem/dst"), fs::CapFsWrite, opts);
+
+    assert(!mfs.exists(path::Path::new("mem/src"), fs::CapFsRead));
+    assert(mfs.exists(path::Path::new("mem/dst/a/b/file.txt"), fs::CapFsRead));
+    Ok(())
+}
+
+func main() -> void {
+    test_replace_false_recursive() catch |e| @panic("MemoryFS replace=false recursive failed");
+    test_replace_true_recursive() catch |e| @panic("MemoryFS replace=true recursive failed");
+    print("✅ MemoryFS recursive parity (replace=false/true) passed");
+}

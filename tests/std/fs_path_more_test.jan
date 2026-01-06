@@ -1,0 +1,36 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Additional edge-case tests for Path/PathBuf
+
+import std.sys.fs.path;
+
+func test_parent_relative_single_component_none() -> Result<(), string> {
+    let p = Path::new("foo");
+    match p.parent() {
+        None => Ok(()),
+        Some(_) => Err("parent of single relative should be None".to_string()),
+    }
+}
+
+func test_parent_root_child() -> Result<(), string> {
+    let p = Path::new("/a");
+    let par = p.parent().unwrap();
+    if par.as_string() != "/" { return Err("parent of /a should be /".to_string()); }
+    Ok(())
+}
+
+func test_file_name_trailing_slash() -> Result<(), string> {
+    let p = Path::new("/opt/bin/");
+    match p.file_name() {
+        Some(name) => if name != "bin" { Err("file_name with trailing slash failed".to_string()) } else { Ok(()) },
+        None => Err("expected Some for file_name on /opt/bin/".to_string()),
+    }
+}
+
+func test_normalize_empty() -> Result<(), string> {
+    let p = Path::new("");
+    let n = p.normalize();
+    if n.as_string() != "" { return Err("normalize empty should be empty".to_string()); }
+    Ok(())
+}

@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Tests for Path/PathBuf core join semantics
+
+import std.sys.fs.path;
+
+func test_join_basic() -> Result<(), string> {
+    let base = Path::new("/etc");
+    let p = base.join("nginx");
+    if p.as_string() != "/etc/nginx" { return Err("join failed: expected /etc/nginx".to_string()); }
+    Ok(())
+}
+
+func test_join_single_separator() -> Result<(), string> {
+    let base = Path::new("/var/");
+    let p = base.join("log");
+    if p.as_string() != "/var/log" { return Err("single-separator invariant failed".to_string()); }
+    Ok(())
+}
+
+func test_join_absolute_rhs_overrides() -> Result<(), string> {
+    let base = Path::new("/usr/local");
+    let p = base.join("/bin");
+    if p.as_string() != "/bin" { return Err("absolute RHS should override base".to_string()); }
+    Ok(())
+}
+
+func test_with_file_name_and_extension() -> Result<(), string> {
+    let p = Path::new("/home/u/file.txt");
+    let buf = path.PathBuf::new(p.as_string());
+    let renamed = buf.with_file_name("note.md");
+    if renamed.as_string() != "/home/u/note.md" { return Err("with_file_name failed".to_string()); }
+    let noext = renamed.with_extension("");
+    if noext.as_string() != "/home/u/note" { return Err("with_extension remove failed".to_string()); }
+    Ok(())
+}

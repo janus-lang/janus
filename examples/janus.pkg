@@ -1,0 +1,34 @@
+// Example Janus package manifest
+// This demonstrates the KDL format for human-authored package configuration
+
+name "example-janus-project"
+version "1.0.0"
+
+// Production dependencies
+dependency "crypto-utils" {
+    git "https://github.com/janus-lang/crypto-utils.git" tag="v3.1.0"
+    capability "fs" path="./cache" mode="rw"
+    capability "net" hosts="*.api.example.com"
+}
+
+dependency "http-client" {
+    git "https://github.com/janus-lang/http-client.git" branch="main"
+    capability "net" hosts="api.example.com,cdn.example.com"
+    capability "fs" path="./logs"
+}
+
+dependency "data-parser" {
+    tar "https://releases.janus-lang.org/data-parser-2.0.1.tar.gz" checksum="sha256:a1b2c3d4e5f6..."
+}
+
+// Development dependencies
+dev-dependency "test-framework" {
+    path "../test-framework"
+    capability "fs" path="./test-data"
+    capability "proc" spawn="test-runner"
+}
+
+dev-dependency "benchmark-suite" {
+    git "https://github.com/janus-lang/benchmarks.git" tag="v1.2.0"
+    capability "time" precision="nanosecond"
+}

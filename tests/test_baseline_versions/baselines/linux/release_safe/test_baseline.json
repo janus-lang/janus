@@ -1,0 +1,15 @@
+{
+  "test_name": "test_baseline",
+  "platform": "linux",
+  "optimization_level": "release_safe",
+  "created_at": 1755782719,
+  "statistical_summary": {
+    "mean_dispatch_overhead_ns": 102.5,
+    "std_dev_dispatch_overhead_ns": 2.5,
+    "min_dispatch_overhead_ns": 100,
+    "max_dispatch_overhead_ns": 105,
+    "confidence_interval_95_lower": 99.03517677218592,
+    "confidence_interval_95_upper": 105.96482322781408,
+    "sample_count": 2
+  }
+}

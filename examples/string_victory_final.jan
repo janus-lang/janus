@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    print("=== String Victory Test ===");
+    
+    let alloc := 0;
+    
+    // Create string from literal
+    let hello_ptr := string_data_intrinsic("Hello");
+    let hello_len: i32 = string_len_intrinsic("Hello");
+    
+    // We need i64 length for string_create
+    let hello_len64: i64 = i32_to_i64(hello_len);
+    
+    let s1 := string_create(hello_ptr, hello_len64, alloc);
+    
+    print("Created string:");
+    string_print(s1);
+    print(""); // Newline
+    
+    string_free(s1, alloc);
+    print("=== Success ===");
+}

@@ -1,0 +1,427 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025 Janus Project Authors
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+/// ================================
+/// Context-Bound Buffer Operations
+/// ================================
+
+import "./alloc.jan" as Alloc
+import "./context.jan" as AllocContext
+import "./traits.jan" as Drop
+
+/// A context-bound buffer that provides efficient byte operations
+/// with allocator binding at construction time.
+///
+/// Usage in different profiles:
+/// - :min profile: Buffer.with(alloc, size) - explicit allocator required
+/// - :script profile: Buffer.with(default, size) - uses thread-local region if no allocator provided
+/// - :full profile: Buffer.with(alloc, ctx, size) - with context and capability tracking
+pub type Buffer {
+    /// The underlying byte buffer
+    data: []u8,
+    
+    /// The allocator capability bound to this buffer
+    alloc: Alloc,
+    
+    /// Current write position
+    pos: usize,
+    
+    /// Whether this buffer has been zeroed on allocation
+    zeroed: Bool,
+}
+
+/// Buffer error types
+pub type BufferError {
+    OutOfBounds,
+    OutOfMemory,
+    InvalidOperation,
+    ZeroCopyFailed,
+}
+
+/// Context-bound Buffer implementation
+impl Buffer {
+    /// Create a new Buffer with the given allocator capability and size
+    /// This is the primary constructor for all profiles
+    pub fn with(alloc: Alloc, size: usize, zeroed: Bool) -> Result[Buffer, BufferError] {
+        // In real implementation, would allocate from alloc
+        // For now, simplified stub
+        let data: []u8 = @undefined;
+        return Ok(Buffer{
+            .data = data,
+            .alloc = alloc,
+            .pos = 0,
+            .zeroed = zeroed,
+        });
+    }
+    
+    /// Create a new Buffer using an allocator from the context
+    /// For :go and :full profiles
+    pub fn withContext(ctx: AllocContext, purpose: AllocContext.AllocPurpose, size: usize, zeroed: Bool) -> Result[Buffer, BufferError] {
+        let alloc = AllocContext.get(ctx, purpose);
+        return Buffer.with(alloc, size, zeroed);
+    }
+    
+    /// Create a buffer with zero copy from external memory
+    pub fn fromZeroCopy(alloc: Alloc, data: []u8, mode: ZeroCopyMode) -> Result[Buffer, BufferError] {
+        return Ok(Buffer{
+            .data = data,
+            .alloc = alloc,
+            .pos = 0,
+            .zeroed = false, // External data, assume not zeroed
+        });
+    }
+    
+    /// Get the current length of the buffer
+    pub fn len(self: *Self) -> usize {
+        return self.data.len;
+    }
+    
+    /// Get the current capacity
+    pub fn capacity(self: *Self) -> usize {
+        return self.data.len;
+    }
+    
+    /// Check if the buffer is empty
+    pub fn isEmpty(self: *Self) -> Bool {
+        return self.pos == 0;
+    }
+    
+    /// Get the current position
+    pub fn pos(self: *Self) -> usize {
+        return self.pos;
+    }
+    
+    /// Set the current position
+    pub fn setPos(self: *Self, pos: usize) -> Result[Void, BufferError] {
+        if (pos > self.data.len) {
+            return Err(BufferError.OutOfBounds);
+        }
+        self.pos = pos;
+        return Ok(());
+    }
+    
+    /// Seek to beginning
+    pub fn seekToStart(self: *Self) -> Void {
+        self.pos = 0;
+    }
+    
+    /// Seek to end
+    pub fn seekToEnd(self: *Self) -> Void {
+        self.pos = self.data.len;
+    }
+    
+    /// Write a byte at the current position
+    pub fn writeByte(self: *Self, byte: u8) -> Result[Void, BufferError] {
+        if (self.pos >= self.data.len) {
+            return Err(BufferError.OutOfBounds);
+        }
+        self.data[self.pos] = byte;
+        self.pos += 1;
+        return Ok(());
+    }
+    
+    /// Write multiple bytes from a slice
+    pub fn writeSlice(self: *Self, bytes: []u8) -> Result[usize, BufferError] {
+        let available = self.data.len - self.pos;
+        let to_write = if (bytes.len > available) available else bytes.len;
+        
+        if (to_write > 0) {
+            @memcpy(self.data[self.pos..self.pos + to_write], bytes[0..to_write]);
+            self.pos += to_write;
+        }
+        
+        return Ok(to_write);
+    }
+    
+    /// Write a string
+    pub fn writeString(self: *Self, str: String) -> Result[usize, BufferError] {
+        return self.writeSlice(str.bytes());
+    }
+    
+    /// Write a formatted string (simplified)
+    pub fn writeFormat(self: *Self, format: String, args: [*]any) -> Result[usize, BufferError] {
+        // In real implementation, would use format strings
+        // For now, simplified
+        return self.writeString(format);
+    }
+    
+    /// Read a byte at the current position
+    pub fn readByte(self: *Self) -> Result[u8, BufferError] {
+        if (self.pos >= self.data.len) {
+            return Err(BufferError.OutOfBounds);
+        }
+        let byte = self.data[self.pos];
+        self.pos += 1;
+        return Ok(byte);
+    }
+    
+    /// Read multiple bytes into a slice
+    pub fn readSlice(self: *Self, bytes: []u8) -> Result[usize, BufferError] {
+        let available = self.data.len - self.pos;
+        let to_read = if (bytes.len > available) available else bytes.len;
+        
+        if (to_read > 0) {
+            @memcpy(bytes[0..to_read], self.data[self.pos..self.pos + to_read]);
+            self.pos += to_read;
+        }
+        
+        return Ok(to_read);
+    }
+    
+    /// Read a line (up to newline or end)
+    pub fn readLine(self: *Self) -> Result[String, BufferError] {
+        let start_pos = self.pos;
+        let mut end_pos = start_pos;
+        
+        // Find newline
+        while (end_pos < self.data.len and self.data[end_pos] != '\n') {
+            end_pos += 1;
+        }
+        
+        // Extract line (excluding newline)
+        if (end_pos > start_pos and end_pos < self.data.len and self.data[end_pos] == '\n') {
+            end_pos -= 1; // Exclude '\r' if present
+        }
+        
+        if (end_pos > start_pos) {
+            let line_bytes = self.data[start_pos..end_pos];
+            let line = String.fromBytes(line_bytes);
+            self.pos = end_pos + 1; // Move past newline
+            return Ok(line);
+        } else {
+            return Err(BufferError.OutOfBounds);
+        }
+    }
+    
+    /// Get a slice view of the buffer
+    pub fn asSlice(self: *Self, start: usize, end: usize) -> Result[]u8, BufferError] {
+        if (end > self.data.len or start >= end) {
+            return Err(BufferError.OutOfBounds);
+        }
+        return Ok(self.data[start..end]);
+    }
+    
+    /// Get a slice from current position to end
+    pub fn remaining(self: *Self) -> []u8 {
+        return self.data[self.pos..];
+    }
+    
+    /// Clear the buffer (fill with zeros and reset position)
+    pub fn clear(self: *Self) -> Void {
+        @memset(self.data, 0);
+        self.pos = 0;
+    }
+    
+    /// Resize the buffer (may require reallocation)
+    pub fn resize(self: *Self, new_size: usize) -> Result[Void, BufferError] {
+        // In real implementation, would reallocate using self.alloc
+        if (new_size > self.data.len) {
+            return Err(BufferError.OutOfMemory);
+        }
+        self.data = self.data[0..new_size];
+        if (self.pos > new_size) {
+            self.pos = new_size;
+        }
+        return Ok(());
+    }
+    
+    /// Ensure buffer has at least the specified capacity
+    pub fn ensureCapacity(self: *Self, min_capacity: usize) -> Result[Void, BufferError] {
+        if (self.data.len >= min_capacity) {
+            return Ok(());
+        }
+        return self.resize(min_capacity);
+    }
+    
+    /// Copy data from another buffer
+    pub fn copyFrom(self: *Self, src: *Buffer, count: usize) -> Result[usize, BufferError] {
+        let src_available = src.data.len - src.pos;
+        let to_copy = if (count > src_available) src_available else count;
+        let self_available = self.data.len - self.pos;
+        let final_count = if (to_copy > self_available) self_available else to_copy;
+        
+        if (final_count > 0) {
+            @memcpy(self.remaining()[0..final_count], src.remaining()[0..final_count]);
+            self.pos += final_count;
+            src.pos += final_count;
+        }
+        
+        return Ok(final_count);
+    }
+    
+    /// Compare buffer contents
+    pub fn equals(self: *Self, other: *Buffer) -> Bool {
+        if (self.data.len != other.data.len) {
+            return false;
+        }
+        return @memcmp(self.data, other.data) == 0;
+    }
+    
+    /// Find a pattern in the buffer
+    pub fn find(self: *Self, pattern: []u8, start: usize) -> Result[usize, BufferError] {
+        if (pattern.len == 0 or start >= self.data.len) {
+            return Err(BufferError.InvalidOperation);
+        }
+        
+        for i in start..(self.data.len - pattern.len + 1) {
+            let mut found = true;
+            for j in 0..pattern.len {
+                if (self.data[i + j] != pattern[j]) {
+                    found = false;
+                    break;
+                }
+            }
+            if (found) {
+                return Ok(i);
+            }
+        }
+        
+        return Err(BufferError.InvalidOperation);
+    }
+    
+    /// Convert buffer to hex string
+    pub fn toHex(self: *Self) -> String {
+        let mut hex = String.withCapacity(self.data.len * 2);
+        for byte in self.data {
+            hex += fmtHexByte(byte);
+        }
+        return hex;
+    }
+    
+    /// Convert hex string to buffer
+    pub fn fromHex(alloc: Alloc, hex: String) -> Result[Buffer, BufferError] {
+        let hex_bytes = hex.bytes();
+        if (hex_bytes.len % 2 != 0) {
+            return Err(BufferError.InvalidOperation);
+        }
+        
+        let data_len = hex_bytes.len / 2;
+        let buffer = try Buffer.with(alloc, data_len, false);
+        
+        for i in 0..data_len {
+            let byte_hex = hex_bytes[i * 2..i * 2 + 2];
+            let byte = parseHexByte(byte_hex);
+            buffer.data[i] = byte;
+        }
+        
+        return Ok(buffer);
+    }
+}
+
+/// Zero copy modes for buffer creation
+pub enum ZeroCopyMode {
+    ReadOnly,    // Shared read-only access
+    ReadWrite,   // Shared read-write access
+    CopyOnWrite, // Copy on first write
+}
+
+/// Helper functions for common buffer operations
+pub mod helpers {
+    /// Create an empty buffer
+    pub fn empty(alloc: Alloc) -> Result[Buffer, BufferError] {
+        return Buffer.with(alloc, 0, false);
+    }
+    
+    /// Create a buffer filled with zeros
+    pub fn zeroed(alloc: Alloc, size: usize) -> Result[Buffer, BufferError] {
+        return Buffer.with(alloc, size, true);
+    }
+    
+    /// Create a buffer from a string
+    pub fn fromString(alloc: Alloc, text: String) -> Result[Buffer, BufferError] {
+        let bytes = text.bytes();
+        let buffer = try Buffer.with(alloc, bytes.len, false);
+        @memcpy(buffer.data, bytes);
+        return Ok(buffer);
+    }
+    
+    /// Create a buffer from a byte slice
+    pub fn fromBytes(alloc: Alloc, bytes: []u8) -> Result[Buffer, BufferError] {
+        let buffer = try Buffer.with(alloc, bytes.len, false);
+        @memcpy(buffer.data, bytes);
+        return Ok(buffer);
+    }
+    
+    /// Concatenate multiple buffers
+    pub fn concat(alloc: Alloc, buffers: []Buffer) -> Result[Buffer, BufferError] {
+        let total_size = 0;
+        for buffer in buffers {
+            total_size += buffer.data.len;
+        }
+        
+        let result = try Buffer.with(alloc, total_size, false);
+        let mut pos = 0;
+        
+        for buffer in buffers {
+            @memcpy(result.data[pos..pos + buffer.data.len], buffer.data);
+            pos += buffer.data.len;
+        }
+        
+        return Ok(result);
+    }
+}
+
+/// Implement Drop trait for automatic cleanup
+impl Drop.Drop for Buffer {
+    pub fn drop(self: *Self) -> Void {
+        // In real implementation, would free memory using self.alloc
+        // For now, just clear sensitive data
+        @memset(self.data, 0);
+    }
+}
+
+/// Private helper functions
+fn fmtHexByte(byte: u8) -> String {
+    const hex_chars = "0123456789ABCDEF";
+    let high = (byte >> 4) & 0x0F;
+    let low = byte & 0x0F;
+    return String.fromBytes([hex_chars[high], hex_chars[low]]);
+}
+
+fn parseHexByte(hex: []u8) -> u8 {
+    let high = parseHexNibble(hex[0]);
+    let low = parseHexNibble(hex[1]);
+    return (high << 4) | low;
+}
+
+fn parseHexNibble(nibble: u8) -> u8 {
+    if (nibble >= '0' and nibble <= '9') {
+        return nibble - '0';
+    } else if (nibble >= 'A' and nibble <= 'F') {
+        return nibble - 'A' + 10;
+    } else if (nibble >= 'a' and nibble <= 'f') {
+        return nibble - 'a' + 10;
+    } else {
+        return 0; // Error case
+    }
+}
+
+/// Error types for buffer operations
+pub type OutOfBounds {
+    requested_pos: usize,
+    buffer_size: usize,
+}
+
+pub type OutOfMemory {
+    requested_size: usize,
+}
+
+pub type InvalidOperation {
+    reason: String,
+}
+
+pub type ZeroCopyFailed {
+    source: String,
+    reason: String,
+}

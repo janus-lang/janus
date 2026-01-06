@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+# :full — duplicate via lazy file stream, explicit capability
+func find_duplicate_stream(path: string, cap: CapFsRead) -> u32!void do
+  let it := file.iter_u32 path, cap: cap
+  var x := 0u32
+  var count := 0u32
+  for v in it { x ^= v; count += 1 }
+  let n := count - 1u32
+
+  var y := 0u32
+  var i := 1u32
+  while i <= n do
+    y ^= i
+    i += 1
+  end
+  return x ^ y
+end
+
+with ctx do
+  let res := find_duplicate_stream "/data/nums.bin", cap: ctx.fs.read ?
+  match res do
+    .ok(v)  => print v
+    .err(e) => log.error "IO error", err: e
+  end
+end

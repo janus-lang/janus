@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    // Test real value extraction
+    let first = 15
+    let second = 25
+    let third = 7
+    let fourth = 99
+    let fifth = 33
+
+    print("Testing real value extraction")
+    print("Values should be different based on position")
+
+    list_files()
+}

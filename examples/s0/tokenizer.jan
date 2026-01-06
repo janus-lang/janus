@@ -1,0 +1,371 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// S0 Tokenizer (min profile) – initial port
+// Scope: IDENT, INT/FLOAT, STRING, keywords (:min), operators, delimiters
+
+// Types
+struct SourcePos {
+  line: i32,
+  column: i32,
+  byte: i32,
+}
+
+struct SourceSpan {
+  start: SourcePos,
+  end: SourcePos,
+}
+
+enum TokenType {
+  // literals & id
+  IDENT, INT, FLOAT, STRING, TRUE, FALSE,
+  // keywords (:min)
+  FUNC, LET, VAR,
+  IF, ELSE, FOR, IN, WHILE,
+  MATCH, WHEN,
+  RETURN, BREAK, CONTINUE,
+  DO, END,
+  AND, OR, NOT,
+  // operators
+  PLUS, MINUS, STAR, SLASH, PERCENT,
+  EQ, NE, LT, LE, GT, GE,
+  ASSIGN,
+  ARROW,         // ->
+  MATCH_ARROW,   // =>
+  RANGE,         // ..
+  WALRUS,        // :=
+  // delimiters
+  LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET,
+  COMMA, COLON, DOT,
+  // special
+  NEWLINE,
+  EOF,
+  INVALID,
+}
+
+struct Token {
+  kind: TokenType,
+  span: SourceSpan,
+  text: string,
+}
+
+struct Tokenizer {
+  src: string,
+  i: i32,
+  line: i32,
+  col: i32,
+
+  func init(input: string) -> Tokenizer {
+    Tokenizer { src: input, i: 0, line: 1, col: 1 }
+  }
+
+  func at_end(self) -> bool { self.i >= self.src.len() }
+
+  func cur(self) -> char {
+    if self.at_end() { return '\0' }
+    self.src[self.i]
+  }
+
+  func peek(self) -> char {
+    if self.i + 1 >= self.src.len() { return '\0' }
+    self.src[self.i + 1]
+  }
+
+  func advance(self) -> char {
+    if self.at_end() { return '\0' }
+    let c = self.src[self.i]
+    self.i = self.i + 1
+    self.col = self.col + 1
+    c
+  }
+
+  func match(self, expected: char) -> bool {
+    if self.at_end() { return false }
+    if self.src[self.i] != expected { return false }
+    self.i = self.i + 1
+    self.col = self.col + 1
+    true
+  }
+
+  func pos(self) -> SourcePos { SourcePos { line: self.line, column: self.col, byte: self.i } }
+
+  func is_alpha(c: char) -> bool {
+    (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or c == '_'
+  }
+
+  func is_digit(c: char) -> bool { c >= '0' and c <= '9' }
+
+  func is_alnum(c: char) -> bool { self.is_alpha(c) or self.is_digit(c) }
+
+  func skip_ws_and_comments(self) {
+    while true {
+      let c = self.cur()
+      if c == ' ' or c == '\t' or c == '\r' { _ = self.advance(); continue }
+      if c == '/' and self.peek() == '/' {
+        // line comment
+        while self.cur() != '\n' and !self.at_end() { _ = self.advance() }
+        continue
+      }
+      if c == '/' and self.peek() == '*' {
+        // block comment
+        _ = self.advance(); _ = self.advance();
+        while !self.at_end() and !(self.cur() == '*' and self.peek() == '/') {
+          if self.cur() == '\n' { self.line = self.line + 1; self.col = 0 }
+          _ = self.advance()
+        }
+        if !self.at_end() { _ = self.advance(); _ = self.advance() }
+        continue
+      }
+      break
+    }
+  }
+
+  func keyword_kind(text: string) -> TokenType {
+    if text == "func" { return TokenType.FUNC }
+    if text == "let" { return TokenType.LET }
+    if text == "var" { return TokenType.VAR }
+    if text == "if" { return TokenType.IF }
+    if text == "else" { return TokenType.ELSE }
+    if text == "for" { return TokenType.FOR }
+    if text == "in" { return TokenType.IN }
+    if text == "while" { return TokenType.WHILE }
+    if text == "match" { return TokenType.MATCH }
+    if text == "when" { return TokenType.WHEN }
+    if text == "return" { return TokenType.RETURN }
+    if text == "break" { return TokenType.BREAK }
+    if text == "continue" { return TokenType.CONTINUE }
+    if text == "do" { return TokenType.DO }
+    if text == "end" { return TokenType.END }
+    if text == "and" { return TokenType.AND }
+    if text == "or" { return TokenType.OR }
+    if text == "not" { return TokenType.NOT }
+    if text == "true" { return TokenType.TRUE }
+    if text == "false" { return TokenType.FALSE }
+    return TokenType.IDENT
+  }
+
+  func make_token(self, kind: TokenType, start: SourcePos, end: SourcePos, text: string) -> Token {
+    Token { kind: kind, span: SourceSpan { start: start, end: end }, text: text }
+  }
+
+  func scan_string(self) -> Token {
+    let start_pos = self.pos()
+    // consume opening quote
+    _ = self.advance()
+    let start_i = self.i
+    while self.cur() != '"' and !self.at_end() {
+      if self.cur() == '\n' { self.line = self.line + 1; self.col = 0 }
+      _ = self.advance()
+    }
+    let end_i = self.i
+    // closing quote
+    if self.cur() == '"' { _ = self.advance() }
+    let end_pos = self.pos()
+    let slice = self.src.slice(start_i, end_i)
+    self.make_token(TokenType.STRING, start_pos, end_pos, slice)
+  }
+
+  func scan_number(self) -> Token {
+    let start_pos = self.pos()
+    let start_i = self.i
+    while self.is_digit(self.cur()) { _ = self.advance() }
+    var kind = TokenType.INT
+    if self.cur() == '.' and self.is_digit(self.peek()) {
+      kind = TokenType.FLOAT
+      _ = self.advance()
+      while self.is_digit(self.cur()) { _ = self.advance() }
+    }
+    let end_pos = self.pos()
+    let text = self.src.slice(start_i, self.i)
+    self.make_token(kind, start_pos, end_pos, text)
+  }
+
+  func scan_ident_or_keyword(self) -> Token {
+    let start_pos = self.pos()
+    let start_i = self.i
+    while self.is_alnum(self.cur()) { _ = self.advance() }
+    let end_pos = self.pos()
+    let text = self.src.slice(start_i, self.i)
+    let kind = self.keyword_kind(text)
+    self.make_token(kind, start_pos, end_pos, text)
+  }
+
+  func scan_token(self) -> Token {
+    self.skip_ws_and_comments()
+    let start_pos = self.pos()
+    let c = self.cur()
+    if c == '\0' { return self.make_token(TokenType.EOF, start_pos, start_pos, "") }
+    if c == '\n' {
+      _ = self.advance(); self.line = self.line + 1; self.col = 1
+      return self.make_token(TokenType.NEWLINE, start_pos, self.pos(), "\n")
+    }
+
+    // identifiers / keywords
+    if self.is_alpha(c) { return self.scan_ident_or_keyword() }
+    // numbers
+    if self.is_digit(c) { return self.scan_number() }
+    // strings
+    if c == '"' { return self.scan_string() }
+
+    // two-char ops
+    if c == '=' and self.peek() == '=' { _ = self.advance(); _ = self.advance(); return self.make_token(TokenType.EQ, start_pos, self.pos(), "==") }
+    if c == '!' and self.peek() == '=' { _ = self.advance(); _ = self.advance(); return self.make_token(TokenType.NE, start_pos, self.pos(), "!=") }
+    if c == '<' and self.peek() == '=' { _ = self.advance(); _ = self.advance(); return self.make_token(TokenType.LE, start_pos, self.pos(), "<=") }
+    if c == '>' and self.peek() == '=' { _ = self.advance(); _ = self.advance(); return self.make_token(TokenType.GE, start_pos, self.pos(), ">=") }
+    if c == '-' and self.peek() == '>' { _ = self.advance(); _ = self.advance(); return self.make_token(TokenType.ARROW, start_pos, self.pos(), "->") }
+    if c == '=' and self.peek() == '>' { _ = self.advance(); _ = self.advance(); return self.make_token(TokenType.MATCH_ARROW, start_pos, self.pos(), "=>") }
+    if c == ':' and self.peek() == '=' { _ = self.advance(); _ = self.advance(); return self.make_token(TokenType.WALRUS, start_pos, self.pos(), ":=") }
+    if c == '.' and self.peek() == '.' { _ = self.advance(); _ = self.advance(); return self.make_token(TokenType.RANGE, start_pos, self.pos(), "..") }
+
+    // single-char tokens
+    _ = self.advance()
+    if c == '+' { return self.make_token(TokenType.PLUS, start_pos, self.pos(), "+") }
+    if c == '-' { return self.make_token(TokenType.MINUS, start_pos, self.pos(), "-") }
+    if c == '*' { return self.make_token(TokenType.STAR, start_pos, self.pos(), "*") }
+    if c == '/' { return self.make_token(TokenType.SLASH, start_pos, self.pos(), "/") }
+    if c == '%' { return self.make_token(TokenType.PERCENT, start_pos, self.pos(), "%") }
+    if c == '=' { return self.make_token(TokenType.ASSIGN, start_pos, self.pos(), "=") }
+    if c == '<' { return self.make_token(TokenType.LT, start_pos, self.pos(), "<") }
+    if c == '>' { return self.make_token(TokenType.GT, start_pos, self.pos(), ">") }
+    if c == '(' { return self.make_token(TokenType.LPAREN, start_pos, self.pos(), "(") }
+    if c == ')' { return self.make_token(TokenType.RPAREN, start_pos, self.pos(), ")") }
+    if c == '{' { return self.make_token(TokenType.LBRACE, start_pos, self.pos(), "{") }
+    if c == '}' { return self.make_token(TokenType.RBRACE, start_pos, self.pos(), "}") }
+    if c == '[' { return self.make_token(TokenType.LBRACKET, start_pos, self.pos(), "[") }
+    if c == ']' { return self.make_token(TokenType.RBRACKET, start_pos, self.pos(), "]") }
+    if c == ',' { return self.make_token(TokenType.COMMA, start_pos, self.pos(), ",") }
+    if c == ':' { return self.make_token(TokenType.COLON, start_pos, self.pos(), ":") }
+    if c == '.' { return self.make_token(TokenType.DOT, start_pos, self.pos(), ".") }
+
+    return self.make_token(TokenType.INVALID, start_pos, self.pos(), "")
+  }
+}
+
+// Helpers
+func token_kind_to_string(k: TokenType) -> string {
+  // literals & id
+  if k == TokenType.IDENT { return "IDENT" }
+  if k == TokenType.INT { return "INT" }
+  if k == TokenType.FLOAT { return "FLOAT" }
+  if k == TokenType.STRING { return "STRING" }
+  if k == TokenType.TRUE { return "TRUE" }
+  if k == TokenType.FALSE { return "FALSE" }
+  // keywords
+  if k == TokenType.FUNC { return "FUNC" }
+  if k == TokenType.LET { return "LET" }
+  if k == TokenType.VAR { return "VAR" }
+  if k == TokenType.IF { return "IF" }
+  if k == TokenType.ELSE { return "ELSE" }
+  if k == TokenType.FOR { return "FOR" }
+  if k == TokenType.IN { return "IN" }
+  if k == TokenType.WHILE { return "WHILE" }
+  if k == TokenType.MATCH { return "MATCH" }
+  if k == TokenType.WHEN { return "WHEN" }
+  if k == TokenType.RETURN { return "RETURN" }
+  if k == TokenType.BREAK { return "BREAK" }
+  if k == TokenType.CONTINUE { return "CONTINUE" }
+  if k == TokenType.DO { return "DO" }
+  if k == TokenType.END { return "END" }
+  if k == TokenType.AND { return "AND" }
+  if k == TokenType.OR { return "OR" }
+  if k == TokenType.NOT { return "NOT" }
+  // ops
+  if k == TokenType.PLUS { return "PLUS" }
+  if k == TokenType.MINUS { return "MINUS" }
+  if k == TokenType.STAR { return "STAR" }
+  if k == TokenType.SLASH { return "SLASH" }
+  if k == TokenType.PERCENT { return "PERCENT" }
+  if k == TokenType.EQ { return "EQ" }
+  if k == TokenType.NE { return "NE" }
+  if k == TokenType.LT { return "LT" }
+  if k == TokenType.LE { return "LE" }
+  if k == TokenType.GT { return "GT" }
+  if k == TokenType.GE { return "GE" }
+  if k == TokenType.ASSIGN { return "ASSIGN" }
+  if k == TokenType.ARROW { return "ARROW" }
+  if k == TokenType.MATCH_ARROW { return "MATCH_ARROW" }
+  if k == TokenType.RANGE { return "RANGE" }
+  if k == TokenType.WALRUS { return "WALRUS" }
+  // delims
+  if k == TokenType.LPAREN { return "LPAREN" }
+  if k == TokenType.RPAREN { return "RPAREN" }
+  if k == TokenType.LBRACE { return "LBRACE" }
+  if k == TokenType.RBRACE { return "RBRACE" }
+  if k == TokenType.LBRACKET { return "LBRACKET" }
+  if k == TokenType.RBRACKET { return "RBRACKET" }
+  if k == TokenType.COMMA { return "COMMA" }
+  if k == TokenType.COLON { return "COLON" }
+  if k == TokenType.DOT { return "DOT" }
+  if k == TokenType.NEWLINE { return "NEWLINE" }
+  if k == TokenType.EOF { return "EOF" }
+  "INVALID"
+}
+
+func json_escape(s: string) -> string {
+  // Minimal escape (quotes and backslash only)
+  var out = ""
+  for ch in s.chars() do
+    if ch == '"' { out = out + "\\\"" }
+    else if ch == '\\' { out = out + "\\\\" }
+    else { out = out + ch }
+  end
+  out
+}
+
+// Deterministic JSONL emission
+// {"k":"KIND","t":"TEXT","l":line,"c":col,"b":byte}
+func tokenize_to_json(input: string) {
+  var tz = Tokenizer::init(input)
+  while true {
+    let t = tz.scan_token()
+    if t.kind == TokenType.EOF { break }
+    // normalize: skip NEWLINE tokens in JSON (structural only)
+    if t.kind == TokenType.NEWLINE { continue }
+    let k = token_kind_to_string(t.kind)
+    let txt = json_escape(t.text)
+    let l = t.span.start.line
+    let c = t.span.start.column
+    let b = t.span.start.byte
+    print("{\"k\":\"" + k + "\",\"t\":\"" + txt + "\",\"l\":" + l.to_string() + ",\"c\":" + c.to_string() + ",\"b\":" + b.to_string() + "}")
+  }
+}
+
+// Simple entry retained for ad-hoc debugging
+func tokenize_and_print(input: string) {
+  tokenize_to_json(input)
+}
+
+// BLAKE3 hash for roundtrip testing - intrinsic call
+func blake3_hash(data: string) -> string {
+  @intrinsic("blake3_hash", data)
+}
+
+// Test function for roundtrip validation
+func tokenize_and_hash(input: string) -> string {
+  let json_output = collect_json_output(input)
+  blake3_hash(json_output)
+}
+
+// Collect JSON output into a single string for hashing
+func collect_json_output(input: string) -> string {
+  var output = ""
+  var tz = Tokenizer::init(input)
+  while true {
+    let t = tz.scan_token()
+    if t.kind == TokenType.EOF { break }
+    // normalize: skip NEWLINE tokens in JSON (structural only)
+    if t.kind == TokenType.NEWLINE { continue }
+    let k = token_kind_to_string(t.kind)
+    let txt = json_escape(t.text)
+    let l = t.span.start.line
+    let c = t.span.start.column
+    let b = t.span.start.byte
+    output = output + "{\"k\":\"" + k + "\",\"t\":\"" + txt + "\",\"l\":" + l.to_string() + ",\"c\":" + c.to_string() + ",\"b\":" + b.to_string() + "}\n"
+  }
+  output
+}
+
+// Error reporting function
+func report_error(message: string, span: SourceSpan) {
+  @intrinsic("report_error", message, span.start.line, span.start.column)
+}

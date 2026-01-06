@@ -1,0 +1,96 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Directory walker with pruned depth-first search algorithm
+// Implements high-performance directory traversal with configurable filtering
+
+use std.io
+use std.os
+
+// Directory walker with pruning capabilities
+struct Walker {
+    config: *const Config,
+    allocator: *Allocator,
+}
+
+// Initialize walker with configuration
+func Walker.init(allocator: *Allocator, config: *const Config) -> Walker {
+    return Walker{
+        config: config,
+        allocator: allocator,
+    }
+}
+
+// Check if a file or directory should be processed
+func Walker.should_process(self: *Walker, path: string, depth: i32) -> bool {
+    // Check maximum depth limit
+    if self.config.max_depth do |max_depth|
+        if depth > max_depth do
+            return false
+        end
+    end
+
+    // Check if hidden files should be skipped
+    if !self.config.show_hidden do
+        if is_hidden(path) do
+            return false
+        end
+    end
+
+    return true
+}
+
+// Walk directory tree and invoke callback for each file
+func Walker.walk(self: *Walker, callback: fn(FileEntry) -> void) -> !void {
+    try self.walk_recursive(self.config.path, 0, callback)
+}
+
+// Recursive directory traversal implementation
+func Walker.walk_recursive(self: *Walker, dir_path: string, depth: i32, callback: fn(FileEntry) -> void) -> !void {
+    // Check if we should process this directory
+    if !self.should_process(dir_path, depth) do
+        return
+    end
+
+    // TODO: Use std.os.dir.list() to get directory entries
+    // For now, we'll create a stub implementation
+
+    // Example of how the real implementation would work:
+    // let entries = try std.os.dir.list(self.allocator, dir_path)
+    // defer entries.deinit()
+
+    // for entry in entries do
+    //     let full_path = try std.os.path.join(self.allocator, &[_]string{dir_path, entry.name})
+    //     defer self.allocator.free(full_path)
+    //
+    //     if entry.is_dir do
+    //         try self.walk_recursive(full_path, depth + 1, callback)
+    //     else do
+    //         callback(FileEntry{path: full_path, is_dir: false})
+    //     end
+    // end
+
+    // Stub implementation - just process the initial path
+    callback(FileEntry{path: dir_path, is_dir: true})
+}
+
+// Check if a path represents a hidden file or directory
+func is_hidden(path: string) -> bool {
+    // Extract filename from path
+    let filename = std.os.path.basename(path)
+
+    // On Unix systems, files starting with '.' are hidden
+    // TODO: Add Windows-specific hidden file detection
+    return filename.len > 0 and filename[0] == '.'
+}

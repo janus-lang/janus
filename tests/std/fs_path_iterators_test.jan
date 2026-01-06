@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Tests for components() iterator and ancestors()
+
+import std.sys.fs.path;
+
+func test_components_absolute() -> Result<(), string> {
+    let p = Path::new("/usr/local/bin");
+    let mut it = p.components();
+    match it.next() { Some(path::Component::Root) => {}, _ => return Err("expected Root".to_string()) }
+    match it.next() { Some(path::Component::Normal(s)) => if s != "usr" { return Err("expected usr".to_string()) } else { }, _ => return Err("expected Normal(usr)".to_string()) }
+    match it.next() { Some(path::Component::Normal(s)) => if s != "local" { return Err("expected local".to_string()) } else { }, _ => return Err("expected Normal(local)".to_string()) }
+    match it.next() { Some(path::Component::Normal(s)) => if s != "bin" { return Err("expected bin".to_string()) } else { }, _ => return Err("expected Normal(bin)".to_string()) }
+    match it.next() { None => Ok(()), _ => Err("expected end".to_string()) }
+}
+
+func test_components_special_segments() -> Result<(), string> {
+    let p = Path::new("./a/../b");
+    let mut it = p.components();
+    match it.next() { Some(path::Component::CurDir) => {}, _ => return Err("expected CurDir".to_string()) }
+    match it.next() { Some(path::Component::Normal(s)) => if s != "a" { return Err("expected a".to_string()) } else { }, _ => return Err("expected Normal(a)".to_string()) }
+    match it.next() { Some(path::Component::ParentDir) => {}, _ => return Err("expected ParentDir".to_string()) }
+    match it.next() { Some(path::Component::Normal(s)) => if s != "b" { return Err("expected b".to_string()) } else { }, _ => return Err("expected Normal(b)".to_string()) }
+    Ok(())
+}
+
+func test_ancestors_absolute() -> Result<(), string> {
+    let p = Path::new("/a/b");
+    let mut it = p.ancestors();
+    if it.next().unwrap().as_string() != "/a/b" { return Err("first ancestor mismatch".to_string()); }
+    if it.next().unwrap().as_string() != "/a" { return Err("second ancestor mismatch".to_string()); }
+    if it.next().unwrap().as_string() != "/" { return Err("third ancestor mismatch".to_string()); }
+    match it.next() { None => Ok(()), Some(_) => Err("expected end".to_string()) }
+}
+
+func test_ancestors_relative() -> Result<(), string> {
+    let p = Path::new("a/b");
+    let mut it = p.ancestors();
+    if it.next().unwrap().as_string() != "a/b" { return Err("first ancestor mismatch".to_string()); }
+    if it.next().unwrap().as_string() != "a" { return Err("second ancestor mismatch".to_string()); }
+    match it.next() { None => Ok(()), Some(_) => Err("expected end".to_string()) }
+}

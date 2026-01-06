@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// janus.fs.file — File handle (skeleton)
+// RAII-style handle; concrete behavior implemented in later tasks.
+
+import std.core;
+import std.sys.fs.path;
+import std.sys.fs.fs;
+
+// Minimal file handle placeholder; backends will wrap OS descriptors.
+struct File {
+    // opaque: u64, // placeholder for fd/handle; uncomment when implementing
+}
+
+impl File {
+    // Read into owned string (convenience) — full behavior implemented later
+    func read_to_string(self) -> Result<string, fs.FsError> {
+        @intrinsic("unreachable") // Placeholder; implemented in later tasks
+    }
+
+    // Write bytes/string — capability-gated at call site in higher-level APIs
+    func write_all(self, _data: string) -> Result<(), fs.FsError> {
+        @intrinsic("unreachable")
+    }
+
+    // Flush buffered output
+    func flush(self) -> Result<(), fs.FsError> {
+        @intrinsic("unreachable")
+    }
+}

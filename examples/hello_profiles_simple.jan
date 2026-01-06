@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Simplified hello_profiles.jan for current parser
+// Demonstrates profile-aware compilation concept
+
+func main() {
+    let name: string = "World";
+
+    // This call will work differently in different profiles
+    // :min profile: simple sequential execution
+    // :go profile: enhanced with error handling and concurrency support
+    greet(name);
+}
+
+// Simple version for :min profile
+func greet(name: string) {
+    print("Hello, ");
+    print(name);
+    print("! (from :min profile)");
+}

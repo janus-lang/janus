@@ -1,0 +1,118 @@
+// Janus Package Manifest
+// Format: KDL (human-readable, structured)
+// Purpose: Define project dependencies and security policies
+
+package "janus-example-project" {
+    version "1.0.0"
+    description "Example Janus project demonstrating security policies"
+    license "Apache-2.0"
+
+    authors {
+        author "Janus Developer" email="dev@janus-lang.org"
+    }
+}
+
+// Dependencies - human-friendly references
+dependencies {
+    // Core dependencies
+    dep "std/collections" version="1.2.0" source="git+https://github.com/janus-lang/std-collections.git"
+    dep "crypto/blake3" version="1.5.0" source="git+https://github.com/BLAKE3-team/BLAKE3.git"
+
+    // Optional dependencies
+    dep "web/http" version="2.1.0" source="git+https://github.com/janus-web/http.git" optional=true
+}
+
+// Development dependencies (not included in production builds)
+dev_dependencies {
+    dep "test/framework" version="0.9.0" source="git+https://github.com/janus-lang/test-framework.git"
+    dep "bench/suite" version="1.0.0" source="git+https://github.com/janus-lang/bench-suite.git"
+}
+
+// Security Policy - User-defined security requirements
+// This is the Janus Way: Mechanism over Policy
+policy {
+    // SBOM Requirements
+    require_sbom "production"  // Options: "none", "production", "all"
+    sbom_formats ["cyclonedx", "spdx"]  // Accepted SBOM formats
+
+    // Exceptions for trusted packages (use sparingly)
+    sbom_exceptions [
+        "std/collections",  // Core standard library
+        "crypto/blake3"     // Well-audited cryptographic library
+    ]
+
+    // Security scoring (future feature)
+    min_security_score 7.0  // Minimum security score (0-10 scale)
+
+    // Vulnerability management
+    max_vulnerability_severity "medium"  // Block high/critical vulnerabilities
+    allow_vulnerability_exceptions ["CVE-2023-12345"]  // Specific exceptions
+
+    // License compliance
+    allowed_licenses ["Apache-2.0", "MIT", "BSD-3-Clause", "CC0-1.0"]
+    forbidden_licenses ["GPL-3.0", "AGPL-3.0"]  // Copyleft restrictions
+
+    // Supply chain verification
+    require_signature true  // Require cryptographic signatures
+    trusted_signers ["janus-lang.org", "trusted-vendor.com"]
+
+    // Build reproducibility
+    require_reproducible_builds true
+    allow_build_variance 0.001  // Acceptable hash variance for reproducibility
+}
+
+// Capability grants for comptime execution
+// These are explicit permissions for build-time code execution
+capabilities {
+    // Network access for code generation
+    grant "net.http" {
+        hosts ["api.example.com", "schema.registry.org"]
+        purpose "Download API schemas for code generation"
+    }
+
+    // File system access for asset processing
+    grant "fs.read" {
+        paths ["assets/", "templates/"]
+        purpose "Process static assets and templates"
+    }
+
+    // No write access granted - build is hermetic
+}
+
+// Build configuration
+build {
+    // Target profiles
+    profiles ["min", "go", "full"]  // Supported Janus profiles
+    default_profile "go"
+
+    // Optimization settings
+    optimize "speed"  // Options: "size", "speed", "debug"
+
+    // Security settings
+    safety_level "checked"  // Options: "raw", "checked", "owned"
+    enable_sanitizers true
+
+    // Output configuration
+    generate_sbom true  // Automatically generate SBOM for this package
+    sbom_formats ["cyclonedx", "spdx"]
+}
+
+// Package metadata for registry
+registry {
+    // Keywords for discoverability
+    keywords ["systems", "performance", "security", "example"]
+
+    // Categories
+    categories ["development-tools", "cryptography"]
+
+    // Documentation
+    homepage "https://janus-lang.org/packages/example-project"
+    repository "https://github.com/janus-lang/example-project"
+    documentation "https://docs.janus-lang.org/packages/example-project"
+
+    // Maintenance status
+    maintenance_status "actively-maintained"  // Options: "actively-maintained", "passively-maintained", "deprecated"
+
+    // Security contact
+    security_contact "security@janus-lang.org"
+}

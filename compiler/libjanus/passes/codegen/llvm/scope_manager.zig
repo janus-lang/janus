@@ -1,0 +1,358 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+/// Visibility levels for functions and types
+pub const VisibilityLevel = enum {
+    private, // Only visible within the same module
+    module, // Visible within the module and its submodules
+    public, // Visible to any module that imports this one
+
+    pub fn canAccess(self: VisibilityLevel, same_module: bool) bool {
+        return switch (self) {
+            .private => same_module,
+            .module => same_module,
+            .public => true,
+        };
+    }
+};
+
+/// Function declaration with metadata for resolution
+pub const FunctionDecl = struct {
+    name: []const u8,
+    parameter_types: []const u8, // Simplified for now - will be proper types later
+    return_type: []const u8,
+    visibility: VisibilityLevel,
+    module_path: []const u8,
+    source_location: SourceLocation,
+
+    pub const SourceLocation = struct {
+        file: []const u8,
+        line: u32,
+        column: u32,
+    };
+};
+
+/// Scope represents a namespace containing functions and types
+pub const Scope = struct {
+    name: []const u8,
+    module_path: ?[]const u8,
+    parent: ?*Scope,
+    functions: std.HashMap([]const u8, std.ArrayList(*FunctionDecl), StringContext, std.hash_map.default_max_load_percentage),
+    child_scopes: std.ArrayList(*Scope),
+    is_module_root: bool,
+    allocator: Allocator,
+
+    const StringContext = struct {
+        pub fn hash(self: @This(), key: []const u8) u64 {
+            _ = self;
+            return std.hash_map.hashString(key);
+        }
+
+        pub fn eql(self: @This(), a: []const u8, b: []const u8) bool {
+            _ = self;
+            return std.mem.eql(u8, a, b);
+        }
+    };
+
+    pub fn init(allocator: Allocator, name: []const u8, module_path: ?[]const u8) !*Scope {
+        const scope = try allocator.create(Scope);
+        scope.* = Scope{
+            .name = try allocator.dupe(u8, name),
+            .module_path = if (module_path) |path| try allocator.dupe(u8, path) else null,
+            .parent = null,
+            .functions = std.HashMap([]const u8, std.ArrayList(*FunctionDecl), StringContext, std.hash_map.default_max_load_percentage).init(allocator),
+            .child_scopes = std.ArrayList(*Scope).init(allocator),
+            .is_module_root = module_path != null,
+            .allocator = allocator,
+        };
+        return scope;
+    }
+
+    pub fn deinit(self: *Scope) void {
+        // Free function lists and the FunctionDecl objects themselves
+        var func_iterator = self.functions.iterator();
+        while (func_iterator.next()) |entry| {
+            // Free each FunctionDecl that was allocated with create()
+            for (entry.value_ptr.items) |func_decl| {
+                self.allocator.destroy(func_decl);
+            }
+            entry.value_ptr.deinit();
+        }
+        self.functions.deinit();
+
+        // Free child scopes
+        for (self.child_scopes.items) |child| {
+            child.deinit();
+            self.allocator.destroy(child);
+        }
+        self.child_scopes.deinit();
+
+        // Free strings
+        self.allocator.free(self.name);
+        if (self.module_path) |path| {
+            self.allocator.free(path);
+        }
+    }
+
+    pub fn addFunction(self: *Scope, function: *const FunctionDecl) !void {
+        // Always create our own copy to ensure consistent memory management
+        const owned_function = try self.allocator.create(FunctionDecl);
+        owned_function.* = function.*;
+
+        const result = try self.functions.getOrPut(function.name);
+        if (!result.found_existing) {
+            result.value_ptr.* = std.ArrayList(*FunctionDecl).init(self.allocator);
+        }
+        try result.value_ptr.append(owned_function);
+    }
+
+    pub fn getFunctionsByName(self: *const Scope, name: []const u8) []const *FunctionDecl {
+        const functions = self.functions.get(name) orelse return &[_]*FunctionDecl{};
+        return functions.items;
+    }
+
+    pub fn addChildScope(self: *Scope, child: *Scope) !void {
+        child.parent = self;
+        try self.child_scopes.append(child);
+    }
+
+    pub fn findChildScope(self: *const Scope, name: []const u8) ?*Scope {
+        for (self.child_scopes.items) |child| {
+            if (std.mem.eql(u8, child.name, name)) {
+                return child;
+            }
+        }
+        return null;
+    }
+
+    pub fn getModulePath(self: *const Scope) []const u8 {
+        if (self.module_path) |path| return path;
+        if (self.parent) |parent| return parent.getModulePath();
+        return "";
+    }
+
+    pub fn isInSameModule(self: *const Scope, other: *const Scope) bool {
+        const self_module = self.getModulePath();
+        const other_module = other.getModulePath();
+        return std.mem.eql(u8, self_module, other_module);
+    }
+
+    pub fn clearFunctions(self: *Scope) void {
+        // Free function lists and the FunctionDecl objects themselves
+        var func_iterator = self.functions.iterator();
+        while (func_iterator.next()) |entry| {
+            // Free each FunctionDecl that was allocated with create()
+            for (entry.value_ptr.items) |func_decl| {
+                self.allocator.destroy(func_decl);
+            }
+            entry.value_ptr.deinit();
+        }
+        self.functions.clearAndFree();
+    }
+};
+
+/// Import represents an explicit import statement
+pub const Import = struct {
+    module_path: []const u8,
+    alias: ?[]const u8,
+    imported_scope: *Scope,
+    is_qualified: bool, // true for "import foo", false for "from foo import bar"
+
+    pub fn getAccessName(self: *const Import) []const u8 {
+        return self.alias orelse self.module_path;
+    }
+};
+
+/// ScopeManager manages the hierarchical scope system and imports
+pub const ScopeManager = struct {
+    allocator: Allocator,
+    root_scope: *Scope,
+    current_scope: *Scope,
+    imports: std.ArrayList(Import),
+    module_registry: std.HashMap([]const u8, *Scope, StringContext, std.hash_map.default_max_load_percentage),
+
+    const StringContext = struct {
+        pub fn hash(self: @This(), key: []const u8) u64 {
+            _ = self;
+            return std.hash_map.hashString(key);
+        }
+
+        pub fn eql(self: @This(), a: []const u8, b: []const u8) bool {
+            _ = self;
+            return std.mem.eql(u8, a, b);
+        }
+    };
+
+    pub fn init(allocator: Allocator) !ScopeManager {
+        const root = try Scope.init(allocator, "root", null);
+
+        return ScopeManager{
+            .allocator = allocator,
+            .root_scope = root,
+            .current_scope = root,
+            .imports = std.ArrayList(Import).init(allocator),
+            .module_registry = std.HashMap([]const u8, *Scope, StringContext, std.hash_map.default_max_load_percentage).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *ScopeManager) void {
+        // Free imports
+        for (self.imports.items) |import| {
+            self.allocator.free(import.module_path);
+            if (import.alias) |alias| {
+                self.allocator.free(alias);
+            }
+        }
+        self.imports.deinit();
+
+        // Free module registry
+        var module_iterator = self.module_registry.iterator();
+        while (module_iterator.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
+        }
+        self.module_registry.deinit();
+
+        // Free root scope
+        self.root_scope.deinit();
+        self.allocator.destroy(self.root_scope);
+    }
+
+    pub fn registerModule(self: *ScopeManager, module_path: []const u8, scope: *Scope) !void {
+        const owned_path = try self.allocator.dupe(u8, module_path);
+        try self.module_registry.put(owned_path, scope);
+    }
+
+    pub fn addImport(self: *ScopeManager, module_path: []const u8, alias: ?[]const u8, is_qualified: bool) !void {
+        const imported_scope = self.module_registry.get(module_path) orelse {
+            return error.ModuleNotFound;
+        };
+
+        const import = Import{
+            .module_path = try self.allocator.dupe(u8, module_path),
+            .alias = if (alias) |a| try self.allocator.dupe(u8, a) else null,
+            .imported_scope = imported_scope,
+            .is_qualified = is_qualified,
+        };
+
+        try self.imports.append(import);
+    }
+
+    pub fn enterScope(self: *ScopeManager, scope: *Scope) void {
+        self.current_scope = scope;
+    }
+
+    pub fn exitScope(self: *ScopeManager) void {
+        if (self.current_scope.parent) |parent| {
+            self.current_scope = parent;
+        }
+    }
+
+    pub fn getAccessibleScopes(self: *const ScopeManager, allocator: Allocator) ![]const *Scope {
+        var scopes = std.ArrayList(*Scope).init(allocator);
+
+        // Add current scope (simplified for now)
+        // TODO: Add parent traversal when we have proper scope hierarchies
+        try scopes.append(self.current_scope);
+
+        // Add imported scopes (skip for now to avoid crashes)
+        // TODO: Add proper import handling when we have imports
+        _ = self.imports;
+
+        return scopes.toOwnedSlice();
+    }
+
+    pub fn isVisible(self: *const ScopeManager, function: *const FunctionDecl, from_scope: *const Scope) bool {
+        _ = self; // Not used for basic visibility
+        const same_module = std.mem.eql(u8, function.module_path, from_scope.getModulePath());
+        return function.visibility.canAccess(same_module);
+    }
+
+    pub fn createChildScope(self: *ScopeManager, name: []const u8) !*Scope {
+        const child = try Scope.init(self.allocator, name, null);
+        try self.current_scope.addChildScope(child);
+        return child;
+    }
+};
+
+// Tests
+test "Scope basic operations" {
+    var scope = try Scope.init(std.testing.allocator, "test_scope", "test.module");
+    defer {
+        scope.deinit();
+        std.testing.allocator.destroy(scope);
+    }
+
+    // Create a test function
+    var function = FunctionDecl{
+        .name = "test_func",
+        .parameter_types = "i32,f64",
+        .return_type = "bool",
+        .visibility = .public,
+        .module_path = "test.module",
+        .source_location = FunctionDecl.SourceLocation{
+            .file = "test.jan",
+            .line = 10,
+            .column = 5,
+        },
+    };
+
+    try scope.addFunction(&function);
+
+    const functions = scope.getFunctionsByName("test_func");
+    try std.testing.expect(functions.len == 1);
+    try std.testing.expectEqualStrings(functions[0].name, "test_func");
+}
+
+test "ScopeManager imports" {
+    var manager = try ScopeManager.init(std.testing.allocator);
+    defer manager.deinit();
+
+    // Create a module scope
+    var module_scope = try Scope.init(std.testing.allocator, "math", "std.math");
+    defer {
+        module_scope.deinit();
+        std.testing.allocator.destroy(module_scope);
+    }
+
+    try manager.registerModule("std.math", module_scope);
+    try manager.addImport("std.math", "math", true);
+
+    const accessible = try manager.getAccessibleScopes(std.testing.allocator);
+    defer std.testing.allocator.free(accessible);
+
+    // Should have root scope + imported scope
+    try std.testing.expect(accessible.len == 2);
+}
+
+test "Visibility rules" {
+    var manager = try ScopeManager.init(std.testing.allocator);
+    defer manager.deinit();
+
+    var function = FunctionDecl{
+        .name = "private_func",
+        .parameter_types = "",
+        .return_type = "void",
+        .visibility = .private,
+        .module_path = "", // Same as root scope
+        .source_location = FunctionDecl.SourceLocation{
+            .file = "test.jan",
+            .line = 1,
+            .column = 1,
+        },
+    };
+
+    // Same module - should be visible
+    try std.testing.expect(manager.isVisible(&function, manager.current_scope));
+
+    // Different module - should not be visible for private functions
+    var other_scope = try Scope.init(std.testing.allocator, "other", "other.module");
+    defer {
+        other_scope.deinit();
+        std.testing.allocator.destroy(other_scope);
+    }
+
+    try std.testing.expect(!manager.isVisible(&function, other_scope));
+}

@@ -1,0 +1,8 @@
+// Simple test case for :min profile
+func main() -> i32 {
+    var i: i32 = 0
+    while i < 5 do
+        i = i + 1
+    end
+    return 0
+}

@@ -1,0 +1,130 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// ... existing code ...
+
+// =============================================================================
+// String Utilities (missing from core)
+// =============================================================================
+
+/// String manipulation utilities for CLI
+impl String {
+    /// Convert string to uppercase
+    func to_uppercase(self) -> String {
+        // Implementation would use ASCII conversion
+        // For now, return self as placeholder
+        self.clone()
+    }
+
+    /// Check if string starts with prefix
+    func starts_with(self, prefix: &str) -> bool {
+        if prefix.len() > self.len() {
+            return false;
+        }
+        // Simple byte comparison for ASCII
+        for i in 0..prefix.len() {
+            if self.as_bytes()[i] != prefix.as_bytes()[i] {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Get string as byte slice
+    func as_bytes(self) -> &[u8] {
+        // Placeholder - in real implementation would return underlying bytes
+        &[]
+    }
+
+    /// Format string with arguments (simplified)
+    func format(args: &[&str]) -> String {
+        // Placeholder implementation
+        String::new()
+    }
+}
+
+// =============================================================================
+// Environment Access (missing from core)
+// =============================================================================
+
+/// Environment variable access
+module std.env {
+    /// Get environment variable value
+    func get(key: &str) -> Option<String> {
+        // Placeholder - in real implementation would access OS environment
+        None
+    }
+
+    /// Set environment variable
+    func set(key: &str, value: &str) -> Result<(), Error> {
+        // Placeholder - in real implementation would set OS environment
+        Ok(())
+    }
+}
+
+// =============================================================================
+// HashSet for Capability Tracking
+// =============================================================================
+
+/// Simple hash set implementation for capability tracking
+struct HashSet<T> {
+    items: Vec<T>,
+}
+
+impl HashSet<T> {
+    func new() -> Self {
+        HashSet { items: Vec::new() }
+    }
+
+    func insert(&mut self, item: T) {
+        if !self.contains(&item) {
+            self.items.push(item);
+        }
+    }
+
+    func contains(&self, item: &T) -> bool {
+        for existing in self.items.iter() {
+            if existing == item {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+// =============================================================================
+// Capability System Integration
+// =============================================================================
+
+/// Capability set for validation
+struct CapabilitySet {
+    required: HashSet<String>,
+    forbidden: HashSet<String>,
+}
+
+/// Capability validation result
+enum CapabilityResult {
+    Granted,
+    Denied(String), // Reason for denial
+}
+
+/// Validate capabilities for an operation
+func validate_capabilities(operation_caps: &CapabilitySet, available_caps: &[String]) -> CapabilityResult {
+    // Check required capabilities
+    for cap in operation_caps.required.items.iter() {
+        if !available_caps.contains(cap) {
+            return CapabilityResult::Denied(format!("Missing capability: {}", cap));
+        }
+    }
+
+    // Check forbidden capabilities
+    for cap in operation_caps.forbidden.items.iter() {
+        if available_caps.contains(cap) {
+            return CapabilityResult::Denied(format!("Forbidden capability: {}", cap));
+        }
+    }
+
+    CapabilityResult::Granted
+}
+
+// ... existing code ...

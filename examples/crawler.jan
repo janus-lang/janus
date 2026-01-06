@@ -1,0 +1,130 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// crawler.jan - Canonical demonstration of :go profile structured concurrency
+// A concurrent web crawler showcasing parallel URL fetching, link parsing,
+// visited tracking, and error handling with nurseries for structured cleanup.
+
+package main
+
+import "std.log"
+import "std.http"
+import "std.string"
+import "std.collections"
+import "std.concurrency"
+
+const MaxDepth := 3
+const MaxConcurrent := 20
+const StartURL := "https://example.com"
+
+type Visited = std.collections.HashSet[string]
+type Semaphore = std.concurrency.Channel[i32]  // Permits for concurrency control
+
+// Simple error types for :go profile
+type CrawlError = enum {
+    Network: string,
+    Parse: string,
+    InvalidURL: string,
+}
+
+// Assume std.http.Response has body: string
+func fetchURL(url: string, ctx: Context) -> CrawlError!string {
+    // Use context for net_http capability
+    let response = std.http.Client.get(url, cap: ctx.net_http) or { |err|
+        log.warn("Fetch failed for {url}: {err}")
+        return Error.CrawlError(.Network, $"Failed to fetch {url}")
+    }
+    if response.status != 200 do
+        return Error.CrawlError(.Network, $"HTTP {response.status}")
+    end
+    return response.body
+}
+
+func isValidLink(link: string) -> bool {
+    // Basic validation: http/https, no fragments, reasonable length
+    return link.starts_with("http") and !link.contains("#") and link.len() < 200
+}
+
+func resolveURL(link: string, base: string) -> string {
+    if link.starts_with("http") do
+        return link
+    end
+    // Simple relative resolution: prepend base host/path
+    let baseParts = std.string.split(base, "/")
+    let host = $"{baseParts[0]}//{baseParts[2]}"
+    return $"${host}/${link}"
+}
+
+func parseLinks(html: string, baseURL: string) -> []string {
+    var links = []string{}
+    var pos: i32 = 0
+    while true do
+        let hrefStart = std.string.find(html, '<a href="', pos)
+        if hrefStart == -1 do
+            break
+        end
+        let quoteStart = hrefStart + len('<a href="')
+        let quoteEnd = std.string.find(html, '"', quoteStart)
+        if quoteEnd == -1 do
+            break
+        end
+        let link = html[quoteStart..quoteEnd]
+        if isValidLink(link) do
+            let resolved = resolveURL(link, baseURL)
+            links.append(resolved)
+        end
+        pos = quoteEnd + 1
+    end
+    return links
+}
+
+func crawlWorker(ctx: Context, url: string, depth: i32, visited: &Visited, sem: Semaphore) -> void {
+    if depth > MaxDepth or visited.contains(url) do
+        return
+    end
+
+    // Acquire semaphore permit
+    let permit = <-sem
+    defer { sem <- permit }
+
+    visited.insert(url)
+
+    log.info("Crawling {url} at depth {depth}")
+
+    let html = fetchURL(url, ctx) or { |err|
+        log.error("Crawl error at {url}: {err}")
+        return  // Recover and continue
+    }
+
+    let links = parseLinks(html, url)
+
+    // Structured sub-concurrency: nursery for child crawls
+    if depth < MaxDepth do
+        nursery.spawn(ctx) do
+            for link in links do
+                go crawlWorker(ctx, link, depth + 1, visited, sem)
+            end
+        end
+    end
+}
+
+func main(ctx: Context) -> void {
+    log.info("Starting Janus :go concurrent web crawler")
+    log.info("Max depth: {MaxDepth}, Max concurrent: {MaxConcurrent}")
+    log.info("Start URL: {StartURL}")
+
+    let visited = Visited.new(capacity: 1000)
+    let sem = std.concurrency.Channel.new[i32](MaxConcurrent, unbounded: false)
+    // Initialize permits
+    for i in 0..MaxConcurrent do
+        sem.send(1)
+    end
+
+    with ctx do
+        nursery.spawn(ctx) do
+            crawlWorker(ctx, StartURL, 0, &visited, sem)
+        end
+    end
+
+    log.info("Crawl complete. Total URLs visited: {visited.len()}")
+}

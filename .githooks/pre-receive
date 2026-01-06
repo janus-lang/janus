@@ -1,0 +1,54 @@
+#!/bin/bash
+# SPDX-License-Identifier: LSL-1.0
+# Copyright (c) 2025 Markus Maiwald
+#
+# Pre-receive hook: Enforce GPG signature requirement for master branch
+# Only commits signed by Markus Maiwald's GPG key are allowed on master
+
+set -euo pipefail
+
+# Markus Maiwald's GPG key fingerprint (replace with your actual key)
+AUTHORIZED_GPG_KEY="YOUR_GPG_KEY_FINGERPRINT_HERE"
+AUTHORIZED_EMAIL="markus@janus-lang.org"
+
+while read oldrev newrev refname; do
+    # Only enforce on master branch
+    if [[ "$refname" == "refs/heads/master" || "$refname" == "refs/heads/main" ]]; then
+        echo "🔒 Master branch protection: Verifying GPG signature..."
+
+        # Check if this is a merge commit or direct commit
+        if [[ "$oldrev" == "0000000000000000000000000000000000000000" ]]; then
+            # New branch, check all commits
+            commits=$(git rev-list "$newrev")
+        else
+            # Existing branch, check new commits only
+            commits=$(git rev-list "$oldrev..$newrev")
+        fi
+
+        for commit in $commits; do
+            # Verify GPG signature
+            signature_info=$(git verify-commit "$commit" 2>&1 || true)
+
+            if ! echo "$signature_info" | grep -q "Good signature"; then
+                echo "❌ REJECTED: Commit $commit is not GPG signed"
+                echo "❌ Only Markus Maiwald can commit to master branch"
+                echo "❌ Please sign your commits with: git commit -S"
+                exit 1
+            fi
+
+            # Verify it's signed by the authorized key
+            commit_email=$(git log -1 --format="%ae" "$commit")
+            if [[ "$commit_email" != "$AUTHORIZED_EMAIL" ]]; then
+                echo "❌ REJECTED: Commit $commit signed by unauthorized email: $commit_email"
+                echo "❌ Only $AUTHORIZED_EMAIL can commit to master"
+                exit 1
+            fi
+
+            echo "✅ Commit $commit: Valid GPG signature from $commit_email"
+        done
+
+        echo "🔒 Master branch protection: All commits verified ✅"
+    fi
+done
+
+echo "✅ Pre-receive hook: All checks passed"

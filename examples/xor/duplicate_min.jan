@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+# :min — array of size n+1, values 1..n, exactly one duplicate
+func find_duplicate(nums: Array[u32]) -> u32 do
+  var x := 0u32
+  for v in nums { x ^= v }
+
+  let n := (nums.len - 1) as u32
+  var y := 0u32
+  var i := 1u32
+  while i <= n do
+    y ^= i
+    i += 1
+  end
+  return x ^ y
+end
+
+print find_duplicate([1u32, 3, 4, 2, 2])  # 2

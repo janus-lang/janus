@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    print("=== String Handle Test ===");
+    
+    // Note: For now, we pass 0 as allocator (ignored by runtime)
+    let alloc := 0;
+    
+    // Create string from literal
+    let s1 := string_create("Hello, ", 7, alloc);
+    let s2 := string_create("Janus!", 6, alloc);
+    
+    // Print individual strings
+    print("String 1: ");
+    string_print(s1);
+    print("");
+    
+    print("String 2: ");
+    string_print(s2);
+    print("");
+    
+    // Concatenate
+    let s3 := string_concat_handle(s1, s2, alloc);
+    print("Concatenated: ");
+    string_print(s3);
+    print("");
+    
+    // Test equality
+    let s4 := string_create("Hello, Janus!", 13, alloc);
+    if string_eq(s3, s4) do
+        print("✓ Equality test PASSED")
+    end else do
+        print("✗ Equality test FAILED")
+    end;
+    
+    // Test length
+    let len := string_len_handle(s3);
+    print_int(len);
+    print(" characters");
+    
+    // Cleanup (with defer!)
+    defer string_free(s1, alloc);
+    defer string_free(s2, alloc);
+    defer string_free(s3, alloc);
+    defer string_free(s4, alloc);
+    
+    print("=== Test Complete ===");
+}

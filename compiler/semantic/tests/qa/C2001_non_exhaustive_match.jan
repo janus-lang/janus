@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// C2001 - Non-Exhaustive Match (QA Test)
+// Profile: :full
+// Expect: ERROR C2001
+
+enum TrafficLight { Red, Yellow, Green }
+
+func next_action(light: TrafficLight) -> String {
+    // This match is missing 'Yellow' and 'Green'
+    match light {
+        .Red => "Stop"
+    }
+}
+
+// In :script profile, this would warn.
+// In :full, this MUST fail to compile.

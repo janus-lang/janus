@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// MemoryFS: detect symlink cycles during recursive dereference
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.sys.fs.memory_fs;
+
+func main() -> void {
+    var m = memory_fs::MemoryFS::new()
+        .add_dir(path::Path::new("mem/src"))
+        .add_file(path::Path::new("mem/src/file.txt"), "X")
+        // Create a symlink that points back to the root of the subtree
+        .add_symlink(path::Path::new("mem/src/loop"), "mem/src");
+
+    let res = m.rename_or_copy_opts(path::Path::new("mem/src"), path::Path::new("mem/dst"), fs::CapFsWrite, fs::RenameOptions { recursive: true, follow_symlinks: true, replace: true });
+    switch (res) { .ok => @panic("expected error for symlink cycle"), .err => {} }
+
+    print("✅ MemoryFS symlink cycle detection passed");
+}

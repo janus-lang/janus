@@ -1,0 +1,157 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025 Janus Project Authors
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+/// ===========================
+/// Context-Bound Dynamic Array
+/// ===========================
+
+import "./alloc.jan" as Alloc
+import "./context.jan" as AllocContext
+import "./traits.jan" as Drop
+
+/// A context-bound dynamic array (List) that stores its allocator at construction time.
+/// This eliminates the need to pass allocator arguments to every method call.
+///
+/// Usage in different profiles:
+/// - :min profile: List.with(alloc) - explicit allocator required
+/// - :script profile: List.with(default) - uses thread-local region if no allocator provided
+/// - :full profile: List.with(alloc, ctx) - with context and capability tracking
+pub type List[T] {
+    /// The underlying data structure (uses existing Vec implementation)
+    inner: ListVec[T],
+    
+    /// The allocator capability bound to this list
+    alloc: Alloc,
+}
+
+/// Internal wrapper around the existing Vec implementation
+type ListVec[T] {
+    // This would wrap the existing std.collections.Vec in a real implementation
+    // For now, we'll use a simplified version that demonstrates the pattern
+    data: []T,
+    len: usize,
+    capacity: usize,
+}
+
+/// Context-bound List implementation
+impl[T] List[T] {
+    /// Create a new List with the given allocator capability
+    /// This is the primary constructor for all profiles
+    pub fn with(alloc: Alloc) -> List[T] {
+        return List[T]{
+            .inner = ListVec[T].init(),
+            .alloc = alloc,
+        };
+    }
+    
+    /// Create a new List using an allocator from the context
+    /// For :go and :full profiles
+    pub fn withContext(ctx: AllocContext, purpose: AllocContext.AllocPurpose) -> List[T] {
+        let alloc = AllocContext.get(ctx, purpose);
+        return List[T].with(alloc);
+    }
+    
+    /// Append an element to the list
+    /// No allocator argument needed - uses the bound allocator
+    pub fn append(self: *Self, item: T) -> Result[Void, Alloc.Error] {
+        // This would use the bound allocator: self.alloc
+        // For now, simplified implementation
+        return Ok(());
+    }
+    
+    /// Get the current length of the list
+    pub fn len(self: *Self) -> usize {
+        return self.inner.len;
+    }
+    
+    /// Check if the list is empty
+    pub fn isEmpty(self: *Self) -> Bool {
+        return self.inner.len == 0;
+    }
+    
+    /// Get a slice view of the list contents
+    pub fn asSlice(self: *Self) -> []T {
+        return self.inner.data[0..self.inner.len];
+    }
+    
+    /// Get element at index (with bounds checking)
+    pub fn get(self: *Self, index: usize) -> Result[T, IndexError] {
+        if (index >= self.inner.len) {
+            return Err(IndexError{ .index = index, .len = self.inner.len });
+        }
+        return Ok(self.inner.data[index]);
+    }
+    
+    /// Set element at index
+    pub fn set(self: *Self, index: usize, value: T) -> Result[Void, IndexError] {
+        if (index >= self.inner.len) {
+            return Err(IndexError{ .index = index, .len = self.inner.len });
+        }
+        self.inner.data[index] = value;
+        return Ok(());
+    }
+    
+    /// Remove and return the last element
+    pub fn pop(self: *Self) -> Result[T, EmptyListError] {
+        if (self.inner.len == 0) {
+            return Err(EmptyListError{});
+        }
+        self.inner.len -= 1;
+        return Ok(self.inner.data[self.inner.len]);
+    }
+    
+    /// Clear all elements from the list
+    pub fn clear(self: *Self) -> Void {
+        self.inner.len = 0;
+    }
+}
+
+/// Implement Drop trait for automatic cleanup
+impl[T] Drop.Drop for List[T] {
+    pub fn drop(self: *Self) -> Void {
+        // Clean up any internal resources if needed
+        // The allocator will handle freeing the underlying storage
+        self.clear();
+    }
+}
+
+/// Error types for list operations
+pub type IndexError {
+    index: usize,
+    len: usize,
+}
+
+pub type EmptyListError {}
+
+// Helper functions for common list operations
+pub mod helpers {
+    /// Create a list from a slice
+    pub fn fromSlice[T](alloc: Alloc, slice: []T) -> List[T] {
+        let list = List[T].with(alloc);
+        // Would copy elements from slice in real implementation
+        return list;
+    }
+    
+    /// Create a list with an initial capacity
+    pub fn withCapacity[T](alloc: Alloc, capacity: usize) -> List[T] {
+        let list = List[T].with(alloc);
+        // Would reserve capacity in real implementation
+        return list;
+    }
+    
+    /// Get the current capacity of the list
+    pub fn capacity[T](list: *List[T]) -> usize {
+        return list.inner.capacity;
+    }
+}

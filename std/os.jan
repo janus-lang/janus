@@ -1,0 +1,445 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// std/os.jan - Operating system interface with tri-signature pattern
+// File system operations, process management, and system information
+
+using std.core;
+
+// ===== COMMAND LINE ARGUMENTS =====
+
+// Get command-line arguments (available in all profiles)
+pub fn args() []String {
+    const raw_args = getArgsRaw();
+    var result: []String = undefined; // TODO: Allocate properly
+
+    for (raw_args, 0..) |arg, i| {
+        result[i] = String.fromUtf8(arg);
+    }
+
+    return result;
+}
+
+// ===== FILE SYSTEM TYPES =====
+
+pub const FileType = enum {
+    file,
+    directory,
+    symlink,
+    block_device,
+    char_device,
+    fifo,
+    socket,
+    unknown,
+};
+
+pub const FileInfo = struct {
+    name: String,
+    path: String,
+    file_type: FileType,
+    size: u64,
+    permissions: u32,
+    modified_time: i64,
+    created_time: i64,
+};
+
+pub const DirEntry = struct {
+    name: String,
+    file_type: FileType,
+
+    pub fn isDir(self: DirEntry) bool {
+        return self.file_type == .directory;
+    }
+
+    pub fn isFile(self: DirEntry) bool {
+        return self.file_type == .file;
+    }
+};
+
+pub const DirIterator = struct {
+    handle: *anyopaque,
+    allocator: Allocator,
+
+    pub fn next(self: *DirIterator) ?DirEntry {
+        // Implementation would call platform-specific directory reading
+        _ = self;
+        return null; // TODO: Implement
+    }
+
+    pub fn deinit(self: *DirIterator) void {
+        // Clean up directory handle
+        _ = self;
+        // TODO: Implement
+    }
+};
+
+// ===== DIRECTORY OPERATIONS =====
+
+// :min profile - Simple directory listing
+pub fn listDir(path: String, allocator: Allocator) Error![]DirEntry {
+    return listDirImpl(path.bytes, allocator);
+}
+
+// :go profile - Context-aware directory listing
+pub fn listDir(path: String, ctx: Context, allocator: Allocator) Error![]DirEntry {
+    if (ctx.isCancelled()) {
+        return Error.Cancelled;
+    }
+
+    if (ctx.deadline) |deadline| {
+        const now = getCurrentTime();
+        if (now > deadline) {
+            return Error.Timeout;
+        }
+    }
+
+    return listDirImpl(path.bytes, allocator);
+}
+
+// :full profile - Capability-gated directory listing
+pub fn listDir(path: String, cap: FsReadCapability, allocator: Allocator) Error![]DirEntry {
+    if (!cap.validate()) {
+        return Error.PermissionDenied;
+    }
+
+    if (!cap.canAccess(path.bytes)) {
+        return Error.PermissionDenied;
+    }
+
+    return listDirImpl(path.bytes, allocator);
+}
+
+// ===== DIRECTORY ITERATION =====
+
+// :min profile - Simple directory iterator
+pub fn iterateDir(path: String, allocator: Allocator) Error!DirIterator {
+    const handle = openDirImpl(path.bytes) catch |err| return err;
+
+    return DirIterator{
+        .handle = handle,
+        .allocator = allocator,
+    };
+}
+
+// :go profile - Context-aware directory iterator
+pub fn iterateDir(path: String, ctx: Context, allocator: Allocator) Error!DirIterator {
+    if (ctx.isCancelled()) {
+        return Error.Cancelled;
+    }
+
+    const handle = openDirImpl(path.bytes) catch |err| return err;
+
+    return DirIterator{
+        .handle = handle,
+        .allocator = allocator,
+    };
+}
+
+// :full profile - Capability-gated directory iterator
+pub fn iterateDir(path: String, cap: FsReadCapability, allocator: Allocator) Error!DirIterator {
+    if (!cap.validate()) {
+        return Error.PermissionDenied;
+    }
+
+    if (!cap.canAccess(path.bytes)) {
+        return Error.PermissionDenied;
+    }
+
+    const handle = openDirImpl(path.bytes) catch |err| return err;
+
+    return DirIterator{
+        .handle = handle,
+        .allocator = allocator,
+    };
+}
+
+// ===== FILE OPERATIONS =====
+
+// :min profile - Simple file info
+pub fn fileInfo(path: String, allocator: Allocator) Error!FileInfo {
+    return fileInfoImpl(path.bytes, allocator);
+}
+
+// :go profile - Context-aware file info
+pub fn fileInfo(path: String, ctx: Context, allocator: Allocator) Error!FileInfo {
+    if (ctx.isCancelled()) {
+        return Error.Cancelled;
+    }
+
+    return fileInfoImpl(path.bytes, allocator);
+}
+
+// :full profile - Capability-gated file info
+pub fn fileInfo(path: String, cap: FsReadCapability, allocator: Allocator) Error!FileInfo {
+    if (!cap.validate()) {
+        return Error.PermissionDenied;
+    }
+
+    if (!cap.canAccess(path.bytes)) {
+        return Error.PermissionDenied;
+    }
+
+    return fileInfoImpl(path.bytes, allocator);
+}
+
+// ===== PATH OPERATIONS =====
+
+pub const path = struct {
+    // Join path components
+    pub fn join(allocator: Allocator, components: []String) Error!String {
+        var total_len: usize = 0;
+
+        // Calculate total length needed
+        for (components) |component| {
+            total_len += component.len();
+            if (total_len > 0) total_len += 1; // For separator
+        }
+
+        const buffer = allocator.alloc(u8, total_len) orelse return Error.OutOfMemory;
+        var pos: usize = 0;
+
+        for (components, 0..) |component, i| {
+            if (i > 0) {
+                buffer[pos] = getSeparator();
+                pos += 1;
+            }
+
+            @memcpy(buffer[pos..pos + component.len()], component.bytes);
+            pos += component.len();
+        }
+
+        return String.fromUtf8(buffer);
+    }
+
+    // Get directory name from path
+    pub fn dirname(path_str: String) String {
+        const bytes = path_str.bytes;
+        const sep = getSeparator();
+
+        var i = bytes.len;
+        while (i > 0) {
+            i -= 1;
+            if (bytes[i] == sep) {
+                return String.fromUtf8(bytes[0..i]);
+            }
+        }
+
+        return String.fromUtf8(".");
+    }
+
+    // Get base name from path
+    pub fn basename(path_str: String) String {
+        const bytes = path_str.bytes;
+        const sep = getSeparator();
+
+        var i = bytes.len;
+        while (i > 0) {
+            i -= 1;
+            if (bytes[i] == sep) {
+                return String.fromUtf8(bytes[i + 1..]);
+            }
+        }
+
+        return path_str;
+    }
+
+    // Get file extension
+    pub fn extension(path_str: String) ?String {
+        const basename_str = basename(path_str);
+        const bytes = basename_str.bytes;
+
+        var i = bytes.len;
+        while (i > 0) {
+            i -= 1;
+            if (bytes[i] == '.') {
+                if (i == 0 or i == bytes.len - 1) return null; // Hidden file or trailing dot
+                return String.fromUtf8(bytes[i + 1..]);
+            }
+        }
+
+        return null;
+    }
+
+    // Check if path is absolute
+    pub fn isAbsolute(path_str: String) bool {
+        const bytes = path_str.bytes;
+        if (bytes.len == 0) return false;
+
+        // Unix-style absolute path
+        if (bytes[0] == '/') return true;
+
+        // Windows-style absolute path (C:\, D:\, etc.)
+        if (bytes.len >= 3 and bytes[1] == ':' and bytes[2] == '\\') {
+            return (bytes[0] >= 'A' and bytes[0] <= 'Z') or (bytes[0] >= 'a' and bytes[0] <= 'z');
+        }
+
+        return false;
+    }
+};
+
+// ===== CAPABILITY TYPES (for :full profile) =====
+
+pub const FsReadCapability = struct {
+    base: Capability,
+    allowed_paths: []String,
+
+    pub fn create(allowed_paths: []String) FsReadCapability {
+        return FsReadCapability{
+            .base = Capability{
+                .name = "fs.read",
+                .permissions = .{
+                    .read = true,
+                    .write = false,
+                    .execute = false,
+                    .network = false,
+                },
+                .audit_trail = .{
+                    .created_at = getCurrentTime(),
+                    .created_by = "system",
+                    .operations = &.{},
+                },
+            },
+            .allowed_paths = allowed_paths,
+        };
+    }
+
+    pub fn validate(self: FsReadCapability) bool {
+        return self.base.validate();
+    }
+
+    pub fn canAccess(self: FsReadCapability, path: []const u8) bool {
+        // Check if path is within allowed paths
+        for (self.allowed_paths) |allowed| {
+            if (pathStartsWith(path, allowed.bytes)) {
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
+pub const FsWriteCapability = struct {
+    base: Capability,
+    allowed_paths: []String,
+
+    pub fn create(allowed_paths: []String) FsWriteCapability {
+        return FsWriteCapability{
+            .base = Capability{
+                .name = "fs.write",
+                .permissions = .{
+                    .read = false,
+                    .write = true,
+                    .execute = false,
+                    .network = false,
+                },
+                .audit_trail = .{
+                    .created_at = getCurrentTime(),
+                    .created_by = "system",
+                    .operations = &.{},
+                },
+            },
+            .allowed_paths = allowed_paths,
+        };
+    }
+
+    pub fn validate(self: FsWriteCapability) bool {
+        return self.base.validate();
+    }
+
+    pub fn canAccess(self: FsWriteCapability, path: []const u8) bool {
+        for (self.allowed_paths) |allowed| {
+            if (pathStartsWith(path, allowed.bytes)) {
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
+// ===== PLATFORM ABSTRACTION LAYER =====
+
+// These functions would be implemented by the runtime/platform layer
+extern fn getArgsRaw() [][]const u8;
+extern fn listDirImpl(path: []const u8, allocator: Allocator) Error![]DirEntry;
+extern fn openDirImpl(path: []const u8) Error!*anyopaque;
+extern fn fileInfoImpl(path: []const u8, allocator: Allocator) Error!FileInfo;
+extern fn getCurrentTime() i64;
+
+// Platform-specific helpers
+fn getSeparator() u8 {
+    // TODO: Detect platform at compile time
+    return '/'; // Unix-style for now
+}
+
+fn pathStartsWith(path: []const u8, prefix: []const u8) bool {
+    if (path.len < prefix.len) return false;
+
+    for (prefix, 0..) |char, i| {
+        if (path[i] != char) return false;
+    }
+
+    return true;
+}
+
+// ===== PROFILE-SPECIFIC CONVENIENCE NAMESPACES =====
+
+pub const min = struct {
+    pub fn listDir(path: String, allocator: Allocator) Error![]DirEntry {
+        return std.os.listDir(path, allocator);
+    }
+
+    pub fn iterateDir(path: String, allocator: Allocator) Error!DirIterator {
+        return std.os.iterateDir(path, allocator);
+    }
+
+    pub fn fileInfo(path: String, allocator: Allocator) Error!FileInfo {
+        return std.os.fileInfo(path, allocator);
+    }
+};
+
+pub const go = struct {
+    pub fn listDir(path: String, ctx: Context, allocator: Allocator) Error![]DirEntry {
+        return std.os.listDir(path, ctx, allocator);
+    }
+
+    pub fn iterateDir(path: String, ctx: Context, allocator: Allocator) Error!DirIterator {
+        return std.os.iterateDir(path, ctx, allocator);
+    }
+
+    pub fn fileInfo(path: String, ctx: Context, allocator: Allocator) Error!FileInfo {
+        return std.os.fileInfo(path, ctx, allocator);
+    }
+};
+
+pub const full = struct {
+    pub fn listDir(path: String, cap: FsReadCapability, allocator: Allocator) Error![]DirEntry {
+        return std.os.listDir(path, cap, allocator);
+    }
+
+    pub fn iterateDir(path: String, cap: FsReadCapability, allocator: Allocator) Error!DirIterator {
+        return std.os.iterateDir(path, cap, allocator);
+    }
+
+    pub fn fileInfo(path: String, cap: FsReadCapability, allocator: Allocator) Error!FileInfo {
+        return std.os.fileInfo(path, cap, allocator);
+    }
+
+    pub fn createFsReadCapability(allowed_paths: []String) FsReadCapability {
+        return FsReadCapability.create(allowed_paths);
+    }
+
+    pub fn createFsWriteCapability(allowed_paths: []String) FsWriteCapability {
+        return FsWriteCapability.create(allowed_paths);
+    }
+};

@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Test string concatenation
+func test() -> void {
+    let hello = "Hello"
+    let world = "World"
+    let message = hello + " " + world
+}
+
+func main() -> i32 {
+    test()
+    return 0
+}

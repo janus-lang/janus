@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Compile-time shape checks for FS trait and OpenOptions
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+
+struct DummyFS {}
+
+impl DummyFS {
+    func new() -> DummyFS { DummyFS {} }
+}
+
+// Implement FS for DummyFS
+impl fs::FS for DummyFS {
+    func open(self, p: path.Path, cap: fs::CapFsRead | fs::CapFsWrite, opts: fs::OpenOptions) -> Result<fs::File, fs::FsError> {
+        // return ENOSYS placeholder
+        Err(fs::FsError::from_os(38, "not implemented".to_string()).with_path(p))
+    }
+
+    func read_dir(self, p: path.Path, cap: fs::CapFsRead) -> Result<Vec<path::DirEntry>, fs::FsError> {
+        Err(fs::FsError::from_os(38, "not implemented".to_string()).with_path(p))
+    }
+
+    func read_dir_iter(self, p: path.Path, cap: fs::CapFsRead) -> Result<fs::DirIterator, fs::FsError> {
+        let _ = (p, cap);
+        // Create an ended iterator
+        Ok(fs::DirIterator { backend: fs::DirIterBackend::Physical(@as(*anyopaque, null)), base: path::Path::new("") , ended: true })
+    }
+
+    func metadata(self, p: path.Path, cap: fs::CapFsRead) -> Result<fs::Metadata, fs::FsError> {
+        Err(fs::FsError::from_os(38, "not implemented".to_string()).with_path(p))
+    }
+
+    func exists(self, p: path.Path, cap: fs::CapFsRead) -> bool {
+        let _ = (p, cap); // silence unused warnings
+        false
+    }
+}
+
+func test_fs_open_signature() -> Result<(), string> {
+    let vfs = DummyFS::new();
+    let p = path::Path::new("/tmp/file.txt");
+    let opts = fs::OpenOptions::read_only();
+    let _ = vfs.open(p, fs::CapFsRead, opts);
+    Ok(())
+}
+
+func test_fs_exists_and_metadata() -> Result<(), string> {
+    let vfs = DummyFS::new();
+    let p = path::Path::new("/etc/hosts");
+    let _ = vfs.exists(p, fs::CapFsRead);
+    let _ = vfs.metadata(p, fs::CapFsRead);
+    let it = try vfs.read_dir_iter(p, fs::CapFsRead);
+    match it.next()? { None => {}, Some(_) => {} }
+    Ok(())
+}

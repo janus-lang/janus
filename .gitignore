@@ -1,0 +1,186 @@
+
+###########
+*~
+._*
+*.a
+a.exe
+a.out
+.apdisk
+.AppleDB
+.AppleDesktop
+.AppleDouble
+# ---> ArchLinuxPackages
+attic/**/*.a
+attic/**/*.dll
+attic/**/*.dylib
+attic/**/*.exe
+# Attic is tracked, but its sub-artifacts should not be
+attic/**/*.log
+attic/**/*.o
+attic/**/*.so
+attic/**/*.tmp
+*.bak
+*.bc
+*.bin
+bin/
+# Binaries accidentally built in root
+build/
+# Build artifacts
+*.cache
+# C/C++/Zig intermediate
+*.class
+.claude/
+.codex/
+.com.apple.timemachine.donotpresent
+coverage/
+# Coverage / test junk
+*.d
+debug.ll
+/*_debug.txt
+# Development
+# Directories potentially created on remote AFP share
+.directory
+dist/
+# Dist / packaging outputs
+*.dll
+.DocumentRevisions-V100
+*.DS_Store
+.DS_Store
+*.dylib
+.env
+# Environments
+*.exe
+experimental_tests/
+# Files that might appear in the root of a volume
+# Folders
+.fseventsd
+.fuse_hidden*
+.gemini/
+*.gen.*
+# General
+*.generated.*
+*_generated.c
+# Generated Files
+# Generated / scratch
+htmldocs/
+Icon
+# Icon must end with two \r
+# IDE
+.idea/
+# IDE / Editor settings
+*.iml
+.janus/
+/janus
+# Janus Build Artifacts
+# Janus CLI stub (will be replaced by real binary)
+janus.new/
+*.jar
+# KIRO directory preferences
+#.kiro/
+#!.kiro/specs/
+#learning/
+# ---> Linux
+# Linux trash folder which might appear on any partition or disk
+*.ll
+*.log
+*.log.*
+logs/
+# Logs
+# Logs & Debug
+.LSOverride
+# ---> macOS
+# Misc binaries
+*.msi
+Network Trash Folder
+.nfs*
+# .nfs files are created when an open file is removed but is still being accessed
+# ---> Nim
+*.nimble
+nimblecache/
+# NimbleOS-specific
+nimcache/
+~/.nip/
+# Node / JS tooling (if ever used)
+/node_modules/
+node_modules/
+*.npk
+npm-debug.log
+*.o
+*.obj
+*.old
+# OS
+out/
+out.ll
+/*_output.txt
+*_out.txt
+test_output.txt
+stderr.txt
+stdout.txt
+# Package files (for development)
+pkg/
+*.pkg.tar.xz
+*.profdata
+*.profraw
+.progit/
+# ProGit local state
+.project/
+# Project-specific
+*.pyc
+__pycache__/
+# Python tooling (if ever used)
+</search>
+</search_and_replace>
+*.sig
+*.so
+.Spotlight-V100
+*.swo
+*.swp
+*.tar
+*.tar.*
+target/
+*.temp
+temp/
+# Temporary files
+# temporary files which can be created if a process still has a handle open of a deleted file
+.TemporaryItems
+Temporary Items
+# TEMP STUFF - remove soon
+/*_test
+# Test artifacts
+# Test Artifacts
+test_golden_snapshots/
+/test_*.jan
+test_output/
+/test_*.zig
+*.tgz
+# Thumbnails
+Thumbs.db
+*.tmp
+/tmp/nexus/
+.Trash-*
+.Trashes
+.venv/
+.VolumeIcon.icns
+.vscode/
+work/
+# Zig build cache (various forms)
+**/.zig-cache/
+**/zig-cache/
+.zig-cache/
+/.zig-cache/
+zig-cache/
+.zig-global-cache/
+/.zig-global-cache/
+/zig-out/
+zig-out/
+*.zip
+*.zst
+
+# Release Artifacts
+packages/
+*.deb
+*.vsix
+
+# Agents
+.agent/
+.venv/

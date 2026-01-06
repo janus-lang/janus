@@ -1,0 +1,291 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+//
+// Test file for std.string module
+// Tests the canonical string architecture
+
+import std.string;
+
+// ===== TEST STRING CREATION AND BASIC OPERATIONS =====
+
+test "String.init creates empty string" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const alloc = gpa.allocator();
+
+    var s = std.string.String.init(alloc);
+    defer s.deinit();
+
+    try std.testing.expectEqual(@as(usize, 0), s.len());
+    try std.testing.expect(s.isEmpty());
+}
+
+test "String.initCopy creates correct copy" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const alloc = gpa.allocator();
+
+    const original = "hello world";
+    var s = try std.string.String.initCopy(alloc, original);
+    defer s.deinit();
+
+    try std.testing.expectEqual(original.len, s.len());
+    try std.testing.expectEqualStrings(original, s.asBytes());
+}
+
+// ===== TEST STRSLICE OPERATIONS =====
+
+test "StrSlice.fromBytes creates correct slice" {
+    const data = "hello";
+    let slice = std.string.StrSlice.fromBytes(data);
+
+    try std.testing.expectEqual(data.len, slice.len());
+    try std.testing.expectEqualStrings(data, slice.asBytes());
+}
+
+test "StrSlice.asBytes returns correct bytes" {
+    const data = "test data";
+    let slice = std.string.StrSlice.fromBytes(data);
+
+    try std.testing.expectEqual(data, slice.asBytes());
+}
+
+// ===== TEST SPLIT ITERATOR =====
+
+test "split iterator emits all segments including empties" {
+    const input = ",a,,b,";
+    var it = std.string.split(std.string.StrSlice.fromBytes(input), ',');
+    const expected = ["", "a", "", "b", ""];
+
+    var i: usize = 0;
+    while it.next() |seg| do
+        if i < expected.len do
+            try std.testing.expectEqualStrings(expected[i], seg.asBytes());
+            i = i + 1;
+        end
+    endwhile
+
+    try std.testing.expectEqual(@as(usize, expected.len), i);
+}
+
+test "split iterator handles no delimiter" {
+    const input = "hello";
+    var it = std.string.split(std.string.StrSlice.fromBytes(input), ',');
+    const expected = ["hello"];
+
+    var i: usize = 0;
+    while it.next() |seg| do
+        if i < expected.len do
+            try std.testing.expectEqualStrings(expected[i], seg.asBytes());
+            i = i + 1;
+        end
+    endwhile
+
+    try std.testing.expectEqual(@as(usize, expected.len), i);
+}
+
+test "split iterator handles empty input" {
+    const input = "";
+    var it = std.string.split(std.string.StrSlice.fromBytes(input), ',');
+    const expected = [""];
+
+    var i: usize = 0;
+    while it.next() |seg| do
+        if i < expected.len do
+            try std.testing.expectEqualStrings(expected[i], seg.asBytes());
+            i = i + 1;
+        end
+    endwhile
+
+    try std.testing.expectEqual(@as(usize, expected.len), i);
+}
+
+// ===== TEST LINES ITERATOR =====
+
+test "lines iterator handles LF only" {
+    const input = "line1\nline2\nline3";
+    var it = std.string.lines(std.string.StrSlice.fromBytes(input));
+    const expected = ["line1", "line2", "line3"];
+
+    var i: usize = 0;
+    while it.next() |line| do
+        if i < expected.len do
+            try std.testing.expectEqualStrings(expected[i], line.asBytes());
+            i = i + 1;
+        end
+    endwhile
+
+    try std.testing.expectEqual(@as(usize, expected.len), i);
+}
+
+test "lines iterator handles CRLF" {
+    const input = "line1\r\nline2\r\nline3";
+    var it = std.string.lines(std.string.StrSlice.fromBytes(input));
+    const expected = ["line1", "line2", "line3"];
+
+    var i: usize = 0;
+    while it.next() |line| do
+        if i < expected.len do
+            try std.testing.expectEqualStrings(expected[i], line.asBytes());
+            i = i + 1;
+        end
+    endwhile
+
+    try std.testing.expectEqual(@as(usize, expected.len), i);
+}
+
+test "lines iterator handles CR only" {
+    const input = "line1\rline2\rline3";
+    var it = std.string.lines(std.string.StrSlice.fromBytes(input));
+    const expected = ["line1", "line2", "line3"];
+
+    var i: usize = 0;
+    while it.next() |line| do
+        if i < expected.len do
+            try std.testing.expectEqualStrings(expected[i], line.asBytes());
+            i = i + 1;
+        end
+    endwhile
+
+    try std.testing.expectEqual(@as(usize, expected.len), i);
+}
+
+test "lines iterator handles trailing newline" {
+    const input = "line1\nline2\n";
+    var it = std.string.lines(std.string.StrSlice.fromBytes(input));
+    const expected = ["line1", "line2", ""]; // trailing empty line
+
+    var i: usize = 0;
+    while it.next() |line| do
+        if i < expected.len do
+            try std.testing.expectEqualStrings(expected[i], line.asBytes());
+            i = i + 1;
+        end
+    endwhile
+
+    try std.testing.expectEqual(@as(usize, expected.len), i);
+}
+
+// ===== TEST WORDS ITERATOR =====
+
+test "words iterator handles normal text" {
+    const input = "hello world test";
+    var it = std.string.words(std.string.StrSlice.fromBytes(input));
+    const expected = ["hello", "world", "test"];
+
+    var i: usize = 0;
+    while it.next() |word| do
+        if i < expected.len do
+            try std.testing.expectEqualStrings(expected[i], word.asBytes());
+            i = i + 1;
+        end
+    endwhile
+
+    try std.testing.expectEqual(@as(usize, expected.len), i);
+}
+
+test "words iterator handles extra whitespace" {
+    const input = "  hello   world\t\n\n  test  ";
+    var it = std.string.words(std.string.StrSlice.fromBytes(input));
+    const expected = ["hello", "world", "test"];
+
+    var i: usize = 0;
+    while it.next() |word| do
+        if i < expected.len do
+            try std.testing.expectEqualStrings(expected[i], word.asBytes());
+            i = i + 1;
+        end
+    endwhile
+
+    try std.testing.expectEqual(@as(usize, expected.len), i);
+}
+
+test "words iterator handles empty input" {
+    const input = "   ";
+    var it = std.string.words(std.string.StrSlice.fromBytes(input));
+
+    var count: usize = 0;
+    while it.next() |word| do
+        count = count + 1;
+    endwhile
+
+    try std.testing.expectEqual(@as(usize, 0), count);
+}
+
+test "words iterator handles single word" {
+    const input = "single";
+    var it = std.string.words(std.string.StrSlice.fromBytes(input));
+    const expected = ["single"];
+
+    var i: usize = 0;
+    while it.next() |word| do
+        if i < expected.len do
+            try std.testing.expectEqualStrings(expected[i], word.asBytes());
+            i = i + 1;
+        end
+    endwhile
+
+    try std.testing.expectEqual(@as(usize, expected.len), i);
+}
+
+// ===== TEST CASE CONVERSION =====
+
+test "to_lower handles ASCII letters" {
+    const input = "HelloWORLD";
+    let slice = std.string.StrSlice.fromBytes(input);
+    let result = std.string.to_lower(slice);
+
+    // For now, just verify it returns a slice
+    try std.testing.expectEqual(input.len, result.len());
+}
+
+test "to_lower handles already lowercase" {
+    const input = "hello";
+    let slice = std.string.StrSlice.fromBytes(input);
+    let result = std.string.to_lower(slice);
+
+    try std.testing.expectEqual(input.len, result.len());
+}
+
+test "to_lower handles empty string" {
+    const input = "";
+    let slice = std.string.StrSlice.fromBytes(input);
+    let result = std.string.to_lower(slice);
+
+    try std.testing.expectEqual(@as(usize, 0), result.len());
+}
+
+// ===== COMPREHENSIVE TEST =====
+
+test "string operations work together" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const alloc = gpa.allocator();
+
+    const text = "Hello world\nThis is a test";
+    let slice = std.string.StrSlice.fromBytes(text);
+
+    // Test lines iterator
+    var line_it = std.string.lines(slice);
+    const lines = ["Hello world", "This is a test"];
+
+    var i: usize = 0;
+    while line_it.next() |line| do
+        if i < lines.len do
+            try std.testing.expectEqualStrings(lines[i], line.asBytes());
+            i = i + 1;
+        end
+    endwhile
+
+    // Test words iterator
+    var word_it = std.string.words(slice);
+    const words = ["Hello", "world", "This", "is", "a", "test"];
+
+    i = 0;
+    while word_it.next() |word| do
+        if i < words.len do
+            try std.testing.expectEqualStrings(words[i], word.asBytes());
+            i = i + 1;
+        end
+    endwhile
+}

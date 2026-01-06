@@ -1,0 +1,373 @@
+# Janus Continuous Integration - Multi-Platform Testing
+# Ensures code quality and compatibility across all supported platforms
+
+name: 🧪 Janus CI Pipeline
+
+on:
+  push:
+    branches: [ main, experimental, 'version_*' ]
+  pull_request:
+    branches: [ main, experimental ]
+  schedule:
+    # Daily build at 06:00 UTC
+    - cron: '0 6 * * *'
+
+env:
+  ZIG_VERSION: "0.14.1"
+  BLAKE3_NO_AVX512: "1"
+
+jobs:
+  # ============================================================================
+  # Code Quality and Linting
+  # ============================================================================
+  quality-check:
+    name: 🔍 Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Format Check
+        run: |
+          echo "🎨 Checking code formatting..."
+          zig fmt --check .
+
+      - name: License Header Check
+        run: |
+          echo "📄 Checking license headers..."
+          if [ -f tools/license-check.zig ]; then
+            zig run tools/license-check.zig
+          else
+            echo "⚠️ License check tool not found, skipping"
+          fi
+
+      - name: Build System Validation
+        run: |
+          echo "🔧 Validating build system..."
+          zig build --summary all
+
+  # ============================================================================
+  # Multi-Platform Build Testing
+  # ============================================================================
+  build-test:
+    name: 🔨 Build Test (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    needs: quality-check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Primary platforms
+          - target: x86_64-linux-gnu
+            os: ubuntu-latest
+            test: true
+          - target: x86_64-windows-gnu
+            os: ubuntu-latest
+            test: false
+          - target: x86_64-macos-none
+            os: macos-13
+            test: true
+          - target: aarch64-macos-none
+            os: macos-14
+            test: true
+
+          # Additional Linux targets
+          - target: x86_64-linux-musl
+            os: ubuntu-latest
+            test: true
+          - target: aarch64-linux-gnu
+            os: ubuntu-latest
+            test: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Install Dependencies (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib gcc-mingw-w64
+
+      - name: Build
+        run: |
+          echo "🔨 Building for ${{ matrix.target }}"
+          zig build -Dtarget=${{ matrix.target }} -Doptimize=Debug
+
+      - name: Test
+        if: matrix.test
+        run: |
+          echo "🧪 Running tests for ${{ matrix.target }}"
+          zig build test -Dtarget=${{ matrix.target }}
+
+      - name: Smoke Test
+        if: matrix.test
+        run: |
+          echo "💨 Smoke testing binary"
+          ./zig-out/bin/janus version || echo "Version command not available"
+          ./zig-out/bin/janus test-cas || echo "CAS test not available"
+
+  # ============================================================================
+  # Comprehensive Test Suite
+  # ============================================================================
+  test-suite:
+    name: 🧪 Test Suite (${{ matrix.profile }})
+    runs-on: ubuntu-latest
+    needs: quality-check
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [debug, release-safe, release-fast]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Run Tests
+        run: |
+          case "${{ matrix.profile }}" in
+            debug)
+              echo "🐛 Running debug tests"
+              zig build test -Doptimize=Debug
+              ;;
+            release-safe)
+              echo "🛡️ Running release-safe tests"
+              zig build test -Doptimize=ReleaseSafe
+              ;;
+            release-fast)
+              echo "⚡ Running release-fast tests"
+              zig build test -Doptimize=ReleaseFast
+              ;;
+          esac
+
+      - name: Memory Leak Check
+        if: matrix.profile == 'debug'
+        run: |
+          echo "🔍 Checking for memory leaks"
+          # Run with leak detection if available
+          if command -v valgrind >/dev/null 2>&1; then
+            valgrind --leak-check=full --error-exitcode=1 ./zig-out/bin/janus test-cas || echo "Valgrind not available or test failed"
+          else
+            echo "Valgrind not available, skipping memory leak check"
+          fi
+
+  # ============================================================================
+  # Package Testing
+  # ============================================================================
+  package-test:
+    name: 📦 Package Test (${{ matrix.distro }})
+    runs-on: ubuntu-latest
+    needs: build-test
+    if: github.event_name != 'schedule'  # Skip on daily builds
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [arch, alpine, debian, fedora]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Build Binary
+        run: |
+          zig build -Doptimize=ReleaseFast
+
+      - name: Test Package Build
+        run: |
+          cd packaging/${{ matrix.distro }}
+          echo "📦 Testing ${{ matrix.distro }} package build"
+
+          case "${{ matrix.distro }}" in
+            arch)
+              if command -v makepkg >/dev/null 2>&1; then
+                makepkg --printsrcinfo > .SRCINFO
+                echo "✅ Arch package files validated"
+              else
+                echo "⚠️ makepkg not available, skipping build test"
+              fi
+              ;;
+            alpine)
+              if command -v abuild >/dev/null 2>&1; then
+                abuild checksum
+                echo "✅ Alpine package files validated"
+              else
+                echo "⚠️ abuild not available, skipping build test"
+              fi
+              ;;
+            debian)
+              if command -v dpkg-buildpackage >/dev/null 2>&1; then
+                dpkg-source --build .
+                echo "✅ Debian package files validated"
+              else
+                echo "⚠️ dpkg-buildpackage not available, skipping build test"
+              fi
+              ;;
+            fedora)
+              if command -v rpmbuild >/dev/null 2>&1; then
+                rpmlint janus-lang.spec
+                echo "✅ Fedora package files validated"
+              else
+                echo "⚠️ rpmbuild not available, skipping build test"
+              fi
+              ;;
+          esac
+
+  # ============================================================================
+  # Security and Performance Analysis
+  # ============================================================================
+  security-analysis:
+    name: 🔒 Security Analysis
+    runs-on: ubuntu-latest
+    needs: quality-check
+    if: github.event_name != 'schedule'  # Skip on daily builds
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Build with Security Flags
+        run: |
+          echo "🔒 Building with security hardening"
+          zig build -Doptimize=ReleaseSafe
+
+      - name: Static Analysis
+        run: |
+          echo "🔍 Running static analysis"
+          # Add static analysis tools when available
+          echo "Static analysis placeholder - add tools like semgrep, codeql, etc."
+
+      - name: Dependency Audit
+        run: |
+          echo "📋 Auditing dependencies"
+          # Check for known vulnerabilities in dependencies
+          echo "Dependency audit placeholder - add vulnerability scanning"
+
+  # ============================================================================
+  # Performance Benchmarking
+  # ============================================================================
+  performance-test:
+    name: ⚡ Performance Test
+    runs-on: ubuntu-latest
+    needs: build-test
+    if: github.event_name == 'schedule' || contains(github.event.head_commit.message, '[perf]')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Build Optimized
+        run: |
+          echo "⚡ Building optimized binary"
+          zig build -Doptimize=ReleaseFast
+
+      - name: Run Benchmarks
+        run: |
+          echo "📊 Running performance benchmarks"
+          # Add benchmark suite when available
+          ./zig-out/bin/janus test-cas
+          echo "Benchmark placeholder - add comprehensive performance tests"
+
+      - name: Performance Regression Check
+        run: |
+          echo "📈 Checking for performance regressions"
+          # Compare with baseline performance metrics
+          echo "Regression check placeholder - add performance comparison"
+
+  # ============================================================================
+  # Integration Testing
+  # ============================================================================
+  integration-test:
+    name: 🔗 Integration Test
+    runs-on: ubuntu-latest
+    needs: [build-test, test-suite]
+    if: github.event_name != 'schedule'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Build All Targets
+        run: |
+          echo "🔨 Building all components"
+          zig build
+
+      - name: End-to-End Test
+        run: |
+          echo "🔗 Running end-to-end tests"
+          # Test complete compilation pipeline when available
+          echo "E2E test placeholder - add full pipeline tests"
+
+      - name: LSP Integration Test
+        run: |
+          echo "🔌 Testing LSP integration"
+          # Test LSP server functionality when available
+          if [ -f zig-out/bin/janus-lsp-server ]; then
+            echo "LSP server binary found"
+            # Add LSP protocol tests
+          else
+            echo "LSP server not built, skipping LSP tests"
+          fi
+
+  # ============================================================================
+  # Status Reporting
+  # ============================================================================
+  ci-status:
+    name: 📊 CI Status Report
+    runs-on: ubuntu-latest
+    needs: [quality-check, build-test, test-suite, package-test, security-analysis]
+    if: always()
+
+    steps:
+      - name: Report Status
+        run: |
+          echo "📊 CI Pipeline Status Report"
+          echo "=========================="
+          echo "Quality Check: ${{ needs.quality-check.result }}"
+          echo "Build Test: ${{ needs.build-test.result }}"
+          echo "Test Suite: ${{ needs.test-suite.result }}"
+          echo "Package Test: ${{ needs.package-test.result }}"
+          echo "Security Analysis: ${{ needs.security-analysis.result }}"
+
+          if [ "${{ needs.quality-check.result }}" = "success" ] && \
+             [ "${{ needs.build-test.result }}" = "success" ] && \
+             [ "${{ needs.test-suite.result }}" = "success" ]; then
+            echo "✅ Core CI pipeline passed!"
+          else
+            echo "❌ Core CI pipeline failed!"
+            exit 1
+          fi

@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Test: Write content to a file
+// Demonstrates capability-controlled file write
+
+func main() do
+    janus_write_file("/tmp/janus_test.txt", "Hello from Janus!\nCapability-controlled I/O works!")
+    println("File written successfully to /tmp/janus_test.txt")
+end

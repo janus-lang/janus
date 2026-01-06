@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    print("=== String Intrinsic Test ===");
+    
+    // Use explicit typing instead of inference
+    let len: i32 = string_len_intrinsic("Hello");
+    
+    print("Length:");
+    print_int(len);
+    
+    print("=== Success ===");
+}

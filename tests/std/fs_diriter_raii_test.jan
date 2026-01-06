@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// RAII test: ensure partially-consumed iterators drop without explicit close
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.sys.fs.physical_fs;
+
+func test_raii_drop_partial_iterators() -> Result<(), string> {
+    let vfs = physical_fs::PhysicalFS::new();
+    var i: i32 = 0;
+    while i < 32 {
+        {
+            // Create an iterator and consume at most one entry, then let it go out of scope
+            let it = try vfs.read_dir_iter(path::Path::new("."), fs::CapFsRead);
+            match it.next()? { None => {}, Some(_) => {} }
+            // No explicit close(); relies on drop
+        }
+        i = i + 1;
+    }
+    // If resources leaked aggressively, subsequent open should still succeed
+    let it2 = try vfs.read_dir_iter(path::Path::new("."), fs::CapFsRead);
+    match it2.next()? { None => {}, Some(_) => {} }
+    Ok(())
+}

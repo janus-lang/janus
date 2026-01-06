@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// std/string_min.jan - Minimal :min profile string library
+// Simple function stubs for jfind
+
+// Get length of string
+func len(s: string) -> i32 {
+    return 0  // Stub - would call builtin
+}
+
+// Find last index of character
+func lastIndexOf(s: string, ch: string) -> i32 {
+    return -1  // Stub - would implement search
+}
+
+// Get substring
+func substring(s: string, start: i32) -> string {
+    return ""  // Stub - would slice string
+}
+
+// Convert to lowercase
+func to_lower(s: string) -> string {
+    return s  // Stub - would convert case
+}
+
+// Check if string contains substring
+func contains(haystack: string, needle: string) -> bool {
+    return false  // Stub - would implement search
+}

@@ -1,0 +1,141 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Table-driven parity tests for FS trait backends
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.sys.fs.physical_fs;
+import std.sys.fs.memory_fs;
+
+struct ListCase {
+    base: string,
+    expect_contains: Vec<string>,
+    expect_count: Option<i32>,
+}
+
+struct ReadCase {
+    path: string,
+    expect_substr: string,
+}
+
+// Helpers
+func collect_names(it: fs::DirIterator) -> Result<Vec<string>, fs::FsError> {
+    var names = Vec::new();
+    loop {
+        match it.next()? {
+            None => break,
+            Some(e) => names.push(e.file_name),
+        }
+    }
+    Ok(names)
+}
+
+func contains_all(hay: Vec<string>, needles: Vec<string>) -> bool {
+    var ok = true;
+    var i: usize = 0;
+    while i < needles.len() {
+        let needle = needles[i];
+        var found = false;
+        var j: usize = 0;
+        while j < hay.len() { if hay[j] == needle { found = true; break; } j = j + 1; }
+        if !found { ok = false; break; }
+        i = i + 1;
+    }
+    ok
+}
+
+// MemoryFS cases: empty dir, nested dirs, non-ASCII
+func run_memory_parity() -> Result<(), string> {
+    var mfs = memory_fs::MemoryFS::new()
+        .add_dir(path::Path::new("mem"))
+        .add_dir(path::Path::new("mem/empty"))
+        .add_dir(path::Path::new("mem/nested"))
+        .add_dir(path::Path::new("mem/nested/child"))
+        .add_file(path::Path::new("mem/nested/child/file.txt"), "alpha")
+        .add_dir(path::Path::new("mem/ßpezial"))
+        .add_file(path::Path::new("mem/ßpezial/文件.txt"), "内容: unicode test");
+
+    let list_cases = {
+        var v = Vec::<ListCase>::new();
+        v.push(ListCase { base: "mem/empty", expect_contains: Vec::new(), expect_count: Some(0) });
+        var e1 = Vec::<string>::new(); e1.push("child");
+        v.push(ListCase { base: "mem/nested", expect_contains: e1, expect_count: None });
+        var e2 = Vec::<string>::new(); e2.push("file.txt");
+        v.push(ListCase { base: "mem/nested/child", expect_contains: e2, expect_count: Some(1) });
+        var e3 = Vec::<string>::new(); e3.push("文件.txt");
+        v.push(ListCase { base: "mem/ßpezial", expect_contains: e3, expect_count: Some(1) });
+        v
+    };
+
+    // Run listing assertions
+    var i: usize = 0;
+    while i < list_cases.len() {
+        let c = list_cases[i];
+        let it = try mfs.read_dir_iter(path::Path::new(c.base), fs::CapFsRead);
+        let names = try collect_names(it);
+        if c.expect_count.is_some() {
+            assert(names.len() == @as(usize, c.expect_count.unwrap()));
+        }
+        assert(contains_all(names, c.expect_contains));
+        i = i + 1;
+    }
+
+    // Read cases
+    let read_cases = {
+        var v = Vec::<ReadCase>::new();
+        v.push(ReadCase { path: "mem/nested/child/file.txt", expect_substr: "alpha" });
+        v.push(ReadCase { path: "mem/ßpezial/文件.txt", expect_substr: "unicode" });
+        v
+    };
+
+    var j: usize = 0;
+    while j < read_cases.len() {
+        let rc = read_cases[j];
+        let f = try mfs.open(path::Path::new(rc.path), fs::CapFsRead, fs::OpenOptions::read_only());
+        let s = try f.read_string();
+        assert(std.mem.indexOf(u8, s.bytes, rc.expect_substr.bytes) != null);
+        j = j + 1;
+    }
+
+    Ok(())
+}
+
+// PhysicalFS cases: nested dirs on repo, stable presence, best-effort for content checks
+func run_physical_parity() -> Result<(), string> {
+    let pfs = physical_fs::PhysicalFS::new();
+
+    // Known repo directories/files
+    let list_cases = {
+        var v = Vec::<ListCase>::new();
+        var root_needles = Vec::<string>::new(); root_needles.push("README.md"); root_needles.push("std");
+        v.push(ListCase { base: ".", expect_contains: root_needles, expect_count: None });
+        var std_needles = Vec::<string>::new(); std_needles.push("janus");
+        v.push(ListCase { base: "std", expect_contains: std_needles, expect_count: None });
+        var fs_needles = Vec::<string>::new(); fs_needles.push("path.jan");
+        v.push(ListCase { base: "std/janus/fs", expect_contains: fs_needles, expect_count: None });
+        v
+    };
+
+    var i: usize = 0;
+    while i < list_cases.len() {
+        let c = list_cases[i];
+        let it = try pfs.read_dir_iter(path::Path::new(c.base), fs::CapFsRead);
+        let names = try collect_names(it);
+        assert(contains_all(names, c.expect_contains));
+        i = i + 1;
+    }
+
+    // Read README.md exists and has content
+    let f = try pfs.open(path::Path::new("README.md"), fs::CapFsRead, fs::OpenOptions::read_only());
+    let s = try f.read_string();
+    assert(s.len() > 0);
+
+    Ok(())
+}
+
+func main() -> void {
+    run_memory_parity() catch |e| @panic("MemoryFS parity failed");
+    run_physical_parity() catch |e| @panic("PhysicalFS parity failed");
+    print("✅ Table-driven FS parity tests (empty, nested, Unicode) complete");
+}

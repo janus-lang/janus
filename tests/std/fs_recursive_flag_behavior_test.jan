@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Verify recursive=false behavior on directory moves
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.sys.fs.memory_fs;
+import std.sys.fs.physical_fs;
+
+func test_memory_recursive_flag() -> Result<(), string> {
+    var m = memory_fs::MemoryFS::new()
+        .add_dir(path::Path::new("mem/src"))
+        .add_file(path::Path::new("mem/src/file.txt"), "X");
+    let res = m.rename_or_copy_opts(path::Path::new("mem/src"), path::Path::new("mem/dst"), fs::CapFsWrite, fs::RenameOptions { recursive: false, follow_symlinks: false, replace: true });
+    switch (res) { .ok => @panic("expected EINVAL on directory move with recursive=false"), .err => {} }
+    Ok(())
+}
+
+func test_physical_recursive_flag() -> Result<(), string> {
+    let p = physical_fs::PhysicalFS::new();
+    let src = path::Path::new(".zig-cache/fs_recursive_flag/src");
+    let dst = path::Path::new(".zig-cache/fs_recursive_flag/dst");
+    _ = p.create_dir(path::Path::new(".zig-cache/fs_recursive_flag"), fs::CapFsWrite);
+    _ = p.create_dir(src, fs::CapFsWrite);
+    _ = p.write_atomic(path::Path::new(".zig-cache/fs_recursive_flag/src/file.txt"), "X", fs::CapFsWrite);
+    let res = p.rename_or_copy_opts(src, dst, fs::CapFsWrite, fs::RenameOptions { recursive: false, follow_symlinks: false, replace: true });
+    // On same device, direct rename may succeed; on EXDEV fallback, expect EINVAL
+    switch (res) {
+        .ok => {
+            // Success acceptable on same device; validate file present at destination
+            let f = try p.open(path::Path::new(".zig-cache/fs_recursive_flag/dst/file.txt"), fs::CapFsRead, fs::OpenOptions::read_only());
+            let s = try f.read_string();
+            assert(s == "X");
+        },
+        .err => {},
+    }
+    Ok(())
+}
+
+func main() -> void {
+    test_memory_recursive_flag() catch |e| @panic("MemoryFS recursive=false directory move failed expectation");
+    test_physical_recursive_flag() catch |e| @panic("PhysicalFS recursive=false directory move unexpected failure");
+    print("✅ Recursive flag behavior verified (MemoryFS strict, PhysicalFS conditional)\n");
+}

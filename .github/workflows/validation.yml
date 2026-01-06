@@ -1,0 +1,22 @@
+name: Validation
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.12.1
+      - name: Run tests (golden + sanitizers)
+        run: |
+          chmod +x tools/ci/run_tests.sh
+          tools/ci/run_tests.sh
+

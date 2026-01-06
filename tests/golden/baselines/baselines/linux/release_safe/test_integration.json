@@ -1,0 +1,15 @@
+{
+  "test_name": "test_integration",
+  "platform": "linux",
+  "optimization_level": "release_safe",
+  "created_at": 1755782719,
+  "statistical_summary": {
+    "mean_dispatch_overhead_ns": 197.66666666666666,
+    "std_dev_dispatch_overhead_ns": 3.299831645537222,
+    "min_dispatch_overhead_ns": 194,
+    "max_dispatch_overhead_ns": 202,
+    "confidence_interval_95_lower": 193.9325556365572,
+    "confidence_interval_95_upper": 201.40077769677612,
+    "sample_count": 3
+  }
+}

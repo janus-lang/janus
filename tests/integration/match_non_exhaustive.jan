@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// tests/integration/match_non_exhaustive.jan
+// Profile: :min
+// Status: Should FAIL with exhaustiveness error
+//
+// This file tests that the compiler REJECTS non-exhaustive matches.
+// The Elm Guarantee enforces that all patterns must be covered.
+
+func broken_bool(flag: bool) -> string do
+    // ERROR: Missing 'false' case
+    match flag do
+        true => "oops"
+    end
+end
+
+func broken_bool_reverse(flag: bool) -> string do
+    // ERROR: Missing 'true' case
+    match flag do
+        false => "also broken"
+    end
+end
+
+func broken_int_no_wildcard(x: i32) -> i32 do
+    // ERROR: Numeric types require wildcard (infinite domain)
+    match x do
+        0 => 0
+        1 => 1
+        2 => 2
+    end
+end
+
+// This file should NOT compile
+func main() -> i32 do
+    let _ = broken_bool(true)
+    0
+end

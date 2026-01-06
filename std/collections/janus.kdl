@@ -1,0 +1,8 @@
+name "std.collections"
+version "0.1.0"
+description "Standard Collection Library"
+license "LSL-1.0"
+
+dependency "std.core" {
+    path "../core"
+}

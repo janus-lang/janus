@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Basic dispatch example for Janus
+// This demonstrates multiple function implementations with the same name
+// being grouped into dispatch families
+
+func add() { 1 }
+func add() { 2 }
+func add() { 3 }
+
+func multiply() { 10 }
+func multiply() { 20 }
+
+func main() {
+    print("Hello, Dispatch!")
+}

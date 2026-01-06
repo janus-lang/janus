@@ -1,0 +1,65 @@
+# Maintainer: Janus Development Team <maintainer@janus-lang.org>
+pkgname=janus-lang
+pkgver=0.1.2
+pkgrel=0
+pkgdesc="Systems language with precise incremental compilation"
+url="https://github.com/janus-lang/janus"
+arch="x86_64"  # Start with x86_64, expand to aarch64 later
+license="LSL-1.0"
+depends="musl"
+makedepends="zig>=0.14.0 git"
+subpackages="$pkgname-doc $pkgname-examples"
+source="$pkgname-$pkgver.tar.gz::https://github.com/janus-lang/janus/archive/v$pkgver.tar.gz"
+builddir="$srcdir/janus-$pkgver"
+
+# For git builds during development
+# source="janus-$pkgver::git+https://github.com/janus-lang/janus.git"
+# builddir="$srcdir/janus-$pkgver"
+
+build() {
+    cd "$builddir"
+
+    # Build with release-safe optimization for Alpine
+    zig build -Doptimize=ReleaseSafe
+}
+
+check() {
+    cd "$builddir"
+
+    # Basic functionality tests
+    ./zig-out/bin/janus version
+    ./zig-out/bin/janus profile show
+
+    # Test core CAS functionality
+    ./zig-out/bin/janus test-cas
+}
+
+package() {
+    cd "$builddir"
+
+    # Install main executable
+    install -Dm755 zig-out/bin/janus "$pkgdir"/usr/bin/janus
+}
+
+doc() {
+    cd "$builddir"
+
+    # Install documentation
+    install -Dm644 README.md "$subpkgdir"/usr/share/doc/$pkgname/README.md
+    install -Dm644 CONTRIBUTING.md "$subpkgdir"/usr/share/doc/$pkgname/CONTRIBUTING.md
+    install -Dm644 SECURITY.md "$subpkgdir"/usr/share/doc/$pkgname/SECURITY.md
+    install -Dm644 errors.md "$subpkgdir"/usr/share/doc/$pkgname/errors.md
+
+    # Install specifications
+    mkdir -p "$subpkgdir"/usr/share/doc/$pkgname/specs
+    cp -r docs/specs/* "$subpkgdir"/usr/share/doc/$pkgname/specs/
+}
+
+examples() {
+    cd "$builddir"
+
+    # Install examples
+    mkdir -p "$subpkgdir"/usr/share/doc/$pkgname/examples
+    cp -r examples/* "$subpkgdir"/usr/share/doc/$pkgname/examples/
+}
+

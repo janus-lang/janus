@@ -1,0 +1,4 @@
+name "std.core"
+version "0.1.0"
+description "Janus Core Library"
+license "LSL-1.0"

@@ -1,0 +1,25 @@
+{
+  "test_name": "cid_semantic_change",
+  "description": "Only semantically changed items should have different CIDs",
+  "changed_items": [
+    {
+      "name": "helper",
+      "change_type": "literal_value",
+      "description": "Multiplier changed from 2 to 3",
+      "cid_should_change": true
+    }
+  ],
+  "unchanged_items": [
+    {
+      "name": "calculate",
+      "change_type": "none",
+      "description": "Function unchanged",
+      "cid_should_change": false
+    }
+  ],
+  "validation_rules": [
+    "changed_items_must_have_different_cids",
+    "unchanged_items_must_have_identical_cids",
+    "unit_cid_must_change_if_any_item_changes"
+  ]
+}

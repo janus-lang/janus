@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+# Simple smoke bench: eager vs. lazy reduce (numbers 0..N-1)
+func bench_reduce(N: u32) -> void do
+  let xs := array.range(0u32, N)           # materialized array
+  let t0 := time.now()
+
+  let e := xs |> array.reduce(0u32, (^))
+  let t1 := time.now()
+
+  let l := xs |> iter.from |> iter.reduce(0u32, (^))
+  let t2 := time.now()
+
+  print "eager:", e, "  dt:", (t1 - t0).micros, "us"
+  print "lazy :", l, "  dt:", (t2 - t1).micros, "us"
+end
+
+bench_reduce(10_000_000u32)

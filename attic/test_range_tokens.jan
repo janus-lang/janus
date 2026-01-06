@@ -1,0 +1,7 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func test() {
+    let arr = [1, 2, 3]
+    let slice = arr[0..2]
+}

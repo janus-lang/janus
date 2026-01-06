@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Recursive directory rename_or_copy_opts tests
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.sys.fs.memory_fs;
+
+func memory_recursive_rename_copy() -> Result<(), string> {
+    var mfs = memory_fs::MemoryFS::new()
+        .add_dir(path::Path::new("mem"))
+        .add_dir(path::Path::new("mem/src"))
+        .add_dir(path::Path::new("mem/src/a"))
+        .add_dir(path::Path::new("mem/src/a/b"))
+        .add_file(path::Path::new("mem/src/a/b/file.txt"), "deep content");
+
+    // Perform recursive move to mem/dst
+    let opts = fs::RenameOptions { recursive: true, follow_symlinks: false, replace: true };
+    try mfs.rename_or_copy_opts(path::Path::new("mem/src"), path::Path::new("mem/dst"), fs::CapFsWrite, opts);
+
+    // Source removed, destination exists
+    assert(!mfs.exists(path::Path::new("mem/src"), fs::CapFsRead));
+    assert(mfs.exists(path::Path::new("mem/dst"), fs::CapFsRead));
+    assert(mfs.exists(path::Path::new("mem/dst/a/b/file.txt"), fs::CapFsRead));
+
+    Ok(())
+}
+
+func main() -> void {
+    memory_recursive_rename_copy() catch |e| @panic("MemoryFS recursive rename_or_copy_opts failed");
+    print("✅ MemoryFS recursive rename_or_copy_opts passed");
+}

@@ -1,0 +1,388 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// std/test_io_file_operations.jan - Unit tests for file operations with allocator sovereignty
+// Validates that our file operations properly handle allocators, capabilities, and error conditions
+
+import std.core
+import std.io
+import std.string
+
+// Test file opening with capability validation
+func testFileOpeningWithCapabilities() -> void {
+    var gpa = GeneralPurposeAllocator.init();
+    defer gpa.deinit();
+    let allocator = gpa.allocator();
+
+    // Valid read capability
+    let read_cap = FileReadCapability{
+        .path = "test_read.txt",
+        .max_size = 1024,
+    };
+
+    // Test opening with matching path and mode
+    let file_result = io.openFile(allocator, "test_read.txt", .ReadOnly, read_cap);
+    switch (file_result) {
+        .ok => |file| {
+            assert(file.isValid());
+            assert(std.mem.eql(u8, file.path, "test_read.txt"));
+            assert(file.mode == .ReadOnly);
+            assert(file.capabilities.can_read);
+            assert(!file.capabilities.can_write);
+
+            // Clean up
+            io.closeFile(&file, allocator) catch {};
+        },
+r| {
+            // File might not exist, which is expected in tests
+            switch (err) {
+                .FileNotFound => {}, // Expected for non-existent test file
+                else => @panic("Unexpected error opening file"),
+            }
+        }
+    }
+
+    // Test path mismatch
+    let mismatch_result = io.openFile(allocator, "different_path.txt", .ReadOnly, read_cap);
+    switch (mismatch_result) {
+        .ok => @panic("Should have failed on path mismatch"),
+        .err => |err| {
+            switch (err) {
+                .CapabilityViolation => {}, // Expected
+                else => @panic("Wrong error type for path mismatch"),
+            }
+        }
+    }
+
+    // Test mode mismatch
+    let mode_mismatch_result = io.openFile(allocator, "test_read.txt", .WriteOnly, read_cap);
+    switch (mode_mismatch_result) {
+        .ok => @panic("Should have failed on mode mismatch"),
+        .err => |err| {
+            switch (err) {
+                .CapabilityViolation => {}, // Expected
+                else => @panic("Wrong error type for mode mismatch"),
+            }
+        }
+    }
+}
+
+// Test write capability validation
+func testWriteCapabilityValidation() -> void {
+    var gpa = GeneralPurposeAllocator.init();
+    defer gpa.deinit();
+    let allocator = gpa.allocator();
+
+    // Write capability with size limit
+    let write_cap = FileWriteCapability{
+        .path = "test_write.txt",
+        .append_only = false,
+        .max_size = 100,
+    };
+
+    // Test valid write
+    let small_content = WriteBuffer.init("Hello, World!");
+    let write_result = io.writeFile(allocator, "test_write.txt", small_content, write_cap);
+    switch (write_result) {
+        .ok => {}, // Success expected
+        .err => |err| {
+            // File system errors are acceptable in tests
+            switch (err) {
+                .PermissionDenied, .FileNotFound => {}, // Expected in test environment
+                else => @panic("Unexpected error in write test"),
+            }
+        }
+    }
+
+    // Test size limit violation
+    let large_content_data = "x" ** 200; // 200 bytes, exceeds 100 byte limit
+    let large_content = WriteBuffer.init(large_content_data);
+    let size_limit_result = io.writeFile(allocator, "test_write.txt", large_content, write_cap);
+    switch (size_limit_result) {
+        .ok => @panic("Should have failed on size limit"),
+        .err => |err| {
+            switch (err) {
+                .SizeLimitExceeded => |info| {
+                    assert(info.size == 200);
+                    assert(info.limit == 100);
+                },
+                else => @panic("Wrong error type for size limit"),
+            }
+        }
+    }
+}
+
+// Test append-only capability
+func testAppendOnlyCapability() -> void {
+    var gpa = GeneralPurposeAllocator.init();
+    defer gpa.deinit();
+    let allocator = gpa.allocator();
+
+    // Append-only capability
+    let append_cap = FileWriteCapability{
+        .path = "test_append.txt",
+        .append_only = true,
+        .max_size = null,
+    };
+
+    // Test append operation
+    let content = WriteBuffer.init("Appended content\n");
+    let append_result = io.appendToFile(allocator, "test_append.txt", content, append_cap);
+    switch (append_result) {
+        .ok => {}, // Success expected
+        .err => |err| {
+            // File system errors are acceptable in tests
+            switch (err) {
+                .PermissionDenied, .FileNotFound => {}, // Expected in test environment
+                else => @panic("Unexpected error in append test"),
+            }
+        }
+    }
+
+    // Test that non-append capability fails
+    let write_cap = FileWriteCapability{
+        .path = "test_append.txt",
+        .append_only = false,
+        .max_size = null,
+    };
+
+    let non_append_result = io.appendToFile(allocator, "test_append.txt", content, write_cap);
+    switch (non_append_result) {
+        .ok => @panic("Should have failed with non-append capability"),
+        .err => |err| {
+            switch (err) {
+                .CapabilityViolation => {}, // Expected
+                else => @panic("Wrong error type for non-append capability"),
+            }
+        }
+    }
+}
+
+// Test allocator sovereignty in file operations
+func testAllocatorSovereignty() -> void {
+    // Test with arena allocator
+    var arena_buffer: [4096]u8 = undefined;
+    var arena = ArenaAllocator.init(arena_buffer[0..]);
+    let arena_alloc = arena.allocator();
+
+    let read_cap = FileReadCapability{
+        .path = "test_arena.txt",
+        .max_size = 1024,
+    };
+
+    // Attempt to read file with arena allocator
+    let arena_result = io.readFile(arena_alloc, "test_arena.txt", read_cap);
+    switch (arena_result) {
+        .ok => |buffer| {
+            // Verify buffer uses arena allocator
+            assert(buffer.allocator != null);
+            // Buffer cleanup will happen when arena is reset
+            buffer.deinit(); // This should be safe with arena
+        },
+        .err => |err| {
+            // File system errors are acceptable in tests
+            switch (err) {
+                .FileNotFound, .PermissionDenied => {}, // Expected in test environment
+                else => @panic("Unexpected error with arena allocator"),
+            }
+        }
+    }
+
+    // Reset arena - O(1) cleanup
+    arena.reset();
+
+    // Test with general purpose allocator
+    var gpa = GeneralPurposeAllocator.init();
+    defer gpa.deinit();
+    let gpa_alloc = gpa.allocator();
+
+    let gpa_result = io.readFile(gpa_alloc, "test_gpa.txt", read_cap);
+    switch (gpa_result) {
+        .ok => |buffer| {
+            // Verify buffer uses GPA
+            assert(buffer.allocator != null);
+            // Individual cleanup required
+            buffer.deinit();
+        },
+        .err => |err| {
+            // File system errors are acceptable in tests
+            switch (err) {
+                .FileNotFound, .PermissionDenied => {}, // Expected in test environment
+                else => @panic("Unexpected error with GPA"),
+            }
+        }
+    }
+}
+
+// Test error propagation and context preservation
+func testErrorPropagationAndContext() -> void {
+    var gpa = GeneralPurposeAllocator.init();
+    defer gpa.deinit();
+    let allocator = gpa.allocator();
+
+    // Test with invalid path
+    let invalid_cap = FileReadCapability{
+        .path = "",
+        .max_size = null,
+    };
+
+    let invalid_result = io.readFile(allocator, "", invalid_cap);
+    switch (invalid_result) {
+        .ok => @panic("Should have failed on invalid path"),
+        .err => |err| {
+            switch (err) {
+                .CapabilityViolation => {}, // Expected - invalid capability
+                .InvalidPath => {}, // Also acceptable
+                else => @panic("Wrong error type for invalid path"),
+            }
+        }
+    }
+
+    // Test with non-existent file
+    let nonexistent_cap = FileReadCapability{
+        .path = "/nonexistent/path/file.txt",
+        .max_size = null,
+    };
+
+    let nonexistent_result = io.readFile(allocator, "/nonexistent/path/file.txt", nonexistent_cap);
+    switch (nonexistent_result) {
+        .ok => @panic("Should have failed on non-existent file"),
+        .err => |err| {
+            switch (err) {
+                .FileNotFound => |path| {
+                    // Verify error contains path context
+                    assert(std.mem.indexOf(u8, path, "nonexistent") != null);
+                },
+                .PermissionDenied => {}, // Also acceptable depending on system
+                else => @panic("Wrong error type for non-existent file"),
+            }
+        }
+    }
+}
+
+// Test atomic write operations
+func testAtomicWriteOperations() -> void {
+    var gpa = GeneralPurposeAllocator.init();
+    defer gpa.deinit();
+    let allocator = gpa.allocator();
+
+    let write_cap = FileWriteCapability{
+        .path = "test_atomic.txt",
+        .append_only = false,
+        .max_size = null,
+    };
+
+    let content = WriteBuffer.init("Atomic write test content");
+
+    // Test atomic write
+    let atomic_result = io.writeFileAtomic(allocator, "test_atomic.txt", content, write_cap);
+    switch (atomic_result) {
+        .ok => {}, // Success expected
+        .err => |err| {
+            // File system errors are acceptable in tests
+            switch (err) {
+                .PermissionDenied, .FileNotFound => {}, // Expected in test environment
+                else => @panic("Unexpected error in atomic write test"),
+            }
+        }
+    }
+}
+
+// Test buffer management and lifecycle
+func testBufferManagementLifecycle() -> void {
+    var gpa = GeneralPurposeAllocator.init();
+    defer gpa.deinit();
+    let allocator = gpa.allocator();
+
+    // Test ReadBuffer creation and cleanup
+    var read_buffer = ReadBuffer.init(allocator, 256) catch |err| {
+        @panic("Failed to create ReadBuffer");
+    };
+    defer read_buffer.deinit();
+
+    assert(read_buffer.data.len == 256);
+    assert(read_buffer.allocator != null);
+
+    // Test ReadBuffer from slice (no allocation)
+    let static_data = "Static buffer content";
+    let slice_buffer = ReadBuffer.initFromSlice(static_data);
+    // No deinit needed - not owned
+
+    assert(slice_buffer.data.len == static_data.len);
+    assert(slice_buffer.allocator == null);
+    assert(std.mem.eql(u8, slice_buffer.data, static_data));
+
+    // Test WriteBuffer creation
+    let write_data = "Write buffer content";
+    let write_buffer = WriteBuffer.init(write_data);
+
+    assert(write_buffer.data.len == write_data.len);
+    assert(std.mem.eql(u8, write_buffer.data, write_data));
+
+    // Test WriteBuffer from string
+    let test_string = string.fromLiteral("String buffer content");
+    let string_buffer = WriteBuffer.fromString(test_string);
+
+    assert(string_buffer.data.len == test_string.bytes.len);
+    assert(std.mem.eql(u8, string_buffer.data, test_string.bytes));
+}
+
+// Test streaming I/O operations
+func testStreamingIoOperations() -> void {
+    var gpa = GeneralPurposeAllocator.init();
+    defer gpa.deinit();
+    let allocator = gpa.allocator();
+
+    // Create a mock file for testing
+    let read_cap = FileReadCapability{
+        .path = "test_stream.txt",
+        .max_size = null,
+    };
+
+    // Test readFileInto with offset
+    let file_result = io.openFile(allocator, "test_stream.txt", .ReadOnly, read_cap);
+    switch (file_result) {
+        .ok => |file| {
+            defer io.closeFile(&file, allocator) catch {};
+
+            var buffer: [100]u8 = undefined;
+            let read_result = io.readFileInto(&file, buffer[0..], 0);
+            switch (read_result) {
+                .ok => |bytes_read| {
+                    // Verify read operation
+                    assert(bytes_read <= buffer.len);
+                },
+                .err => |err| {
+                    // I/O errors are acceptable in tests
+                    switch (err) {
+                        .EndOfFile, .UnexpectedEof => {}, // Expected for empty/small files
+                        else => @panic("Unexpected error in streaming read"),
+                    }
+                }
+            }
+        },
+        .err => |err| {
+            // File system errors are acceptable in tests
+            switch (err) {
+                .FileNotFound, .PermissionDenied => {}, // Expected in test environment
+                else => @panic("Unexpected error opening file for streaming"),
+            }
+        }
+    }
+}
+
+// Main test runner
+func main() -> void {
+    testFileOpeningWithCapabilities();
+    testWriteCapabilityValidation();
+    testAppendOnlyCapability();
+    testAllocatorSovereignty();
+    testErrorPropagationAndContext();
+    testAtomicWriteOperations();
+    testBufferManagementLifecycle();
+    testStreamingIoOperations();
+
+    print("✅ File operations with explicit allocator parameters validation complete");
+    print("✅ Capability-gated file operations validation complete");
+    print("✅ Error propagation and context preservation validation complete");
+}

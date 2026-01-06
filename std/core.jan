@@ -1,0 +1,298 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// std/core.jan - Foundational types for Janus standard library
+// Tri-signature pattern: same names, rising capability across profiles
+
+// ===== PROFILE SYSTEM INTEGRATION =====
+
+// Profile detection (compile-time)
+pub const Profile = enum {
+    min,    // :min - Simple, synchronous operations
+    go,     // :go - Context-aware with structured concurrency
+    full,   // :full - Capability-gated with security
+};
+
+// Current profile (set by compiler)
+pub const current_profile: Profile = @compileTimeProfile();
+
+// ===== BASIC TYPES =====
+
+pub const i32 = @builtin.i32;
+pub const u32 = @builtin.u32;
+pub const i64 = @builtin.i64;
+pub const u64 = @builtin.u64;
+pub const f32 = @builtin.f32;
+pub const f64 = @builtin.f64;
+pub const bool = @builtin.bool;
+pub const void = @builtin.void;
+
+// String type (encoding-honest)
+pub const String = struct {
+    bytes: []const u8,
+    encoding: Encoding,
+
+    pub const Encoding = enum {
+        utf8,
+        ascii,
+        latin1,
+    };
+
+    pub fn fromUtf8(bytes: []const u8) String {
+        return String{
+            .bytes = bytes,
+            .encoding = .utf8,
+        };
+    }
+
+    pub fn len(self: String) usize {
+        return self.bytes.len;
+    }
+};
+
+// ===== ALLOCATOR TYPES =====
+
+// Allocator trait (all profiles)
+pub const Allocator = struct {
+    allocFn: *const fn (self: *anyopaque, len: usize, alignment: u8) ?[]u8,
+    freeFn: *const fn (self: *anyopaque, buf: []u8, alignment: u8) void,
+    ptr: *anyopaque,
+
+    pub fn alloc(self: Allocator, comptime T: type, n: usize) ?[]T {
+        const bytes = self.allocFn(self.ptr, n * @sizeOf(T), @alignOf(T)) orelse return null;
+        return @ptrCast(@alignCast(bytes.ptr))[0..n];
+    }
+
+    pub fn free(self: Allocator, buf: []u8) void {
+        self.freeFn(self.ptr, buf, 1);
+    }
+};
+
+// Arena allocator (O(1) cleanup)
+pub const ArenaAllocator = struct {
+    backing_allocator: Allocator,
+    state: *ArenaState,
+
+    const ArenaState = struct {
+        buffer_list: ?*Buffer,
+        end_index: usize,
+
+        const Buffer = struct {
+            data: []u8,
+            next: ?*Buffer,
+        };
+    };
+
+    pub fn init(backing: Allocator) ArenaAllocator {
+        // Implementation would be here
+        return ArenaAllocator{
+            .backing_allocator = backing,
+            .state = undefined, // TODO: Initialize properly
+        };
+    }
+
+    pub fn allocator(self: *ArenaAllocator) Allocator {
+        return Allocator{
+            .allocFn = allocFn,
+            .freeFn = freeFn,
+            .ptr = self,
+        };
+    }
+
+    pub fn deinit(self: *ArenaAllocator) void {
+        // O(1) cleanup - free all buffers at once
+        // Implementation would be here
+        _ = self;
+    }
+
+    fn allocFn(ptr: *anyopaque, len: usize, alignment: u8) ?[]u8 {
+        _ = ptr;
+        _ = len;
+        _ = alignment;
+        // Implementation would be here
+        return null;
+    }
+
+    fn freeFn(ptr: *anyopaque, buf: []u8, alignment: u8) void {
+        _ = ptr;
+        _ = buf;
+        _ = alignment;
+        // Arena allocator doesn't free individual allocations
+    }
+};
+
+// ===== CONTEXT TYPES (for :go and :full profiles) =====
+
+// Context for structured concurrency (:go profile)
+pub const Context = struct {
+    parent: ?*Context,
+    deadline: ?i64,  // Unix timestamp
+    cancelled: bool,
+    values: ValueMap,
+
+    const ValueMap = struct {
+        // Simple key-value store for context values
+        // Implementation would use hash map
+
+        pub fn get(self: ValueMap, key: []const u8) ?[]const u8 {
+            _ = self;
+            _ = key;
+            return null; // TODO: Implement
+        }
+
+        pub fn set(self: *ValueMap, key: []const u8, value: []const u8) void {
+            _ = self;
+            _ = key;
+            _ = value;
+            // TODO: Implement
+        }
+    };
+
+    pub fn background() Context {
+        return Context{
+            .parent = null,
+            .deadline = null,
+            .cancelled = false,
+            .values = ValueMap{},
+        };
+    }
+
+    pub fn withDeadline(parent: *Context, deadline: i64) Context {
+        return Context{
+            .parent = parent,
+            .deadline = deadline,
+            .cancelled = false,
+            .values = ValueMap{},
+        };
+    }
+
+    pub fn isCancelled(self: Context) bool {
+        if (self.cancelled) return true;
+        if (self.parent) |parent| return parent.isCancelled();
+        return false;
+    }
+};
+
+// ===== CAPABILITY TYPES (for :full profile) =====
+
+// Base capability type
+pub const Capability = struct {
+    name: []const u8,
+    permissions: PermissionSet,
+    audit_trail: AuditTrail,
+
+    const PermissionSet = struct {
+        read: bool,
+        write: bool,
+        execute: bool,
+        network: bool,
+    };
+
+    const AuditTrail = struct {
+        created_at: i64,
+        created_by: []const u8,
+        operations: []Operation,
+
+        const Operation = struct {
+            timestamp: i64,
+            operation: []const u8,
+            success: bool,
+        };
+    };
+
+    pub fn validate(self: Capability) bool {
+        // Cryptographic validation would be here
+        _ = self;
+        return true; // TODO: Implement proper validation
+    }
+};
+
+// Standard output write capability
+pub const StdoutWriteCapability = struct {
+    base: Capability,
+
+    pub fn create() StdoutWriteCapability {
+        return StdoutWriteCapability{
+            .base = Capability{
+                .name = "stdout.write",
+                .permissions = .{
+                    .read = false,
+                    .write = true,
+                    .execute = false,
+                    .network = false,
+                },
+                .audit_trail = .{
+                    .created_at = 0, // TODO: Get current time
+                    .created_by = "system",
+                    .operations = &.{},
+                },
+            },
+        };
+    }
+
+    pub fn validate(self: StdoutWriteCapability) bool {
+        return self.base.validate();
+    }
+};
+
+// Standard error write capability
+pub const StderrWriteCapability = struct {
+    base: Capability,
+
+    pub fn create() StderrWriteCapability {
+        return StderrWriteCapability{
+            .base = Capability{
+                .name = "stderr.write",
+                .permissions = .{
+                    .read = false,
+                    .write = true,
+                    .execute = false,
+                    .network = false,
+                },
+                .audit_trail = .{
+                    .created_at = 0, // TODO: Get current time
+                    .created_by = "system",
+                    .operations = &.{},
+                },
+            },
+        };
+    }
+
+    pub fn validate(self: StderrWriteCapability) bool {
+        return self.base.validate();
+    }
+};
+
+// ===== ERROR TYPES =====
+
+pub const Error = enum {
+    OutOfMemory,
+    InvalidArgument,
+    PermissionDenied,
+    NotFound,
+    AlreadyExists,
+    Timeout,
+    Cancelled,
+    Unknown,
+};
+
+pub const Result = fn(comptime T: type, comptime E: type) type {
+    return union(enum) {
+        ok: T,
+        err: E,
+
+        pub fn isOk(self: @This()) bool {
+            return switch (self) {
+                .ok => true,
+                .err => false,
+            };
+        }
+
+        pub fn unwrap(self: @This()) T {
+            return switch (self) {
+                .ok => |value| value,
+                .err => @panic("Called unwrap on error result"),
+            };
+        }
+    };
+};

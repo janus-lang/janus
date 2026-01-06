@@ -1,0 +1,345 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025 Janus Project Authors
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+/// ================================
+/// Using Blocks - RAII for Janus
+/// ================================
+
+import "./alloc.jan" as Alloc
+import "./context.jan" as AllocContext
+import "./traits.jan" as Drop
+
+/// ===============================
+/// Using Block Core Infrastructure
+/// ===============================
+
+/// A using block is a scoped resource manager that provides RAII semantics.
+/// When a using block goes out of scope, the bound resource is automatically
+/// cleaned up via its Drop trait implementation.
+///
+/// Syntax example:
+///   using file = File.open("data.txt") {
+///     // file is automatically cleaned up when this scope ends
+///     let content = file.readAll();
+///   }
+///
+/// Key characteristics:
+/// - Idempotent drop: calling drop() manually makes auto-drop a no-op
+/// - Deterministic cleanup at scope exit
+/// - Type safety through Drop trait enforcement
+/// - Profile-gated availability (:script, :full only)
+pub trait UsingBlock {
+    /// The type of resource managed by this using block
+    type Resource;
+    
+    /// Create a new using block with a resource
+    pub fn new(resource: Resource) -> UsingBlock[Resource];
+    
+    /// Get a mutable reference to the managed resource
+    pub fn get(self: *Self) -> *Resource;
+    
+    /// Get a const reference to the managed resource
+    pub fn getConst(self: *Self) -> *const Resource;
+    
+    /// Check if the resource has been dropped
+    pub fn isDropped(self: *Self) -> Bool;
+}
+
+/// A using block that manages a resource of type T
+pub type UsingBlock[T] {
+    /// The managed resource (may be null if dropped)
+    resource: *T,
+    
+    /// Whether this resource has been dropped
+    dropped: Bool,
+    
+    /// The allocator used for cleanup (if needed)
+    cleanup_alloc: Alloc?,
+}
+
+/// Create a new using block managing resource T
+pub fn createUsingBlock[T](resource: *T, cleanup_alloc: Alloc?) -> UsingBlock[T] {
+    return UsingBlock[T]{
+        .resource = resource,
+        .dropped = false,
+        .cleanup_alloc = cleanup_alloc,
+    };
+}
+
+/// Implement UsingBlock trait for generic type
+impl[T] UsingBlock[T] {
+    pub fn new(resource: *T) -> UsingBlock[T] {
+        return createUsingBlock(resource, null);
+    }
+    
+    pub fn get(self: *Self) -> *T {
+        if (self.dropped) {
+            @panic("UsingBlock.get: resource has been dropped");
+        }
+        return self.resource.?;
+    }
+    
+    pub fn getConst(self: *Self) -> *const T {
+        if (self.dropped) {
+            @panic("UsingBlock.getConst: resource has been dropped");
+        }
+        return self.resource.?;
+    }
+    
+    pub fn isDropped(self: *Self) -> Bool {
+        return self.dropped;
+    }
+    
+    /// Manually drop the resource (idempotent - safe to call multiple times)
+    pub fn drop(self: *Self) -> Void {
+        if (self.dropped) {
+            return; // Already dropped - idempotent behavior
+        }
+        
+        // Mark as dropped before actual cleanup to prevent re-entrancy
+        self.dropped = true;
+        
+        if (self.resource != null) {
+            let resource_ptr = self.resource.?;
+            
+            // If resource implements Drop trait, use it
+            if (Drop.helpers.implementsDrop(@typeOf(resource_ptr.*))) {
+                Drop.drop(resource_ptr);
+            } else {
+                // For types that don't implement Drop, free memory if allocator provided
+                if (self.cleanup_alloc != null) {
+                    // Simplified - would use allocator.free() in real implementation
+                    resource_ptr = null;
+                }
+            }
+            
+            self.resource = null;
+        }
+    }
+}
+
+/// ===============================
+/// Using Block Expression System
+/// ===============================
+
+/// A using expression creates a resource and binds it to a using block
+/// Syntax: using x = Type.method(args) { ... body ... }
+pub type UsingExpression {
+    /// The type being constructed
+    constructed_type: Type,
+    
+    /// Constructor arguments
+    args: Vec[Any],
+    
+    /// The body of the using block
+    body: fn(*any) -> Any,
+}
+
+/// Create a using expression for type T
+pub fn using[T](constructor: fn(*any) -> *T) -> UsingExpression {
+    return UsingExpression{
+        .constructed_type = @typeOf(T),
+        .args = Vec[Any].init(),
+        .body = constructor,
+    };
+}
+
+/// Execute a using expression and return the result
+pub fn executeUsingExpression[T](expr: *UsingExpression) -> Result[T, UsingError] {
+    // Simplified execution - would call the constructor in real implementation
+    let resource_ptr = expr.body(null);
+    
+    if (resource_ptr == null) {
+        return Err(UsingError.ConstructionFailed);
+    }
+    
+    let using_block = UsingBlock[T].new(@ptrCast(*T, resource_ptr));
+    
+    // Execute the using block body
+    let result = expr.body(&using_block);
+    
+    // Auto-drop when going out of scope (handled by compiler)
+    using_block.drop();
+    
+    return Ok(result.?);
+}
+
+/// ===============================
+/// RAII Resource Types
+/// ===============================
+
+/// Example RAII resource types that work with using blocks
+
+/// A file handle resource that automatically closes when dropped
+pub type FileResource {
+    handle: *any, // Platform-specific file handle
+    path: String,
+}
+
+/// Create a file resource (simplified)
+pub fn openFile(path: String) -> Result[*FileResource, UsingError] {
+    // Simplified - would open actual file in real implementation
+    let resource = alloc.createUsingBlock.?;
+    return Ok(@ptrCast(*FileResource, resource));
+}
+
+/// Implement Drop for FileResource
+impl Drop.Drop for FileResource {
+    pub fn drop(self: *Self) -> Void {
+        if (self.handle != null) {
+            // Close file handle
+            // close(self.handle); // Would call platform close()
+            self.handle = null;
+        }
+    }
+}
+
+/// A network connection resource that auto-closes
+pub type ConnectionResource {
+    socket: *any, // Platform-specific socket
+    remote_addr: String,
+}
+
+/// Create a connection resource
+pub fn connectTo(host: String, port: u16) -> Result[*ConnectionResource, UsingError] {
+    // Simplified - would create actual network connection
+    let resource = alloc.createUsingBlock.?;
+    return Ok(@ptrCast(*ConnectionResource, resource));
+}
+
+/// Implement Drop for ConnectionResource
+impl Drop.Drop for ConnectionResource {
+    pub fn drop(self: *Self) -> Void {
+        if (self.socket != null) {
+            // Close socket
+            // close(self.socket); // Would call platform close()
+            self.socket = null;
+        }
+    }
+}
+
+/// A database transaction resource that auto-commits/rolls back
+pub type TransactionResource {
+    db_connection: *any,
+    transaction_active: Bool,
+}
+
+/// Create a database transaction
+pub fn beginTransaction(db: *any) -> Result[*TransactionResource, UsingError] {
+    // Simplified - would start actual database transaction
+    let resource = alloc.createUsingBlock.?;
+    return Ok(@ptrCast(*TransactionResource, resource));
+}
+
+/// Implement Drop for TransactionResource
+impl Drop.Drop for TransactionResource {
+    pub fn drop(self: *Self) -> Void {
+        if (self.transaction_active) {
+            // Auto-rollback on drop (or could auto-commit based on usage pattern)
+            // rollback_transaction(self.db_connection);
+            self.transaction_active = false;
+        }
+    }
+}
+
+/// ===============================
+/// Profile Integration for Using Blocks
+/// ===============================
+
+/// Profile-specific configuration for using blocks
+pub type UsingBlockProfile {
+    /// Whether using blocks are enabled in this profile
+    using_blocks_enabled: Bool,
+    
+    /// Whether RAII is enforced strictly
+    strict_raii: Bool,
+    
+    /// Whether using blocks can be nested
+    nesting_allowed: Bool,
+    
+    /// Whether auto-drop warnings are enabled
+    auto_drop_warnings: Bool,
+}
+
+/// Configuration for :script profile
+pub fn usingConfigForScript() -> UsingBlockProfile {
+    return UsingBlockProfile{
+        .using_blocks_enabled = true,
+        .strict_raii = false, // More lenient for interactive use
+        .nesting_allowed = true,
+        .auto_drop_warnings = true, // Help users understand cleanup
+    };
+}
+
+/// Configuration for :full profile
+pub fn usingConfigForFull() -> UsingBlockProfile {
+    return UsingBlockProfile{
+        .using_blocks_enabled = true,
+        .strict_raii = true, // Enforce RAII semantics strictly
+        .nesting_allowed = true,
+        .auto_drop_warnings = false, // Production mode
+    };
+}
+
+/// Check if using blocks are available in a profile
+pub fn checkUsingBlocksAvailable(profile: JanusProfile) -> Bool {
+    match profile {
+        .min => return false, // Disabled in teaching subset
+        .script => return true,
+        .go => return false, // Conservative by default
+        .elixir => return true,
+        .full => return true,
+        .npu => return true,
+    }
+}
+
+/// ===============================
+/// Error Types
+/// ===============================
+
+/// Error types for using block operations
+pub type UsingError {
+    ConstructionFailed,
+    DropFailed,
+    InvalidResource,
+    ProfileNotSupported,
+}
+
+/// ===============================
+/// Using Block Utilities
+/// ===============================
+
+/// Utility functions for working with using blocks
+
+/// Create a using block that executes a cleanup function at scope exit
+pub fn withCleanup[T](resource: *T, cleanup_fn: fn(*T) -> Void) -> UsingBlock[T] {
+    // This would create a custom drop implementation that calls cleanup_fn
+    // For now, return a basic using block
+    return UsingBlock[T].new(resource);
+}
+
+/// Create a scoped guard that auto-drops at scope exit
+pub fn makeGuard[T](resource: *T) -> UsingBlock[T] {
+    return UsingBlock[T].new(resource);
+}
+
+/// Helper to convert regular types to using blocks
+pub fn makeUsing[T](value: *T) -> UsingBlock[T] {
+    return UsingBlock[T].new(value);
+}
+
+/// Check if a type is compatible with using blocks
+pub fn isUsingCompatible[T]() -> Bool {
+    return Drop.helpers.implementsDrop(T);
+}

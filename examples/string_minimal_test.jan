@@ -1,0 +1,12 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    print("Testing string operations");
+    
+    let alloc := 0;
+    
+    let s1 := string_create("Hello", 5, alloc);
+    string_print(s1);
+    string_free(s1, alloc);
+}

@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func cleanup1() {
+    print("Cleaning up resource 1");
+}
+
+func cleanup2() {
+    print("Cleaning up resource 2");
+}
+
+func main() {
+    print("=== Defer Resource Cleanup Test ===");
+    
+    print("Acquiring resource 1");
+    defer cleanup1();
+    
+    print("Acquiring resource 2");
+    defer cleanup2();
+    
+    print("Using resources...");
+    
+    print("Function ending - defers should fire now");
+}

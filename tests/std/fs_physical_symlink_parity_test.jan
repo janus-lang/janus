@@ -1,0 +1,94 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// PhysicalFS symlink parity tests (skips if symlink creation unsupported)
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.sys.fs.physical_fs;
+import std.string;
+
+extern fn hasEnvVarImpl(name: []const u8) i32;
+extern fn symlinkSupportStatusImpl(base_ptr: []const u8) i32;
+
+func try_symlink_dir(pfs: physical_fs::PhysicalFS, target: string, link: string) -> bool {
+    let res = pfs.symlink_dir(path::Path::new(target), path::Path::new(link), fs::CapFsWrite);
+    switch (res) { .ok => true, .err => false }
+}
+
+func try_symlink_file(pfs: physical_fs::PhysicalFS, target: string, link: string) -> bool {
+    let res = pfs.symlink_file(path::Path::new(target), path::Path::new(link), fs::CapFsWrite);
+    switch (res) { .ok => true, .err => false }
+}
+
+func main() -> void {
+    let pfs = physical_fs::PhysicalFS::new();
+    // CI toggle: require JANUS_ENABLE_SYMLINK_TESTS to be set
+    let key = string.fromLiteral("JANUS_ENABLE_SYMLINK_TESTS");
+    if (hasEnvVarImpl(key.bytes) == 0) {
+        print("⚠️  Skipping PhysicalFS symlink tests (JANUS_ENABLE_SYMLINK_TESTS not set)\n");
+        return;
+    }
+    // Probe symlink support in .zig-cache
+    let base = string.fromLiteral(".zig-cache");
+    let status = symlinkSupportStatusImpl(base.bytes);
+    if (status != 1) {
+        if (status == 2) { print("⚠️  Skipping symlink tests: AccessDenied\n"); }
+        else if (status == 3) { print("⚠️  Skipping symlink tests: OperationNotSupported\n"); }
+        else { print("⚠️  Skipping symlink tests: Unknown/Unsupported\n"); }
+        return;
+    }
+    let base = ".zig-cache/fs_symlink_parity";
+    _ = pfs.create_dir(path::Path::new(base), fs::CapFsWrite);
+
+    // replace=false with symlink destination (file)
+    let src = path::Path::new(".zig-cache/fs_symlink_parity/src.txt");
+    let other = path::Path::new(".zig-cache/fs_symlink_parity/other.txt");
+    let dst_link = path::Path::new(".zig-cache/fs_symlink_parity/dst.txt");
+    _ = pfs.write_atomic(src, "SRC", fs::CapFsWrite);
+    _ = pfs.write_atomic(other, "OTHER", fs::CapFsWrite);
+    if (try_symlink_file(pfs, other.as_string(), dst_link.as_string())) {
+        let res = pfs.rename_or_copy_opts(src, dst_link, fs::CapFsWrite, fs::RenameOptions { recursive: false, follow_symlinks: true, replace: false });
+        switch (res) { .ok => @panic("expected EEXIST for file symlink destination"), .err => {} }
+        // replace=true
+        try pfs.rename_or_copy_opts(src, dst_link, fs::CapFsWrite, fs::RenameOptions { recursive: false, follow_symlinks: true, replace: true });
+        let fh = try pfs.open(dst_link, fs::CapFsRead, fs::OpenOptions::read_only());
+        let s = try fh.read_string();
+        assert(s == "SRC");
+    } else {
+        print("⚠️  Skipping file symlink tests (unsupported platform)\n");
+    }
+
+    // Mixed symlink subtree with follow_symlinks=true
+    let src_dir = path::Path::new(".zig-cache/fs_symlink_parity/src");
+    let dir = path::Path::new(".zig-cache/fs_symlink_parity/src/dir");
+    let in_file = path::Path::new(".zig-cache/fs_symlink_parity/src/dir/in.txt");
+    let ext_file = path::Path::new(".zig-cache/fs_symlink_parity/ext.txt");
+    let link_file = path::Path::new(".zig-cache/fs_symlink_parity/src/link_file.txt");
+    let real_dir = path::Path::new(".zig-cache/fs_symlink_parity/real");
+    let real_a = path::Path::new(".zig-cache/fs_symlink_parity/real/a.txt");
+    let link_dir = path::Path::new(".zig-cache/fs_symlink_parity/src/link_dir");
+    _ = pfs.create_dir(src_dir, fs::CapFsWrite);
+    _ = pfs.create_dir(dir, fs::CapFsWrite);
+    _ = pfs.write_atomic(in_file, "IN", fs::CapFsWrite);
+    _ = pfs.write_atomic(ext_file, "EXT", fs::CapFsWrite);
+    _ = pfs.create_dir(real_dir, fs::CapFsWrite);
+    _ = pfs.write_atomic(real_a, "REAL-A", fs::CapFsWrite);
+    const file_link_ok = try_symlink_file(pfs, ext_file.as_string(), link_file.as_string());
+    const dir_link_ok = try_symlink_dir(pfs, real_dir.as_string(), link_dir.as_string());
+    if (file_link_ok && dir_link_ok) {
+        let dst_dir = path::Path::new(".zig-cache/fs_symlink_parity/dst");
+        try pfs.rename_or_copy_opts(src_dir, dst_dir, fs::CapFsWrite, fs::RenameOptions { recursive: true, follow_symlinks: true, replace: true });
+        // Verify dereferenced copies
+        let s1 = try (try pfs.open(path::Path::new(".zig-cache/fs_symlink_parity/dst/link_file.txt"), fs::CapFsRead, fs::OpenOptions::read_only())).read_string();
+        assert(s1 == "EXT");
+        let s2 = try (try pfs.open(path::Path::new(".zig-cache/fs_symlink_parity/dst/link_dir/a.txt"), fs::CapFsRead, fs::OpenOptions::read_only())).read_string();
+        assert(s2 == "REAL-A");
+        let s3 = try (try pfs.open(path::Path::new(".zig-cache/fs_symlink_parity/dst/dir/in.txt"), fs::CapFsRead, fs::OpenOptions::read_only())).read_string();
+        assert(s3 == "IN");
+    } else {
+        print("⚠️  Skipping mixed dir/file symlink subtree test (unsupported platform)\n");
+    }
+
+    print("✅ PhysicalFS symlink parity checks completed (with skips as needed)");
+}

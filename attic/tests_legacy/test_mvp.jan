@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// MVP Test Program - The North Star
+func pure_math(a: i32, b: i32) -> i32 {
+    return a + b
+}
+
+func main() {
+    let result := pure_math(21, 21)
+    print("MVP Test: 21 + 21 = ")
+    print(result)
+    print("\nJanus MVP is operational!")
+}

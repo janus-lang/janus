@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    print("Testing If/Else Control Flow");
+    
+    let x: i32 = 42;
+    let y: i32 = 10;
+    
+    if x > y do
+        print("42 is greater than 10");
+    end
+    
+    if y > x do
+        print("This should not print");   
+    else do
+        print("10 is NOT greater than 42");
+    end
+    
+    print("Control flow complete!");
+}

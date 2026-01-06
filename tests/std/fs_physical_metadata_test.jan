@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Tests for PhysicalFS metadata/existence using enhanced statPath
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.sys.fs.physical_fs;
+
+func test_metadata_on_current_dir() -> Result<(), string> {
+    let vfs = physical_fs::PhysicalFS::new();
+    let p = path::Path::new(".");
+    let md = try vfs.metadata(p, fs::CapFsRead);
+    if md.file_type != path::FileType::Directory { return Err("expected directory for '.'".to_string()); }
+    if md.size < 0 { return Err("size should be non-negative".to_string()); }
+    if md.modified_ms_utc == 0 { return Err("mtime should be non-zero".to_string()); }
+    if !vfs.exists(p, fs::CapFsRead) { return Err("exists should be true for '.'".to_string()); }
+    Ok(())
+}
+
+func test_nonexistent_path() -> Result<(), string> {
+    let vfs = physical_fs::PhysicalFS::new();
+    let p = path::Path::new("/this/definitely/does/not/exist-janus-test");
+    if vfs.exists(p, fs::CapFsRead) { return Err("exists should be false".to_string()); }
+    match vfs.metadata(p, fs::CapFsRead) {
+        Ok(_) => Err("metadata should fail for nonexistent path".to_string()),
+        Err(_) => Ok(()),
+    }
+}

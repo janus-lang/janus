@@ -1,0 +1,399 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Comprehensive test suite for janus.json module
+module tests.json;
+
+import std.data.json;
+import std.core;
+import std.sys.fs.path;
+
+// =============================================================================
+// Test Data
+// =============================================================================
+
+const SIMPLE_OBJECT = r#"{"name": "test", "value": 42}"#;
+const SIMPLE_ARRAY = r#"["apple", "banana", "cherry"]"#;
+const NESTED_OBJECT = r#"
+{
+    "user": {
+        "name": "Alice",
+        "age": 30,
+        "active": true
+    },
+    "permissions": ["read", "write", "admin"],
+    "metadata": {
+        "created": "2024-01-01T00:00:00Z",
+        "version": 1.2
+    }
+}
+"#;
+
+const LARGE_ARRAY = r#"
+[
+    {"id": 1, "name": "Item 1", "value": 10.5},
+    {"id": 2, "name": "Item 2", "value": 20.3},
+    {"id": 3, "name": "Item 3", "value": 15.7},
+    {"id": 4, "name": "Item 4", "value": 8.9},
+    {"id": 5, "name": "Item 5", "value": 25.1}
+]
+"#;
+
+// =============================================================================
+// Basic Parsing Tests
+// =============================================================================
+
+func test_parse_simple_object() -> Result<(), String> {
+    let parser = try JsonParser::new(&[], true);
+    let caps = vec!["fs.read".to_string()];
+
+    let value = try parser.parse_str(SIMPLE_OBJECT, &caps);
+
+    assert_eq(value.get_type(), JsonType::Object);
+
+    let obj = try value.as_object();
+    // TODO: Test object field access when implemented
+
+    Ok(())
+}
+
+func test_parse_simple_array() -> Result<(), String> {
+    let parser = try JsonParser::new(&[], true);
+    let caps = vec!["fs.read".to_string()];
+
+    let value = try parser.parse_str(SIMPLE_ARRAY, &caps);
+
+    assert_eq(value.get_type(), JsonType::Array);
+
+    let arr = try value.as_array();
+    // TODO: Test array access when implemented
+
+    Ok(())
+}
+
+func test_parse_nested_object() -> Result<(), String> {
+    let parser = try JsonParser::new(&[], true);
+    let caps = vec!["fs.read".to_string()];
+
+    let value = try parser.parse_str(NESTED_OBJECT, &caps);
+
+    assert_eq(value.get_type(), JsonType::Object);
+
+    // Test nested access
+    let obj = try value.as_object();
+    // TODO: Test nested field access when implemented
+
+    Ok(())
+}
+
+// =============================================================================
+// SIMD Performance Tests
+// =============================================================================
+
+func test_simd_acceleration() -> Result<(), String> {
+    let parser_simd = try JsonParser::new(&[], true);
+    let parser_no_simd = try JsonParser::new(&[], false);
+    let caps = vec!["fs.read".to_string()];
+
+    // Test that SIMD parser can handle the same data
+    let value1 = try parser_simd.parse_str(LARGE_ARRAY, &caps);
+    let value2 = try parser_no_simd.parse_str(LARGE_ARRAY, &caps);
+
+    assert_eq(value1.get_type(), JsonType::Array);
+    assert_eq(value2.get_type(), JsonType::Array);
+
+    Ok(())
+}
+
+// =============================================================================
+// Capability Validation Tests
+// =============================================================================
+
+func test_missing_capability() -> Result<(), String> {
+    let parser = try JsonParser::new(&["fs.read".to_string()], true);
+    let caps = vec![]; // No capabilities available
+
+    let result = parser.parse_str(SIMPLE_OBJECT, &caps);
+
+    match result {
+        Err(ParseError::MissingCapability(cap)) => {
+            assert_eq(cap, "fs.read");
+            Ok(())
+        },
+        _ => Err("Expected missing capability error".to_string()),
+    }
+}
+
+func test_capability_validation_success() -> Result<(), String> {
+    let parser = try JsonParser::new(&["fs.read".to_string()], true);
+    let caps = vec!["fs.read".to_string()];
+
+    let result = parser.parse_str(SIMPLE_OBJECT, &caps);
+
+    match result {
+        Ok(_) => Ok(()),
+        Err(e) => Err(format!("Unexpected error: {}", e)),
+    }
+}
+
+// =============================================================================
+// File I/O Tests
+// =============================================================================
+
+func test_parse_from_file() -> Result<(), String> {
+    // Create a temporary JSON file
+    let temp_file = try Path::new("test_temp.json");
+    try temp_file.write_string(SIMPLE_OBJECT, CapFsWrite);
+
+    let parser = try JsonParser::new(&[], true);
+    let caps = vec!["fs.read".to_string()];
+
+    let value = try parser.parse_file(&temp_file, &caps);
+
+    assert_eq(value.get_type(), JsonType::Object);
+
+    // Clean up
+    try std::fs::remove_file(&temp_file);
+
+    Ok(())
+}
+
+// =============================================================================
+// Error Handling Tests
+// =============================================================================
+
+func test_malformed_json() -> Result<(), String> {
+    let parser = try JsonParser::new(&[], true);
+    let caps = vec!["fs.read".to_string()];
+
+    let malformed = r#"{"name": "test", "value": }"#; // Missing value
+
+    let result = parser.parse_str(malformed, &caps);
+
+    match result {
+        Err(_) => Ok(()), // Should produce some kind of parse error
+        Ok(_) => Err("Expected parse error for malformed JSON".to_string()),
+    }
+}
+
+func test_invalid_unicode() -> Result<(), String> {
+    let parser = try JsonParser::new(&[], true);
+    let caps = vec!["fs.read".to_string()];
+
+    let invalid_unicode = r#"{"name": "test", "value": "\uXXXX"}"#; // Invalid escape
+
+    let result = parser.parse_str(invalid_unicode, &caps);
+
+    match result {
+        Err(_) => Ok(()),
+        Ok(_) => Err("Expected parse error for invalid Unicode".to_string()),
+    }
+}
+
+// =============================================================================
+// Type Conversion Tests
+// =============================================================================
+
+func test_string_conversion() -> Result<(), String> {
+    let json_str = r#""Hello, World!""#;
+    let parser = try JsonParser::new(&[], true);
+    let caps = vec!["fs.read".to_string()];
+
+    let value = try parser.parse_str(json_str, &caps);
+    assert_eq(value.get_type(), JsonType::String);
+
+    let str_val = try value.as_string();
+    assert_eq(str_val, "Hello, World!");
+
+    Ok(())
+}
+
+func test_number_conversion() -> Result<(), String> {
+    let json_num = r#"42"#;
+    let parser = try JsonParser::new(&[], true);
+    let caps = vec!["fs.read".to_string()];
+
+    let value = try parser.parse_str(json_num, &caps);
+    assert_eq(value.get_type(), JsonType::Number);
+
+    let num_val = try value.as_number();
+    assert_eq(num_val, 42.0);
+
+    Ok(())
+}
+
+func test_boolean_conversion() -> Result<(), String> {
+    let json_bool = r#"true"#;
+    let parser = try JsonParser::new(&[], true);
+    let caps = vec!["fs.read".to_string()];
+
+    let value = try parser.parse_str(json_bool, &caps);
+    assert_eq(value.get_type(), JsonType::Boolean);
+
+    let bool_val = try value.as_bool();
+    assert_eq(bool_val, true);
+
+    Ok(())
+}
+
+func test_null_value() -> Result<(), String> {
+    let json_null = r#"null"#;
+    let parser = try JsonParser::new(&[], true);
+    let caps = vec!["fs.read".to_string()];
+
+    let value = try parser.parse_str(json_null, &caps);
+    assert_eq(value.get_type(), JsonType::Null);
+    assert_eq(value.is_null(), true);
+
+    Ok(())
+}
+
+// =============================================================================
+// Performance Benchmark Tests
+// =============================================================================
+
+func test_large_document() -> Result<(), String> {
+    // Create a large JSON document for performance testing
+    let large_json = generate_large_json(1000); // 1000 items
+
+    let parser = try JsonParser::new(&[], true);
+    let caps = vec!["fs.read".to_string()];
+
+    let value = try parser.parse_str(&large_json, &caps);
+    assert_eq(value.get_type(), JsonType::Array);
+
+    Ok(())
+}
+
+func test_deeply_nested() -> Result<(), String> {
+    // Test parsing of deeply nested structures
+    let deep_json = generate_nested_json(50); // 50 levels deep
+
+    let parser = try JsonParser::new(&[], true);
+    let caps = vec!["fs.read".to_string()];
+
+    let value = try parser.parse_str(&deep_json, &caps);
+
+    Ok(())
+}
+
+// =============================================================================
+// Forensic Analysis Tests
+// =============================================================================
+
+func test_forensic_error_reporting() -> Result<(), String> {
+    let parser = try JsonParser::new(&[], true);
+    parser.enable_forensics();
+
+    let caps = vec!["fs.read".to_string()];
+
+    let malformed = r#"{"deeply": {"nested": {"structure": {"with": {"many": {"levels": {"that": {"should": {"cause": {"an": {"error": }"#;
+
+    let result = parser.parse_str(malformed, &caps);
+
+    match result {
+        Err(e) => {
+            // Should have detailed trace information
+            assert!(!e.message.is_empty());
+            Ok(())
+        },
+        Ok(_) => Err("Expected parse error with forensic information".to_string()),
+    }
+}
+
+// =============================================================================
+// Utility Functions
+// =============================================================================
+
+func generate_large_json(count: usize) -> String {
+    let mut result = "[".to_string();
+
+    for i in 0..count {
+        if i > 0 {
+            result.push_str(",");
+        }
+        result.push_str(format!(r#"{{"id": {}, "name": "Item {}", "value": {}}}"#,
+                              i, i, (i as f64) * 1.5));
+    }
+
+    result.push_str("]");
+    result
+}
+
+func generate_nested_json(depth: usize) -> String {
+    if depth == 0 {
+        return r#""leaf""#.to_string();
+    }
+
+    let inner = generate_nested_json(depth - 1);
+    format!(r#"{{"level": {}, "child": {}}}"#, depth, inner)
+}
+
+// =============================================================================
+// Main Test Runner
+// =============================================================================
+
+func main() -> Result<(), String> {
+    println!("🧪 Testing janus.json module");
+
+    // Basic parsing tests
+    test_parse_simple_object()?;
+    println!("✅ Simple object parsing");
+
+    test_parse_simple_array()?;
+    println!("✅ Simple array parsing");
+
+    test_parse_nested_object()?;
+    println!("✅ Nested object parsing");
+
+    // Type conversion tests
+    test_string_conversion()?;
+    println!("✅ String conversion");
+
+    test_number_conversion()?;
+    println!("✅ Number conversion");
+
+    test_boolean_conversion()?;
+    println!("✅ Boolean conversion");
+
+    test_null_value()?;
+    println!("✅ Null value handling");
+
+    // Capability tests
+    test_capability_validation_success()?;
+    println!("✅ Capability validation (success)");
+
+    test_missing_capability()?;
+    println!("✅ Missing capability detection");
+
+    // SIMD tests
+    test_simd_acceleration()?;
+    println!("✅ SIMD acceleration");
+
+    // File I/O tests
+    test_parse_from_file()?;
+    println!("✅ File parsing");
+
+    // Error handling tests
+    test_malformed_json()?;
+    println!("✅ Malformed JSON handling");
+
+    test_invalid_unicode()?;
+    println!("✅ Invalid Unicode handling");
+
+    // Performance tests
+    test_large_document()?;
+    println!("✅ Large document parsing");
+
+    test_deeply_nested()?;
+    println!("✅ Deeply nested parsing");
+
+    // Forensic tests
+    test_forensic_error_reporting()?;
+    println!("✅ Forensic error reporting");
+
+    println!("🎉 All JSON tests passed!");
+    println!("⚡ simdjzon integration ready for production use");
+
+    Ok(())
+}

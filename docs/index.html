@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>☍ Janus Documentation</title>
+    
+    <!-- PicoCSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    
+    <!-- Prism.js for syntax highlighting -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css">
+    
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    
+    <!-- Marked.js for markdown -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <!-- Prism.js -->
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-rust.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-zig.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+    
+    <style>
+        :root {
+            --pico-font-family: 'Inter', system-ui, sans-serif;
+            --pico-border-radius: 0.5rem;
+        }
+        
+        body {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            min-height: 100vh;
+            margin: 0;
+        }
+        
+        /* Sidebar */
+        #sidebar {
+            background: var(--pico-card-background-color);
+            border-right: 1px solid var(--pico-muted-border-color);
+            padding: 1.5rem;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            overflow-y: auto;
+        }
+        
+        #sidebar h1 {
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        #sidebar nav ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        #sidebar nav li {
+            margin: 0.25rem 0;
+        }
+        
+        #sidebar nav a {
+            display: block;
+            padding: 0.5rem 0.75rem;
+            border-radius: var(--pico-border-radius);
+            text-decoration: none;
+            color: var(--pico-color);
+            transition: background 0.2s;
+        }
+        
+        #sidebar nav a:hover,
+        #sidebar nav a.active {
+            background: var(--pico-primary-background);
+            color: var(--pico-primary-inverse);
+        }
+        
+        #sidebar nav details {
+            margin: 0.25rem 0;
+        }
+        
+        #sidebar nav summary {
+            cursor: pointer;
+            padding: 0.5rem 0.75rem;
+            border-radius: var(--pico-border-radius);
+            font-weight: 600;
+        }
+        
+        #sidebar nav details ul {
+            margin-left: 1rem;
+            margin-top: 0.25rem;
+        }
+        
+        /* Main content */
+        #content {
+            padding: 2rem 3rem;
+            max-width: 900px;
+        }
+        
+        #content h1 { font-size: 2.5rem; margin-bottom: 1.5rem; }
+        #content h2 { font-size: 1.75rem; margin-top: 2rem; border-bottom: 1px solid var(--pico-muted-border-color); padding-bottom: 0.5rem; }
+        #content h3 { font-size: 1.25rem; margin-top: 1.5rem; }
+        
+        #content table {
+            width: 100%;
+            margin: 1rem 0;
+        }
+        
+        #content code {
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+        }
+        
+        #content pre {
+            border-radius: var(--pico-border-radius);
+            padding: 1rem;
+            overflow-x: auto;
+        }
+        
+        /* Theme toggle */
+        #theme-toggle {
+            position: fixed;
+            bottom: 1rem;
+            right: 1rem;
+            background: var(--pico-primary);
+            color: var(--pico-primary-inverse);
+            border: none;
+            border-radius: 50%;
+            width: 3rem;
+            height: 3rem;
+            cursor: pointer;
+            font-size: 1.25rem;
+        }
+        
+        /* Mobile */
+        @media (max-width: 768px) {
+            body {
+                grid-template-columns: 1fr;
+            }
+            #sidebar {
+                position: fixed;
+                left: -280px;
+                transition: left 0.3s;
+                z-index: 100;
+            }
+            #sidebar.open {
+                left: 0;
+            }
+            #content {
+                padding: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <aside id="sidebar">
+        <h1>☍ Janus</h1>
+        <nav id="nav">
+            <ul>
+                <li><a href="#" data-page="INDEX.md" class="active">Home</a></li>
+                <li><a href="#" data-page="README.md">Getting Started</a></li>
+                <li><a href="#" data-page="profiles-overview.md">Profiles</a></li>
+                
+                <li><details open>
+                    <summary>📋 Specs</summary>
+                    <ul>
+                        <li><a href="#" data-page="specs/SPEC-000-meta.md">Meta (RFC 2119)</a></li>
+                        <li><a href="#" data-page="specs/SPEC-profiles.md">Profiles</a></li>
+                        <li><a href="#" data-page="specs/SPEC-semantics.md">Semantics</a></li>
+                    </ul>
+                </details></li>
+                
+                <li><details>
+                    <summary>📐 Architecture</summary>
+                    <ul>
+                        <li><a href="#" data-page="architecture/ASTDB.md">ASTDB</a></li>
+                        <li><a href="#" data-page="architecture/ASTDB-ARCHITECTURE.md">ASTDB Architecture</a></li>
+                    </ul>
+                </details></li>
+                
+                <li><details>
+                    <summary>📜 RFCs</summary>
+                    <ul>
+                        <li><a href="#" data-page="rfcs/RFC-002-profile-taxonomy-v2.md">Profile Taxonomy v2</a></li>
+                        <li><a href="#" data-page="rfcs/0001-error-model.md">Error Model</a></li>
+                        <li><a href="#" data-page="rfcs/0002-allocator-model.md">Allocator Model</a></li>
+                    </ul>
+                </details></li>
+                
+                <li><details>
+                    <summary>🎓 Teaching</summary>
+                    <ul>
+                        <li><a href="#" data-page="teaching/INDEX.md">Overview</a></li>
+                    </ul>
+                </details></li>
+                
+                <li><details>
+                    <summary>🛠️ CLI</summary>
+                    <ul>
+                        <li><a href="#" data-page="cli/INDEX.md">Commands</a></li>
+                    </ul>
+                </details></li>
+                
+                <li><details>
+                    <summary>📚 Philosophy</summary>
+                    <ul>
+                        <li><a href="#" data-page="philosophy/SYMBOLOGY.md">Symbology</a></li>
+                    </ul>
+                </details></li>
+                
+                <li><details>
+                    <summary>⚖️ Legal</summary>
+                    <ul>
+                        <li><a href="#" data-page="legal/licensing.md">Licensing</a></li>
+                    </ul>
+                </details></li>
+            </ul>
+        </nav>
+    </aside>
+    
+    <main id="content">
+        <article id="page-content">
+            <h1>Loading...</h1>
+        </article>
+    </main>
+    
+    <button id="theme-toggle" title="Toggle theme">🌙</button>
+    
+    <script>
+        // Configure marked
+        marked.setOptions({
+            highlight: function(code, lang) {
+                if (Prism.languages[lang]) {
+                    return Prism.highlight(code, Prism.languages[lang], lang);
+                }
+                return code;
+            },
+            breaks: true,
+            gfm: true
+        });
+        
+        // Load markdown page
+        async function loadPage(path) {
+            const content = document.getElementById('page-content');
+            content.innerHTML = '<p>Loading...</p>';
+            
+            try {
+                const response = await fetch(path);
+                if (!response.ok) throw new Error('Page not found');
+                
+                const markdown = await response.text();
+                content.innerHTML = marked.parse(markdown);
+                
+                // Re-run Prism on code blocks
+                Prism.highlightAllUnder(content);
+                
+                // Update active nav
+                document.querySelectorAll('#nav a').forEach(a => a.classList.remove('active'));
+                document.querySelector(`#nav a[data-page="${path}"]`)?.classList.add('active');
+                
+                // Update URL hash
+                window.location.hash = path;
+            } catch (e) {
+                content.innerHTML = `<h1>Page Not Found</h1><p>Could not load: ${path}</p>`;
+            }
+        }
+        
+        // Navigation clicks
+        document.getElementById('nav').addEventListener('click', (e) => {
+            if (e.target.matches('a[data-page]')) {
+                e.preventDefault();
+                loadPage(e.target.dataset.page);
+            }
+        });
+        
+        // Theme toggle
+        document.getElementById('theme-toggle').addEventListener('click', () => {
+            const html = document.documentElement;
+            const current = html.getAttribute('data-theme');
+            const next = current === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', next);
+            document.getElementById('theme-toggle').textContent = next === 'dark' ? '🌙' : '☀️';
+        });
+        
+        // Load initial page from hash or default
+        const initialPage = window.location.hash.slice(1) || 'INDEX.md';
+        loadPage(initialPage);
+    </script>
+</body>
+</html>

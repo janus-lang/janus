@@ -1,0 +1,32 @@
+{
+  "test_name": "cid_invariance_comments",
+  "description": "CIDs should be identical for semantically equivalent code with different comments",
+  "files": {
+    "A_src.jan": {
+      "unit_cid": "blake3:placeholder_fibonacci_unit_cid",
+      "items": [
+        {
+          "name": "fibonacci",
+          "cid": "blake3:placeholder_fibonacci_function_cid",
+          "node_type": "function"
+        }
+      ]
+    },
+    "B_src_comment_only.jan": {
+      "unit_cid": "blake3:placeholder_fibonacci_unit_cid",
+      "items": [
+        {
+          "name": "fibonacci",
+          "cid": "blake3:placeholder_fibonacci_function_cid",
+          "node_type": "function"
+        }
+      ]
+    }
+  },
+  "expected_result": "identical_cids",
+  "validation_rules": [
+    "unit_cids_must_match",
+    "all_item_cids_must_match",
+    "comment_changes_ignored"
+  ]
+}

@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Janus :min Profile Test Program
+// This program demonstrates all features available in the :min profile
+
+func fibonacci(n: i32) -> i32 do
+  match n do
+    0 => 0
+    1 => 1
+    _ when n > 1 => fibonacci(n - 1) + fibonacci(n - 2)
+  end
+end
+
+func main() do
+  var i := 0
+  while i < 10 do
+    let result := fibonacci(i)
+    if result > 50 do
+      break
+    else
+      continue when result < 5
+    end
+    i = i + 1
+  end
+
+  for j in 0..5 do
+    let x := j | 1
+    return when x > 3
+  end
+end

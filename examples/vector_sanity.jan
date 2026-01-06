@@ -1,0 +1,9 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    print("Testing vector");
+    let v := vector_create(i32_to_i64(5));
+    vector_free(v);
+    print("Success");
+}

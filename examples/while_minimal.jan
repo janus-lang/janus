@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    print("Testing While Loop - No Mutation");
+    
+    let x: i32 = 0;
+    
+    while x < 1 do
+        print("Inside loop");
+    end
+    
+    print("Loop complete!");
+}

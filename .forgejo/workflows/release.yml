@@ -1,0 +1,380 @@
+# Janus Release Pipeline - Multi-Platform Automated Releases
+# Builds and packages Janus for Linux, Windows, and macOS with full automation
+
+name: 🚀 Janus Release Pipeline
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+      - 'v*.*.*-*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v0.1.1)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  ZIG_VERSION: "0.14.1"
+  BLAKE3_NO_AVX512: "1"
+
+jobs:
+  # ============================================================================
+  # Version Management and Validation
+  # ============================================================================
+  version-check:
+    name: 🏷️ Version Validation
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+      build_number: ${{ steps.version.outputs.build_number }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract Version Information
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+            IS_PRERELEASE="${{ github.event.inputs.prerelease }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+            IS_PRERELEASE="false"
+            if [[ "$VERSION" =~ -alpha|-beta|-rc ]]; then
+              IS_PRERELEASE="true"
+            fi
+          fi
+
+          BUILD_NUMBER=$(git rev-list --count HEAD)
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "is_prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+          echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
+
+          echo "🏷️ Version: $VERSION"
+          echo "🔢 Build: $BUILD_NUMBER"
+          echo "🧪 Pre-release: $IS_PRERELEASE"
+
+  # ============================================================================
+  # Multi-Platform Binary Builds
+  # ============================================================================
+  build-binaries:
+    name: 🔨 Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    needs: version-check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux Targets
+          - target: x86_64-linux-gnu
+            os: ubuntu-latest
+            artifact: janus-linux-x86_64
+            static: false
+          - target: x86_64-linux-musl
+            os: ubuntu-latest
+            artifact: janus-linux-x86_64-static
+            static: true
+          - target: aarch64-linux-gnu
+            os: ubuntu-latest
+            artifact: janus-linux-aarch64
+            static: false
+          - target: aarch64-linux-musl
+            os: ubuntu-latest
+            artifact: janus-linux-aarch64-static
+            static: true
+
+          # Windows Targets
+          - target: x86_64-windows-gnu
+            os: ubuntu-latest
+            artifact: janus-windows-x86_64
+            static: false
+          - target: aarch64-windows-gnu
+            os: ubuntu-latest
+            artifact: janus-windows-aarch64
+            static: false
+
+          # macOS Targets
+          - target: x86_64-macos-none
+            os: macos-13
+            artifact: janus-macos-x86_64
+            static: false
+          - target: aarch64-macos-none
+            os: macos-14
+            artifact: janus-macos-aarch64
+            static: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Install Cross-Compilation Dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib gcc-mingw-w64
+
+      - name: Build Janus
+        run: |
+          # Set optimization and target
+          OPTIMIZE="ReleaseFast"
+          if [ "${{ matrix.static }}" = "true" ]; then
+            EXTRA_FLAGS="-Dtarget=${{ matrix.target }} -Doptimize=$OPTIMIZE -Dstatic=true"
+          else
+            EXTRA_FLAGS="-Dtarget=${{ matrix.target }} -Doptimize=$OPTIMIZE"
+          fi
+
+          echo "🔨 Building for ${{ matrix.target }}"
+          zig build $EXTRA_FLAGS
+
+          # Verify build
+          ls -la zig-out/bin/
+
+          # Test binary (if native)
+          if [[ "${{ matrix.target }}" == *"$(uname -m)"* ]] && [[ "${{ matrix.target }}" == *"$(uname -s | tr '[:upper:]' '[:lower:]')"* ]]; then
+            echo "🧪 Testing native binary"
+            ./zig-out/bin/janus version || echo "Version command not available yet"
+          fi
+
+      - name: Package Binary
+        run: |
+          mkdir -p dist
+
+          # Copy binary with appropriate extension
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            cp zig-out/bin/janus.exe dist/janus.exe
+            cp zig-out/bin/janusd.exe dist/janusd.exe 2>/dev/null || echo "janusd not built"
+          else
+            cp zig-out/bin/janus dist/janus
+            cp zig-out/bin/janusd dist/janusd 2>/dev/null || echo "janusd not built"
+          fi
+
+          # Add version info
+          echo "${{ needs.version-check.outputs.version }}" > dist/VERSION
+          echo "${{ needs.version-check.outputs.build_number }}" > dist/BUILD
+          echo "${{ matrix.target }}" > dist/TARGET
+
+          # Create archive
+          cd dist
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            zip -r ../${{ matrix.artifact }}.zip .
+          else
+            tar -czf ../${{ matrix.artifact }}.tar.gz .
+          fi
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}.tar.gz
+            ${{ matrix.artifact }}.zip
+          retention-days: 30
+
+  # ============================================================================
+  # Linux Distribution Packages
+  # ============================================================================
+  build-packages:
+    name: 📦 Package ${{ matrix.distro }}
+    runs-on: ubuntu-latest
+    needs: [version-check, build-binaries]
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [arch, alpine, debian, fedora]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Linux Binary
+        uses: actions/download-artifact@v4
+        with:
+          name: janus-linux-x86_64
+          path: ./
+
+      - name: Extract Binary
+        run: |
+          tar -xzf janus-linux-x86_64.tar.gz
+          chmod +x janus janusd 2>/dev/null || true
+
+      - name: Build ${{ matrix.distro }} Package
+        run: |
+          cd packaging/${{ matrix.distro }}
+
+          # Update version in packaging files
+          VERSION="${{ needs.version-check.outputs.version }}"
+          BUILD="${{ needs.version-check.outputs.build_number }}"
+
+          case "${{ matrix.distro }}" in
+            arch)
+              # Update PKGBUILD
+              sed -i "s/pkgver=.*/pkgver=${VERSION#v}/" PKGBUILD
+              sed -i "s/pkgrel=.*/pkgrel=$BUILD/" PKGBUILD
+              makepkg --printsrcinfo > .SRCINFO
+              makepkg -s --noconfirm
+              ;;
+            alpine)
+              # Update APKBUILD
+              sed -i "s/pkgver=.*/pkgver=${VERSION#v}/" APKBUILD
+              sed -i "s/pkgrel=.*/pkgrel=$BUILD/" APKBUILD
+              abuild checksum
+              abuild -r
+              ;;
+            debian)
+              # Update changelog
+              dch -v "${VERSION#v}-$BUILD" "Automated release build"
+              dpkg-buildpackage -us -uc
+              ;;
+            fedora)
+              # Update spec file
+              sed -i "s/Version:.*/Version: ${VERSION#v}/" janus-lang.spec
+              sed -i "s/Release:.*/Release: $BUILD%{?dist}/" janus-lang.spec
+              rpmbuild -ba janus-lang.spec
+              ;;
+          esac
+
+      - name: Upload Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: janus-${{ matrix.distro }}-package
+          path: |
+            packaging/${{ matrix.distro }}/*.pkg.tar.xz
+            packaging/${{ matrix.distro }}/*.apk
+            packaging/${{ matrix.distro }}/*.deb
+            packaging/${{ matrix.distro }}/*.rpm
+          retention-days: 30
+
+  # ============================================================================
+  # Release Creation and Asset Upload
+  # ============================================================================
+  create-release:
+    name: 🎉 Create Release
+    runs-on: ubuntu-latest
+    needs: [version-check, build-binaries, build-packages]
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+
+      - name: Prepare Release Assets
+        run: |
+          mkdir -p release-assets
+
+          # Organize binary artifacts
+          find artifacts -name "*.tar.gz" -o -name "*.zip" | while read file; do
+            cp "$file" release-assets/
+          done
+
+          # Organize package artifacts
+          find artifacts -name "*.pkg.tar.xz" -o -name "*.apk" -o -name "*.deb" -o -name "*.rpm" | while read file; do
+            cp "$file" release-assets/
+          done
+
+          # Generate checksums
+          cd release-assets
+          sha256sum * > SHA256SUMS
+
+          # List all assets
+          echo "📦 Release Assets:"
+          ls -la
+
+      - name: Generate Release Notes
+        run: |
+          cat > RELEASE_NOTES.md << EOF
+          # Janus ${{ needs.version-check.outputs.version }}
+
+          **Build:** ${{ needs.version-check.outputs.build_number }}
+          **Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+          ## 🚀 What's New
+
+          This release includes improvements to the Janus compiler and runtime system.
+
+          ## 📦 Downloads
+
+          ### Binaries
+          - **Linux x86_64:** \`janus-linux-x86_64.tar.gz\`
+          - **Linux x86_64 (static):** \`janus-linux-x86_64-static.tar.gz\`
+          - **Linux ARM64:** \`janus-linux-aarch64.tar.gz\`
+          - **Windows x86_64:** \`janus-windows-x86_64.zip\`
+          - **macOS x86_64:** \`janus-macos-x86_64.tar.gz\`
+          - **macOS ARM64:** \`janus-macos-aarch64.tar.gz\`
+
+          ### Linux Packages
+          - **Arch Linux:** \`*.pkg.tar.xz\`
+          - **Alpine Linux:** \`*.apk\`
+          - **Debian/Ubuntu:** \`*.deb\`
+          - **Fedora/RHEL:** \`*.rpm\`
+
+          ## 🔐 Verification
+
+          All assets include SHA256 checksums in \`SHA256SUMS\`.
+
+          ## 📚 Documentation
+
+          See the [Janus Documentation](https://github.com/markus/janus) for installation and usage instructions.
+          EOF
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.version-check.outputs.version }}
+          name: Janus ${{ needs.version-check.outputs.version }}
+          body_path: RELEASE_NOTES.md
+          prerelease: ${{ needs.version-check.outputs.is_prerelease }}
+          files: |
+            release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ============================================================================
+  # Post-Release Automation
+  # ============================================================================
+  post-release:
+    name: 📢 Post-Release Tasks
+    runs-on: ubuntu-latest
+    needs: [version-check, create-release]
+    if: success()
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update Package Repositories
+        run: |
+          echo "🚀 Release ${{ needs.version-check.outputs.version }} completed!"
+          echo "📦 Assets uploaded to GitHub Releases"
+          echo "🔄 Consider updating:"
+          echo "  - AUR packages"
+          echo "  - Distribution repositories"
+          echo "  - Homebrew formula"
+          echo "  - Documentation sites"
+
+      - name: Notify Success
+        run: |
+          echo "✅ Janus ${{ needs.version-check.outputs.version }} released successfully!"
+          echo "🎯 Build: ${{ needs.version-check.outputs.build_number }}"
+          echo "🌍 Multi-platform binaries available"
+          echo "📦 Linux packages ready for distribution"

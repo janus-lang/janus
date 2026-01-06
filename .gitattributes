@@ -1,0 +1,6 @@
+# Merge strategy: prefer newer branch for version files
+VERSION merge=union
+packaging/*/PKGBUILD merge=union
+packaging/*/changelog merge=union
+packaging/*/*.spec merge=union
+packaging/*/APKBUILD merge=union

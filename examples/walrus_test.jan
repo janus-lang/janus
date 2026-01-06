@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    // Test walrus operator - type inference
+    x := 42;        // Should infer i32
+    y := 21;        // Should infer i32
+    sum := x + y;   // Should infer i32
+
+    if (x > y) {
+        print("Walrus operator working!");
+    }
+
+    print("Sum with walrus: ");
+    print(sum);
+}

@@ -1,0 +1,8 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    // S0 bootstrap: just return success for now
+    // I/O functions like print() are not available in :min profile
+    // This demonstrates successful compilation with :min profile tokens only
+}

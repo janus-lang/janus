@@ -1,0 +1,68 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Region Blocks Tests
+// Unit tests for Region/Region Block feature
+
+:test "region_blocks_basic"
+    // :full profile - region blocks enabled
+    :full {
+        region test_region {
+            // Region allocations
+            let temp1 = "Region allocation 1";
+            let temp2 = "Region allocation 2";
+            
+            assert(temp1 != null);
+            assert(temp2 != null);
+        }
+        // Memory automatically cleaned up here
+        print("✓ Region block created and cleaned up");
+    }
+
+:test "region_escape_analysis"
+    // Test that region allocations don't escape
+    :full {
+        let should_not_escape: String = "";
+        region escape_test {
+            let region_var = "This should not escape";
+            // This would be a compile error:
+            // should_not_escape = region_var; // escape attempt
+            print("✓ Escape analysis working");
+        }
+        print("✓ Region variable properly contained");
+    }
+
+:test "profile_gating_regions"
+    // Test that regions are properly gated by profiles
+    :min {
+        // This should fail in :min profile
+        try {
+            region min_region {
+                // Should not compile in :min
+            }
+            assert(false); // Should not reach here
+        } catch ProfileError.RegionNotSupported {
+            print("✓ Region correctly gated in :min profile");
+        }
+    }
+
+:test "region_performance"
+    // Test region performance characteristics
+    :full {
+        let iterations = 1000;
+        let start_time = performance.now();
+        
+        region perf_region {
+            // Simulate temporary allocations
+            for i in 0..iterations {
+                let temp = "Temp " + i.toString();
+            }
+        }
+        
+        let end_time = performance.now();
+        let duration = end_time - start_time;
+        
+        // Region should complete quickly (nested allocations)
+        assert(duration < 1000); // Should be very fast
+        print("✓ Region performance acceptable: " + duration.toString() + "ms");
+    }

@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+struct Vector {
+    capacity: u64,
+    len: u64,
+    data: ?*void
+}
+
+test "vector_struct_literal" do
+    let v = Vector {
+        capacity: 10,
+        len: 0,
+        data: null
+    }
+    assert(v.len == 0)
+    assert(v.capacity == 10)
+end

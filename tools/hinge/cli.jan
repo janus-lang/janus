@@ -1,0 +1,324 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Hinge CLI - Package manager command-line interface using janus.cli
+module hinge.cli;
+
+import std.sys.cli;
+import std.core;
+import std.core.iter;
+import std.sys.fs.path;
+
+// =============================================================================
+// Hinge CLI Specification
+// =============================================================================
+
+func create_hinge_cli_spec() -> CliSpec {
+    CliSpec {
+        program: ProgramSpec {
+            name: "hinge".to_string(),
+            version: "1.0.0".to_string(),
+            description: "Janus Package Manager - Sovereign Supply Chain".to_string(),
+            author: Some("Janus Team".to_string()),
+        },
+        global_flags: vec![
+            FlagSpec {
+                long: "verbose".to_string(),
+                short: Some('v'),
+                description: "Enable verbose output".to_string(),
+                env_var: Some("HINGE_VERBOSE".to_string()),
+                requires_caps: vec![],
+                forbids_caps: vec![],
+                takes_value: false,
+                default_value: Some("false".to_string()),
+                multiple: false,
+            },
+            FlagSpec {
+                long: "registry".to_string(),
+                short: Some('r'),
+                description: "Package registry URL".to_string(),
+                env_var: Some("HINGE_REGISTRY".to_string()),
+                requires_caps: vec!["net.out".to_string()],
+                forbids_caps: vec![],
+                takes_value: true,
+                default_value: Some("https://packages.janus.dev".to_string()),
+                multiple: false,
+            },
+            FlagSpec {
+                long: "offline".to_string(),
+                short: Some('o'),
+                description: "Work in offline mode".to_string(),
+                env_var: Some("HINGE_OFFLINE".to_string()),
+                requires_caps: vec![],
+                forbids_caps: vec!["net.out".to_string()],
+                takes_value: false,
+                default_value: Some("false".to_string()),
+                multiple: false,
+            },
+        ],
+        commands: vec![
+            CommandSpec {
+                name: "init".to_string(),
+                description: "Initialize a new Janus project".to_string(),
+                flags: vec![
+                    FlagSpec {
+                        long: "name".to_string(),
+                        short: Some('n'),
+                        description: "Project name".to_string(),
+                        env_var: Some("HINGE_PROJECT_NAME".to_string()),
+                        requires_caps: vec![],
+                        forbids_caps: vec![],
+                        takes_value: true,
+                        default_value: None,
+                        multiple: false,
+                    },
+                    FlagSpec {
+                        long: "profile".to_string(),
+                        short: Some('p'),
+                        description: "Janus profile (min/go/elixir/full)".to_string(),
+                        env_var: Some("HINGE_PROFILE".to_string()),
+                        requires_caps: vec![],
+                        forbids_caps: vec![],
+                        takes_value: true,
+                        default_value: Some("full".to_string()),
+                        multiple: false,
+                    },
+                ],
+                requires_caps: vec!["fs.write".to_string()],
+                forbids_caps: vec![],
+            },
+            CommandSpec {
+                name: "add".to_string(),
+                description: "Add a dependency to the project".to_string(),
+                flags: vec![
+                    FlagSpec {
+                        long: "dev".to_string(),
+                        short: Some('d'),
+                        description: "Add as development dependency".to_string(),
+                        env_var: None,
+                        requires_caps: vec![],
+                        forbids_caps: vec![],
+                        takes_value: false,
+                        default_value: Some("false".to_string()),
+                        multiple: false,
+                    },
+                    FlagSpec {
+                        long: "registry".to_string(),
+                        short: Some('r'),
+                        description: "Specific registry for this package".to_string(),
+                        env_var: None,
+                        requires_caps: vec!["net.out".to_string()],
+                        forbids_caps: vec![],
+                        takes_value: true,
+                        default_value: None,
+                        multiple: false,
+                    },
+                ],
+                requires_caps: vec!["fs.read".to_string(), "fs.write".to_string()],
+                forbids_caps: vec![],
+            },
+            CommandSpec {
+                name: "install".to_string(),
+                description: "Install project dependencies".to_string(),
+                flags: vec![
+                    FlagSpec {
+                        long: "force".to_string(),
+                        short: Some('f'),
+                        description: "Force reinstall all packages".to_string(),
+                        env_var: None,
+                        requires_caps: vec![],
+                        forbids_caps: vec![],
+                        takes_value: false,
+                        default_value: Some("false".to_string()),
+                        multiple: false,
+                    },
+                ],
+                requires_caps: vec!["fs.write".to_string()],
+                forbids_caps: vec![],
+            },
+            CommandSpec {
+                name: "build".to_string(),
+                description: "Build the project".to_string(),
+                flags: vec![
+                    FlagSpec {
+                        long: "release".to_string(),
+                        short: Some('r'),
+                        description: "Build in release mode".to_string(),
+                        env_var: None,
+                        requires_caps: vec![],
+                        forbids_caps: vec![],
+                        takes_value: false,
+                        default_value: Some("false".to_string()),
+                        multiple: false,
+                    },
+                ],
+                requires_caps: vec!["fs.write".to_string()],
+                forbids_caps: vec![],
+            },
+        ],
+        env_prefixes: vec!["HINGE".to_string()],
+    }
+}
+
+// =============================================================================
+// Hinge CLI Implementation
+// =============================================================================
+
+struct HingeCli {
+    spec: CliSpec,
+    manifest_path: Path,
+    lockfile_path: Path,
+}
+
+impl HingeCli {
+    func new(project_root: &Path) -> Self {
+        let manifest_path = project_root.join("janus.kdl");
+        let lockfile_path = project_root.join("hinge.lock.json");
+
+        HingeCli {
+            spec: create_hinge_cli_spec(),
+            manifest_path,
+            lockfile_path,
+        }
+    }
+
+    func run(args: &[String], available_caps: &[String]) -> Result<(), CliError> {
+        // Parse command-line arguments with capability validation
+        let result = parse_args(&self.spec, args, available_caps)?;
+
+        // Validate capabilities
+        let cap_set = to_capability_set(&result);
+        match validate_capabilities(&cap_set, available_caps) {
+            CapabilityResult::Denied(reason) => {
+                return Err(CliError::MissingCapability(reason));
+            },
+            CapabilityResult::Granted => {},
+        }
+
+        // Handle special cases
+        if result.help_requested {
+            let help = generate_help(&self.spec);
+            println!("{}", help);
+            return Ok(());
+        }
+
+        if result.version_requested {
+            println!("{} {}", self.spec.program.name, self.spec.program.version);
+            return Ok(());
+        }
+
+        // Dispatch to subcommands
+        match result.subcommand {
+            Some(cmd) if cmd == "init" => {
+                self.handle_init(&result)
+            },
+            Some(cmd) if cmd == "add" => {
+                self.handle_add(&result)
+            },
+            Some(cmd) if cmd == "install" => {
+                self.handle_install(&result)
+            },
+            Some(cmd) if cmd == "build" => {
+                self.handle_build(&result)
+            },
+            Some(cmd) => {
+                Err(CliError::InvalidFormat(format!("Unknown command: {}", cmd)))
+            },
+            None => {
+                Err(CliError::MissingSubcommand)
+            },
+        }
+    }
+
+    func handle_init(&self, result: &CliResult) -> Result<(), CliError> {
+        let project_name = result.args.get("name").unwrap_or("my-project");
+        let profile = result.args.get("profile").unwrap_or("full");
+
+        println!("🔧 Initializing Janus project: {}", project_name);
+        println!("📋 Profile: {}", profile);
+
+        // Create janus.kdl manifest
+        let manifest_content = format!(
+            r#"project {{
+    name "{}"
+    version "0.1.0"
+    profile "{}"
+}}
+
+dependencies {{
+}}
+
+capabilities {{
+    required "fs.read", "fs.write"
+    forbid ""
+}}
+
+registry "https://packages.janus.dev"
+"#,
+            project_name, profile
+        );
+
+        // Write manifest file
+        try self.manifest_path.write_string(&manifest_content, CapFsWrite);
+
+        println!("✅ Created {}", self.manifest_path.display());
+        println!("🎉 Project initialized successfully!");
+        println!("\nNext steps:");
+        println!("  hinge add <package>    # Add dependencies");
+        println!("  hinge install          # Install dependencies");
+        println!("  hinge build            # Build the project");
+
+        Ok(())
+    }
+
+    func handle_add(&self, result: &CliResult) -> Result<(), CliError> {
+        println!("📦 Add dependency command");
+        // TODO: Implement package addition logic
+        Ok(())
+    }
+
+    func handle_install(&self, result: &CliResult) -> Result<(), CliError> {
+        println!("📥 Install dependencies command");
+        // TODO: Implement dependency installation logic
+        Ok(())
+    }
+
+    func handle_build(&self, result: &CliResult) -> Result<(), CliError> {
+        let is_release = result.args.get("release").unwrap_or("false") == "true";
+
+        println!("🔨 Build project");
+        if is_release {
+            println!("🚀 Release mode");
+        } else {
+            println!("🐛 Debug mode");
+        }
+
+        // TODO: Implement build logic
+        Ok(())
+    }
+}
+
+// =============================================================================
+// Main Entry Point
+// =============================================================================
+
+func main() -> Result<(), String> {
+    let current_dir = try Path::current();
+    let cli = HingeCli::new(&current_dir);
+
+    // Available capabilities (in a real implementation, these would come from the runtime)
+    let available_caps = vec![
+        "fs.read", "fs.write", "net.out", "proc.spawn"
+    ];
+
+    // Get command-line arguments (skip program name)
+    let args = std::env::args().skip(1);
+
+    match cli.run(&args.collect::<Vec<_>>(), &available_caps) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            Err(e.to_string())
+        }
+    }
+}

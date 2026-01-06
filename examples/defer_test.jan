@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    print("Testing defer statement");
+    
+    let f := file_open("test.txt", alloc);
+    defer file_close(f);
+    
+    let v := vector_create(alloc, 10);
+    defer vector_free(v, alloc);
+    
+    print("Resources will be cleaned up automatically");
+}

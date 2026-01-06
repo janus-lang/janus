@@ -1,0 +1,573 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+const std = @import("std");
+const ArrayList = std.array_list.Managed;
+const Allocator = std.mem.Allocator;
+const TestMetadata = @import("test_metadata.zig").TestMetadata;
+
+/// Advanced metadata parser for Golden Test Framework
+/// Parses sophisticated test metadata from embedded comments in Janus source files
+/// Supports complex performance expectations, platform requirements, and test dependencies
+pub const MetadataParser = struct {
+    allocator: Allocator,
+
+    const Self = @This();
+
+    /// Parse error types
+    pub const ParseError = error{
+        InvalidMetadataFormat,
+        UnknownMetadataKey,
+        InvalidPerformanceExpectation,
+        InvalidPlatformSpecification,
+        InvalidDependencySpecification,
+        InvalidValidationRule,
+        MalformedComment,
+        OutOfMemory,
+    };
+
+    /// Initialize parser
+    pub fn init(allocator: Allocator) Self {
+        return Self{
+            .allocator = allocator,
+        };
+    }
+
+    /// Parse metadata from Janus source content
+    pub fn parseFromSource(self: *Self, test_name: []const u8, source_content: []const u8) !TestMetadata {
+        var metadata = try TestMetadata.init(self.allocator, test_name);
+        errdefer metadata.deinit();
+
+        // Extract metadata comments
+        const metadata_lines = try self.extractMetadataLines(source_content);
+        defer {
+            for (metadata_lines) |line| {
+                self.allocator.free(line);
+            }
+            self.allocator.free(metadata_lines);
+        }
+
+        // Parse each metadata line
+        for (metadata_lines) |line| {
+            try self.parseMetadataLine(line, &metadata);
+        }
+
+        // Validate parsed metadata
+        try self.validateMetadata(&metadata);
+
+        return metadata;
+    }
+
+    /// Extract all metadata comment lines from source
+    fn extractMetadataLines(self: *Self, source_content: []const u8) ![][]const u8 {
+        var lines = ArrayList([]const u8).init(self.allocator);
+        defer lines.deinit();
+
+        var line_iter = std.mem.splitScalar(u8, source_content, '\n');
+        while (line_iter.next()) |line| {
+            const trimmed = std.mem.trim(u8, line, " \t\r");
+
+            // Look for metadata comments: // @key: value
+            if (std.mem.startsWith(u8, trimmed, "// @")) {
+                const metadata_content = std.mem.trim(u8, trimmed[4..], " \t");
+                if (metadata_content.len > 0) {
+                    try lines.append(try self.allocator.dupe(u8, metadata_content));
+                }
+            }
+        }
+
+        return lines.toOwnedSlice();
+    }
+
+    /// Parse a single metadata line
+    fn parseMetadataLine(self: *Self, line: []const u8, metadata: *TestMetadata) !void {
+        // Find the colon separator
+        const colon_pos = std.mem.indexOf(u8, line, ":") orelse {
+            return ParseError.InvalidMetadataFormat;
+        };
+
+        const key = std.mem.trim(u8, line[0..colon_pos], " \t");
+        const value = std.mem.trim(u8, line[colon_pos + 1 ..], " \t");
+
+        if (key.len == 0 or value.len == 0) {
+            return ParseError.InvalidMetadataFormat;
+        }
+
+        // Parse based on key
+        if (std.mem.eql(u8, key, "description")) {
+            metadata.description = try self.allocator.dupe(u8, value);
+        } else if (std.mem.eql(u8, key, "author")) {
+            metadata.author = try self.allocator.dupe(u8, value);
+        } else if (std.mem.eql(u8, key, "created")) {
+            metadata.created_date = try self.allocator.dupe(u8, value);
+        } else if (std.mem.eql(u8, key, "expected-strategy")) {
+            metadata.expected_strategy = try TestMetadata.DispatchStrategy.fromString(value);
+        } else if (std.mem.eql(u8, key, "fallback-strategies")) {
+            metadata.fallback_strategies = try self.parseFallbackStrategies(value);
+        } else if (std.mem.eql(u8, key, "performance")) {
+            const expectation = try self.parsePerformanceExpectation(value);
+            metadata.performance_expectations = try self.appendPerformanceExpectation(metadata.performance_expectations, expectation);
+        } else if (std.mem.eql(u8, key, "performance-profile")) {
+            metadata.performance_profile = try self.parsePerformanceProfile(value);
+        } else if (std.mem.eql(u8, key, "platforms")) {
+            try self.parsePlatformRequirements(value, &metadata.platform_requirements);
+        } else if (std.mem.eql(u8, key, "exclude-platforms")) {
+            try self.parseExcludedPlatforms(value, &metadata.platform_requirements);
+        } else if (std.mem.eql(u8, key, "optimization-levels")) {
+            try self.parseOptimizationRequirements(value, &metadata.optimization_requirements);
+        } else if (std.mem.eql(u8, key, "timeout")) {
+            metadata.execution_config.timeout_seconds = try std.fmt.parseInt(u32, value, 10);
+        } else if (std.mem.eql(u8, key, "max-retries")) {
+            metadata.execution_config.max_retries = try std.fmt.parseInt(u32, value, 10);
+        } else if (std.mem.eql(u8, key, "parallel")) {
+            metadata.execution_config.parallel_execution = try self.parseBool(value);
+        } else if (std.mem.eql(u8, key, "requires-isolation")) {
+            metadata.execution_config.requires_isolation = try self.parseBool(value);
+        } else if (std.mem.eql(u8, key, "setup")) {
+            const command = try self.allocator.dupe(u8, value);
+            metadata.execution_config.setup_commands = try self.appendString(metadata.execution_config.setup_commands, command);
+        } else if (std.mem.eql(u8, key, "cleanup")) {
+            const command = try self.allocator.dupe(u8, value);
+            metadata.execution_config.cleanup_commands = try self.appendString(metadata.execution_config.cleanup_commands, command);
+        } else if (std.mem.eql(u8, key, "env")) {
+            const env_var = try self.parseEnvironmentVariable(value);
+            metadata.execution_config.environment_variables = try self.appendEnvironmentVariable(metadata.execution_config.environment_variables, env_var);
+        } else if (std.mem.eql(u8, key, "depends-on")) {
+            const dependency = try self.parseTestDependency(value);
+            metadata.dependencies = try self.appendTestDependency(metadata.dependencies, dependency);
+        } else if (std.mem.eql(u8, key, "test-group")) {
+            const group = try self.allocator.dupe(u8, value);
+            metadata.test_groups = try self.appendString(metadata.test_groups, group);
+        } else if (std.mem.eql(u8, key, "validate")) {
+            const rule = try self.parseValidationRule(value);
+            metadata.validation_rules = try self.appendValidationRule(metadata.validation_rules, rule);
+        } else if (std.mem.eql(u8, key, "quality-gate")) {
+            const gate = try self.parseQualityGate(value);
+            metadata.quality_gates = try self.appendQualityGate(metadata.quality_gates, gate);
+        } else {
+            std.log.warn("Unknown metadata key: {s}", .{key});
+        }
+    }
+
+    /// Parse fallback strategies from comma-separated list
+    fn parseFallbackStrategies(self: *Self, value: []const u8) ![]TestMetadata.DispatchStrategy {
+        var strategies = ArrayList(TestMetadata.DispatchStrategy).init(self.allocator);
+        defer strategies.deinit();
+
+        var strategy_iter = std.mem.splitScalar(u8, value, ',');
+        while (strategy_iter.next()) |strategy_str| {
+            const trimmed = std.mem.trim(u8, strategy_str, " \t");
+            if (trimmed.len > 0) {
+                const strategy = try TestMetadata.DispatchStrategy.fromString(trimmed);
+                try strategies.append(strategy);
+            }
+        }
+
+        return strategies.toOwnedSlice();
+    }
+
+    /// Parse performance expectation from string like "dispatch_overhead_ns < 30 ±5%"
+    fn parsePerformanceExpectation(self: *Self, value: []const u8) !TestMetadata.PerformanceExpectation {
+        // Parse format: "metric operator threshold [±tolerance%] [@confidence%]"
+        var parts = std.mem.tokenizeAny(u8, value, " \t");
+
+        const metric_str = parts.next() orelse return ParseError.InvalidPerformanceExpectation;
+        const operator_str = parts.next() orelse return ParseError.InvalidPerformanceExpectation;
+        const threshold_str = parts.next() orelse return ParseError.InvalidPerformanceExpectation;
+
+        // Parse metric
+        const metric = try TestMetadata.PerformanceExpectation.PerformanceMetric.fromString(metric_str);
+
+        // Parse operator
+        const operator = try self.parseComparisonOperator(operator_str);
+
+        // Parse threshold
+        const threshold = try std.fmt.parseFloat(f64, threshold_str);
+
+        // Parse optional tolerance (±5%)
+        var tolerance: ?f64 = null;
+        if (parts.next()) |tolerance_str| {
+            if (std.mem.startsWith(u8, tolerance_str, "±") and std.mem.endsWith(u8, tolerance_str, "%")) {
+                const tolerance_value_str = tolerance_str[2 .. tolerance_str.len - 1]; // Remove ± and %
+                tolerance = try std.fmt.parseFloat(f64, tolerance_value_str);
+            }
+        }
+
+        // Parse optional confidence level (@95%)
+        var confidence_level: f64 = 0.95; // Default 95%
+        if (parts.next()) |confidence_str| {
+            if (std.mem.startsWith(u8, confidence_str, "@") and std.mem.endsWith(u8, confidence_str, "%")) {
+                const confidence_value_str = confidence_str[1 .. confidence_str.len - 1]; // Remove @ and %
+                confidence_level = (try std.fmt.parseFloat(f64, confidence_value_str)) / 100.0;
+            }
+        }
+
+        return TestMetadata.PerformanceExpectation{
+            .metric = metric,
+            .operator = operator,
+            .threshold = threshold,
+            .unit = try self.allocator.dupe(u8, ""), // Unit parsing would be more sophisticated
+            .tolerance = tolerance,
+            .confidence_level = confidence_level,
+        };
+    }
+
+    /// Parse comparison operator
+    fn parseComparisonOperator(_: *Self, operator_str: []const u8) !TestMetadata.PerformanceExpectation.ComparisonOperator {
+        if (std.mem.eql(u8, operator_str, "<")) return .less_than;
+        if (std.mem.eql(u8, operator_str, "<=")) return .less_equal;
+        if (std.mem.eql(u8, operator_str, ">")) return .greater_than;
+        if (std.mem.eql(u8, operator_str, ">=")) return .greater_equal;
+        if (std.mem.eql(u8, operator_str, "~=")) return .approximately;
+        if (std.mem.eql(u8, operator_str, "±")) return .within_range;
+        return ParseError.InvalidPerformanceExpectation;
+    }
+
+    /// Parse performance profile specification
+    fn parsePerformanceProfile(self: *Self, value: []const u8) !TestMetadata.PerformanceProfile {
+        // Parse format: "profile_name:architecture:complexity:scaling_factor"
+        var parts = std.mem.splitScalar(u8, value, ':');
+
+        const profile_name = parts.next() orelse return ParseError.InvalidPerformanceExpectation;
+        const architecture = parts.next() orelse "generic";
+        const complexity_str = parts.next() orelse "constant";
+        const scaling_factor_str = parts.next() orelse "1.0";
+
+        const expected_complexity = try self.parseComplexityClass(complexity_str);
+        const scaling_factor = try std.fmt.parseFloat(f64, scaling_factor_str);
+
+        return TestMetadata.PerformanceProfile{
+            .profile_name = try self.allocator.dupe(u8, profile_name),
+            .target_architecture = try self.allocator.dupe(u8, architecture),
+            .expected_complexity = expected_complexity,
+            .scaling_behavior = .{
+                .input_size_factor = try self.allocator.dupe(u8, "implementations"),
+                .expected_slope = scaling_factor,
+                .measurement_points = try self.allocator.dupe(u32, &[_]u32{ 1, 2, 4, 8, 16, 32 }),
+            },
+            .resource_requirements = .{
+                .max_memory_mb = 100,
+                .max_cpu_cores = 1,
+                .requires_hardware_counters = false,
+                .core_cache_size_kb = 32,
+            },
+        };
+    }
+
+    /// Parse complexity class
+    fn parseComplexityClass(_: *Self, complexity_str: []const u8) !TestMetadata.PerformanceProfile.ComplexityClass {
+        if (std.mem.eql(u8, complexity_str, "constant") or std.mem.eql(u8, complexity_str, "O(1)")) {
+            return .constant;
+        }
+        if (std.mem.eql(u8, complexity_str, "logarithmic") or std.mem.eql(u8, complexity_str, "O(log n)")) {
+            return .logarithmic;
+        }
+        if (std.mem.eql(u8, complexity_str, "linear") or std.mem.eql(u8, complexity_str, "O(n)")) {
+            return .linear;
+        }
+        if (std.mem.eql(u8, complexity_str, "linearithmic") or std.mem.eql(u8, complexity_str, "O(n log n)")) {
+            return .linearithmic;
+        }
+        if (std.mem.eql(u8, complexity_str, "quadratic") or std.mem.eql(u8, complexity_str, "O(n²)")) {
+            return .quadratic;
+        }
+        return .constant; // Default fallback
+    }
+
+    /// Parse platform requirements
+    fn parsePlatformRequirements(self: *Self, value: []const u8, requirements: *TestMetadata.PlatformRequirements) !void {
+        if (std.mem.eql(u8, value, "all")) {
+            // All platforms supported - leave arrays empty to indicate "all"
+            return;
+        }
+
+        var platforms = ArrayList(TestMetadata.PlatformRequirements.Platform).init(self.allocator);
+        defer platforms.deinit();
+
+        var platform_iter = std.mem.splitScalar(u8, value, ',');
+        while (platform_iter.next()) |platform_str| {
+            const trimmed = std.mem.trim(u8, platform_str, " \t");
+            if (trimmed.len > 0) {
+                const platform = try self.parsePlatform(trimmed);
+                try platforms.append(platform);
+            }
+        }
+
+        requirements.supported_platforms = try platforms.toOwnedSlice();
+    }
+
+    /// Parse excluded platforms
+    fn parseExcludedPlatforms(self: *Self, value: []const u8, requirements: *TestMetadata.PlatformRequirements) !void {
+        var platforms = ArrayList(TestMetadata.PlatformRequirements.Platform).init(self.allocator);
+        defer platforms.deinit();
+
+        var platform_iter = std.mem.splitScalar(u8, value, ',');
+        while (platform_iter.next()) |platform_str| {
+            const trimmed = std.mem.trim(u8, platform_str, " \t");
+            if (trimmed.len > 0) {
+                const platform = try self.parsePlatform(trimmed);
+                try platforms.append(platform);
+            }
+        }
+
+        requirements.excluded_platforms = try platforms.toOwnedSlice();
+    }
+
+    /// Parse platform from string
+    fn parsePlatform(_: *Self, platform_str: []const u8) !TestMetadata.PlatformRequirements.Platform {
+        if (std.mem.eql(u8, platform_str, "linux_x86_64")) return .linux_x86_64;
+        if (std.mem.eql(u8, platform_str, "linux_aarch64")) return .linux_aarch64;
+        if (std.mem.eql(u8, platform_str, "macos_x86_64")) return .macos_x86_64;
+        if (std.mem.eql(u8, platform_str, "macos_aarch64")) return .macos_aarch64;
+        if (std.mem.eql(u8, platform_str, "windows_x86_64")) return .windows_x86_64;
+        if (std.mem.eql(u8, platform_str, "freebsd_x86_64")) return .freebsd_x86_64;
+        return ParseError.InvalidPlatformSpecification;
+    }
+
+    /// Parse optimization requirements
+    fn parseOptimizationRequirements(self: *Self, value: []const u8, requirements: *TestMetadata.OptimizationRequirements) !void {
+        var levels = ArrayList(TestMetadata.OptimizationRequirements.OptimizationLevel).init(self.allocator);
+        defer levels.deinit();
+
+        var level_iter = std.mem.splitScalar(u8, value, ',');
+        while (level_iter.next()) |level_str| {
+            const trimmed = std.mem.trim(u8, level_str, " \t");
+            if (trimmed.len > 0) {
+                const level = try self.parseOptimizationLevel(trimmed);
+                try levels.append(level);
+            }
+        }
+
+        requirements.required_levels = try levels.toOwnedSlice();
+    }
+
+    /// Parse optimization level
+    fn parseOptimizationLevel(_: *Self, level_str: []const u8) !TestMetadata.OptimizationRequirements.OptimizationLevel {
+        if (std.mem.eql(u8, level_str, "debug")) return .debug;
+        if (std.mem.eql(u8, level_str, "release_safe")) return .release_safe;
+        if (std.mem.eql(u8, level_str, "release_fast")) return .release_fast;
+        if (std.mem.eql(u8, level_str, "release_small")) return .release_small;
+        return ParseError.InvalidMetadataFormat;
+    }
+
+    /// Parse boolean value
+    fn parseBool(_: *Self, value: []const u8) !bool {
+        if (std.mem.eql(u8, value, "true") or std.mem.eql(u8, value, "yes") or std.mem.eql(u8, value, "1")) {
+            return true;
+        }
+        if (std.mem.eql(u8, value, "false") or std.mem.eql(u8, value, "no") or std.mem.eql(u8, value, "0")) {
+            return false;
+        }
+        return ParseError.InvalidMetadataFormat;
+    }
+
+    /// Parse environment variable
+    fn parseEnvironmentVariable(self: *Self, value: []const u8) !TestMetadata.ExecutionConfig.EnvironmentVariable {
+        const equals_pos = std.mem.indexOf(u8, value, "=") orelse {
+            return ParseError.InvalidMetadataFormat;
+        };
+
+        const name = std.mem.trim(u8, value[0..equals_pos], " \t");
+        const var_value = std.mem.trim(u8, value[equals_pos + 1 ..], " \t");
+
+        return TestMetadata.ExecutionConfig.EnvironmentVariable{
+            .name = try self.allocator.dupe(u8, name),
+            .value = try self.allocator.dupe(u8, var_value),
+        };
+    }
+
+    /// Parse test dependency
+    fn parseTestDependency(self: *Self, value: []const u8) !TestMetadata.TestDependency {
+        // Parse format: "type:test_name:relationship"
+        var parts = std.mem.splitScalar(u8, value, ':');
+
+        const type_str = parts.next() orelse return ParseError.InvalidDependencySpecification;
+        const test_name = parts.next() orelse return ParseError.InvalidDependencySpecification;
+        const relationship_str = parts.next() orelse "before";
+
+        const dependency_type = try self.parseDependencyType(type_str);
+        const relationship = try self.parseDependencyRelationship(relationship_str);
+
+        return TestMetadata.TestDependency{
+            .dependency_type = dependency_type,
+            .target_test = try self.allocator.dupe(u8, test_name),
+            .relationship = relationship,
+        };
+    }
+
+    /// Parse dependency type
+    fn parseDependencyType(_: *Self, type_str: []const u8) !TestMetadata.TestDependency.DependencyType {
+        if (std.mem.eql(u8, type_str, "requires_success")) return .requires_success;
+        if (std.mem.eql(u8, type_str, "requires_failure")) return .requires_failure;
+        if (std.mem.eql(u8, type_str, "setup_dependency")) return .setup_dependency;
+        if (std.mem.eql(u8, type_str, "data_dependency")) return .data_dependency;
+        return ParseError.InvalidDependencySpecification;
+    }
+
+    /// Parse dependency relationship
+    fn parseDependencyRelationship(_: *Self, relationship_str: []const u8) !TestMetadata.TestDependency.DependencyRelationship {
+        if (std.mem.eql(u8, relationship_str, "before")) return .before;
+        if (std.mem.eql(u8, relationship_str, "after")) return .after;
+        if (std.mem.eql(u8, relationship_str, "concurrent")) return .concurrent;
+        return ParseError.InvalidDependencySpecification;
+    }
+
+    /// Parse validation rule
+    fn parseValidationRule(self: *Self, value: []const u8) !TestMetadata.ValidationRule {
+        // Parse format: "type:function_name:description"
+        var parts = std.mem.splitScalar(u8, value, ':');
+
+        const type_str = parts.next() orelse return ParseError.InvalidValidationRule;
+        const function_name = parts.next() orelse return ParseError.InvalidValidationRule;
+        const description = parts.next() orelse "";
+
+        const rule_type = try self.parseValidationRuleType(type_str);
+
+        return TestMetadata.ValidationRule{
+            .rule_type = rule_type,
+            .description = try self.allocator.dupe(u8, description),
+            .validation_function = try self.allocator.dupe(u8, function_name),
+            .parameters = &.{}, // Parameters would be parsed from additional metadata
+        };
+    }
+
+    /// Parse validation rule type
+    fn parseValidationRuleType(_: *Self, type_str: []const u8) !TestMetadata.ValidationRule.RuleType {
+        if (std.mem.eql(u8, type_str, "ir_structure")) return .ir_structure;
+        if (std.mem.eql(u8, type_str, "performance_bounds")) return .performance_bounds;
+        if (std.mem.eql(u8, type_str, "memory_safety")) return .memory_safety;
+        if (std.mem.eql(u8, type_str, "determinism")) return .determinism;
+        if (std.mem.eql(u8, type_str, "cross_platform")) return .cross_platform;
+        return ParseError.InvalidValidationRule;
+    }
+
+    /// Parse quality gate
+    fn parseQualityGate(self: *Self, value: []const u8) !TestMetadata.QualityGate {
+        // Parse format: "name:type:threshold:window"
+        var parts = std.mem.splitScalar(u8, value, ':');
+
+        const name = parts.next() orelse return ParseError.InvalidMetadataFormat;
+        const type_str = parts.next() orelse return ParseError.InvalidMetadataFormat;
+        const threshold_str = parts.next() orelse return ParseError.InvalidMetadataFormat;
+        const window_str = parts.next() orelse "10";
+
+        const gate_type = try self.parseQualityGateType(type_str);
+        const threshold = try std.fmt.parseFloat(f64, threshold_str);
+        const window = try std.fmt.parseInt(u32, window_str, 10);
+
+        return TestMetadata.QualityGate{
+            .gate_name = try self.allocator.dupe(u8, name),
+            .gate_type = gate_type,
+            .threshold = threshold,
+            .measurement_window = window,
+        };
+    }
+
+    /// Parse quality gate type
+    fn parseQualityGateType(_: *Self, type_str: []const u8) !TestMetadata.QualityGate.GateType {
+        if (std.mem.eql(u8, type_str, "success_rate")) return .success_rate;
+        if (std.mem.eql(u8, type_str, "performance_stability")) return .performance_stability;
+        if (std.mem.eql(u8, type_str, "regression_detection")) return .regression_detection;
+        if (std.mem.eql(u8, type_str, "coverage_requirement")) return .coverage_requirement;
+        return ParseError.InvalidMetadataFormat;
+    }
+
+    /// Validate parsed metadata for consistency and completeness
+    fn validateMetadata(_: *Self, metadata: *TestMetadata) !void {
+        // Validate that required fields are present
+        if (metadata.test_name.len == 0) {
+            return ParseError.InvalidMetadataFormat;
+        }
+
+        // Validate performance expectations
+        for (metadata.performance_expectations) |expectation| {
+            if (expectation.threshold < 0) {
+                return ParseError.InvalidPerformanceExpectation;
+            }
+            if (expectation.confidence_level < 0.0 or expectation.confidence_level > 1.0) {
+                return ParseError.InvalidPerformanceExpectation;
+            }
+        }
+
+        // Validate platform requirements consistency
+        if (metadata.platform_requirements.supported_platforms.len > 0 and
+            metadata.platform_requirements.excluded_platforms.len > 0)
+        {
+            // Check for conflicts between supported and excluded platforms
+            for (metadata.platform_requirements.supported_platforms) |supported| {
+                for (metadata.platform_requirements.excluded_platforms) |excluded| {
+                    if (supported == excluded) {
+                        return ParseError.InvalidPlatformSpecification;
+                    }
+                }
+            }
+        }
+
+        // Validate execution configuration
+        if (metadata.execution_config.timeout_seconds == 0) {
+            metadata.execution_config.timeout_seconds = 30; // Default timeout
+        }
+    }
+
+    // Helper functions for appending to arrays
+
+    fn appendPerformanceExpectation(self: *Self, current: []TestMetadata.PerformanceExpectation, new_expectation: TestMetadata.PerformanceExpectation) ![]TestMetadata.PerformanceExpectation {
+        var list = ArrayList(TestMetadata.PerformanceExpectation).init(self.allocator);
+        defer list.deinit();
+
+        try list.appendSlice(current);
+        try list.append(new_expectation);
+
+        return list.toOwnedSlice();
+    }
+
+    fn appendString(self: *Self, current: [][]const u8, new_string: []const u8) ![][]const u8 {
+        var list = ArrayList([]const u8).init(self.allocator);
+        defer list.deinit();
+
+        try list.appendSlice(current);
+        try list.append(new_string);
+
+        return list.toOwnedSlice();
+    }
+
+    fn appendEnvironmentVariable(self: *Self, current: []TestMetadata.ExecutionConfig.EnvironmentVariable, new_var: TestMetadata.ExecutionConfig.EnvironmentVariable) ![]TestMetadata.ExecutionConfig.EnvironmentVariable {
+        var list = ArrayList(TestMetadata.ExecutionConfig.EnvironmentVariable).init(self.allocator);
+        defer list.deinit();
+
+        try list.appendSlice(current);
+        try list.append(new_var);
+
+        return list.toOwnedSlice();
+    }
+
+    fn appendTestDependency(self: *Self, current: []TestMetadata.TestDependency, new_dependency: TestMetadata.TestDependency) ![]TestMetadata.TestDependency {
+        var list = ArrayList(TestMetadata.TestDependency).init(self.allocator);
+        defer list.deinit();
+
+        try list.appendSlice(current);
+        try list.append(new_dependency);
+
+        return list.toOwnedSlice();
+    }
+
+    fn appendValidationRule(self: *Self, current: []TestMetadata.ValidationRule, new_rule: TestMetadata.ValidationRule) ![]TestMetadata.ValidationRule {
+        var list = ArrayList(TestMetadata.ValidationRule).init(self.allocator);
+        defer list.deinit();
+
+        try list.appendSlice(current);
+        try list.append(new_rule);
+
+        return list.toOwnedSlice();
+    }
+
+    fn appendQualityGate(self: *Self, current: []TestMetadata.QualityGate, new_gate: TestMetadata.QualityGate) ![]TestMetadata.QualityGate {
+        var list = ArrayList(TestMetadata.QualityGate).init(self.allocator);
+        defer list.deinit();
+
+        try list.appendSlice(current);
+        try list.append(new_gate);
+
+        return list.toOwnedSlice();
+    }
+};

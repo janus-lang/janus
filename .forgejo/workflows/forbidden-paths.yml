@@ -1,0 +1,19 @@
+name: Forbidden Paths Guard
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  guard:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check forbidden paths (.kiro, zig caches, snapshots)
+        run: |
+          chmod +x tools/ci/check_forbidden_paths.sh
+          tools/ci/check_forbidden_paths.sh
+

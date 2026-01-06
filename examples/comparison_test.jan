@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    print("Testing Comparison Operators");
+    
+    // Test == 
+    let a: i32 = 42;
+    let b: i32 = 42;
+    let c: i32 = 10;
+    
+    print("42 == 42:");
+    // print(a == b);  // Will test once we can print booleans
+    
+    print("42 == 10:");
+    // print(a == c);
+    
+    // Test <
+    print("10 < 42:");
+    // print(c < a);
+    
+    print("42 < 10:");
+    // print(a < c);
+    
+    // Test >
+    print("42 > 10:");
+    // print(a > c);
+    
+    print("Comparison operators ready for control flow!");
+}

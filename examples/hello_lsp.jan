@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Example Janus program for LSP testing
+
+func main() {
+    let message = "Hello, Janus LSP!"
+    print(message)
+
+    let x = 42
+    let y = add(x, 10)
+    print(y)
+}
+
+func add(a: i32, b: i32) -> i32 {
+    return a + b
+}

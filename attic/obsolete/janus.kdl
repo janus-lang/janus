@@ -1,0 +1,30 @@
+// janus.kdl - Janus Compiler Project Configuration
+// The single source of truth for the Janus compiler project
+
+project "janus-compiler"
+version "0.1.0-dev"
+
+// Active profile for the compiler project
+// LSP server will read this for profile-aware IDE support
+profile ":go"
+
+// Build configuration
+build {
+    target "native"
+    optimize "ReleaseSafe"
+}
+
+// LSP server configuration
+lsp {
+    enabled true
+
+    completions {
+        show-profile-hints true
+        suggest-upgrades true
+    }
+
+    diagnostics {
+        profile-violations "error"
+        suggest-profile-upgrade true
+    }
+}

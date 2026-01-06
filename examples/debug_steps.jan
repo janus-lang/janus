@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    print("Step 1");
+    let len: i32 = string_len_intrinsic("Hello");
+    print(len);
+    
+    print("Step 2");
+    let len64: i64 = i32_to_i64(len);
+    // We can't print i64 yet easily via print() maybe?
+    // print(len64) -> janus_print -> arg_type check
+    // janus_print handling in llvm_emitter checks for i32 and f64. It might not handle i64!
+    
+    print("Step 3");
+}

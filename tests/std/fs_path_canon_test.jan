@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Tests for normalize() and canonicalize() (no symlink resolution)
+
+import std.sys.fs.path;
+
+func test_normalize_absolute() -> Result<(), string> {
+    let p = Path::new("/a/./b//../c/");
+    let n = p.normalize();
+    if n.as_string() != "/a/c" { return Err("normalize absolute failed".to_string()); }
+    Ok(())
+}
+
+func test_normalize_relative() -> Result<(), string> {
+    let p = Path::new("a/./b/../c");
+    let n = p.normalize();
+    if n.as_string() != "a/c" { return Err("normalize relative failed".to_string()); }
+    Ok(())
+}
+
+func test_normalize_leading_dotdot_relative() -> Result<(), string> {
+    let p = Path::new("../../a/./b/..");
+    let n = p.normalize();
+    if n.as_string() != "../../a" { return Err("normalize leading .. failed".to_string()); }
+    Ok(())
+}
+
+func test_canonicalize_no_symlinks() -> Result<(), string> {
+    let p = Path::new("/x/./y/..");
+    let c = try p.canonicalize(CapFsRead);
+    if c.as_string() != "/x" { return Err("canonicalize should normalize without symlinks".to_string()); }
+    Ok(())
+}

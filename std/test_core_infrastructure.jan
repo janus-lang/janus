@@ -1,0 +1,121 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// std/test_core_infrastructure.jan - Basic validation of standard library infrastructure
+// This file validates that our core types and patterns are correctly established
+
+import std.core
+import std.io
+import std.string
+
+// Test allocator sovereignty patterns
+func testAllocatorSovereignty() -> void {
+    // Arena allocator test - fixed capacity, O(1) cleanup
+    var arena_buffer: [1024]u8 = undefined;
+    var arena = ArenaAllocator.init(arena_buffer[0..]);
+    let arena_alloc = arena.allocator();
+
+    // Test string creation with arena
+    let test_bytes = "Hello, Janus!";
+    let arena_string = string.fromUtf8(arena_alloc, test_bytes) catch {
+        @panic("Failed to create string with arena allocator");
+    };
+
+    // Arena cleanup is O(1) - just reset position
+    arena.reset();
+
+    // General purpose allocator test - supports individual free
+    var gpa = GeneralPurposeAllocator.init();
+    defer gpa.deinit();
+    let gpa_alloc = gpa.allocator();
+
+    let gpa_string = string.fromUtf8(gpa_alloc, test_bytes) catch {
+        @panic("Failed to create string with GPA");
+    };
+    defer gpa_string.deinit();  // Individual cleanup required
+}
+
+// Test capability-gated operations
+func testCapabilityGating() -> void {
+    // File capabilities must be explicit
+    let read_cap = FileReadCapability{ .path = "test.txt" };
+    let write_cap = FileWriteCapability{ .path = "output.txt" };
+
+    // Validate capabilities
+    assert(read_cap.validate());
+    assert(write_cap.validate());
+
+    // Standard stream capabilities
+    let stdin_cap = StdinReadCapability{};
+    let stdout_cap = StdoutWriteCapability{};
+    let stderr_cap = StderrWriteCapability{};
+
+    assert(stdin_cap.validate());
+    assert(stdout_cap.validate());
+    assert(stderr_cap.validate());
+}
+
+// Test error transparency
+func testErrorTransparency() -> void {
+    // String errors are explicit and informative
+    let invalid_utf8 = [0xFF, 0xFE, 0xFD];
+    var gpa = GeneralPurposeAllocator.init();
+    defer gpa.deinit();
+
+    let result = string.fromUtf8(gpa.allocator(), invalid_utf8[0..]);
+
+    // Error handling is explicit
+    switch (result) {
+        .ok => @panic("Should have failed on invalid UTF-8"),
+        .err => |err| {
+            switch (err) {
+                .InvalidUtf8 => {
+                    // Expected error with position information
+                },
+                else => @panic("Unexpected error type"),
+            }
+        }
+    }
+}
+
+// Test zero-copy operations
+func testZeroCopyOperations() -> void {
+    let literal = string.fromLiteral("Hello, World!");
+
+    // Slicing should not allocate
+    let slice = string.slice(literal, 0, 5) catch {
+        @panic("Failed to slice string");
+    };
+
+    // Slice should point to original data
+    assert(slice.allocator == null);  // No allocator means no ownership
+    assert(string.equalBytes(slice, string.fromLiteral("Hello")));
+}
+
+// Test encoding honesty
+func testEncodingHonesty() -> void {
+    let utf8_string = string.fromLiteral("Hello, 世界!");
+
+    // Encoding is explicit
+    assert(utf8_string.encoding == .Utf8);
+
+    // Byte length vs codepoint count
+    let byte_len = string.length(utf8_string);
+    let codepoint_count = string.codepointCount(utf8_string) catch {
+        @panic("Failed to count codepoints");
+    };
+
+    // UTF-8 string with non-ASCII characters has different byte/codepoint counts
+    assert(byte_len > codepoint_count);
+}
+
+// Main test runner
+func main() -> void {
+    testAllocatorSovereignty();
+    testCapabilityGating();
+    testErrorTransparency();
+    testZeroCopyOperations();
+    testEncodingHonesty();
+
+    print("✅ Standard library infrastructure validation complete");
+}

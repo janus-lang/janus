@@ -1,0 +1,193 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// std/io.jan - I/O operations with tri-signature pattern
+// Same function names, rising capability across profiles
+
+using std.core;
+
+// ===== TRI-SIGNATURE PRINT FUNCTIONS =====
+
+// :min profile - Simple, synchronous print
+pub fn print(message: String, allocator: Allocator) Error!void {
+    // Simple implementation - direct to stdout
+    return printToStdout(message.bytes);
+}
+
+// :go profile - Context-aware print with cancellation
+pub fn print(message: String, ctx: Context, allocator: Allocator) Error!void {
+    // Check if context is cancelled
+    if (ctx.isCancelled()) {
+        return Error.Cancelled;
+    }
+
+    // Check deadline
+    if (ctx.deadline) |deadline| {
+        const now = getCurrentTime(); // TODO: Implement
+        if (now > deadline) {
+            return Error.Timeout;
+        }
+    }
+
+    return printToStdout(message.bytes);
+}
+
+// :full profile - Capability-gated print with security
+pub fn print(message: String, cap: StdoutWriteCapability, allocator: Allocator) Error!void {
+    // Validate capability
+    if (!cap.validate()) {
+        return Error.PermissionDenied;
+    }
+
+    // Audit the operation
+    // TODO: Add to capability audit trail
+
+    return printToStdout(message.bytes);
+}
+
+// ===== TRI-SIGNATURE EPRINT FUNCTIONS (stderr) =====
+
+// :min profile - Simple error print
+pub fn eprint(message: String, allocator: Allocator) Error!void {
+    return printToStderr(message.bytes);
+}
+
+// :go profile - Context-aware error print
+pub fn eprint(message: String, ctx: Context, allocator: Allocator) Error!void {
+    if (ctx.isCancelled()) {
+        return Error.Cancelled;
+    }
+
+    if (ctx.deadline) |deadline| {
+        const now = getCurrentTime();
+        if (now > deadline) {
+            return Error.Timeout;
+        }
+    }
+
+    return printToStderr(message.bytes);
+}
+
+// :full profile - Capability-gated error print
+pub fn eprint(message: String, cap: StderrWriteCapability, allocator: Allocator) Error!void {
+    if (!cap.validate()) {
+        return Error.PermissionDenied;
+    }
+
+    return printToStderr(message.bytes);
+}
+
+// ===== PROFILE-SPECIFIC CONVENIENCE NAMESPACES =====
+
+// Explicit profile namespaces for clarity
+pub const min = struct {
+    pub fn print(message: String, allocator: Allocator) Error!void {
+        return std.io.print(message, allocator);
+    }
+
+    pub fn eprint(message: String, allocator: Allocator) Error!void {
+        return std.io.eprint(message, allocator);
+    }
+};
+
+pub const go = struct {
+    pub fn print(message: String, ctx: Context, allocator: Allocator) Error!void {
+        return std.io.print(message, ctx, allocator);
+    }
+
+    pub fn eprint(message: String, ctx: Context, allocator: Allocator) Error!void {
+        return std.io.eprint(message, ctx, allocator);
+    }
+};
+
+pub const full = struct {
+    pub fn print(message: String, cap: StdoutWriteCapability, allocator: Allocator) Error!void {
+        return std.io.print(message, cap, allocator);
+    }
+
+    pub fn eprint(message: String, cap: StderrWriteCapability, allocator: Allocator) Error!void {
+        return std.io.eprint(message, cap, allocator);
+    }
+};
+
+// ===== UNIVERSAL DISPATCH FUNCTION =====
+
+// Compile-time dispatch based on argument types
+pub fn printAny(args: anytype) Error!void {
+    const ArgsType = @TypeOf(args);
+    const args_info = @typeInfo(ArgsType);
+
+    if (args_info != .Struct) {
+        @compileError("printAny requires struct arguments");
+    }
+
+    const fields = args_info.Struct.fields;
+
+    // Detect profile based on argument structure
+    if (fields.len == 2) {
+        // :min profile - (message, allocator)
+        return print(args.@"0", args.@"1");
+    } else if (fields.len == 3) {
+        const second_arg_type = @TypeOf(args.@"1");
+
+        if (second_arg_type == Context) {
+            // :go profile - (message, context, allocator)
+            return print(args.@"0", args.@"1", args.@"2");
+        } else if (second_arg_type == StdoutWriteCapability) {
+            // :full profile - (message, capability, allocator)
+            return print(args.@"0", args.@"1", args.@"2");
+        }
+    }
+
+    @compileError("Invalid arguments for printAny");
+}
+
+// ===== PLATFORM ABSTRACTION LAYER =====
+
+// These functions would be implemented by the runtime
+extern fn printToStdout(bytes: []const u8) Error!void;
+extern fn printToStderr(bytes: []const u8) Error!void;
+extern fn getCurrentTime() i64;
+
+// ===== FEATURE DETECTION =====
+
+pub fn hasContextSupport() bool {
+    return current_profile == .go or current_profile == .full;
+}
+
+pub fn hasCapabilitySupport() bool {
+    return current_profile == .full;
+}
+
+pub fn getProfileName() []const u8 {
+    return switch (current_profile) {
+        .min => "min",
+        .go => "go",
+        .full => "full",
+    };
+}
+
+// ===== COMPILE-TIME PROFILE VALIDATION =====
+
+pub fn validateProfileUsage(comptime expected_profile: Profile) void {
+    if (current_profile != expected_profile) {
+        const msg = "Function requires " ++ @tagName(expected_profile) ++ " profile, but current profile is " ++ @tagName(current_profile);
+        @compileError(msg);
+    }
+}
+
+// Example usage validation
+pub fn printWithValidation(message: String, allocator: Allocator) Error!void {
+    validateProfileUsage(.min);
+    return print(message, allocator);
+}
+
+pub fn printWithContext(message: String, ctx: Context, allocator: Allocator) Error!void {
+    validateProfileUsage(.go);
+    return print(message, ctx, allocator);
+}
+
+pub fn printWithCapability(message: String, cap: StdoutWriteCapability, allocator: Allocator) Error!void {
+    validateProfileUsage(.full);
+    return print(message, cap, allocator);
+}

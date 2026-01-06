@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// MemoryFS: preserve_symlinks option preserves symlink nodes
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.sys.fs.memory_fs;
+
+func main() -> void {
+    // Top-level file symlink preserved
+    var m1 = memory_fs::MemoryFS::new()
+        .add_file(path::Path::new("mem/real.txt"), "R")
+        .add_symlink(path::Path::new("mem/link.txt"), "mem/real.txt");
+    try m1.rename_or_copy_opts(path::Path::new("mem/link.txt"), path::Path::new("mem/dst.txt"), fs::CapFsWrite, fs::RenameOptions { preserve_symlinks: true, replace: true });
+    // Inspect via read_dir_iter parent
+    let it1 = try m1.read_dir_iter(path::Path::new("mem"), fs::CapFsRead);
+    var saw_symlink = false;
+    loop { match it1.next()? { None => break, Some(e) => { if e.file_name == "dst.txt" && e.file_type == path::FileType::Symlink { saw_symlink = true; } } } }
+    assert(saw_symlink);
+
+    // Recursive subtree with mixed symlinks preserved
+    var m2 = memory_fs::MemoryFS::new()
+        .add_dir(path::Path::new("src"))
+        .add_file(path::Path::new("src/a.txt"), "A")
+        .add_dir(path::Path::new("real"))
+        .add_file(path::Path::new("real/r.txt"), "R")
+        .add_symlink(path::Path::new("src/link_file.txt"), "real/r.txt")
+        .add_symlink(path::Path::new("src/link_dir"), "real");
+    try m2.rename_or_copy_opts(path::Path::new("src"), path::Path::new("dst"), fs::CapFsWrite, fs::RenameOptions { recursive: true, preserve_symlinks: true, replace: true });
+    // Verify both symlinks persisted as symlink entries
+    let it2 = try m2.read_dir_iter(path::Path::new("dst"), fs::CapFsRead);
+    var count_symlinks: i32 = 0;
+    loop { match it2.next()? { None => break, Some(e) => { if e.file_type == path::FileType::Symlink { count_symlinks = count_symlinks + 1; } } } }
+    assert(count_symlinks >= 2);
+
+    print("✅ MemoryFS preserve_symlinks behavior verified");
+}

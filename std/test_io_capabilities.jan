@@ -1,0 +1,514 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// std/test_io_capabilities.jan - Unit tests for I/O capability types and error handling
+// Validates that our capability system enforces security boundaries correctly
+
+import std.core
+import std.io
+import std.string
+
+// Test capability validation
+func testCapabilityValidation() -> void {
+    // Valid file read capability
+    let valid_read_cap = FileReadCapability{
+        .path = "test.txt",
+        .max_size = 1024,
+    };
+    assert(valid_read_cap.validate());
+    assert(std.mem.eql(u8, valid_read_cap.name(), "FileRead"));
+
+    // Invalid file read capability - empty path
+    let invalid_rd_cap = FileReadCapability{
+        .path = "",
+        .max_size = null,
+    };
+    assert(!invalid_read_cap.validate());
+
+    // Invalid file read capability - null byte in path
+    let null_byte_path = "test\x00.txt";
+    let null_byte_cap = FileReadCapability{
+        .path = null_byte_path,
+        .max_size = null,
+    };
+    assert(!null_byte_cap.validate());
+
+    // Valid file write capability
+    let valid_write_cap = FileWriteCapability{
+        .path = "output.txt",
+        .append_only = false,
+        .max_size = 2048,
+    };
+    assert(valid_write_cap.validate());
+    assert(std.mem.eql(u8, valid_write_cap.name(), "FileWrite"));
+
+    // Valid append-only capability
+    let append_cap = FileWriteCapability{
+        .path = "log.txt",
+        .append_only = true,
+        .max_size = null,
+    };
+    assert(append_cap.validate());
+
+    // Standard stream capabilities
+    let stdin_cap = StdinReadCapability{ .max_size = 1024 };
+    assert(stdin_cap.validate());
+    assert(std.mem.eql(u8, stdin_cap.name(), "StdinRead"));
+
+    let stdout_cap = StdoutWriteCapability{ .max_size = null };
+    assert(stdout_cap.validate());
+    assert(std.mem.eql(u8, stdout_cap.name(), "StdoutWrite"));
+
+    let stderr_cap = StderrWriteCapability{ .max_size = 512 };
+    assert(stderr_cap.validate());
+    assert(std.mem.eql(u8, stderr_cap.name(), "StderrWrite"));
+}
+
+// Test file capabilities tracking
+func testFileCapabilities() -> void {
+    // Read capability conversion
+    let read_cap = FileReadCapability{
+        .path = "input.txt",
+        .max_size = 1024,
+    };
+
+    let file_caps = FileCapabilities.fromReadCapability(read_cap);
+    assert(file_caps.can_read);
+    assert(!file_caps.can_write);
+    assert(!file_caps.can_append);
+    assert(file_caps.max_read_size.? == 1024);
+    assert(file_caps.max_write_size == null);
+
+    // Write capability conversion
+    let write_cap = FileWriteCapability{
+        .path = "output.txt",
+        .append_only = false,
+        .max_size = 2048,
+    };
+
+    let write_file_caps = FileCapabilities.fromWriteCapability(write_cap);
+    assert(!write_file_caps.can_read);
+    assert(write_file_caps.can_write);
+    assert(!write_file_caps.can_append);
+    assert(write_file_caps.max_read_size == null);
+    assert(write_file_caps.max_write_size.? == 2048);
+
+    // Append-only capability conversion
+    let append_cap = FileWriteCapability{
+        .path = "log.txt",
+        .append_only = true,
+        .max_size = null,
+    };
+
+    let append_file_caps = FileCapabilities.fromWriteCapability(append_cap);
+    assert(!append_file_caps.can_read);
+    assert(!append_file_caps.can_write);
+    assert(append_file_caps.can_append);
+    assert(append_file_caps.max_write_size == null);
+}
+
+// Test capability validation in file operations
+func testCapabilityValidationInOperations() -> void {
+    // Test read validation
+    let read_caps = FileCapabilities{
+        .can_read = true,
+        .can_write = false,
+        .can_append = false,
+        .max_read_size = 100,
+        .max_write_size = null,
+    };
+
+    // Valid read
+    read_caps.validateRead(50) catch |err| {
+        @panic("Valid read should not fail");
+    };
+
+    // Read size exceeds limit
+    let read_result = read_caps.validateRead(150);
+    switch (read_result) {
+        .ok => @panic("Should have failed on size limit"),
+        .err => |err| {
+            switch (err) {
+                .SizeLimitExceeded => |info| {
+                    assert(info.size == 150);
+                    assert(info.limit == 100);
+                },
+                else => @panic("Wrong error type"),
+            }
+        }
+    }
+
+    // Test write validation on read-only capability
+    let write_result = read_caps.validateWrite(50);
+    switch (write_result) {
+        .ok => @panic("Should have failed on capability violation"),
+        .err => |err| {
+            switch (err) {
+                .CapabilityViolation => |info| {
+                    assert(std.mem.eql(u8, info.operation, "write"));
+                    assert(std.mem.eql(u8, info.required_capability, "FileWrite"));
+                },
+                else => @panic("Wrong error type"),
+            }
+        }
+    }
+
+    // Test write validation
+    let write_caps = FileCapabilities{
+        .can_read = false,
+        .can_write = true,
+        .can_append = false,
+        .max_read_size = null,
+        .max_write_size = 200,
+    };
+
+    // Valid write
+    write_caps.validateWrite(100) catch |err| {
+        @panic("Valid write should not fail");
+    };
+
+    // Write size exceeds limit
+    let write_limit_result = write_caps.validateWrite(300);
+    switch (write_limit_result) {
+        .ok => @panic("Should have failed on size limit"),
+        .err => |err| {
+            switch (err) {
+                .SizeLimitExceeded => |info| {
+                    assert(info.size == 300);
+                    assert(info.limit == 200);
+                },
+                else => @panic("Wrong error type"),
+            }
+        }
+    }
+}
+
+// Test error message generation
+func testErrorMessages() -> void {
+    var gpa = GeneralPurposeAllocator.init();
+    defer gpa.deinit();
+    let allocator = gpa.allocator();
+
+    // Test FileNotFound error
+    let file_not_found = IoError.FileNotFound("missing.txt");
+    let message = file_not_found.toString(allocator);
+    defer allocator.free(message);
+    assert(std.mem.indexOf(u8, message, "File not found") != null);
+    assert(std.mem.indexOf(u8, message, "missing.txt") != null);
+
+    // Test PermissionDenied error
+    let permission_denied = IoError.PermissionDenied("secret.txt", "read");
+    let perm_message = permission_denied.toString(allocator);
+    defer allocator.free(perm_message);
+    assert(std.mem.indexOf(u8, perm_message, "Permission denied") != null);
+    assert(std.mem.indexOf(u8, perm_message, "secret.txt") != null);
+    assert(std.mem.indexOf(u8, perm_message, "read") != null);
+
+    // Test CapabilityViolation error
+    let cap_violation = IoError.CapabilityViolation("write", "FileWrite");
+    let cap_message = cap_violation.toString(allocator);
+    defer allocator.free(cap_message);
+    assert(std.mem.indexOf(u8, cap_message, "Capability violation") != null);
+    assert(std.mem.indexOf(u8, cap_message, "write") != null);
+    assert(std.mem.indexOf(u8, cap_message, "FileWrite") != null);
+
+    // Test UnexpectedEof error
+    let unexpected_eof = IoError.UnexpectedEof(100, 50);
+    let eof_message = unexpected_eof.toString(allocator);
+    defer allocator.free(eof_message);
+    assert(std.mem.indexOf(u8, eof_message, "Unexpected end of file") != null);
+    assert(std.mem.indexOf(u8, eof_message, "100") != null);
+    assert(std.mem.indexOf(u8, eof_message, "50") != null);
+}
+
+// Test buffer management
+func testBufferManagement() -> void {
+    var gpa = GeneralPurposeAllocator.init();
+    defer gpa.deinit();
+    let allocator = gpa.allocator();
+
+    // Test ReadBuffer creation and cleanup
+    var read_buffer = ReadBuffer.init(allocator, 256) catch |err| {
+        @panic("Failed to create ReadBuffer");
+    };
+    defer read_buffer.deinit();
+
+    assert(read_buffer.data.len == 256);
+    assert(read_buffer.allocator != null);
+
+    // Test ReadBuffer from slice (no allocation)
+    let static_data = "Hello, World!";
+    let slice_buffer = ReadBuffer.initFromSlice(static_data);
+    // No deinit needed - not owned
+
+    assert(slice_buffer.data.len == static_data.len);
+    assert(slice_buffer.allocator == null);
+    assert(std.mem.eql(u8, slice_buffer.data, static_data));
+
+    // Test WriteBuffer creation
+    let write_data = "Test data for writing";
+    let write_buffer = WriteBuffer.init(write_data);
+
+    assert(write_buffer.data.len == write_data.len);
+    assert(std.mem.eql(u8, write_buffer.data, write_data));
+}
+
+// Test file handle validation
+func testFileHandleValidation() -> void {
+    // Valid file handle
+    let valid_file = File{
+        .handle = 3,
+        .path = "test.txt",
+        .mode = .ReadOnly,
+        .capabilities = FileCapabilities{
+            .can_read = true,
+            .can_write = false,
+            .can_append = false,
+            .max_read_size = null,
+            .max_write_size = null,
+        },
+    };
+
+    assert(valid_file.isValid());
+
+    // Invalid file handle
+    let invalid_file = File{
+        .handle = -1,
+        .path = "invalid.txt",
+        .mode = .ReadOnly,
+        .capabilities = FileCapabilities{
+            .can_read = true,
+            .can_write = false,
+            .can_append = false,
+            .max_read_size = null,
+            .max_write_size = null,
+        },
+    };
+
+    assert(!invalid_file.isValid());
+}
+
+// Test comprehensive error scenarios
+func testComprehensiveErrorScenarios() -> void {
+    // Test all error types can be created and have meaningful information
+    let errors = [_]IoError{
+        IoError.FileNotFound("missing.txt"),
+        IoError.PermissionDenied("secret.txt", "read"),
+        IoError.InvalidPath("../../../etc/passwd", "path traversal"),
+        IoError.PathTooLong("very/long/path/that/exceeds/limits", 255),
+        IoError.FileExists("duplicate.txt"),
+        IoError.DirectoryNotEmpty("non_empty_dir"),
+        IoError.NotAFile("directory", .Directory),
+        IoError.NotADirectory("file.txt"),
+        IoError.EndOfFile,
+        IoError.UnexpectedEof(100, 50),
+        IoError.BrokenPipe,
+        IoError.Interrupted,
+        IoError.WouldBlock,
+        IoError.TimedOut,
+        IoError.TooManyOpenFiles,
+        IoError.OutOfSpace(1000, 2000),
+        IoError.OutOfMemory(1024),
+        IoError.CapabilityViolation("write", "FileWrite"),
+        IoError.SizeLimitExceeded(2048, 1024),
+        IoError.SystemError("System call failed", 42),
+    };
+
+    // Verify each error type is distinct and carries appropriate information
+    for (errors) |error_case| {
+        switch (error_case) {
+            .FileNotFound => |path| assert(path.len > 0),
+            .PermissionDenied => |info| {
+                assert(info.path.len > 0);
+                assert(info.operation.len > 0);
+            },
+            .InvalidPath => |info| {
+                assert(info.path.len > 0);
+                assert(info.reason.len > 0);
+            },
+            .UnexpectedEof => |info| {
+                assert(info.expected > info.actual);
+            },
+            .OutOfSpace => |info| {
+                assert(info.requested > info.available);
+            },
+            .SizeLimitExceeded => |info| {
+                assert(info.size > info.limit);
+            },
+            else => {}, // Other error types are valid as-is
+        }
+    }
+}
+
+// Main test runner
+func main() -> void {
+    testCapabilityValidation();
+    testFileCapabilities();
+    testCapabilityValidationInOperations();
+    testErrorMessages();
+    testBufferManagement();
+    testFileHandleValidation();
+    testComprehensiveErrorScenarios();
+
+    // POSIX compliance tests
+    testPosixFileTypes();
+    testFileTypeClassification();
+    testPosixFilePermissions();
+    testFileModePosixCompliance();
+    testFileTypeStringRepresentations();
+
+    print("✅ I/O capability types and error handling validation complete");
+    print("✅ POSIX compliance validation complete");
+}
+
+// Test POSIX-compliant file types
+func testPosixFileTypes() -> void {
+    // Test POSIX mode conversion
+    let regular_mode = 0o100644;  // Regular file with 644 permissions
+    let file_type = FileType.fromPosixMode(regular_mode);
+    assert(file_type == .Regular);
+
+    let dir_mode = 0o040755;  // Directory with 755 permissions
+    let dir_type = FileType.fromPosixMode(dir_mode);
+    assert(dir_type == .Directory);
+
+    let symlink_mode = 0o120777;  // Symbolic link
+    let symlink_type = FileType.fromPosixMode(symlink_mode);
+    assert(symlink_type == .SymbolicLink);
+
+    let block_dev_mode = 0o060660;  // Block device
+    let block_type = FileType.fromPosixMode(block_dev_mode);
+    assert(block_type == .BlockDevice);
+
+    let char_dev_mode = 0o020666;  // Character device
+    let char_type = FileType.fromPosixMode(char_dev_mode);
+    assert(char_type == .CharacterDevice);
+
+    let pipe_mode = 0o010644;  // Named pipe
+    let pipe_type = FileType.fromPosixMode(pipe_mode);
+    assert(pipe_type == .Pipe);
+
+    let socket_mode = 0o140755;  // Socket
+    let socket_type = FileType.fromPosixMode(socket_mode);
+    assert(socket_type == .Socket);
+
+    // Test reverse conversion
+    assert(FileType.Regular.toPosixMode().? == 0o100000);
+    assert(FileType.Directory.toPosixMode().? == 0o040000);
+    assert(FileType.SymbolicLink.toPosixMode().? == 0o120000);
+    assert(FileType.BlockDevice.toPosixMode().? == 0o060000);
+    assert(FileType.CharacterDevice.toPosixMode().? == 0o020000);
+    assert(FileType.Pipe.toPosixMode().? == 0o010000);
+    assert(FileType.Socket.toPosixMode().? == 0o140000);
+
+    // Platform-specific types should return null
+    assert(FileType.Door.toPosixMode() == null);
+    assert(FileType.Whiteout.toPosixMode() == null);
+    assert(FileType.Unknown.toPosixMode() == null);
+}
+
+// Test file type classification methods
+func testFileTypeClassification() -> void {
+    // Test device classification
+    assert(FileType.BlockDevice.isDevice());
+    assert(FileType.CharacterDevice.isDevice());
+    assert(!FileType.Regular.isDevice());
+    assert(!FileType.Directory.isDevice());
+
+    // Test IPC classification
+    assert(FileType.Pipe.isIpc());
+    assert(FileType.Socket.isIpc());
+    assert(FileType.Door.isIpc());
+    assert(!FileType.Regular.isIpc());
+    assert(!FileType.Directory.isIpc());
+
+    // Test read capability
+    assert(FileType.Regular.canRead());
+    assert(FileType.SymbolicLink.canRead());
+    assert(FileType.BlockDevice.canRead());
+    assert(FileType.CharacterDevice.canRead());
+    assert(FileType.Pipe.canRead());
+    assert(FileType.Socket.canRead());
+    assert(!FileType.Directory.canRead());
+    assert(!FileType.Whiteout.canRead());
+
+    // Test write capability
+    assert(FileType.Regular.canWrite());
+    assert(FileType.BlockDevice.canWrite());
+    assert(FileType.CharacterDevice.canWrite());
+    assert(FileType.Pipe.canWrite());
+    assert(FileType.Socket.canWrite());
+    assert(!FileType.Directory.canWrite());
+    assert(!FileType.SymbolicLink.canWrite());
+}
+
+// Test POSIX file permissions
+func testPosixFilePermissions() -> void {
+    // Test permission parsing from POSIX mode
+    let mode_644 = 0o644;  // rw-r--r--
+    let perms_644 = FilePermissions.fromPosixMode(mode_644);
+
+    assert(perms_644.owner_read);
+    assert(perms_644.owner_write);
+    assert(!perms_644.owner_execute);
+    assert(perms_644.group_read);
+    assert(!perms_644.group_write);
+    assert(!perms_644.group_execute);
+    assert(perms_644.other_read);
+    assert(!perms_644.other_write);
+    assert(!perms_644.other_execute);
+    assert(!perms_644.setuid);
+    assert(!perms_644.setgid);
+    assert(!perms_644.sticky);
+
+    // Test permission conversion back to POSIX mode
+    assert(perms_644.toPosixMode() == 0o644);
+
+    // Test special permission bits
+    let mode_4755 = 0o4755;  // rwsr-xr-x (setuid)
+    let perms_4755 = FilePermissions.fromPosixMode(mode_4755);
+
+    assert(perms_4755.owner_read);
+    assert(perms_4755.owner_write);
+    assert(perms_4755.owner_execute);
+    assert(perms_4755.group_read);
+    assert(!perms_4755.group_write);
+    assert(perms_4755.group_execute);
+    assert(perms_4755.other_read);
+    assert(!perms_4755.other_write);
+    assert(perms_4755.other_execute);
+    assert(perms_4755.setuid);
+    assert(!perms_4755.setgid);
+    assert(!perms_4755.sticky);
+
+    assert(perms_4755.toPosixMode() == 0o4755);
+
+    // Test sticky bit
+    let mode_1755 = 0o1755;  // rwxr-xr-t (sticky)
+    let perms_1755 = FilePermissions.fromPosixMode(mode_1755);
+    assert(perms_1755.sticky);
+    assert(perms_1755.toPosixMode() == 0o1755);
+}
+
+// Test file mode POSIX compliance
+func testFileModePosixCompliance() -> void {
+    // Test POSIX flag conversion
+    assert(FileMode.ReadOnly.toPosixFlags() == 0);      // O_RDONLY
+    assert(FileMode.WriteOnly.toPosixFlags() == 1);     // O_WRONLY
+    assert(FileMode.ReadWrite.toPosixFlags() == 2);     // O_RDWR
+    assert(FileMode.Append.toPosixFlags() == 1025);     // O_WRONLY | O_APPEND
+}
+
+// Test file type string representations
+func testFileTypeStringRepresentations() -> void {
+    assert(std.mem.eql(u8, FileType.Regular.toString(), "regular file"));
+    assert(std.mem.eql(u8, FileType.Directory.toString(), "directory"));
+    assert(std.mem.eql(u8, FileType.SymbolicLink.toString(), "symbolic link"));
+    assert(std.mem.eql(u8, FileType.BlockDevice.toString(), "block device"));
+    assert(std.mem.eql(u8, FileType.CharacterDevice.toString(), "character device"));
+    assert(std.mem.eql(u8, FileType.Pipe.toString(), "named pipe (FIFO)"));
+    assert(std.mem.eql(u8, FileType.Socket.toString(), "socket"));
+    assert(std.mem.eql(u8, FileType.Door.toString(), "door"));
+    assert(std.mem.eql(u8, FileType.Whiteout.toString(), "whiteout"));
+    assert(std.mem.eql(u8, FileType.Unknown.toString(), "unknown file type"));
+}

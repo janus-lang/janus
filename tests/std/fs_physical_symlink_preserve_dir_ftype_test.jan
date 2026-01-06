@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// PhysicalFS: directory symlink preserved with FileType Symlink on same device
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.sys.fs.physical_fs;
+import std.string;
+
+extern fn hasEnvVarImpl(name: []const u8) i32;
+extern fn symlinkSupportStatusImpl(base_ptr: []const u8) i32;
+
+func main() -> void {
+    let key = string.fromLiteral("JANUS_ENABLE_SYMLINK_TESTS");
+    if (hasEnvVarImpl(key.bytes) == 0) { print("⚠️  Skip dir symlink ftype (env)\n"); return; }
+    let base = string.fromLiteral(".zig-cache");
+    if (symlinkSupportStatusImpl(base.bytes) != 1) { print("⚠️  Skip dir symlink ftype (unsupported)\n"); return; }
+
+    let pfs = physical_fs::PhysicalFS::new();
+    let root = path::Path::new(".zig-cache/ftype_dir_preserve");
+    _ = pfs.create_dir(root, fs::CapFsWrite);
+    let real = path::Path::new(".zig-cache/ftype_dir_preserve/real");
+    let dst = path::Path::new(".zig-cache/ftype_dir_preserve/dst");
+    let link = path::Path::new(".zig-cache/ftype_dir_preserve/link");
+    _ = pfs.create_dir(real, fs::CapFsWrite);
+    try pfs.symlink_dir(real, link, fs::CapFsWrite);
+    try pfs.rename_or_copy_opts(link, dst, fs::CapFsWrite, fs::RenameOptions { preserve_symlinks: true, replace: true });
+
+    // Validate dir entry type
+    let it = try pfs.read_dir_iter(root, fs::CapFsRead);
+    var found = false;
+    loop {
+        match it.next()? {
+            None => break,
+            Some(e) => {
+                if (e.file_name == "dst") {
+                    assert(e.file_type == path::FileType::Symlink);
+                    found = true;
+                    break;
+                }
+            }
+        }
+    }
+    assert(found);
+    print("✅ PhysicalFS directory symlink preserve FileType verified");
+}

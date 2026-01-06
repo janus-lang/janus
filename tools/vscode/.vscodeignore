@@ -1,0 +1,9 @@
+.vscode/**
+src/**
+tsconfig.json
+tsconfig.tsbuildinfo
+Makefile
+*.map
+# Include node_modules for runtime dependencies
+!node_modules/vscode-languagecode
+!node_modules/vscode-languageclient/**

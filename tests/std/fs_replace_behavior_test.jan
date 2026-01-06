@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Replace=false behavior for rename_or_copy_opts on both backends
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.sys.fs.physical_fs;
+import std.sys.fs.memory_fs;
+
+func test_memory_replace_false() -> Result<(), string> {
+    var mfs = memory_fs::MemoryFS::new()
+        .add_dir(path::Path::new("mem"))
+        .add_file(path::Path::new("mem/src.txt"), "SRC")
+        .add_file(path::Path::new("mem/dst.txt"), "DST");
+
+    let opts = fs::RenameOptions { recursive: false, follow_symlinks: false, replace: false };
+    let res = mfs.rename_or_copy_opts(path::Path::new("mem/src.txt"), path::Path::new("mem/dst.txt"), fs::CapFsWrite, opts);
+    switch (res) { .ok => @panic("expected AlreadyExists error"), .err => {} }
+
+    // Ensure unchanged
+    let fsrc = try mfs.open(path::Path::new("mem/src.txt"), fs::CapFsRead, fs::OpenOptions::read_only());
+    let ssrc = try fsrc.read_string();
+    assert(ssrc == "SRC");
+    let fdst = try mfs.open(path::Path::new("mem/dst.txt"), fs::CapFsRead, fs::OpenOptions::read_only());
+    let sdst = try fdst.read_string();
+    assert(sdst == "DST");
+    Ok(())
+}
+
+func test_physical_replace_false() -> Result<(), string> {
+    let pfs = physical_fs::PhysicalFS::new();
+
+    let base = path::Path::new(".zig-cache/fs_replace_false");
+    _ = pfs.create_dir(base, fs::CapFsWrite);
+    let src = path::Path::new(".zig-cache/fs_replace_false/src.txt");
+    let dst = path::Path::new(".zig-cache/fs_replace_false/dst.txt");
+
+    try pfs.write_atomic(src, "SRC", fs::CapFsWrite);
+    try pfs.write_atomic(dst, "DST", fs::CapFsWrite);
+
+    let opts = fs::RenameOptions { recursive: false, follow_symlinks: false, replace: false };
+    let res = pfs.rename_or_copy_opts(src, dst, fs::CapFsWrite, opts);
+    switch (res) { .ok => @panic("expected AlreadyExists error"), .err => {} }
+
+    // Ensure unchanged
+    let fsrc = try pfs.open(src, fs::CapFsRead, fs::OpenOptions::read_only());
+    let ssrc = try fsrc.read_string();
+    assert(ssrc == "SRC");
+    let fdst = try pfs.open(dst, fs::CapFsRead, fs::OpenOptions::read_only());
+    let sdst = try fdst.read_string();
+    assert(sdst == "DST");
+    Ok(())
+}
+
+func main() -> void {
+    test_memory_replace_false() catch |e| @panic("MemoryFS replace=false failed");
+    test_physical_replace_false() catch |e| @panic("PhysicalFS replace=false failed");
+    print("✅ Replace=false behavior verified for MemoryFS and PhysicalFS");
+}

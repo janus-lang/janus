@@ -1,0 +1,16 @@
+
+// PROBATIO Demonstration Suite
+
+test "sanity check" do
+    assert(true)
+end
+
+test "basic math" do
+    // Literal addition might be constant folded if I implemented it, 
+    // but here it will likely be lowered to Op.Add
+    assert(1 == 1)
+end
+
+test "assertion failure demonstration" do
+    assert(false)
+end

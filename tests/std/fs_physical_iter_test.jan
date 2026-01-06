@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Tests for PhysicalFS read_dir_iter (lazy iterator)
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.sys.fs.physical_fs;
+
+func test_iterate_current_dir() -> Result<(), string> {
+    let vfs = physical_fs::PhysicalFS::new();
+    let it = try vfs.read_dir_iter(path::Path::new("."), fs::CapFsRead);
+    // Consume up to a few entries to ensure the pipeline works
+    var count: i32 = 0;
+    loop {
+        match it.next()? {
+            None => break,
+            Some(e) => {
+                if e.file_name.len() > 0 { count = count + 1; }
+                if count >= 3 { break; }
+            }
+        }
+    }
+    Ok(())
+}

@@ -1,0 +1,60 @@
+Source: janus-lang
+Section: devel
+Priority: optional
+Maintainer: Janus Development Team <maintainer@janus-lang.org>
+Build-Depends: debhelper-compat (= 13),
+               zig (>= 0.14.0) | zig-dev,
+               git,
+               libc6-dev
+Standards-Version: 4.6.0
+Homepage: https://github.com/janus-lang/janus
+Vcs-Git: https://github.com/janus-lang/janus.git
+Vcs-Browser: https://github.com/janus-lang/janus
+Rules-Requires-Root: no
+
+Package: janus-lang
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Provides: janus
+Conflicts: janus
+Description: Systems language with precise incremental compilation
+ Janus is a revolutionary systems programming language that features:
+ .
+  * Precise incremental compilation with mathematical guarantees
+  * Progressive complexity profiles (min/go/full)
+  * Content-addressed storage (CAS) for deterministic builds
+  * ASTDB architecture for advanced tooling capabilities
+  * Capability-based security system
+  * Zero-cost abstractions with honest performance characteristics
+ .
+ The language is designed to solve the adoption paradox in systems programming
+ by providing familiar patterns that progressively unlock advanced features
+ without breaking changes.
+
+Package: janus-lang-doc
+Architecture: all
+Section: doc
+Depends: ${misc:Depends}
+Description: Documentation for Janus programming language
+ This package contains comprehensive documentation for the Janus programming
+ language, including:
+ .
+  * Language specifications and grammar
+  * API documentation and examples
+  * Architecture documentation (ASTDB, incremental compilation)
+  * Tutorial and getting started guides
+  * Canonical case studies demonstrating progressive profiles
+
+Package: janus-lang-examples
+Architecture: all
+Section: doc
+Depends: ${misc:Depends}
+Recommends: janus-lang
+Description: Example programs for Janus programming language
+ This package contains example programs and case studies for the Janus
+ programming language, including:
+ .
+  * Canonical case study (HTTP server with progressive profiles)
+  * Basic language feature demonstrations
+  * Standard library usage examples
+  * Profile system demonstrations

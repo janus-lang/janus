@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Janus Web Server - :min Profile</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>🌐 Welcome to Janus Web Server</h1>
+        <h2>Profile: :min (The Trojan Horse)</h2>
+
+        <div class="profile-info">
+            <h3>Current Behavior:</h3>
+            <ul>
+                <li>✅ Simple, blocking HTTP server</li>
+                <li>✅ Familiar Go-like patterns</li>
+                <li>✅ Basic file serving</li>
+                <li>⚠️ No security restrictions</li>
+                <li>⚠️ Can serve ANY file (including secrets)</li>
+            </ul>
+        </div>
+
+        <div class="demo-links">
+            <h3>Try These Links:</h3>
+            <ul>
+                <li><a href="/about">About Page</a> - Safe content</li>
+                <li><a href="/README.md">README.md</a> - Project documentation</li>
+                <li><a href="/secret/config.txt">Secret Config</a> - ⚠️ Should be restricted!</li>
+            </ul>
+        </div>
+
+        <div class="tri-signature-demo">
+            <h3>🎯 The Tri-Signature Pattern</h3>
+            <p>This same source code will behave differently in other profiles:</p>
+
+            <div class="profile-comparison">
+                <div class="profile">
+                    <h4>:min Profile (Current)</h4>
+                    <code>serveFile(path, allocator)</code>
+                    <p>Simple, unrestricted access</p>
+                </div>
+
+                <div class="profile">
+                    <h4>:go Profile</h4>
+                    <code>serveFile(path, ctx, allocator)</code>
+                    <p>+ Context-aware with timeouts</p>
+                </div>
+
+                <div class="profile">
+                    <h4>:full Profile</h4>
+                    <code>serveFile(path, cap, allocator)</code>
+                    <p>+ Capability-gated security</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="adoption-message">
+            <h3>🚀 The Adoption Strategy</h3>
+            <p><strong>Phase 1:</strong> This familiar pattern infiltrates conservative environments</p>
+            <p><strong>Phase 2:</strong> Same code unlocks structured concurrency (:go profile)</p>
+            <p><strong>Phase 3:</strong> Same code reveals enterprise security (:full profile)</p>
+            <p><em>Zero rewrites. Zero breaking changes. Maximum adoption.</em></p>
+        </div>
+    </div>
+</body>
+</html>

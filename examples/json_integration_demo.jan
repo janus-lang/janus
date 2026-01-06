@@ -1,0 +1,263 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Janus JSON Integration Demo
+// Demonstrates simdjzon integration with doctrinal purity
+module examples.json_demo;
+
+import std.data.json;
+import std.sys.cli;
+import std.sys.fs.path;
+
+// =============================================================================
+// Example 1: Basic JSON Parsing
+// =============================================================================
+
+func demo_basic_parsing() -> Result<(), String> {
+    println!("🔍 Basic JSON Parsing Demo");
+
+    // Create parser with capability requirements
+    let parser = try JsonParser::new(&["fs.read".to_string()], true);
+    let available_caps = vec!["fs.read".to_string()];
+
+    // Parse a simple JSON object
+    let json_data = r#"
+    {
+        "name": "Janus JSON Demo",
+        "version": "1.0.0",
+        "features": ["SIMD", "Capabilities", "Performance"],
+        "performance": {
+            "throughput": "4.5 GB/s",
+            "latency": "2.5 ns/byte"
+        }
+    }
+    "#;
+
+    let value = try parser.parse_str(json_data, &available_caps);
+    println!("✅ Parsed JSON document with type: {:?}", value.get_type());
+
+    Ok(())
+}
+
+// =============================================================================
+// Example 2: Capability-Gated File Parsing
+// =============================================================================
+
+func demo_file_parsing() -> Result<(), String> {
+    println!("📁 File-Based JSON Parsing Demo");
+
+    // Create a JSON file
+    let json_file = Path::new("demo_config.json");
+    let config_content = r#"
+    {
+        "application": {
+            "name": "MyApp",
+            "version": "2.1.0",
+            "debug": true
+        },
+        "network": {
+            "enabled": true,
+            "port": 8080
+        }
+    }
+    "#;
+
+    try json_file.write_string(config_content, CapFsWrite);
+    println!("✅ Created demo config file");
+
+    // Parse with capability validation
+    let parser = try JsonParser::new(&[], true);
+    let caps = vec!["fs.read".to_string()];
+
+    let config = try parser.parse_file(&json_file, &caps);
+    println!("✅ Parsed config file with capability validation");
+
+    // Clean up
+    try std::fs::remove_file(&json_file);
+
+    Ok(())
+}
+
+// =============================================================================
+// Example 3: CLI Integration
+// =============================================================================
+
+func demo_cli_integration() -> Result<(), String> {
+    println!("💻 CLI Integration Demo");
+
+    // Simulate command-line arguments
+    let args = vec![
+        "--config".to_string(),
+        "app.json".to_string(),
+        "--verbose".to_string(),
+        "parse".to_string()
+    ];
+
+    // Available capabilities (would come from runtime in real app)
+    let caps = vec!["fs.read".to_string(), "fs.write".to_string()];
+
+    // Create CLI spec for a JSON tool
+    let spec = CliSpec {
+        program: ProgramSpec {
+            name: "jsontool".to_string(),
+            version: "1.0.0".to_string(),
+            description: "JSON processing tool with simdjzon".to_string(),
+            author: Some("Janus Team".to_string()),
+        },
+        global_flags: vec![
+            FlagSpec {
+                long: "config".to_string(),
+                short: Some('c'),
+                description: "Configuration file".to_string(),
+                env_var: Some("JSON_CONFIG".to_string()),
+                requires_caps: vec!["fs.read".to_string()],
+                forbids_caps: vec![],
+                takes_value: true,
+                default_value: Some("config.json".to_string()),
+                multiple: false,
+            },
+            FlagSpec {
+                long: "output".to_string(),
+                short: Some('o'),
+                description: "Output file".to_string(),
+                env_var: Some("JSON_OUTPUT".to_string()),
+                requires_caps: vec!["fs.write".to_string()],
+                forbids_caps: vec![],
+                takes_value: true,
+                default_value: Some("output.json".to_string()),
+                multiple: false,
+            },
+        ],
+        commands: vec![],
+        env_prefixes: vec!["JSONTOOL".to_string()],
+    };
+
+    // Parse arguments with capability validation
+    let result = parse_args(&spec, &args, &caps)?;
+
+    println!("✅ CLI parsing with capabilities: {} args", result.args.len());
+    println!("✅ Required capabilities: {:?}", result.required_caps);
+
+    Ok(())
+}
+
+// =============================================================================
+// Example 4: Performance Benchmark
+// =============================================================================
+
+func demo_performance_benchmark() -> Result<(), String> {
+    println!("⚡ Performance Benchmark Demo");
+
+    // Create a large JSON document for benchmarking
+    let large_json = generate_test_data(1000); // 1000 records
+
+    let parser = try JsonParser::new(&[], true);
+    let caps = vec!["fs.read".to_string()];
+
+    let start_time = std::time::now();
+
+    // Parse with SIMD acceleration
+    let value = try parser.parse_str(&large_json, &caps);
+
+    let end_time = std::time::now();
+    let duration = end_time - start_time;
+
+    println!("✅ Parsed {} bytes in {} ms", large_json.len(), duration);
+    println!("✅ Performance: {:.2} MB/s",
+             (large_json.len() as f64) / (duration as f64) / 1_000_000.0);
+
+    Ok(())
+}
+
+// =============================================================================
+// Example 5: Error Handling with Forensics
+// =============================================================================
+
+func demo_error_handling() -> Result<(), String> {
+    println!("🔍 Error Handling Demo");
+
+    let parser = try JsonParser::new(&[], true);
+    parser.enable_forensics(); // Enable detailed error reporting
+
+    let caps = vec!["fs.read".to_string()];
+
+    // Test with malformed JSON
+    let malformed = r#"{"name": "test", "value": }"#; // Missing value
+
+    match parser.parse_str(malformed, &caps) {
+        Err(e) => {
+            println!("✅ Caught parse error: {}", e.message);
+            println!("✅ Error location: line {}, column {}",
+                     e.location.line, e.location.column);
+
+            if !e.missing_caps.is_empty() {
+                println!("✅ Missing capabilities: {:?}", e.missing_caps);
+            }
+
+            Ok(())
+        },
+        Ok(_) => Err("Expected parse error".to_string()),
+    }
+}
+
+// =============================================================================
+// Utility Functions
+// =============================================================================
+
+func generate_test_data(count: usize) -> String {
+    let mut result = "[\n".to_string();
+
+    for i in 0..count {
+        if i > 0 {
+            result.push_str(",\n");
+        }
+
+        result.push_str(&format!(r#"  {{
+    "id": {},
+    "name": "Record {}",
+    "value": {:.2},
+    "active": {},
+    "tags": ["tag{}", "demo", "performance"]
+  }}"#,
+    i, i, (i as f64) * 1.5, i % 2 == 0, i % 10));
+    }
+
+    result.push_str("\n]");
+    result
+}
+
+// =============================================================================
+// Main Demo Runner
+// =============================================================================
+
+func main() -> Result<(), String> {
+    println!("🚀 Janus JSON Integration Demo");
+    println!("⚡ Featuring simdjzon - World's Fastest JSON Parser");
+    println!("");
+
+    // Run all demos
+    demo_basic_parsing()?;
+    println!("");
+
+    demo_file_parsing()?;
+    println!("");
+
+    demo_cli_integration()?;
+    println!("");
+
+    demo_performance_benchmark()?;
+    println!("");
+
+    demo_error_handling()?;
+    println!("");
+
+    println!("🎉 All demos completed successfully!");
+    println!("💡 Key features demonstrated:");
+    println!("  • SIMD-accelerated parsing (4.5 GB/s)");
+    println!("  • Capability-gated operations");
+    println!("  • CLI integration with validation");
+    println!("  • Comprehensive error handling");
+    println!("  • File I/O with security checks");
+
+    Ok(())
+}

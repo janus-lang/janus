@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    // Simple control flow test
+    let x = 10
+    let y = 20
+
+    print("Testing simple control flow")
+    print("x = 10, y = 20")
+
+    // Simple function calls work
+    list_files()
+}

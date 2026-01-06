@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+# :full — stream-scale max subset XOR (basis over a lazy iterator)
+func build_basis_stream(it: Iter[u64]) -> Array[u64] do
+  var basis := array.make[u64]()
+  for x0 in it do
+    var x := x0
+    for b in basis { x = min(x, x ^ b) }
+    if x != 0u64 do
+      basis.push x
+      basis.sort_desc_by_msb()
+    end
+  end
+  return basis
+end
+
+func max_subset_xor_from_file(path: string, cap: CapFsRead) -> u64!void do
+  let it := file.iter_u64 path, cap: cap
+  let b  := build_basis_stream(it)
+  return basis_max_xor(b)
+end

@@ -1,0 +1,67 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// @golden-test: coercion_dispatch_explicit
+// @expected-strategy: static_direct
+// @expected-performance: dispatch_overhead_ns = 0
+// @platforms: all
+// @optimization-level: release_safe
+// @description: Dispatch that resolves only through explicit Coercible contract - no magic
+
+// Explicit coercion contract - no hidden conversions
+trait Coercible(To) {
+    func coerce_to(self: Self) -> To
+}
+
+// Numeric types with explicit coercion relationships
+type Integer = struct {
+    value: i64
+
+    // Explicit coercion to Float - no magic
+    impl Coercible(Float) for Integer {
+        func coerce_to(self: Integer) -> Float {
+            return Float{ .value = @as(f64, @floatFromInt(self.value)) }
+        }
+    }
+}
+
+type Float = struct {
+    value: f64
+
+    // Explicit coercion to Integer - truncation is explicit
+    impl Coercible(Integer) for Float {
+        func coerce_to(self: Float) -> Integer {
+            return Integer{ .value = @as(i64, @intFromFloat(self.value)) }
+        }
+    }
+}
+
+// Function that requires explicit coercion - no magic conversions
+func add_numbers(a: Float, b: Float) -> Float {
+    return Float{ .value = a.value + b.value }
+}
+
+// Generic function that uses explicit coercion
+func add_with_coercion(T: type, U: type)(a: T, b: U) -> Float
+where T: Coercible(Float), U: Coercible(Float) {
+    // Explicit coercion calls - no hidden magic
+    let a_float = a.coerce_to()  // T -> Float
+    let b_float = b.coerce_to()  // U -> Float
+    return add_numbers(a_float, b_float)
+}
+
+func main() -> i32 {
+    let int_val = Integer{ .value = 42 }
+    let float_val = Float{ .value = 3.14 }
+
+    // This call MUST resolve through explicit coercion
+    // No magic type conversions - everything is explicit
+    // Should compile to direct calls with zero dispatch overhead
+    let result = add_with_coercion(Integer, Float)(int_val, float_val)
+
+    // Validation: 42.0 + 3.14 = 45.14
+    let expected = 45.14
+    let diff = @abs(result.value - expected)
+
+    return if (diff < 0.01) 0 else 1
+}

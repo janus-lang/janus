@@ -1,0 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() -> i32 {
+    let x := 42
+    return 0
+}

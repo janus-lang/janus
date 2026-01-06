@@ -1,0 +1,1 @@
+func test() -> void { let x = "hello"[0..3] }

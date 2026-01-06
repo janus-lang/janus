@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    let allocator = std.mem.default_allocator();
+    
+    // Write to a test file
+    let content = "Hello from Janus!\nThis is a test file.";
+    let write_result = writeFile("test_output.txt", content, allocator);
+    
+    print("Write result:");
+    print_int(write_result);
+    
+    // Read the file back
+    let read_content = readFile("test_output.txt", allocator);
+    
+    print("File content:");
+    print(read_content);
+}

@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: LSL-1.0
+# Copyright (c) 2026 Self Sovereign Society Foundation
+#
+# Pre-commit hook: Enforce version sync between VERSION and VS Code extension
+
+set -e
+
+# Check if VERSION file was modified
+if git diff --cached --name-only | grep -q "^VERSION$"; then
+    echo "VERSION file modified - checking sync with VS Code extension..."
+    
+    # Run sync script in check mode
+    if ! ./scripts/sync-versions.sh --check; then
+        echo ""
+        echo "ERROR: VERSION file changed but VS Code extension version is out of sync!"
+        echo ""
+        echo "Run this to fix:"
+        echo "  ./scripts/sync-versions.sh"
+        echo ""
+        echo "Then stage the changes:"
+        echo "  git add tools/vscode/package.json"
+        echo ""
+        exit 1
+    fi
+    
+    echo "✓ Version sync verified"
+fi
+
+exit 0

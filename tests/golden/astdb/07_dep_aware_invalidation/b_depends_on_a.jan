@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Dependent module - should be invalidated when a.jan changes
+
+import a;
+
+func dependent_function(z: i32) -> i32 {
+    return a.base_function(z) + a.utility_function(z);
+}
+
+func independent_function(w: i32) -> i32 {
+    return w * w; // Does not depend on module a
+}

@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    print("=== String Manipulation Victory Test ===");
+    
+    let alloc := 0;
+    
+    // Create strings from literals using intrinsics
+    let hello_ptr := __string_data("Hello, ");
+    let hello_len := __string_len("Hello, ");
+    let s1 := string_create(hello_ptr, i32_to_i64(hello_len), alloc);
+    defer string_free(s1, alloc);
+    
+    let janus_ptr := __string_data("Janus!");
+    let janus_len := __string_len("Janus!");
+    let s2 := string_create(janus_ptr, i32_to_i64(janus_len), alloc);
+    defer string_free(s2, alloc);
+    
+    // Test individual printing
+    print("String 1: ");
+    string_print(s1);
+    print("");
+    
+    print("String 2: ");
+    string_print(s2);
+    print("");
+    
+    // Concatenate
+    let s3 := string_concat_handle(s1, s2, alloc);
+    defer string_free(s3, alloc);
+    
+    print("Concatenated: ");
+    string_print(s3);
+    print("");
+    
+    // Test equality
+    let expected_ptr := __string_data("Hello, Janus!");
+    let expected_len := __string_len("Hello, Janus!");
+    let s4 := string_create(expected_ptr, i32_to_i64(expected_len), alloc);
+    defer string_free(s4, alloc);
+    
+    if string_eq(s3, s4) do
+        print("✓ Equality Test PASSED")
+    end else do
+        print("✗ Equality Test FAILED")
+    end;
+    
+    // Test length
+    print("Length: ");
+    let len := string_len_handle(s3);
+    print_int(i32_to_i64(len));
+    print(" characters");
+    
+    print("=== Victory ===");
+}

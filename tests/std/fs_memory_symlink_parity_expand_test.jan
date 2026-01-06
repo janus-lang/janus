@@ -1,0 +1,79 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Expanded parity for symlink structures and replace=false with symlink destination
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.sys.fs.memory_fs;
+
+// Helper to read string content from path
+func read_all(fs: memory_fs::MemoryFS, p: string) -> string {
+    let f = fs.open(path::Path::new(p), fs::CapFsRead, fs::OpenOptions::read_only()).unwrap();
+    f.read_string().unwrap()
+}
+
+func test_dest_symlink_replace_behavior() -> Result<(), string> {
+    // Directory case
+    var m = memory_fs::MemoryFS::new()
+        .add_dir(path::Path::new("mem/src"))
+        .add_file(path::Path::new("mem/src/file.txt"), "SRC")
+        .add_dir(path::Path::new("mem/other"))
+        .add_symlink(path::Path::new("mem/dest"), "mem/other");
+
+    // replace=false should error when destination is a symlink
+    let opts_false = fs::RenameOptions { recursive: true, follow_symlinks: true, replace: false };
+    let r1 = m.rename_or_copy_opts(path::Path::new("mem/src"), path::Path::new("mem/dest"), fs::CapFsWrite, opts_false);
+    switch (r1) { .ok => @panic("expected EEXIST for symlink destination with replace=false"), .err => {} }
+
+    // replace=true should replace the symlink with a directory containing moved files
+    let opts_true = fs::RenameOptions { recursive: true, follow_symlinks: true, replace: true };
+    try m.rename_or_copy_opts(path::Path::new("mem/src"), path::Path::new("mem/dest"), fs::CapFsWrite, opts_true);
+    assert(!m.exists(path::Path::new("mem/src"), fs::CapFsRead));
+    assert(m.exists(path::Path::new("mem/dest/file.txt"), fs::CapFsRead));
+    assert(read_all(m, "mem/dest/file.txt") == "SRC");
+
+    // File case
+    var fsm = memory_fs::MemoryFS::new()
+        .add_file(path::Path::new("mem/src.txt"), "F-SRC")
+        .add_file(path::Path::new("mem/other.txt"), "OTHER")
+        .add_symlink(path::Path::new("mem/dst.txt"), "mem/other.txt");
+
+    let rf = fsm.rename_or_copy_opts(path::Path::new("mem/src.txt"), path::Path::new("mem/dst.txt"), fs::CapFsWrite, fs::RenameOptions { recursive: false, follow_symlinks: true, replace: false });
+    switch (rf) { .ok => @panic("expected EEXIST for symlink file dest with replace=false"), .err => {} }
+
+    try fsm.rename_or_copy_opts(path::Path::new("mem/src.txt"), path::Path::new("mem/dst.txt"), fs::CapFsWrite, fs::RenameOptions { recursive: false, follow_symlinks: true, replace: true });
+    assert(read_all(fsm, "mem/dst.txt") == "F-SRC");
+    Ok(())
+}
+
+func test_mixed_symlinks_in_subtree_follow_true() -> Result<(), string> {
+    var m = memory_fs::MemoryFS::new()
+        .add_dir(path::Path::new("mem/src"))
+        .add_dir(path::Path::new("mem/src/dir"))
+        .add_file(path::Path::new("mem/src/dir/in.txt"), "IN")
+        // external file target
+        .add_file(path::Path::new("mem/ext.txt"), "EXT")
+        .add_symlink(path::Path::new("mem/src/link_file.txt"), "mem/ext.txt")
+        // external directory target
+        .add_dir(path::Path::new("mem/real"))
+        .add_file(path::Path::new("mem/real/a.txt"), "REAL-A")
+        .add_symlink(path::Path::new("mem/src/link_dir"), "mem/real");
+
+    // Move subtree with follow_symlinks=true
+    try m.rename_or_copy_opts(path::Path::new("mem/src"), path::Path::new("mem/dst"), fs::CapFsWrite, fs::RenameOptions { recursive: true, follow_symlinks: true, replace: true });
+
+    // Verify file symlink became copied file
+    assert(read_all(m, "mem/dst/link_file.txt") == "EXT");
+    // Verify dir symlink became a copied subtree
+    assert(read_all(m, "mem/dst/link_dir/a.txt") == "REAL-A");
+    // Verify regular content moved too
+    assert(read_all(m, "mem/dst/dir/in.txt") == "IN");
+    Ok(())
+}
+
+func main() -> void {
+    test_dest_symlink_replace_behavior() catch |e| @panic("MemoryFS dest symlink replace parity failed");
+    test_mixed_symlinks_in_subtree_follow_true() catch |e| @panic("MemoryFS mixed symlink subtree parity failed");
+    print("✅ MemoryFS symlink parity expanded (replace=false and mixed subtree) passed");
+}

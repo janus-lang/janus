@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func add(a: i32, b: i32) -> i32 {
+    return a + b;
+}
+
+func multiply(x: i32, y: i32) -> i32 {
+    return x * y;
+}

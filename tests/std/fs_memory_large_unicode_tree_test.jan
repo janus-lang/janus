@@ -1,0 +1,36 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Stress test: large tree with Unicode names and symlinks
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.sys.fs.memory_fs;
+
+func main() -> void {
+    var m = memory_fs::MemoryFS::new().add_dir(path::Path::new("树/源"));
+
+    // Create a large number of files and nested dirs
+    var i: i32 = 0;
+    while i < 200 {
+        let dir = "树/源/层-" + i.to_string();
+        m = m.add_dir(path::Path::new(dir));
+        let filep = dir + "/文件-" + i.to_string() + ".txt";
+        m = m.add_file(path::Path::new(filep), "内容:" + i.to_string());
+        i = i + 1;
+    }
+
+    // Add Unicode symlinks to some entries
+    m = m.add_symlink(path::Path::new("树/源/链接-α"), "树/源/层-5/文件-5.txt");
+    m = m.add_symlink(path::Path::new("树/源/链接-目录-β"), "树/源/层-10");
+
+    // Move recursively to destination with dereference
+    let opts = fs::RenameOptions { recursive: true, follow_symlinks: true, replace: true };
+    try m.rename_or_copy_opts(path::Path::new("树/源"), path::Path::new("树/目"), fs::CapFsWrite, opts);
+
+    // Spot checks
+    assert(m.exists(path::Path::new("树/目/层-199/文件-199.txt"), fs::CapFsRead));
+    assert(m.exists(path::Path::new("树/目/链接-α"), fs::CapFsRead));
+    assert(m.exists(path::Path::new("树/目/链接-目录-β"), fs::CapFsRead));
+    print("✅ MemoryFS large Unicode tree move passed");
+}

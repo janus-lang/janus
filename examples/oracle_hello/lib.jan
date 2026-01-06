@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Oracle Proof Pack Demo - lib.jan
+// Supporting library to demonstrate dependency tracking
+
+export func format_greeting(name: string, prefix: string) -> string {
+    return prefix + " " + name + "!"
+}
+
+export func get_timestamp() -> string {
+    // Implementation detail - changing this should not affect interface consumers
+    return "2025-08-25T21:30:00Z"
+}
+
+// Private function - changes here should not affect external consumers
+func internal_helper() -> string {
+    return "internal"
+}

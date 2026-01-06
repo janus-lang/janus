@@ -1,0 +1,382 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// std.janus.fs.memory_fs — In-memory filesystem (deterministic test double)
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.core;
+
+struct MemEntry {
+    path: string,      // absolute or relative path stored as given
+    is_dir: bool,
+    content: string,   // valid only when is_dir == false
+    is_symlink: bool = false,
+    link_target: string = "",
+}
+
+struct MemoryFS {
+    entries: Vec<MemEntry>,
+}
+
+impl MemoryFS {
+    func new() -> MemoryFS { MemoryFS { entries: Vec::new() } }
+
+    // Builder: add a directory (idempotent)
+    func add_dir(self, p: path::Path) -> MemoryFS {
+        let s = p.as_string();
+        if !self.contains_path(s) {
+            self.entries.push(MemEntry { path: s, is_dir: true, content: "" });
+        }
+        self
+    }
+
+    // Builder: add a file (creates parent dirs)
+    func add_file(self, p: path::Path, content: string) -> MemoryFS {
+        // ensure parents
+        var cur = p.parent();
+        while cur.is_some() {
+            self = self.add_dir(cur.unwrap());
+            cur = cur.unwrap().parent();
+        }
+        // remove existing if present
+        self.remove_path(p.as_string());
+        self.entries.push(MemEntry { path: p.as_string(), is_dir: false, content: content, is_symlink: false, link_target: "" });
+        self
+    }
+
+    // Builder: add a symlink (MemoryFS only models logical link)
+    func add_symlink(self, link_path: path::Path, target: string) -> MemoryFS {
+        // ensure parent
+        var cur = link_path.parent();
+        while cur.is_some() { self = self.add_dir(cur.unwrap()); cur = cur.unwrap().parent(); }
+        self.remove_path(link_path.as_string());
+        self.entries.push(MemEntry { path: link_path.as_string(), is_dir: false, content: "", is_symlink: true, link_target: target });
+        self
+    }
+
+    func contains_path(self, s: string) -> bool {
+        var i: usize = 0;
+        while i < self.entries.len() {
+            if self.entries[i].path == s { return true; }
+            i = i + 1;
+        }
+        false
+    }
+
+    func remove_path(self, s: string) void {
+        var i: usize = 0;
+        while i < self.entries.len() {
+            if self.entries[i].path == s { self.entries.remove(i); return; }
+            i = i + 1;
+        }
+    }
+
+    // Helpers
+    func find_entry(self, s: string) -> Option<MemEntry> {
+        var i: usize = 0;
+        while i < self.entries.len() {
+            if self.entries[i].path == s { return Some(self.entries[i]); }
+            i = i + 1;
+        }
+        None
+    }
+
+    func dirname(s: string) -> string {
+        if s == "" { return ""; }
+        let last = s.rfind("/");
+        match last {
+            None => "",
+            Some(0) => "/",
+            Some(i) => s[0..i].to_string(),
+        }
+    }
+}
+
+// FS trait implementation
+impl fs::FS for MemoryFS {
+    func open(self, p: path::Path, cap: fs::CapFsRead | fs::CapFsWrite, opts: fs::OpenOptions) -> Result<fs::File, fs::FsError> {
+        let _ = cap;
+        if !opts.read || opts.write { return Err(fs::FsError::from_os(38, "write not supported".to_string()).with_path(p)); }
+        match self.find_entry(p.as_string()) {
+            None => Err(fs::FsError::from_os(2, "not found".to_string()).with_path(p)),
+            Some(e) => {
+                if e.is_dir { return Err(fs::FsError::from_os(21, "is a directory".to_string()).with_path(p)); }
+                Ok(fs::File { backend: fs::FileBackend::Memory(fs::MemFile { data: e.content }), path: p, closed: false })
+            }
+        }
+    }
+
+    func read_dir(self, p: path::Path, cap: fs::CapFsRead) -> Result<Vec<path::DirEntry>, fs::FsError> {
+        let it = try self.read_dir_iter(p, cap);
+        let mut v = Vec::new();
+        loop { match it.next()? { None => break, Some(e) => v.push(e) } }
+        Ok(v)
+    }
+
+    func read_dir_iter(self, p: path::Path, cap: fs::CapFsRead) -> Result<fs::DirIterator, fs::FsError> {
+        let _ = cap;
+        let base = p.as_string();
+        // Ensure base is a directory or root of listing
+        var entries = Vec::<path::DirEntry>::new();
+        // Collect direct children
+        var i: usize = 0;
+        while i < self.entries.len() {
+            let e = self.entries[i];
+            if e.path == base { i = i + 1; continue; }
+            if MemoryFS::dirname(e.path) == base {
+                let name = {
+                    let last = e.path.rfind("/");
+                    match last { None => e.path, Some(idx) => e.path[idx+1..].to_string() }
+                };
+                let ftype = if e.is_dir { path::FileType::Directory } else { if e.is_symlink { path::FileType::Symlink } else { path::FileType::File } };
+                let entry = path::DirEntry { path: path::Path::new(e.path), file_name: name, file_type: ftype };
+                entries.push(entry);
+            }
+            i = i + 1;
+        }
+        Ok(fs::DirIterator { backend: fs::DirIterBackend::Memory(entries, 0), base: p, ended: false })
+    }
+
+    func metadata(self, p: path::Path, cap: fs::CapFsRead) -> Result<fs::Metadata, fs::FsError> {
+        let _ = cap;
+        match self.find_entry(p.as_string()) {
+            None => Err(fs::FsError::from_os(2, "not found".to_string()).with_path(p)),
+            Some(e) => {
+                let kind = if e.is_dir { path::FileType::Directory } else { if e.is_symlink { path::FileType::Symlink } else { path::FileType::File } };
+                let size = if e.is_dir { 0 } else { @as(u64, e.content.len()) };
+                Ok(fs::Metadata { size: size, modified_ms_utc: 0, file_type: kind })
+            }
+        }
+    }
+
+    func exists(self, p: path::Path, cap: fs::CapFsRead) -> bool {
+        let _ = cap;
+        self.contains_path(p.as_string())
+    }
+
+    // Rename: POSIX-like semantics for files; replace destination if exists
+    func rename(self, from: path::Path, to: path::Path, cap: fs::CapFsWrite) -> Result<(), fs::FsError> {
+        let _ = cap;
+        // find source index
+        var src_idx: Option<usize> = None;
+        var i: usize = 0;
+        while i < self.entries.len() { if self.entries[i].path == from.as_string() { src_idx = Some(i); break; } i = i + 1; }
+        if src_idx.is_none() { return Err(fs::FsError::from_os(2, "not found".to_string()).with_path(from)); }
+        let sidx = src_idx.unwrap();
+        // ensure destination parent exists (if specified)
+        let parent = MemoryFS::dirname(to.as_string());
+        if parent != "" && !self.contains_path(parent) {
+            self.entries.push(MemEntry { path: parent, is_dir: true, content: "" });
+        }
+        // remove existing dest (replace semantics)
+        self.remove_path(to.as_string());
+        // rename
+        let is_dir = self.entries[sidx].is_dir;
+        self.entries[sidx].path = to.as_string();
+        self.entries[sidx].is_dir = is_dir;
+        Ok(())
+    }
+
+    // Atomic write: in-memory is inherently atomic; replace-or-create semantics
+    func write_atomic(self, p: path::Path, data: string, cap: fs::CapFsWrite) -> Result<(), fs::FsError> {
+        let _ = cap;
+        // ensure parent exists
+        let parent = MemoryFS::dirname(p.as_string());
+        if parent != "" && !self.contains_path(parent) {
+            self.entries.push(MemEntry { path: parent, is_dir: true, content: "" });
+        }
+        // replace existing file if present
+        self.remove_path(p.as_string());
+        self.entries.push(MemEntry { path: p.as_string(), is_dir: false, content: data });
+        Ok(())
+    }
+
+    func rename_or_copy(self, from: path::Path, to: path::Path, cap: fs::CapFsWrite) -> Result<(), fs::FsError> {
+        // In-memory has no EXDEV; just rename
+        self.rename(from, to, cap)
+    }
+
+    func rename_or_copy_opts(self, from: path::Path, to: path::Path, cap: fs::CapFsWrite, opts: fs::RenameOptions) -> Result<(), fs::FsError> {
+        let _ = cap;
+        let from_s = from.as_string();
+        let to_s = to.as_string();
+        // Honor replace=false: error if destination exists
+        if !opts.replace && self.contains_path(to_s) {
+            return Err(fs::FsError::from_os(17, "destination exists".to_string()).with_path(to));
+        }
+        // Handle top-level symlink source
+        match self.find_entry(from_s) {
+            Some(src) => {
+                if src.is_symlink {
+                    if !opts.follow_symlinks { return Err(fs::FsError::from_os(22, "symlink encountered".to_string()).with_path(from)); }
+                    match self.find_entry(src.link_target) {
+                        None => return Err(fs::FsError::from_os(2, "symlink target not found".to_string()).with_path(from)),
+                        Some(t) => {
+                            if t.is_dir {
+                                if !opts.recursive { return Err(fs::FsError::from_os(22, "recursive required for dir symlink".to_string()).with_path(from)); }
+                                if opts.replace { self = self.remove_subtree(to_s); }
+                                try self.copy_subtree_deref(t.path, to_s, true);
+                                // Remove the symlink source
+                                self.remove_path(from_s);
+                                return Ok(());
+                            } else {
+                                // File target
+                                if !opts.replace && self.contains_path(to_s) { return Err(fs::FsError::from_os(17, "destination exists".to_string()).with_path(to)); }
+                                self.remove_path(to_s);
+                                self.entries.push(MemEntry { path: to_s, is_dir: false, content: t.content, is_symlink: false, link_target: "" });
+                                self.remove_path(from_s);
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+            }
+            None => {}
+        }
+        // If recursive and source is a directory
+        match self.find_entry(from_s) {
+            Some(src) => {
+                if src.is_dir && opts.recursive {
+                    // If follow_symlinks=false, reject subtrees containing symlinks
+                    if !opts.follow_symlinks {
+                        var j: usize = 0;
+                        while j < self.entries.len() {
+                            let ep = self.entries[j];
+                            if ep.path == from_s || ep.path.starts_with(from_s + "/") {
+                                if ep.is_symlink { return Err(fs::FsError::from_os(22, "symlink encountered".to_string()).with_path(from)); }
+                            }
+                            j = j + 1;
+                        }
+                        // Perform atomic move (rename semantics)
+                        if opts.replace { self = self.remove_subtree(to_s); }
+                        // Ensure parent exists
+                        let parent = MemoryFS::dirname(to_s);
+                        if parent != "" && !self.contains_path(parent) {
+                            self.entries.push(MemEntry { path: parent, is_dir: true, content: "", is_symlink: false, link_target: "" });
+                        }
+                        // Move root and rewrite children prefixes
+                        self = self.rename(from, to, fs::CapFsWrite)?;
+                        let mut i: usize = 0;
+                        while i < self.entries.len() {
+                            let ep = self.entries[i].path;
+                            if ep.starts_with(from_s + "/") {
+                                let suffix = ep[(from_s.len()+1)..].to_string();
+                                self.entries[i].path = to_s + "/" + suffix;
+                            }
+                            i = i + 1;
+                        }
+                        return Ok(());
+                    } else {
+                        // follow_symlinks=true: deep copy subtree with symlinks dereferenced to files
+                        // Replace destination if requested
+                        if opts.replace { self = self.remove_subtree(to_s); }
+                        // Ensure destination root directory exists
+                        if !self.contains_path(to_s) {
+                            let parent = MemoryFS::dirname(to_s);
+                            if parent != "" && !self.contains_path(parent) {
+                                self.entries.push(MemEntry { path: parent, is_dir: true, content: "", is_symlink: false, link_target: "" });
+                            }
+                            self.entries.push(MemEntry { path: to_s, is_dir: true, content: "", is_symlink: false, link_target: "" });
+                        }
+                        // Copy subtree with symlink deref (including dir-targets)
+                        try self.copy_subtree_deref(from_s, to_s, true);
+                        // Remove original subtree
+                        self = self.remove_subtree(from_s);
+                        return Ok(());
+                    }
+                }
+            }
+            None => {}
+        }
+        // Fallback to non-recursive behavior
+        self.rename(from, to, fs::CapFsWrite)
+    }
+
+    func remove_subtree(self, root: string) -> MemoryFS {
+        var i: usize = 0;
+        while i < self.entries.len() {
+            let ep = self.entries[i].path;
+            if ep == root || ep.starts_with(root + "/") { self.entries.remove(i); continue; }
+            i = i + 1;
+        }
+        self
+    }
+
+    // Ensure a directory entry exists at path s (creates parent as plain dir if missing)
+    func ensure_dir(self, s: string) void {
+        if !self.contains_path(s) {
+            let parent = MemoryFS::dirname(s);
+            if parent != "" && !self.contains_path(parent) {
+                self.entries.push(MemEntry { path: parent, is_dir: true, content: "", is_symlink: false, link_target: "" });
+            }
+            self.entries.push(MemEntry { path: s, is_dir: true, content: "", is_symlink: false, link_target: "" });
+        }
+    }
+
+    // Copy subtree from src_root into dst_root, dereferencing symlinks (file-targets, and optionally dir-targets)
+    func copy_subtree_deref(self, src_root: string, dst_root: string, allow_dir_symlink: bool) -> Result<(), fs::FsError> {
+        self.ensure_dir(dst_root);
+        var i: usize = 0;
+        while i < self.entries.len() {
+            let ep = self.entries[i];
+            if ep.path == src_root || ep.path.starts_with(src_root + "/") {
+                let suffix = if ep.path == src_root { "" } else { ep.path[(src_root.len()+1)..].to_string() };
+                let new_path = if suffix == "" { dst_root } else { dst_root + "/" + suffix };
+                if ep.is_dir {
+                    self.ensure_dir(new_path);
+                } else if ep.is_symlink {
+                    match self.find_entry(ep.link_target) {
+                        Some(t) => {
+                            if t.is_dir {
+                                if !allow_dir_symlink { return Err(fs::FsError::from_os(22, "symlink to dir unsupported".to_string())); }
+                                // Cycle guard: avoid copying a subtree that references itself
+                                if t.path == src_root || src_root.starts_with(t.path + "/") {
+                                    return Err(fs::FsError::from_os(22, "symlink cycle detected".to_string()));
+                                }
+                                self.ensure_dir(new_path);
+                                try self.copy_subtree_deref(t.path, new_path, allow_dir_symlink);
+                            } else {
+                                self.remove_path(new_path);
+                                self.entries.push(MemEntry { path: new_path, is_dir: false, content: t.content, is_symlink: false, link_target: "" });
+                            }
+                        },
+                        None => return Err(fs::FsError::from_os(2, "symlink target not found".to_string())),
+                    }
+                } else {
+                    self.remove_path(new_path);
+                    self.entries.push(MemEntry { path: new_path, is_dir: false, content: ep.content, is_symlink: false, link_target: "" });
+                }
+            }
+            i = i + 1;
+        }
+        Ok(())
+    }
+
+    func create_dir(self, p: path::Path, cap: fs::CapFsWrite) -> Result<(), fs::FsError> {
+        let _ = cap;
+        let s = p.as_string();
+        // Already exists
+        match self.find_entry(s) {
+            Some(e) => {
+                if e.is_dir { return Err(fs::FsError::from_os(17, "already exists".to_string()).with_path(p)); }
+            },
+            None => {}
+        }
+        // Parent must exist unless root/current
+        let parent = MemoryFS::dirname(s);
+        if parent != "" && parent != "/" && parent != "." && !self.contains_path(parent) {
+            return Err(fs::FsError::from_os(2, "parent not found".to_string()).with_path(p));
+        }
+        self.entries.push(MemEntry { path: s, is_dir: true, content: "", is_symlink: false, link_target: "" });
+        Ok(())
+    }
+}
+
+// Convenience helper to read an entire file as string
+impl MemoryFS {
+    func read_string(self, p: path::Path, cap: fs::CapFsRead) -> Result<string, fs::FsError> {
+        let f = try self.open(p, cap, fs::OpenOptions::read_only());
+        f.read_string()
+    }
+}

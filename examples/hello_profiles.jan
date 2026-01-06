@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// hello_profiles.jan
+// A single source file that demonstrates the power of Janus Profiles.
+use std.io
+
+// This is the `:min` profile implementation of greet.
+// It is simple, sequential, and has no error handling.
+func greet(name: string) -> void do
+    print("Hello, {s}! (from :min profile)", name)
+end
+
+// This is the `:go` profile implementation of greet.
+// It has the same name, but a different signature. It accepts a Context
+// and returns an error union, enabling structured concurrency.
+// This function is invisible to the compiler in :min mode.
+func greet(name: string, ctx: Context) -> IoError!void do
+    // A simple concurrent task to prove the :go profile is active.
+    nursery.spawn(ctx) do
+        log.info("Concurrent greeting initiated.")
+    end
+    print("Hello, {s}! (from :go profile, concurrently!)", name)
+end
+
+func main() -> void do
+    let name := "World"
+    
+    // This call is identical in both profiles.
+    // The compiler will choose the correct `greet` function based on
+    // the active profile at compile time.
+    greet(name)
+end

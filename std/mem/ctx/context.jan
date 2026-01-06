@@ -1,0 +1,96 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025 Janus Project Authors
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+/// ===================================
+/// Allocator Context Management
+/// ===================================
+
+/// An allocator context that groups related allocators with different purposes.
+/// This enables context-bound types to have access to multiple allocators
+/// while maintaining clear separation of concerns.
+pub type AllocContext {
+    /// General-purpose allocator for most operations
+    general: Alloc,
+    
+    /// Scratch/temporary allocator for short-lived allocations
+    scratch: Alloc,
+    
+    /// Optional GPU allocator for compute operations
+    gpu: Alloc?,
+}
+
+/// Create a standard allocator context with all required allocators
+pub fn create(general: Alloc, scratch: Alloc) -> AllocContext {
+    return AllocContext{
+        .general = general,
+        .scratch = scratch,
+        .gpu = null,
+    };
+}
+
+/// Create a context with GPU support
+pub fn createWithGpu(general: Alloc, scratch: Alloc, gpu: Alloc) -> AllocContext {
+    return AllocContext{
+        .general = general,
+        .scratch = scratch,
+        .gpu = gpu,
+    };
+}
+
+/// Get an allocator from the context by purpose
+pub fn get(ctx: AllocContext, purpose: AllocPurpose) -> Alloc {
+    match purpose {
+        general => ctx.general,
+        scratch => ctx.scratch,
+        gpu => ctx.gpu.? else panic("GPU allocator not available in context"),
+    }
+}
+
+/// Validate that an allocator context is properly configured
+pub fn validate(ctx: AllocContext) -> Bool {
+    return validate(ctx.general) and validate(ctx.scratch) and 
+           (ctx.gpu == null or validate(ctx.gpu.?));
+}
+
+/// The purpose for which an allocator is being used
+pub enum AllocPurpose {
+    general,
+    scratch,
+    gpu,
+}
+
+/// Context factory functions for common scenarios
+pub mod factory {
+    /// Create a simple context with heap allocators
+    pub fn simple() -> AllocContext {
+        let general = Alloc.create(.heap);
+        let scratch = Alloc.create(.arena);
+        return AllocContext.create(general, scratch);
+    }
+    
+    /// Create a context optimized for regions (for :script profile)
+    pub fn script() -> AllocContext {
+        let general = Alloc.create(.tls);
+        let scratch = Alloc.create(.region);
+        return AllocContext.create(general, scratch);
+    }
+    
+    /// Create a context for high-performance computing
+    pub fn hpc() -> AllocContext {
+        let general = Alloc.create(.heap);
+        let scratch = Alloc.create(.arena);
+        let gpu = Alloc.create(.custom);
+        return AllocContext.createWithGpu(general, scratch, gpu);
+    }
+}

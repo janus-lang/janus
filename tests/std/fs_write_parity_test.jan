@@ -1,0 +1,67 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Parity tests for write operations: write_atomic and rename
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.sys.fs.physical_fs;
+import std.sys.fs.memory_fs;
+
+// MemoryFS write parity
+func memory_write_parity() -> Result<(), string> {
+    var mfs = memory_fs::MemoryFS::new().add_dir(path::Path::new("mem"));
+
+    // write_atomic create
+    try mfs.write_atomic(path::Path::new("mem/a.txt"), "payload-αβγ", fs::CapFsWrite);
+    assert(mfs.exists(path::Path::new("mem/a.txt"), fs::CapFsRead));
+    let fm = try mfs.open(path::Path::new("mem/a.txt"), fs::CapFsRead, fs::OpenOptions::read_only());
+    let sm = try fm.read_string();
+    assert(sm == "payload-αβγ");
+
+    // rename
+    try mfs.rename(path::Path::new("mem/a.txt"), path::Path::new("mem/b.txt"), fs::CapFsWrite);
+    assert(!mfs.exists(path::Path::new("mem/a.txt"), fs::CapFsRead));
+    assert(mfs.exists(path::Path::new("mem/b.txt"), fs::CapFsRead));
+
+    Ok(())
+}
+
+// PhysicalFS write parity (writes under .zig-cache)
+func physical_write_parity() -> Result<(), string> {
+    let pfs = physical_fs::PhysicalFS::new();
+
+    let a = path::Path::new(".zig-cache/fs_atomic_A.txt");
+    let b = path::Path::new(".zig-cache/fs_atomic_B.txt");
+
+    // Ensure B does not exist (best-effort)
+    // No remove API yet; overwrite semantics in write_atomic OK
+
+    // write_atomic create + overwrite
+    try pfs.write_atomic(a, "payload-xyz", fs::CapFsWrite);
+    assert(pfs.exists(a, fs::CapFsRead));
+    let fa = try pfs.open(a, fs::CapFsRead, fs::OpenOptions::read_only());
+    let sa = try fa.read_string();
+    assert(std.mem.indexOf(u8, sa.bytes, "payload-".bytes) != null);
+
+    // rename (same device)
+    try pfs.rename(a, b, fs::CapFsWrite);
+    assert(!pfs.exists(a, fs::CapFsRead));
+    assert(pfs.exists(b, fs::CapFsRead));
+
+    // rename_or_copy (should behave the same on same device)
+    let c = path::Path::new(".zig-cache/fs_atomic_C.txt");
+    try pfs.write_atomic(b, "payload-uvw", fs::CapFsWrite);
+    try pfs.rename_or_copy(b, c, fs::CapFsWrite);
+    assert(!pfs.exists(b, fs::CapFsRead));
+    assert(pfs.exists(c, fs::CapFsRead));
+
+    // Cleanup best-effort not available; test leaves files under .zig-cache
+    Ok(())
+}
+
+func main() -> void {
+    memory_write_parity() catch |e| @panic("MemoryFS write parity failed");
+    physical_write_parity() catch |e| @panic("PhysicalFS write parity failed");
+    print("✅ FS write parity (write_atomic/rename) passed for MemoryFS and PhysicalFS");
+}

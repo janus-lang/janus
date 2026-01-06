@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Example: Postfix Guard Clauses
+// RFC-018: Postfix Guard Clauses (Already Implemented)
+//
+// This example demonstrates the "Safe Yeet" pattern - 
+// eliminating the pyramid of doom with linear early-exit guards.
+
+func validate_user(user: User?) -> Result {
+    // Traditional way (pyramid of doom)
+    // if user == null do
+    //     return Error.NotFound
+    // end
+    // if not user.is_active do
+    //     return Error.Inactive
+    // end
+    
+    // Postfix guard way (linear, reads like prose)
+    return Error.NotFound when user == null
+    return Error.Inactive when not user.is_active
+    return Error.InsufficientFunds when user.balance < 0
+    
+    // Actual work happens here, no nesting
+    return Result.Ok(user)
+}
+
+func process_request(request: Request) -> Response {
+    // Guards read like prose: "return error WHEN condition"
+    return Error.MissingAuth when request.auth == null
+    return Error.BadMethod when request.method != "POST"
+    return Error.TooLarge when request.body_len > 10000
+    
+    // Clean flow to main logic
+    return handle_valid_request(request)
+}
+
+// Expression statements with guards
+func log_event(event: Event) do
+    // Log only when conditions met
+    print("Critical event!") when event.severity == "critical"
+    alert(event.message) when event.requires_alert
+end
+
+// Combined with break/continue
+func process_items(items: []Item) do
+    for item in items do
+        continue when item.is_skip
+        break when item.is_stop
+        
+        process(item)
+    end
+end

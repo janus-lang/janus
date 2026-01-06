@@ -1,0 +1,25 @@
+name: Validation
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Ensure Zig available
+        run: |
+          if ! command -v zig >/dev/null 2>&1; then
+            echo "Zig not found on runner" >&2
+            exit 1
+          fi
+      - name: Run tests (golden + sanitizers)
+        run: |
+          chmod +x tools/ci/run_tests.sh
+          tools/ci/run_tests.sh
+

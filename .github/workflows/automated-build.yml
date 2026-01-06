@@ -1,0 +1,355 @@
+name: Janus Automated Build and Packaging
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type'
+        required: false
+        default: 'dev'
+        type: choice
+        options:
+        - dev
+        - patch
+        - minor
+        - major
+
+env:
+  ZIG_VERSION: '0.14.1'
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Zig
+      uses: goto-bus-stop/setup-zig@v2
+      with:
+        version: ${{ env.N }}
+
+    - name: Setup Bun (preferred)
+      uses: oven-sh/setup-bun@v1
+      with:
+        bun-version: latest
+      continue-on-error: true
+
+    - name: Setup Node.js (fallback)
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: 'vscode-extension/package-lock.json'
+
+    - name: Install VSCode extension dependencies
+      run: |
+        cd vscode-extension
+        if command -v bun >/dev/null 2>&1; then
+          echo "Using Bun for dependency installation"
+          bun install
+        elif command -v npm >/dev/null 2>&1; then
+          echo "Using npm for dependency installation"
+          npm ci
+        else
+          echo "No package manager available"
+          exit 1
+        fi
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git
+
+    - name: Cache Zig artifacts
+      uses: actions/cache@v4
+      with:
+        path: |
+          zig-cache
+          .zig-cache
+        key: ${{ runner.os }}-zig-${{ env.ZIG_VERSION }}-${{ hashFiles('build.zig', 'build.zig.zon') }}
+        restore-keys: |
+          ${{ runner.os }}-zig-${{ env.ZIG_VERSION }}-
+
+    - name: Version bump (if requested)
+      if: github.event.inputs.version_bump != ''
+      run: |
+        ./scripts/version-bump.sh bump ${{ github.event.inputs.version_bump }}
+
+    - name: Build core components
+      run: |
+        zig build -Doptimize=ReleaseSafe
+
+    - name: Run tests (Debug)
+      run: |
+        zig build test
+
+    - name: Run tests (ReleaseSafe)
+      run: |
+        zig build test-release-safe
+
+    - name: Run tests with sanitizers
+      run: |
+        zig build test-sanitizers
+
+    - name: Build VSCode extension
+      run: |
+        zig build vscode-extension
+
+    - name: Test LSP functionality
+      run: |
+        if [ -f test_lsp_functionality.sh ]; then
+          ./test_lsp_functionality.sh
+        else
+          echo "LSP test script not found, skipping"
+        fi
+
+    - name: Verify executables
+      run: |
+        ls -la zig-out/bin/
+        ./zig-out/bin/janus version || ./zig-out/bin/janus --help
+        ./zig-out/bin/janusd --help
+        ./zig-out/bin/lsp-bridge --help
+
+    - name: Verify VSCode extension
+      run: |
+        if [ -f zig-out/janus-lang-*.vsix ]; then
+          ls -la zig-out/janus-lang-*.vsix
+          echo "VSCode extension built successfully"
+        else
+          echo "VSCode extension not found"
+          exit 1
+        fi
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: janus-build-${{ github.sha }}
+        path: |
+          zig-out/bin/*
+          zig-out/*.vsix
+        retention-days: 30
+
+    - name: Upload VSCode extension
+      uses: actions/upload-artifact@v4
+      with:
+        name: janus-vscode-extension-${{ github.sha }}
+        path: zig-out/*.vsix
+        retention-days: 90
+
+  package-linux:
+    name: Package for Linux Distributions
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: janus-build-${{ github.sha }}
+        path: zig-out/
+
+    - name: Make executables executable
+      run: |
+        chmod +x zig-out/bin/*
+
+    - name: Update package versions
+      run: |
+        VERSION=$(cat VERSION 2>/dev/null || echo "0.1.0-dev.$(date +%Y%m%d)")
+        echo "Updating packages to version: $VERSION"
+
+        # Update AUR PKGBUILD
+        sed -i "s/^pkgver=.*/pkgver=$VERSION/" packaging/arch/PKGBUILD
+
+        # Update Alpine APKBUILD
+        sed -i "s/^pkgver=.*/pkgver=$VERSION/" packaging/alpine/APKBUILD
+
+        # Update Fedora spec
+        sed -i "s/^Version:.*/Version: $VERSION/" packaging/fedora/janus-lang.spec
+
+        # Update VSCode extension
+        if [ -f vscode-extension/package.json ]; then
+          sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" vscode-extension/package.json
+        fi
+
+    - name: Generate AUR .SRCINFO
+      run: |
+        cd packaging/arch
+        # Generate .SRCINFO (makepkg --printsrcinfo equivalent)
+        echo "# Generated by automated build system" > .SRCINFO
+        echo "pkgbase = janus-lang" >> .SRCINFO
+        grep "^pkgname\|^pkgver\|^pkgrel\|^pkgdesc\|^arch\|^url\|^license\|^depends\|^makedepends\|^optdepends" PKGBUILD >> .SRCINFO
+
+    - name: Validate package files
+      run: |
+        echo "Validating package files..."
+
+        # Check AUR files
+        [ -f packaging/arch/PKGBUILD ] && echo "✅ AUR PKGBUILD exists"
+        [ -f packaging/arch/.SRCINFO ] && echo "✅ AUR .SRCINFO exists"
+
+        # Check Alpine files
+        [ -f packaging/alpine/APKBUILD ] && echo "✅ Alpine APKBUILD exists"
+
+        # Check Debian files
+        [ -f packaging/debian/control ] && echo "✅ Debian control exists"
+        [ -f packaging/debian/rules ] && echo "✅ Debian rules exists"
+
+        # Check Fedora files
+        [ -f packaging/fedora/janus-lang.spec ] && echo "✅ Fedora spec exists"
+
+    - name: Upload packaging artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: janus-packages-${{ github.sha }}
+        path: |
+          packaging/
+          VERSION
+        retention-days: 90
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [build-and-test, package-linux]
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: janus-build-${{ github.sha }}
+        path: zig-out/
+
+    - name: Download packaging artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: janus-packages-${{ github.sha }}
+        path: ./
+
+    - name: Create release archive
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/v}
+
+        # Create release directory
+        mkdir -p "janus-$VERSION"
+
+        # Copy executables
+        cp -r zig-out/bin "janus-$VERSION/"
+
+        # Copy VSCode extension
+        if [ -f zig-out/*.vsix ]; then
+          cp zig-out/*.vsix "janus-$VERSION/"
+        fi
+
+        # Copy documentation
+        cp README.md LICENSE "janus-$VERSION/"
+
+        # Copy packaging files
+        cp -r packaging "janus-$VERSION/"
+
+        # Create tarball
+        tar -czf "janus-$VERSION-linux-x86_64.tar.gz" "janus-$VERSION"
+
+        # Create checksums
+        sha256sum "janus-$VERSION-linux-x86_64.tar.gz" > "janus-$VERSION-linux-x86_64.tar.gz.sha256"
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          janus-*-linux-x86_64.tar.gz
+          janus-*-linux-x86_64.tar.gz.sha256
+          zig-out/*.vsix
+        draft: false
+        prerelease: ${{ contains(github.ref, '-') }}
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  deploy-packages:
+    name: Deploy to Package Repositories
+    runs-on: ubuntu-latest
+    needs: [build-and-test, package-linux]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download packaging artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: janus-packages-${{ github.sha }}
+        path: ./
+
+    - name: Deploy to AUR (placeholder)
+      run: |
+        echo "🚀 Would deploy to AUR:"
+        echo "  - PKGBUILD: $(head -5 packaging/arch/PKGBUILD)"
+        echo "  - .SRCINFO: $(head -5 packaging/arch/.SRCINFO)"
+        echo "📋 Manual step: Push packaging/arch/ to AUR repository"
+
+    - name: Deploy to Alpine (placeholder)
+      run: |
+        echo "🚀 Would deploy to Alpine:"
+        echo "  - APKBUILD: $(head -5 packaging/alpine/APKBUILD)"
+        echo "📋 Manual step: Submit to Alpine testing repository"
+
+    - name: Deploy to Debian PPA (placeholder)
+      run: |
+        echo "🚀 Would deploy to Debian PPA:"
+        echo "  - control: $(head -5 packaging/debian/control)"
+        echo "📋 Manual step: Upload to Launchpad PPA"
+
+    - name: Deploy to Fedora COPR (placeholder)
+      run: |
+        echo "🚀 Would deploy to Fedora COPR:"
+        echo "  - spec: $(head -5 packaging/fedora/janus-lang.spec)"
+        echo "📋 Manual step: Submit to Fedora COPR"
+
+  deploy-vscode:
+    name: Deploy VSCode Extension
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download VSCode extension
+      uses: actions/download-artifact@v4
+      with:
+        name: janus-vscode-extension-${{ github.sha }}
+        path: ./
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install vsce
+      run: npm install -g vsce
+
+    - name: Publish to VSCode Marketplace (placeholder)
+      run: |
+        echo "🚀 Would publish to VSCode Marketplace:"
+        ls -la *.vsix
+        echo "📋 Manual step: vsce publish --packagePath *.vsix"
+        echo "📋 Requires VSCE_PAT secret for authentication"

@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Standard Collections Module
+// This module provides Vector, HashMap, and other essential data structures.
+
+pub struct Vector {
+    capacity: u64,
+    len: u64,
+    data: ?*void
+}
+
+pub fn new_vector() -> Vector {
+    return Vector {
+        capacity: 0,
+        len: 0,
+        data: null
+    }
+}

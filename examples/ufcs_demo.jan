@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// UFCS (Unified Function Call Syntax) Demo
+// This demonstrates method-style syntax sugar
+
+struct Player do
+    x: f64
+    y: f64
+    health: i32
+end
+
+// Define functions OUTSIDE the struct
+// These can be called as methods thanks to UFCS
+
+func move(p: *Player, dx: f64, dy: f64) do
+    p.x = p.x + dx
+    p.y = p.y + dy
+end
+
+func damage(p: *Player, amount: i32) do
+    p.health = p.health - amount
+end
+
+func heal(p: *Player, amount: i32) do
+    p.health = p.health + amount
+end
+
+func is_alive(p: Player) -> bool do
+    return p.health > 0
+end
+
+func main() do
+    let player = Player{ x: 0.0, y: 0.0, health: 100 }
+    
+    // Both syntaxes work identically:
+    
+    // Procedural style
+    move(player, 10.0, 5.0)
+    damage(player, 20)
+    
+    // Method style (UFCS sugar)
+    player.move(10.0, 5.0)
+    player.damage(20)
+    
+    // Method chaining feels natural
+    player.heal(50)
+    player.move(5.0, 5.0)
+    
+    if player.is_alive() do
+        println("Player is still alive!")
+    end
+end

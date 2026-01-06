@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func calculate(x: i32, y: i32) -> i32 {
+    return x + y;
+}
+
+func helper(value: i32) -> i32 {
+    return value * 2;
+}

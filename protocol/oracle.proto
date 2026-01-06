@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package janus.oracle;
+
+// Oracle: Unified semantic RPC for Janus tools (LSP, CLI, agents)
+service Oracle {
+  rpc DocUpdate(DocUpdateRequest) returns (DocUpdateResponse);
+  rpc HoverAt(PositionRequest) returns (HoverAtResponse);
+  rpc DefinitionAt(PositionRequest) returns (DefinitionAtResponse);
+  rpc ReferencesAt(ReferencesAtRequest) returns (ReferencesAtResponse);
+}
+
+message DocUpdateRequest {
+  string uri = 1;
+  string content = 2;
+}
+
+message DocUpdateResponse {
+  bool ok = 1;
+}
+
+message PositionRequest {
+  string uri = 1;
+  uint32 line = 2;       // 0-based
+  uint32 character = 3;  // 0-based
+}
+
+message HoverAtResponse {
+  string markdown = 1; // Hover content
+}
+
+message DefinitionAtResponse {
+  string uri = 1;
+  uint32 line = 2;       // 0-based
+  uint32 character = 3;  // 0-based
+  bool found = 4;
+}
+
+message ReferencesAtRequest {
+  string uri = 1;
+  uint32 line = 2;       // 0-based
+  uint32 character = 3;  // 0-based
+  bool include_declaration = 4;
+}
+
+message Location {
+  string uri = 1;
+  uint32 line = 2;
+  uint32 character = 3;
+}
+
+message ReferencesAtResponse {
+  repeated Location locations = 1;
+}
+

@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+import std.io;
+
+func main() -> void {
+    std.io.println("Hello, Janus!");
+
+    let result = compute(42);
+    std.io.println("Result: {}", result);
+}
+
+func compute(n: i32) -> i32 {
+    if (n <= 0) return 0;
+    return n * n + compute(n - 1);
+}

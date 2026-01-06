@@ -1,0 +1,15 @@
+# golden test: duplicate in 1..n
+func find_duplicate(nums: Array[u32]) -> u32 do
+  var x := 0u32
+  for v in nums { x ^= v }
+  let n := (nums.len - 1) as u32
+  var y := 0u32
+  var i := 1u32
+  while i <= n do
+    y ^= i
+    i += 1
+  end
+  return x ^ y
+end
+print find_duplicate([1u32, 3, 4, 2, 2])
+# EXPECT: 2

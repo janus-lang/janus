@@ -1,0 +1,536 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Dispatch Best Practices and Common Pitfalls Examples
+// This file demonstrates real-world usage patterns, best practices, and pitfalls to avoid
+
+import std.io.{println}
+import std.profiling.{measureDispatch, profileDispatch}
+import std.time.{nanoTimestamp}
+
+// =============================================================================
+// BEST PRACTICE 1: Design for Specificity
+// =============================================================================
+
+// ✅ GOOD: Clear type hierarchy with proper specificity
+module graphics_good {
+    type Shape = Circle | Rectangle | Triangle
+    typeradius: float, center: Point }
+    type Rectangle = { width: float, height: float, center: Point }
+    type Triangle = { vertices: [Point; 3] }
+    type Point = { x: float, y: float }
+
+    // Generic fallback for extensibility
+    func area(shape: Shape) -> float {
+        match shape {
+            case Circle(c) => PI * c.radius * c.radius
+            case Rectangle(r) => r.width * r.height
+            case Triangle(t) => calculateTriangleArea(t.vertices)
+        }
+    }
+
+    // Specific implementations for performance
+    func area(circle: Circle) -> float {
+        PI * circle.radius * circle.radius
+    }
+
+    func area(rect: Rectangle) -> float {
+        rect.width * rect.height
+    }
+
+    // Specific implementation for complex case
+    func area(triangle: Triangle) -> float {
+        calculateTriangleArea(triangle.vertices)
+    }
+
+    func calculateTriangleArea(vertices: [Point; 3]) -> float {
+        // Shoelace formula
+        let [a, b, c] = vertices
+        0.5 * abs((a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y)))
+    }
+}
+
+// ❌ BAD: Flat hierarchy that causes ambiguity
+module graphics_bad {
+    type ShapeA = { data: float }
+    type ShapeB = { data: float }
+    type ShapeC = { data: float }
+
+    // These implementations will cause ambiguity for union types
+    func process(a: ShapeA, b: ShapeB) -> string { "A-B" }
+    func process(a: ShapeB, b: ShapeA) -> string { "B-A" }
+    func process(a: ShapeA, b: ShapeC) -> string { "A-C" }
+    func process(a: ShapeC, b: ShapeA) -> string { "C-A" }
+
+    // Problem: What happens with ShapeA | ShapeB | ShapeC union types?
+    // process(union_value, union_value) becomes ambiguous!
+}
+
+// =============================================================================
+// BEST PRACTICE 2: Use Sealed Types for Performance
+// =============================================================================
+
+// ✅ GOOD: Sealed types enable static dispatch
+module math_operations {
+    type sealed Operation = Add | Subtract | Multiply | Divide | Power
+
+    func calculate(op: Operation, a: float, b: float) -> float {
+        // Static dispatch - zero overhead
+        match op {
+            case Add => a + b
+            case Subtract => a - b
+            case Multiply => a * b
+            case Divide => a / b
+            case Power => pow(a, b)
+        }
+    }
+
+    func demonstratePerformance() -> void {
+        let operations = [Add, Subtract, Multiply, Divide, Power]
+        let iterations = 1000000
+
+        let start = nanoTimestamp()
+        for i in 0..iterations {
+            let op = operations[i % operations.length]
+            let result = calculate(op, 10.0, 3.0)  // Static dispatch
+            doNotOptimizeAway(result)
+        }
+        let end = nanoTimestamp()
+
+        println("Static dispatch: {} ns per call", (end - start) / iterations)
+    }
+}
+
+// ❌ BAD: Open types force runtime dispatch
+module math_operations_slow {
+    type open Operation = Add | Subtract | Multiply | Divide | Power
+
+    func calculate(op: Operation, a: float, b: float) -> float {
+        // Runtime dispatch - small overhead
+        match op {
+            case Add => a + b
+            case Subtract => a - b
+            case Multiply => a * b
+            case Divide => a / b
+            case Power => pow(a, b)
+        }
+    }
+
+    func demonstratePerformance() -> void {
+        let operations = [Add, Subtract, Multiply, Divide, Power]
+        let iterations = 1000000
+
+        let start = nanoTimestamp()
+        for i in 0..iterations {
+            let op = operations[i % operations.length]
+            let result = calculate(op, 10.0, 3.0)  // Runtime dispatch
+            doNotOptimizeAway(result)
+        }
+        let end = nanoTimestamp()
+
+        println("Runtime dispatch: {} ns per call", (end - start) / iterations)
+    }
+}
+
+// =============================================================================
+// BEST PRACTICE 3: Minimize Dispatch in Hot Loops
+// =============================================================================
+
+// ❌ BAD: Dispatch inside tight loop
+module image_processing_bad {
+    type Pixel = RedPixel{r: u8} | GreenPixel{g: u8} | BluePixel{b: u8}
+
+    func processPixel(pixel: Pixel) -> Pixel {
+        match pixel {
+            case RedPixel(r) => RedPixel{r: min(255, r.r + 10)}
+            case GreenPixel(g) => GreenPixel{g: min(255, g.g + 10)}
+            case BluePixel(b) => BluePixel{b: min(255, b.b + 10)}
+        }
+    }
+
+    func processImage(pixels: Array[Pixel]) -> Array[Pixel] {
+        let result = Array.withCapacity[Pixel](pixels.length)
+
+        // BAD: Dispatch overhead on every pixel
+        for pixel in pixels {
+            result.append(processPixel(pixel))  // Dispatch × pixel count
+        }
+
+        return result
+    }
+}
+
+// ✅ GOOD: Batch processing to minimize dispatch
+module image_processing_good {
+    type Pixel = RedPixel{r: u8} | GreenPixel{g: u8} | BluePixel{b: u8}
+
+    func processRedPixels(pixels: Array[RedPixel]) -> Array[RedPixel] {
+        // Direct calls - no dispatch overhead
+        return pixels.map(|p| RedPixel{r: min(255, p.r + 10)})
+    }
+
+    func processGreenPixels(pixels: Array[GreenPixel]) -> Array[GreenPixel] {
+        return pixels.map(|p| GreenPixel{g: min(255, p.g + 10)})
+    }
+
+    func processBluePixels(pixels: Array[BluePixel]) -> Array[BluePixel] {
+        return pixels.map(|p| BluePixel{b: min(255, p.b + 10)})
+    }
+
+    func processImage(pixels: Array[Pixel]) -> Array[Pixel] {
+        // Group by type to minimize dispatch
+        let (red_pixels, green_pixels, blue_pixels) = groupPixelsByType(pixels)
+
+        let processed_red = processRedPixels(red_pixels)
+        let processed_green = processGreenPixels(green_pixels)
+        let processed_blue = processBluePixels(blue_pixels)
+
+        // Combine results maintaining original order
+        return combinePixels(processed_red, processed_green, processed_blue, pixels)
+    }
+
+    func groupPixelsByType(pixels: Array[Pixel]) -> (Array[RedPixel], Array[GreenPixel], Array[BluePixel]) {
+        let red = Array[RedPixel]()
+        let green = Array[GreenPixel]()
+        let blue = Array[BluePixel]()
+
+        for pixel in pixels {
+            match pixel {
+                case RedPixel(r) => red.append(r)
+                case GreenPixel(g) => green.append(g)
+                case BluePixel(b) => blue.append(b)
+            }
+        }
+
+        return (red, green, blue)
+    }
+}
+
+// =============================================================================
+// BEST PRACTICE 4: Explicit Fallbacks for Extensibility
+// =============================================================================
+
+// ✅ GOOD: Explicit fallbacks enable extension
+module serialization_extensible {
+    type Writer = {
+        writeInt: (int) -> void,
+        writeFloat: (float) -> void,
+        writeString: (string) -> void,
+        writeBytes: (Array[u8]) -> void
+    }
+
+    // Generic fallback for any type
+    func serialize(value: any, writer: Writer) -> void {
+        // Default serialization using reflection
+        let type_name = typeof(value).name
+        let fields = typeof(value).fields
+
+        writer.writeString(type_name)
+        writer.writeInt(fields.length)
+
+        for field in fields {
+            writer.writeString(field.name)
+            serialize(field.getValue(value), writer)  // Recursive dispatch
+        }
+    }
+
+    // Specific implementations for performance
+    func serialize(value: int, writer: Writer) -> void {
+        writer.writeInt(value)
+    }
+
+    func serialize(value: float, writer: Writer) -> void {
+        writer.writeFloat(value)
+    }
+
+    func serialize(value: string, writer: Writer) -> void {
+        writer.writeString(value)
+    }
+
+    func serialize[T](array: Array[T], writer: Writer) -> void {
+        writer.writeInt(array.length)
+        for item in array {
+            serialize(item, writer)  // Recursive dispatch
+        }
+    }
+
+    // Custom type with specific serialization
+    type Person = { name: string, age: int, email: string }
+
+    func serialize(person: Person, writer: Writer) -> void {
+        // Optimized serialization for Person
+        writer.writeString(person.name)
+        writer.writeInt(person.age)
+        writer.writeString(person.email)
+    }
+}
+
+// =============================================================================
+// BEST PRACTICE 5: Cross-Module Extension
+// =============================================================================
+
+// Base module with core functionality
+module core_rendering {
+    type Shape = Circle | Rectangle
+    type Circle = { radius: float }
+    type Rectangle = { width: float, height: float }
+
+    export func render(shape: Shape, canvas: Canvas) -> void {
+        match shape {
+            case Circle(c) => renderCircle(c, canvas)
+            case Rectangle(r) => renderRectangle(r, canvas)
+        }
+    }
+
+    func renderCircle(circle: Circle, canvas: Canvas) -> void {
+        // Basic circle rendering
+        canvas.drawCircle(circle.radius)
+    }
+
+    func renderRectangle(rect: Rectangle, canvas: Canvas) -> void {
+        // Basic rectangle rendering
+        canvas.drawRectangle(rect.width, rect.height)
+    }
+}
+
+// Extension module adds new shapes
+module advanced_shapes {
+    import core_rendering.{render}  // Import existing signature
+
+    type Triangle = { vertices: [Point; 3] }
+    type Polygon = { vertices: Array[Point] }
+
+    // Extend the render signature with new shapes
+    func render(triangle: Triangle, canvas: Canvas) -> void {
+        canvas.drawTriangle(triangle.vertices)
+    }
+
+    func render(polygon: Polygon, canvas: Canvas) -> void {
+        canvas.drawPolygon(polygon.vertices)
+    }
+}
+
+// Another extension module adds advanced rendering
+module advanced_rendering {
+    import core_rendering.{render}
+
+    type AdvancedCanvas = Canvas & {
+        enableAntialiasing: () -> void,
+        setShader: (Shader) -> void
+    }
+
+    // Extend with advanced rendering for existing shapes
+    func render(circle: Circle, canvas: AdvancedCanvas) -> void {
+        canvas.enableAntialiasing()
+        canvas.setShader(CircleShader)
+        canvas.drawCircle(circle.radius)
+    }
+
+    func render(rect: Rectangle, canvas: AdvancedCanvas) -> void {
+        canvas.enableAntialiasing()
+        canvas.setShader(RectangleShader)
+        canvas.drawRectangle(rect.width, rect.height)
+    }
+}
+
+// =============================================================================
+// COMMON PITFALL 1: Ambiguous Dispatch
+// =============================================================================
+
+module ambiguity_example {
+    type TypeA = { value: int }
+    type TypeB = { value: int }
+
+    // These implementations create potential ambiguity
+    func combine(a: TypeA, b: TypeB) -> string { "A-B" }
+    func combine(a: TypeB, b: TypeA) -> string { "B-A" }
+
+    func demonstrateAmbiguity() -> void {
+        let a = TypeA{value: 1}
+        let b = TypeB{value: 2}
+
+        // These work fine - specific types
+        println("combine(a, b): {}", combine(a, b))  // "A-B"
+        println("combine(b, a): {}", combine(b, a))  // "B-A"
+
+        // But this would be ambiguous:
+        // let mixed: TypeA | TypeB = if (random()) a else b
+        // combine(mixed, mixed)  // ERROR: Ambiguous dispatch!
+
+        println("✅ Specific type combinations work")
+        println("⚠️  Union type combinations would be ambiguous")
+    }
+
+    // Solution: Add specific implementations for ambiguous cases
+    func combine(a: TypeA, b: TypeA) -> string { "A-A" }
+    func combine(a: TypeB, b: TypeB) -> string { "B-B" }
+
+    func demonstrateSolution() -> void {
+        let a = TypeA{value: 1}
+        let b = TypeB{value: 2}
+
+        // Now union types work because all combinations are covered
+        let mixed1: TypeA | TypeB = a
+        let mixed2: TypeA | TypeB = b
+
+        println("combine(mixed1, mixed2): {}", combine(mixed1, mixed2))
+        println("✅ All combinations now have specific implementations")
+    }
+}
+
+// =============================================================================
+// COMMON PITFALL 2: Over-Specific Implementations
+// =============================================================================
+
+// ❌ BAD: Too many specific implementations
+module formatting_bad {
+    func format(value: int, precision: 0) -> string { toString(value) }
+    func format(value: int, precision: 1) -> string { toString(value) ++ ".0" }
+    func format(value: int, precision: 2) -> string { toString(value) ++ ".00" }
+    func format(value: int, precision: 3) -> string { toString(value) ++ ".000" }
+    // ... many more implementations
+
+    // This creates a huge dispatch table for no benefit!
+}
+
+// ✅ GOOD: Single implementation with parameters
+module formatting_good {
+    func format(value: int, precision: int) -> string {
+        if precision == 0 {
+            toString(value)
+        } else {
+            toString(value) ++ "." ++ "0".repeat(precision)
+        }
+    }
+
+    // Much more maintainable and efficient
+}
+
+// =============================================================================
+// COMMON PITFALL 3: Hidden Performance Costs
+// =============================================================================
+
+module performance_pitfall {
+    type open Drawable = Shape | Text | Image | Video | Animation
+
+    func render(item: Drawable) -> void {
+        // Runtime dispatch - small overhead per call
+    }
+
+    // ❌ BAD: Unaware of dispatch costs
+    func renderManyBad(items: Array[Drawable]) -> void {
+        // This looks innocent but has dispatch overhead on every iteration
+        for item in items {
+            render(item)  // Runtime dispatch × item count
+        }
+    }
+
+    // ✅ GOOD: Profile and optimize hot paths
+    func renderManyGood(items: Array[Drawable]) -> void {
+        profileDispatch("renderMany") {
+            // Group by type to reduce dispatch overhead
+            let grouped = groupByType(items)
+
+            for (type, type_items) in grouped {
+                match type {
+                    case Shape => renderShapes(type_items as Array[Shape])
+                    case Text => renderTexts(type_items as Array[Text])
+                    case Image => renderImages(type_items as Array[Image])
+                    case Video => renderVideos(type_items as Array[Video])
+                    case Animation => renderAnimations(type_items as Array[Animation])
+                }
+            }
+        }
+    }
+
+    func renderShapes(shapes: Array[Shape]) -> void {
+        // Direct calls - no dispatch overhead
+        for shape in shapes {
+            renderShape(shape)
+        }
+    }
+
+    // Similar functions for other types...
+}
+
+// =============================================================================
+// PERFORMANCE COMPARISON DEMO
+// =============================================================================
+
+module performance_demo {
+    func runPerformanceComparison() -> void {
+        println("=== Performance Comparison Demo ===")
+
+        // Test static vs dynamic dispatch
+        println("\n1. Static vs Dynamic Dispatch:")
+        math_operations.demonstratePerformance()
+        math_operations_slow.demonstratePerformance()
+
+        // Test loop optimization
+        println("\n2. Loop Optimization:")
+        let test_pixels = generateTestPixels(100000)
+
+        let start1 = nanoTimestamp()
+        let result1 = image_processing_bad.processImage(test_pixels)
+        let end1 = nanoTimestamp()
+        println("Bad (dispatch in loop): {} ms", (end1 - start1) / 1_000_000)
+
+        let start2 = nanoTimestamp()
+        let result2 = image_processing_good.processImage(test_pixels)
+        let end2 = nanoTimestamp()
+        println("Good (batched processing): {} ms", (end2 - start2) / 1_000_000)
+
+        println("Improvement: {:.1}x faster", (end1 - start1) as float / (end2 - start2) as float)
+    }
+
+    func generateTestPixels(count: int) -> Array[Pixel] {
+        let pixels = Array.withCapacity[Pixel](count)
+        for i in 0..count {
+            match i % 3 {
+                case 0 => pixels.append(RedPixel{r: (i % 256) as u8})
+                case 1 => pixels.append(GreenPixel{g: (i % 256) as u8})
+                case 2 => pixels.append(BluePixel{b: (i % 256) as u8})
+            }
+        }
+        return pixels
+    }
+}
+
+// =============================================================================
+// MAIN FUNCTION - RUN ALL EXAMPLES
+// =============================================================================
+
+func main() -> void {
+    println("🚀 Dispatch Best Practices and Pitfalls Demo")
+    println("===========================================")
+
+    println("\n📋 Best Practice Examples:")
+    println("1. Design for Specificity - ✅ Clear type hierarchies")
+    println("2. Use Sealed Types - ✅ Static dispatch when possible")
+    println("3. Minimize Loop Dispatch - ✅ Batch processing")
+    println("4. Explicit Fallbacks - ✅ Extensible systems")
+    println("5. Cross-Module Extension - ✅ Modular design")
+
+    println("\n⚠️  Common Pitfall Examples:")
+    println("1. Ambiguous Dispatch - ❌ Flat hierarchies")
+    println("2. Over-Specific Implementations - ❌ Too many cases")
+    println("3. Hidden Performance Costs - ❌ Unaware of overhead")
+
+    println("\n🔍 Demonstrating Ambiguity Handling:")
+    ambiguity_example.demonstrateAmbiguity()
+    ambiguity_example.demonstrateSolution()
+
+    println("\n⚡ Performance Comparison:")
+    performance_demo.runPerformanceComparison()
+
+    println("\n✅ Key Takeaways:")
+    println("  - Design clear type hierarchies")
+    println("  - Use sealed types for performance")
+    println("  - Profile before optimizing")
+    println("  - Batch processing for hot loops")
+    println("  - Provide explicit fallbacks")
+    println("  - Leverage cross-module extension")
+
+    println("\n🎯 Remember: Most dispatch is fast enough!")
+    println("   Profile first, optimize only when needed.")
+}

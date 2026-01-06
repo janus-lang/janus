@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// @expected-strategy: perfect_hash
+// @expected-performance: dispatch_overhead_ns < 30
+// @expected-performance: memory_usage_bytes <= 256
+// @platforms: all
+// @optimization-level: release_safe
+// @description: Basic multiple dispatch example for golden test framework
+
+func add(x: i32, y: i32) -> i32 {
+    x + y
+}
+
+func add(x: f64, y: f64) -> f64 {
+    x + y
+}
+
+func add(x: string, y: string) -> string {
+    x ++ y
+}
+
+func main() {
+    let result1 = add(5, 10)
+    let result2 = add(3.14, 2.86)
+    let result3 = add("hello", "world")
+}

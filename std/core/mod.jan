@@ -1,0 +1,308 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// janus.core - Core Types & Utilities
+//
+// Foundational types and utilities for the Janus standard library.
+// Provides essential data structures and common functionality.
+//
+// CAPABILITIES: This module requires no external capabilities.
+// EFFECTS: Pure functional operations with no side effects.
+
+// Option type - Safe nullable values
+enum Option<T> {
+    Some(T),
+    None,
+}
+
+// Result type - Error handling without exceptions
+enum Result<T, E> {
+    Ok(T),
+    Err(E),
+}
+
+// Vector - Dynamic array with allocator support
+struct Vec<T> {
+    // Internal storage - opaque for now
+    data: *T,
+    len: usize,
+    cap: usize,
+    allocator: *Allocator,
+}
+
+// ArrayList - Dynamic array with explicit allocator (S0 compatible)
+struct ArrayList<T> {
+    // Internal storage - opaque for now
+    data: *T,
+    len: usize,
+    cap: usize,
+    allocator: *Allocator,
+}
+
+// Memory allocator trait - Foundation for memory management
+trait Allocator {
+    func alloc(size: usize) -> *u8;
+    func free(ptr: *u8);
+}
+
+// Default allocator - System allocator
+struct SystemAllocator;
+
+impl Allocator for SystemAllocator {
+    func alloc(size: usize) -> *u8 {
+        // Implementation would use system malloc
+        @intrinsic("alloc", size)
+    }
+
+    func free(ptr: *u8) {
+        // Implementation would use system free
+        @intrinsic("free", ptr)
+    }
+}
+
+// Global default allocator
+let DEFAULT_ALLOCATOR = SystemAllocator {};
+
+// Vector implementation
+impl<T> Vec<T> {
+    // Create new empty vector with explicit allocator (S0 compatible)
+    func new(allocator: *Allocator) -> Vec<T> {
+        Vec {
+            data: null,
+            len: 0,
+            cap: 0,
+            allocator: allocator,
+        }
+    }
+
+    // Create new empty vector with default allocator (for compatibility)
+    func newDefault() -> Vec<T> {
+        Vec {
+            data: null,
+            len: 0,
+            cap: 0,
+            allocator: &DEFAULT_ALLOCATOR,
+        }
+    }
+
+    // Get vector length
+    func len(self) -> usize {
+        self.len
+    }
+
+    // Check if vector is empty
+    func is_empty(self) -> bool {
+        self.len == 0
+    }
+
+    // Add element to end
+    func push(self, value: T) {
+        if self.len >= self.cap {
+            self.grow();
+        }
+        // Implementation would store value at data[len]
+        self.len = self.len + 1;
+    }
+
+    // Remove and return last element
+    func pop(self) -> T? {
+        if self.len == 0 {
+            return None;
+        }
+        self.len = self.len - 1;
+        // Implementation would return data[len]
+        // For now, return uninitialized value
+        @intrinsic("unreachable")
+    }
+
+    // Get element at index
+    func get(self, index: usize) -> T? {
+        if index >= self.len {
+            return None;
+        }
+        // Implementation would return data[index]
+        // For now, return uninitialized value
+        @intrinsic("unreachable")
+    }
+
+    // Mutable index access
+    func index(self, index: usize) -> *T {
+        if index >= self.len {
+            @intrinsic("panic", "index out of bounds")
+        }
+        // Return pointer to data[index]
+        @intrinsic("unreachable")
+    }
+
+    // Grow capacity when needed
+    func grow(self) {
+        let new_cap = if self.cap == 0 { 8 } else { self.cap * 2 };
+        // Implementation would reallocate data
+        self.cap = new_cap;
+    }
+
+    // Proper deinitialization for S0 compatibility
+    func deinit(self) {
+        if self.data != null {
+            // Free the data buffer
+            self.allocator.free(self.data);
+        }
+        // Note: allocator itself is not owned by Vec, so don't free it
+    }
+}
+
+// ArrayList implementation - S0 compatible with explicit allocator
+impl<T> ArrayList<T> {
+    // Create new empty ArrayList with explicit allocator
+    func init(allocator: *Allocator) -> ArrayList<T> {
+        ArrayList {
+            data: null,
+            len: 0,
+            cap: 0,
+            allocator: allocator,
+        }
+    }
+
+    // Get ArrayList length
+    func len(self) -> usize {
+        self.len
+    }
+
+    // Check if ArrayList is empty
+    func is_empty(self) -> bool {
+        self.len == 0
+    }
+
+    // Add element to end
+    func append(self, value: T) Error!void {
+        if self.len >= self.cap {
+            try self.grow();
+        }
+        // Implementation would store value at data[len]
+        self.len = self.len + 1;
+    }
+
+    // Remove and return last element
+    func pop(self) -> T? {
+        if self.len == 0 {
+            return None;
+        }
+        self.len = self.len - 1;
+        // Implementation would return data[len]
+        // For now, return uninitialized value
+        @intrinsic("unreachable")
+    }
+
+    // Get element at index
+    func get(self, index: usize) -> T? {
+        if index >= self.len {
+            return None;
+        }
+        // Implementation would return data[index]
+        // For now, return uninitialized value
+        @intrinsic("unreachable")
+    }
+
+    // Grow capacity when needed
+    func grow(self) Error!void {
+        let new_cap = if self.cap == 0 { 8 } else { self.cap * 2 };
+        // Implementation would reallocate data
+        self.cap = new_cap;
+    }
+
+    // Proper deinitialization for S0 compatibility
+    func deinit(self) void {
+        if self.data != null {
+            // Free the data buffer
+            self.allocator.free(self.data);
+        }
+        // Note: allocator itself is not owned by ArrayList, so don't free it
+    }
+
+    // Convert to owned slice (transfers ownership of backing storage)
+    func toOwnedSlice(self) -> []T {
+        let slice = self.data[0..self.len];
+        // Implementation would transfer ownership
+        @intrinsic("unreachable")
+    }
+}
+
+// Assert macro for testing
+macro assert(condition: bool) {
+    if !condition {
+        @intrinsic("panic", "assertion failed")
+    }
+}
+
+macro assert_eq<T>(left: T, right: T) where T: Eq {
+    if left != right {
+        @intrinsic("panic", "assertion failed: left != right")
+    }
+}
+
+// Test core functionality (S0 compatible)
+func testVec(allocator: *Allocator) {
+    // Test vector operations
+    let mut vec = Vec<i32>::new(allocator);
+    assert(vec.is_empty());
+    assert_eq(vec.len(), 0);
+
+    vec.push(1);
+    vec.push(2);
+    vec.push(3);
+
+    assert(!vec.is_empty());
+    assert_eq(vec.len(), 3);
+
+    let popped = vec.pop();
+    assert_eq(popped, Some(3));
+    assert_eq(vec.len(), 2);
+
+    let first = vec.get(0);
+    assert_eq(first, Some(1));
+
+    // Test proper cleanup
+    vec.deinit();
+}
+
+// Test ArrayList functionality (S0 compatible)
+func testArrayList(allocator: *Allocator) Error!void {
+    var list = ArrayList<i32>::init(allocator);
+    assert(list.is_empty());
+    assert_eq(list.len(), 0);
+
+    try list.append(1);
+    try list.append(2);
+    try list.append(3);
+
+    assert(!list.is_empty());
+    assert_eq(list.len(), 3);
+
+    let popped = list.pop();
+    assert_eq(popped, Some(3));
+    assert_eq(list.len(), 2);
+
+    let first = list.get(0);
+    assert_eq(first, Some(1));
+
+    // Test proper cleanup
+    list.deinit();
+}
+
+// Test core functionality (S0 compatible)
+func main() {
+    // Use default allocator for testing
+    let allocator = &DEFAULT_ALLOCATOR;
+
+    // Test Vec functionality
+    testVec(allocator);
+
+    // Test ArrayList functionality
+    testArrayList(allocator) catch |e| {
+        // For S0 compatibility, we can't use print, so we'll just return
+        return;
+    };
+
+    // S0 compatible success indicator - just return successfully
+    return;
+}

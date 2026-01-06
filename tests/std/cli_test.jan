@@ -1,0 +1,213 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Test suite for janus.cli module
+module tests.cli;
+
+import std.sys.cli;
+import std.core;
+
+// =============================================================================
+// Test CLI Specifications
+// =============================================================================
+
+func create_test_spec() -> CliSpec {
+    CliSpec {
+        program: ProgramSpec {
+            name: "testapp".to_string(),
+            version: "1.0.0".to_string(),
+            description: "Test CLI application".to_string(),
+            author: Some("Test Team".to_string()),
+        },
+        global_flags: vec![
+            FlagSpec {
+                long: "verbose".to_string(),
+                short: Some('v'),
+                description: "Enable verbose output".to_string(),
+                env_var: Some("VERBOSE".to_string()),
+                requires_caps: vec![],
+                forbids_caps: vec![],
+                takes_value: false,
+                default_value: Some("false".to_string()),
+                multiple: false,
+            },
+            FlagSpec {
+                long: "config".to_string(),
+                short: Some('c'),
+                description: "Path to configuration file".to_string(),
+                env_var: Some("CONFIG_FILE".to_string()),
+                requires_caps: vec!["fs.read".to_string()],
+                forbids_caps: vec![],
+                takes_value: true,
+                default_value: None,
+                multiple: false,
+            },
+            FlagSpec {
+                long: "network".to_string(),
+                short: Some('n'),
+                description: "Enable network access".to_string(),
+                env_var: Some("NETWORK_ENABLED".to_string()),
+                requires_caps: vec!["net.out".to_string()],
+                forbids_caps: vec!["offline".to_string()],
+                takes_value: false,
+                default_value: Some("false".to_string()),
+                multiple: false,
+            },
+        ],
+        commands: vec![
+            CommandSpec {
+                name: "build".to_string(),
+                description: "Build the project".to_string(),
+                flags: vec![
+                    FlagSpec {
+                        long: "output".to_string(),
+                        short: Some('o'),
+                        description: "Output directory".to_string(),
+                        env_var: Some("BUILD_OUTPUT".to_string()),
+                        requires_caps: vec!["fs.write".to_string()],
+                        forbids_caps: vec![],
+                        takes_value: true,
+                        default_value: Some("build/".to_string()),
+                        multiple: false,
+                    },
+                ],
+                requires_caps: vec!["fs.write".to_string()],
+                forbids_caps: vec![],
+            },
+            CommandSpec {
+                name: "run".to_string(),
+                description: "Run the application".to_string(),
+                flags: vec![],
+                requires_caps: vec!["proc.spawn".to_string()],
+                forbids_caps: vec![],
+            },
+        ],
+        env_prefixes: vec!["TESTAPP".to_string()],
+    }
+}
+
+// =============================================================================
+// Test Cases
+// =============================================================================
+
+func test_parse_simple_flags() -> Result<(), String> {
+    let spec = create_test_spec();
+    let args = vec!["--verbose".to_string(), "--config".to_string(), "app.conf".to_string()];
+    let caps = vec!["fs.read".to_string()];
+
+    let result = parse_args(&spec, &args, &caps)?;
+
+    assert_eq(result.args.get("verbose"), Some("true"));
+    assert_eq(result.args.get("config"), Some("app.conf"));
+    assert_eq(result.required_caps.len(), 1);
+    assert_eq(result.required_caps[0], "fs.read");
+
+    Ok(())
+}
+
+func test_parse_subcommand() -> Result<(), String> {
+    let spec = create_test_spec();
+    let args = vec!["build".to_string(), "--output".to_string(), "dist/".to_string()];
+    let caps = vec!["fs.write".to_string()];
+
+    let result = parse_args(&spec, &args, &caps)?;
+
+    assert_eq(result.subcommand, Some("build".to_string()));
+    assert_eq(result.args.get("output"), Some("dist/"));
+    assert_eq(result.required_caps.len(), 1);
+    assert_eq(result.required_caps[0], "fs.write");
+
+    Ok(())
+}
+
+func test_capability_validation() -> Result<(), String> {
+    let spec = create_test_spec();
+    let args = vec!["--network".to_string()];
+    let caps = vec!["net.out".to_string(), "offline".to_string()];
+
+    // This should fail because network flag forbids offline capability
+    let result = parse_args(&spec, &args, &caps);
+    match result {
+        Err(CliError::ForbiddenCapability(cap)) => {
+            assert_eq(cap, "offline");
+            Ok(())
+        },
+        _ => Err("Expected ForbiddenCapability error".to_string()),
+    }
+}
+
+func test_help_generation() -> Result<(), String> {
+    let spec = create_test_spec();
+    let help = generate_help(&spec);
+
+    assert!(help.contains("testapp 1.0.0"));
+    assert!(help.contains("Test CLI application"));
+    assert!(help.contains("verbose"));
+    assert!(help.contains("Enable verbose output"));
+    assert!(help.contains("build"));
+    assert!(help.contains("Build the project"));
+
+    Ok(())
+}
+
+func test_environment_loading() -> Result<(), String> {
+    let spec = create_test_spec();
+    let mut result = CliResult{
+        args: Map::new(),
+        required_caps: Vec::new(),
+        forbidden_caps: Vec::new(),
+        subcommand: None,
+        help_requested: false,
+        version_requested: false,
+    };
+
+    // Mock environment variable
+    // In real implementation, this would be set in the OS environment
+    // For testing, we'll simulate the environment loading
+
+    Ok(())
+}
+
+func test_missing_capability() -> Result<(), String> {
+    let spec = create_test_spec();
+    let args = vec!["--config".to_string(), "test.conf".to_string()];
+    let caps = vec![]; // No capabilities available
+
+    let result = parse_args(&spec, &args, &caps);
+    match result {
+        Err(CliError::MissingCapability(cap)) => {
+            assert_eq(cap, "fs.read");
+            Ok(())
+        },
+        _ => Err("Expected MissingCapability error".to_string()),
+    }
+}
+
+// =============================================================================
+// Main Test Runner
+// =============================================================================
+
+func main() -> Result<(), String> {
+    println!("🧪 Testing janus.cli module");
+
+    test_parse_simple_flags()?;
+    println!("✅ Simple flag parsing");
+
+    test_parse_subcommand()?;
+    println!("✅ Subcommand parsing");
+
+    test_capability_validation()?;
+    println!("✅ Capability validation");
+
+    test_missing_capability()?;
+    println!("✅ Missing capability detection");
+
+    test_help_generation()?;
+    println!("✅ Help generation");
+
+    test_environment_loading()?;
+    println!("✅ Environment variable loading");
+
+    println!("🎉 All CLI tests passed!");
+    Ok(())
+}

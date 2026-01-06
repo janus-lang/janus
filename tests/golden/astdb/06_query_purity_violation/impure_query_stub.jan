@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// This file contains code that should trigger Q1001 purity violations
+// when executed in query context during debug mode
+
+import std.fs;
+import std.net.http;
+import std.process;
+import std.time;
+
+// Function that performs I/O - should trigger Q1001
+func read_config_file() -> string {
+    return std.fs.read("/etc/config.json"); // I/O violation
+}
+
+// Function that makes network calls - should trigger Q1001
+func fetch_remote_data() -> string {
+    return std.net.http.get("https://api.example.com/data"); // Network I/O violation
+}
+
+// Function that executes processes - should trigger Q1001
+func run_external_command() -> string {
+    return std.process.exec("ls", ["-la"]); // Process execution violation
+}
+
+// Function that accesses non-deterministic time - should trigger Q1002
+func get_current_timestamp() -> i64 {
+    return std.time.now(); // Non-deterministic violation
+}
+
+// Function that should be pure but calls impure functions
+func analyze_system() -> string {
+    let config = read_config_file();     // Indirect I/O violation
+    let data = fetch_remote_data();      // Indirect network violation
+    let timestamp = get_current_timestamp(); // Indirect time violation
+
+    return config + data + timestamp.to_string();
+}

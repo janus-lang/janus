@@ -1,0 +1,203 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// jfind - Fast File Finder
+//
+// Main entry point and CLI parsing for jfind utility
+
+use std.io
+use std.os
+use jfind.walker
+use jfind.filter
+use jfind.output
+
+// Configuration structure
+struct Config {
+    path: string,
+    max_depth: i32,
+    show_hidden: bool,
+    extensions: []string,
+    name_pattern: string,
+    ignore_case: bool,
+}
+
+// Result entry for files
+struct FileEntry {
+    path: string,
+    is_dir: bool,
+}
+
+// Global configuration
+var config: Config
+
+// Parse command line arguments and initialize config
+func parse_cli_args() -> void {
+    // Parse path (first positional arg or current directory)
+    if (os.args.len > 1) do
+        config.path = os.args[1]
+    else do
+        config.path = "."
+    end
+
+    config.max_depth = 3 // Default max depth
+    config.show_hidden = false
+    config.ignore_case = false
+
+    // Parse flags
+    var i: usize = 2
+    while i < os.args.len do
+        let arg = os.args[i]
+        if (starts_with(arg, "--max-depth=")) do
+            let value_str = substr(arg, 11)
+            let parsed_depth = parse_int(value_str)
+            let max_depth_value = 3
+            if parsed_depth != null do
+                max_depth_value = parsed_depth
+            end
+        else if (arg == "--hidden") do
+            config.show_hidden = true
+        else if (arg == "--ignore-case") do
+            config.ignore_case = true
+        else if (starts_with(arg, "--ext=")) do
+            let ext_str = substr(arg, 5)
+            config.extensions = split(ext_str, ",")
+        else if (starts_with(arg, "--name=")) do
+            config.name_pattern = substr(arg, 6)
+        end
+        i += 1
+    end
+}
+
+// Main function
+func main() -> i32 {
+    // Initialize config
+    config = Config{
+        path: ".",
+        max_depth: 3,
+        show_hidden: false,
+        extensions: [],
+        name_pattern: "",
+        ignore_case: false,
+    }
+
+    // Parse CLI arguments
+    parse_cli_args()
+
+    // Print header
+    print_header()
+
+    // Initialize walker
+    let walker = Walker.init(&config, false)
+
+    // Initialize filter engine
+    let filter_engine = FilterEngine.init(&config)
+
+    // Initialize output formatter
+    let formatter = OutputFormatter.init(should_sort: true)
+
+    // Walk directory and collect results
+    walker.walk(func(entry: FileEntry) -> void {
+        if (filter_engine.matches(entry.path)) do
+            formatter.add_result(entry.path)
+        end
+    })
+
+    // Flush output
+    formatter.flush()
+
+    print("Search complete. Found " + string(formatter.results.len) + " files.")
+
+    return 0
+}
+
+// Print search header
+func print_header() -> void {
+    print("jfind v0.1.0 - Fast File Finder")
+    print("Searching: " + config.path)
+    if (config.max_depth > 0) do
+        print("Max depth: " + string(config.max_depth))
+    end
+    if (config.show_hidden) do
+        print("Including hidden files")
+    end
+    if (config.extensions.len > 0) do
+        print("Extensions: " + join(config.extensions, ", "))
+    end
+    if config.name_pattern.len > 0 do
+        print("Name pattern: " + config.name_pattern)
+        if (config.ignore_case) do
+            print(" (case-insensitive)")
+        end
+    end
+    print("")
+}
+
+// Helper: Parse integer from string
+func parse_int(str: string) -> ?i32 {
+    var result: i32 = 0
+    var position: usize = 0
+    while position < str.len do
+        let c = str[position]
+        if c >= '0' and c <= '9' do
+            result = result * 10 + (c - '0')
+        else do
+            return null
+        end
+        position += 1
+    end
+    return result
+}
+
+// Helper: Check if string starts with prefix
+func starts_with(haystack: string, needle: string) -> bool {
+    if needle.len > haystack.len do
+        return false
+    end
+    var i: usize = 0
+    while i < needle.len do
+        if haystack[i] != needle[i] do
+            return false
+        end
+        i += 1
+    end
+    return true
+}
+
+// Helper: Substring after prefix
+func substr(str: string, prefix: string) -> string {
+    if starts_with(str, prefix) do
+        return str[prefix.len:]
+    else do
+        return ""
+    end
+}
+
+// Helper: Split string by delimiter
+func split(str: string, delimiter: string) -> []string {
+    // Stub: return empty array
+    return []
+}
+
+// Helper: Join array of strings with separator
+func join(strings: []string, sep: string) -> string {
+    // Stub: return empty string
+    return ""
+}
+
+// Helper: Convert integer to string
+func string(value: i32) -> string {
+    // Stub: return placeholder
+    return "0"
+}

@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Tests for path manipulation: PathBuf.join, with_file_name, with_extension
+
+import std.sys.fs.path;
+
+func test_join_with_path_rhs() -> Result<(), string> {
+    let base = Path::new("/opt");
+    let rhs = Path::new("lib");
+    let p = base.join_path(rhs);
+    if p.as_string() != "/opt/lib" { return Err("join_path failed".to_string()); }
+    Ok(())
+}
+
+func test_join_on_empty_base() -> Result<(), string> {
+    let base = Path::new("");
+    let p = base.join("etc");
+    if p.as_string() != "etc" { return Err("empty-base join should yield component".to_string()); }
+    Ok(())
+}
+
+func test_with_file_name_replaces_only_last() -> Result<(), string> {
+    let buf = path.PathBuf::new("/a/b/c.txt".to_string());
+    let r = buf.with_file_name("d");
+    if r.as_string() != "/a/b/d" { return Err("with_file_name should replace only last component".to_string()); }
+    Ok(())
+}
+
+func test_with_extension_remove_and_add() -> Result<(), string> {
+    let buf = path.PathBuf::new("/a/b/c.tar.gz".to_string());
+    let removed = buf.with_extension("");
+    if removed.as_string() != "/a/b/c.tar" { return Err("remove should drop only final extension".to_string()); }
+    let added = removed.with_extension("zip");
+    if added.as_string() != "/a/b/c.tar.zip" { return Err("add extension failed".to_string()); }
+    Ok(())
+}
+
+func test_with_extension_dotfile() -> Result<(), string> {
+    let buf = path.PathBuf::new("/home/u/.bashrc".to_string());
+    let removed = buf.with_extension("");
+    if removed.as_string() != "/home/u/.bashrc" { return Err("dotfile remove should be no-op".to_string()); }
+    let added = buf.with_extension("bak");
+    if added.as_string() != "/home/u/.bashrc.bak" { return Err("dotfile add extension failed".to_string()); }
+    Ok(())
+}

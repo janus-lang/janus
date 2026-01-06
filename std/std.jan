@@ -1,0 +1,189 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// std/std.jan - Janus Standard Library Index
+// Unified entry point with profile-aware convenience functions
+
+// ===== CORE MODULES =====
+
+pub const core = @import("core.jan");
+pub const io = @import("io.jan");
+pub const os = @import("os.jan");
+pub const encoding = @import("encoding/mod.jan");
+
+// Re-export commonly used types
+pub const String = core.String;
+pub const Allocator = core.Allocator;
+pub const ArenaAllocator = core.ArenaAllocator;
+pub const Context = core.Context;
+pub const StdoutWriteCapability = core.StdoutWriteCapability;
+pub const StderrWriteCapability = core.StderrWriteCapability;
+pub const FsReadCapability = os.FsReadCapability;
+pub const FsWriteCapability = os.FsWriteCapability;
+pub const Error = core.Error;
+pub const Result = core.Result;
+pub const Profile = core.Profile;
+pub const FileType = os.FileType;
+pub const FileInfo = os.FileInfo;
+pub const DirEntry = os.DirEntry;
+pub const DirIterator = os.DirIterator;
+
+// Current profile detection
+pub const current_profile = core.current_profile;
+
+// ===== PROFILE-AWARE CONVENIENCE FUNCTIONS =====
+
+// Universal print function - adapts to current profile
+pub fn print(args: anytype) core.Error!void {
+    return io.printAny(args);
+}
+
+// Universal eprint function - adapts to current profile
+pub fn eprint(args: anytype) core.Error!void {
+    return io.eprintAny(args); // TODO: Implement eprintAny in io.jan
+}
+
+// ===== PROFILE-SPECIFIC NAMESPACES =====
+
+// :min profile functions
+pub const min = struct {
+    pub const print = io.min.print;
+    pub const eprint = io.min.eprint;
+
+    // Convenience function for string literals
+    pub fn println(message: []const u8, allocator: Allocator) core.Error!void {
+        const str = String.fromUtf8(message);
+        try print(str, allocator);
+        try print(String.fromUtf8("\n"), allocator);
+    }
+};
+
+// :go profile functions
+pub const go = struct {
+    pub const print = io.go.print;
+    pub const eprint = io.go.eprint;
+
+    pub fn println(message: []const u8, ctx: Context, allocator: Allocator) core.Error!void {
+        const str = String.fromUtf8(message);
+        try print(str, ctx, allocator);
+        try print(String.fromUtf8("\n"), ctx, allocator);
+    }
+
+    // Context creation helpers
+    pub fn background() Context {
+        return Context.background();
+    }
+
+    pub fn withTimeout(parent: *Context, timeout_ms: i64) Context {
+        const deadline = getCurrentTime() + timeout_ms;
+        return Context.withDeadline(parent, deadline);
+    }
+};
+
+// :full profile functions
+pub const full = struct {
+    pub const print = io.full.print;
+    pub const eprint = io.full.eprint;
+
+    pub fn println(message: []const u8, cap: StdoutWriteCapability, allocator: Allocator) core.Error!void {
+        const str = String.fromUtf8(message);
+        try print(str, cap, allocator);
+        try print(String.fromUtf8("\n"), cap, allocator);
+    }
+
+    // Capability creation helpers
+    pub fn createStdoutCapability() StdoutWriteCapability {
+        return StdoutWriteCapability.create();
+    }
+
+    pub fn createStderrCapability() StderrWriteCapability {
+        return StderrWriteCapability.create();
+    }
+};
+
+// ===== FEATURE DETECTION =====
+
+pub fn hasContextSupport() bool {
+    return io.hasContextSupport();
+}
+
+pub fn hasCapabilitySupport() bool {
+    return io.hasCapabilitySupport();
+}
+
+pub fn getProfileName() []const u8 {
+    return io.getProfileName();
+}
+
+// ===== COMPILE-TIME HELPERS =====
+
+// Compile-time profile detection
+pub fn compileTimeProfile() Profile {
+    // This would be set by the compiler based on --profile flag
+    return @compileTimeProfile();
+}
+
+// Compile-time feature availability
+pub fn hasFeature(comptime feature: []const u8) bool {
+    return switch (feature) {
+        "context" => current_profile == .go or current_profile == .full,
+        "capabilities" => current_profile == .full,
+        "structured_concurrency" => current_profile == .go or current_profile == .full,
+        "effects" => current_profile == .full,
+        "actors" => current_profile == .full,
+        else => false,
+    };
+}
+
+// Compile-time profile validation
+pub fn requiresProfile(comptime required: Profile) void {
+    if (current_profile != required) {
+        const msg = "This code requires " ++ @tagName(required) ++ " profile";
+        @compileError(msg);
+    }
+}
+
+// ===== EXAMPLE USAGE PATTERNS =====
+
+// Example: Profile-agnostic code
+pub fn exampleProfileAgnostic(allocator: Allocator) core.Error!void {
+    switch (current_profile) {
+        .min => {
+            try min.println("Hello from :min profile", allocator);
+        },
+        .go => {
+            var ctx = go.background();
+            try go.println("Hello from :go profile", ctx, allocator);
+        },
+        .full => {
+            const cap = full.createStdoutCapability();
+            try full.println("Hello from :full profile", cap, allocator);
+        },
+    }
+}
+
+// Example: Profile-specific code with validation
+pub fn exampleGoProfile(ctx: Context, allocator: Allocator) core.Error!void {
+    requiresProfile(.go);
+    try go.println("This only works in :go profile", ctx, allocator);
+}
+
+pub fn exampleFullProfile(cap: StdoutWriteCapability, allocator: Allocator) core.Error!void {
+    requiresProfile(.full);
+    try full.println("This only works in :full profile", cap, allocator);
+}
+
+// ===== RUNTIME HELPERS =====
+
+extern fn getCurrentTime() i64;
+
+// Helper to create appropriate print arguments based on current profile
+pub fn createPrintArgs(message: []const u8, allocator: Allocator) anytype {
+    const str = String.fromUtf8(message);
+
+    return switch (current_profile) {
+        .min => .{ str, allocator },
+        .go => .{ str, go.background(), allocator },
+        .full => .{ str, full.createStdoutCapability(), allocator },
+    };
+}

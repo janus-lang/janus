@@ -1,0 +1,34 @@
+; Golden Error Reference: Ambiguous Dispatch Error
+; Platform: linux_x86_64, Optimization: release_safe
+; Generated: 2025-01-27 (Golden Test Framework)
+; Expected: Compile-time error with clear ambiguity diagnosis
+
+ERROR: Ambiguous dispatch detected
+  --> tests/golden/ir-generation/ambiguous_dispatch_error.jan:18:18
+   |
+18 |     let result = process(5, 10)
+   |                  ^^^^^^^ ambiguous call to 'process'
+   |
+   = note: Multiple implementations match the call signature (i32, i32) -> i32:
+
+   Candidate 1:
+     --> tests/golden/ir-generation/ambiguous_dispatch_error.jan:9:1
+      |
+    9 | func process(x: i32, y: i32) -> i32 {
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ implementation 1
+
+   Candidate 2:
+     --> tests/golden/ir-generation/ambiguous_dispatch_error.jan:13:1
+      |
+   13 | func process(a: i32, b: i32) -> i32 {
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ implementation 2
+
+   = help: Consider one of the following solutions:
+     1. Remove one of the duplicate implementations
+     2. Add more specific type constraints to differentiate the implementations
+     3. Use explicit type annotations at the call site
+
+   = note: Janus requires unambiguous dispatch for all function calls
+
+Error Code: G1001 (Ambiguous Dispatch)
+Compilation failed with 1 error

@@ -1,0 +1,249 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// High-performance file filtering with O(1) extension checks and substring matching
+// Implements the core filtering logic for jfind's fast file discovery
+
+use std.io
+use std.os
+
+// Extension filter using hashset for O(1) lookups
+struct ExtensionFilter {
+    extensions: HashSet(string),
+    allocator: *Allocator,
+}
+
+// Name filter with case sensitivity options
+struct NameFilter {
+    query: string,
+    ignore_case: bool,
+}
+
+// Combined filter engine
+struct FilterEngine {
+    ext_filter: ?ExtensionFilter,
+    name_filter: ?NameFilter,
+}
+
+// Initialize extension filter from comma-separated string
+func ExtensionFilter.init(allocator: *Allocator, ext_list: string) -> !ExtensionFilter {
+    var filter = ExtensionFilter{
+        extensions: HashSet(string).init(allocator),
+        allocator: allocator,
+    }
+
+    // Parse comma-separated extensions and populate hashset
+    var start: usize = 0
+    while start < ext_list.len do
+        // Find next comma or end
+        var end = start
+        while end < ext_list.len and ext_list[end] != ',' do
+            end += 1
+        end
+
+        if end > start do
+            let ext = trim(allocator, ext_list[start..end])
+            defer allocator.free(ext)
+            let normalized = normalize_extension(ext)
+            try filter.extensions.insert(normalized)
+        end
+
+        start = end + 1
+    end
+
+    return filter
+}
+
+// Clean up extension filter resources
+func ExtensionFilter.deinit(self: *ExtensionFilter) -> void {
+    self.extensions.deinit()
+}
+
+// Normalize extension (lowercase, remove leading dot)
+func normalize_extension(ext: string) -> string {
+    var normalized = ""
+    for ext do |c| {
+        if c == '.' do
+            continue
+        end
+        normalized += to_lower(c)
+    end
+    return normalized
+}
+
+// Check if file extension matches filter
+func ExtensionFilter.matches(self: *ExtensionFilter, path: string) -> bool {
+    let ext = get_file_extension(path) orelse return false
+    let normalized_ext = normalize_extension(ext)
+    return self.extensions.contains(normalized_ext)
+}
+
+// Initialize name filter
+func NameFilter.init(query: string, ignore_case: bool) -> NameFilter {
+    return NameFilter{
+        query: query,
+        ignore_case: ignore_case,
+    }
+}
+
+// Check if filename matches query string
+func NameFilter.matches(self: *NameFilter, path: string) -> bool {
+    let filename = os.path.basename(path)
+    if self.ignore_case do
+        return contains_ignore_case(filename, self.query)
+    else do
+        return contains_ignore_case(filename, self.query)
+    end
+}
+
+// Initialize filter engine from configuration
+func FilterEngine.init(allocator: *Allocator, config: *const Config) -> !FilterEngine {
+    var engine = FilterEngine{
+        ext_filter: null,
+        name_filter: null,
+    }
+
+    // Initialize extension filter if extensions are specified
+    if config.extensions.len > 0 do
+        let ext_string = join(config.extensions, ",")
+        engine.ext_filter = ExtensionFilter.init(allocator, ext_string)
+    end
+
+    // Initialize name filter if query is specified
+    if config.name_pattern.len > 0 do
+        engine.name_filter = NameFilter.init(config.name_pattern, config.ignore_case)
+    end
+
+    return engine
+}
+
+// Clean up filter engine resources
+func FilterEngine.deinit(self: *FilterEngine, allocator: *Allocator) -> void {
+    if self.ext_filter do |filter|
+        filter.deinit()
+    end
+}
+
+// Test if file matches all active filters
+func FilterEngine.matches(self: *FilterEngine, path: string) -> bool {
+    // Check extension filter
+    if self.ext_filter do |filter|
+        if !filter.matches(path) do
+            return false
+        end
+    end
+
+    // Check name filter
+    if self.name_filter do |filter|
+        if !filter.matches(path) do
+            return false
+        end
+    end
+
+    return true
+}
+
+// Get file extension from path
+func get_file_extension(path: string) -> ?string {
+    let filename = os.path.basename(path)
+
+    // Find the last dot in the filename
+    var last_dot: usize = filename.len
+    while last_dot > 0 and filename[last_dot - 1] != '.' do
+        last_dot -= 1
+    end
+
+    if last_dot == 0 or last_dot == filename.len do
+        return null
+    end
+
+    return filename[last_dot..]
+}
+
+// Check if string contains substring (case-sensitive)
+func contains_string(haystack: string, needle: string) -> bool {
+    if needle.len == 0 do
+        return true
+    end
+
+    var i: usize = 0
+    while i <= haystack.len - needle.len do
+        if haystack[i..i + needle.len] == needle do
+            return true
+        end
+        i += 1
+    end
+
+    return false
+}
+
+// Check if string contains substring (case-insensitive)
+func contains_ignore_case(haystack: string, needle: string) -> bool {
+    if needle.len == 0 do
+        return true
+    end
+
+    var i: usize = 0
+    while i <= haystack.len - needle.len do
+        if to_lower(haystack[i..i + needle.len]) == to_lower(needle) do
+            return true
+        end
+        i += 1
+    end
+
+    return false
+}
+
+// Trim whitespace from string
+func trim(allocator: *Allocator, s: string) -> string {
+    var start: usize = 0
+    while start < s.len and is_whitespace(s[start]) do
+        start += 1
+    end
+
+    var end = s.len
+    while end > start and is_whitespace(s[end - 1]) do
+        end -= 1
+    end
+
+    return s[start..end]
+}
+
+// Check if character is whitespace
+func is_whitespace(c: char) -> bool {
+    return c == ' ' or c == '\t' or c == '\n' or c == '\r'
+}
+
+// Convert character to lowercase
+func to_lower(c: char) -> char {
+    if c >= 'A' and c <= 'Z' do
+        return c + 32
+    end
+    return c
+}
+
+// Join array of strings with separator
+func join(strings: []string, sep: string) -> string {
+    if strings.len == 0 do
+        return ""
+    end
+
+    var result = strings[0]
+    for strings[1..] |str| {
+        result += sep
+        result += str
+    end
+
+    return result
+}

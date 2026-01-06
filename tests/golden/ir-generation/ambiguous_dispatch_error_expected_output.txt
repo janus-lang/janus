@@ -1,0 +1,28 @@
+ERROR S1101: Ambiguous dispatch for call to 'make_sound'
+  at ambiguous_dispatch_error.jan:42:12
+
+  with argument types: (Platypus)
+
+  Conflicting implementations:
+    make_sound(Platypus) -> string at ambiguous_dispatch_error.jan:21:5
+      Accessible via: Platypus -> Mammal -> Animal
+      Specificity: Platypus implements Mammal, Mammal extends Animal
+
+    make_sound(Platypus) -> string at ambiguous_dispatch_error.jan:21:5
+      Accessible via: Platypus -> Bird -> Animal
+      Specificity: Platypus implements Bird, Bird extends Animal
+
+  Resolution paths have equal specificity:
+    Path 1: Platypus -> Mammal -> Animal (distance: 2)
+    Path 2: Platypus -> Bird -> Animal (distance: 2)
+
+  Suggestion: Disambiguate the call using explicit interface qualification:
+    - Use 'creature as Mammal' to select the Mammal path
+    - Use 'creature as Bird' to select the Bird path
+    - Or add a more specific implementation that resolves the ambiguity
+
+  Note: This ambiguity exists because Platypus implements both Mammal and Bird,
+        and both interfaces extend Animal with the same method signature.
+        The compiler cannot determine which implementation path to prefer.
+
+COMPILATION FAILED: 1 error, 0 warnings

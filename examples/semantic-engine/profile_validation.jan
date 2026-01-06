@@ -1,0 +1,95 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Example: Language Profile Validation
+// Demonstrates profile-specific semantic validation
+
+module ProfileValidation
+
+// :min profile - Basic language subset
+profile :min {
+    func basicArithmetic(a: i32, b: i32) -> i32 {
+        let sum = a + b
+        let product = a * b
+        return sum + product
+    }
+
+    func simpleControl(condition: bool) -> i32 {
+        if condition {
+            return 1
+        } else {
+            return 0
+        }
+    }
+}
+
+// :go profile - Error handling and concurrency
+profile :go {
+    func errorHandling(filename: string) -> Result[string, Error] {
+        let content = try readFile(filename)  // Error propagation
+        return Ok(content.toUpperCase())
+    }
+
+    func concurrentProcessing(items: Array[i32]) -> Array[i32] {
+        return items.parallelMap(|x| x * x)  // Parallel processing
+    }
+}
+
+// :elixir profile - Actor model and pattern matching
+profile :elixir {
+    actor Counter {
+        state: i32 = 0
+
+        receive increment() {
+            state = state + 1
+        }
+
+        receive getValue() -> i32 {
+            return state
+        }
+    }
+
+    func patternMatch(value: Variant[i32, string, bool]) -> string {
+        match value {
+            case i32(n) => "Number: " + n.toString()
+            case string(s) => "String: " + s
+            case bool(b) => "Boolean: " + b.toString()
+        }
+    }
+}
+
+// :full profile - Complete language features
+profile :full {
+    comptime func generateCode() {
+        // Compile-time code generation
+        return "Generated at compile time"
+    }
+
+    func advancedFeatures() {
+        // Effect system
+        with effects(io.fs.read, log.info) {
+            let data = readFile("config.json")
+            log.info("Loaded configuration")
+        }
+
+        // Metaprogramming
+        let code = generateCode()
+
+        // Advanced type system
+        type Builder<T> = struct {
+            value: T
+            build: func() -> T
+        }
+    }
+}
+
+// Profile violation examples
+func profileViolations() {
+    // This would be rejected in :min profile
+    let actor = Counter.spawn()  // Error: actors not available in :min
+
+    // This would be rejected in :go profile
+    match someValue {             // Error: pattern matching not available in :go
+        case _ => "default"
+    }
+}

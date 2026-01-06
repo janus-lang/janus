@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+# :min — max subset XOR over small input
+func build_basis(xs: Array[u64]) -> Array[u64] do
+  var basis := array.make[u64]()
+  for x0 in xs do
+    var x := x0
+    for b in basis { x = min(x, x ^ b) }
+    if x != 0u64 do
+      basis.push x
+      basis.sort_desc_by_msb()
+    end
+  end
+  return basis
+end
+
+func basis_max_xor(basis: Array[u64]) -> u64 do
+  var best := 0u64
+  for b in basis { best = max(best, best ^ b) }
+  return best
+end
+
+let xs := [3u64, 10, 5, 25, 2, 8]
+let b  := build_basis(xs)
+print basis_max_xor(b)  # 28

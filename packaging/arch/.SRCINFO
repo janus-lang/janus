@@ -1,0 +1,16 @@
+pkgbase = janus-lang
+	pkgdesc = Systems language with precise incremental compilation and revolutionary ASTDB architecture
+	pkgver = 0.1.7dev20251007
+	pkgrel = 1
+	url = https://github.com/janus-lang/janus
+	arch = x86_64
+	license = CC0-1.0
+	makedepends = zig>=0.14.0
+	makedepends = git
+	depends = glibc
+	provides = janus
+	conflicts = janus
+	source = janus-lang-0.1.7dev20251007.tar.gz::https://github.com/janus-lang/janus/archive/v0.1.7dev20251007.tar.gz
+	sha256sums = SKIP
+
+pkgname = janus-lang

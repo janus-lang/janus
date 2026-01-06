@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// @description: Ambiguous dispatch that should trigger compile-time error - canonical truth for error handling
+// @author: Golden Test Framework
+// @expected-strategy: compile_error
+// @performance: compilation_time_ms < 1000
+// @platforms: all
+// @optimization-levels: debug, release_safe
+// @validate: error_detection:validate_ambiguity_error:Ensure ambiguity is detected at compile time
+// @validate: error_message:validate_error_clarity:Ensure clear error message with suggestions
+// @quality-gate: error_consistency:success_rate:1.0:10
+// @test-group: error_handling
+// @test-group: ambiguity_detection
+
+// Ambiguous implementations - should fail to compile with clear error
+func process(x: i32, y: i32) -> i32 {
+    x + y
+}
+
+func process(a: i32, b: i32) -> i32 {
+    a * b
+}
+
+func main() {
+    // This should trigger ambiguity error
+    let result = process(5, 10)
+}

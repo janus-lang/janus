@@ -1,0 +1,12 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Base module - changes here should invalidate dependents
+
+func base_function(x: i32) -> i32 {
+    return x * 2;
+}
+
+func utility_function(y: i32) -> i32 {
+    return y + 10;
+}

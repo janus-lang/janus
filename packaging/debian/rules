@@ -1,0 +1,46 @@
+#!/usr/bin/make -f
+
+# Debian rules file for janus-lang
+# Uses debhelper and Zig build system
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	# Build with Zig using ReleaseSafe for Debian
+	zig build -Doptimize=ReleaseSafe
+
+override_dh_auto_test:
+	# Run basic functionality tests
+	./zig-out/bin/janus version
+	./zig-out/bin/janus profile show
+	# Test core CAS functionality
+	./zig-out/bin/janus test-cas
+
+override_dh_auto_install:
+	# Install main executable
+	install -Dm755 zig-out/bin/janus debian/janus-lang/usr/bin/janus
+
+	# Install documentation for janus-lang-doc package
+	install -dm755 debian/janus-lang-doc/usr/share/doc/janus-lang/
+	install -m644 README.md debian/janus-lang-doc/usr/share/doc/janus-lang/
+	install -m644 CONTRIBUTING.md debian/janus-lang-doc/usr/share/doc/janus-lang/
+	install -m644 SECURITY.md debian/janus-lang-doc/usr/share/doc/janus-lang/
+	install -m644 errors.md debian/janus-lang-doc/usr/share/doc/janus-lang/
+
+	# Install specifications
+	cp -r docs/specs debian/janus-lang-doc/usr/share/doc/janus-lang/
+
+	# Install examples for janus-lang-examples package
+	install -dm755 debian/janus-lang-examples/usr/share/doc/janus-lang/
+	cp -r examples debian/janus-lang-examples/usr/share/doc/janus-lang/
+
+override_dh_auto_clean:
+	# Clean Zig build artifacts
+	rm -rf zig-out zig-cache .zig-cache
+
+# Don't strip the binary - Zig handles optimization
+override_dh_strip:
+
+# Skip dwz (DWARF compression) - not needed for Zig binaries
+override_dh_dwz:

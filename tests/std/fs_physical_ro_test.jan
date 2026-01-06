@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Tests for PhysicalFS skeleton — shape and early-drop behavior
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.sys.fs.physical_fs;
+
+func test_physicalfs_read_dir_empty() -> Result<(), string> {
+    let vfs = physical_fs::PhysicalFS::new();
+    let entries = try vfs.read_dir(path::Path::new("."), fs::CapFsRead);
+    if entries.len() != 0 { return Err("expected empty listing in skeleton".to_string()); }
+    Ok(())
+}
+
+func test_physicalfs_open_enosys() -> Result<(), string> {
+    let vfs = physical_fs::PhysicalFS::new();
+    let res = vfs.open(path::Path::new("/etc/hosts"), fs::CapFsRead, fs::OpenOptions::read_only());
+    match res {
+        Ok(_) => Err("expected ENOSYS".to_string()),
+        Err(e) => if e.os_code == 38 { Ok(()) } else { Err("unexpected error code".to_string()) },
+    }
+}

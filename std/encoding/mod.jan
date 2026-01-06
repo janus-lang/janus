@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// std/encoding/mod.jan - The Encoding/Decoding Library
+// Part of the Janus Standard Library
+
+pub const json = @import("json/mod.jan");
+pub const serde = @import("serde.jan");
+
+// Planned modules:
+// pub const csv = @import("csv/mod.jan");
+// pub const markdown = @import("markdown/mod.jan");
+// pub const html = @import("html/mod.jan");

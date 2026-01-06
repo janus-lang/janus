@@ -1,0 +1,8 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Test range expressions (inclusive only for now)
+func main() do
+  let r1 = 1..10
+  println("Range test")
+end

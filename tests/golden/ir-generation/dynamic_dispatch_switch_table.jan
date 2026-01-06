@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// @description: Dynamic dispatch with switch table optimization - canonical truth for switch strategy
+// @author: Golden Test Framework
+// @expected-strategy: switch_table
+// @fallback-strategies: binary_search, linear_search
+// @performance: dispatch_overhead_ns < 30 ±5% @95%
+// @performance: instruction_count <= 50
+// @performance: memory_usage_bytes <= 256
+// @performance: cache_hit_ratio > 0.90
+// @platforms: all
+// @optimization-levels: release_safe, release_fast
+// @validate: ir_structure:validate_switch_table:Ensure switch table generation
+// @validate: performance_bounds:validate_dispatch_overhead:Validate dispatch performance
+// @quality-gate: switch_stability:performance_stability:0.05:50
+// @test-group: dynamic_dispatch
+// @test-group: switch_optimization
+
+// Multiple implementations - should generate switch table
+func process(x: i32) -> i32 {
+    x * 2
+}
+
+func process(x: f64) -> f64 {
+    x * 2.0
+}
+
+func process(x: string) -> string {
+    x ++ "_processed"
+}
+
+func main() {
+    let result1 = process(42)
+    let result2 = process(3.14)
+    let result3 = process("test")
+}

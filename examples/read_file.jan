@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Test: Read a file and print its contents
+// Demonstrates capability-controlled file read
+
+func main() do
+    let content = janus_read_file("examples/hello.jan")
+    println(content)
+end

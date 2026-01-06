@@ -1,0 +1,88 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025 Janus Project Authors
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+/// ==================================
+/// Drop Trait for Deterministic Cleanup
+/// ==================================
+
+/// The Drop trait enables deterministic resource cleanup, replacing the need
+/// for manual deinit calls and garbage collection. This is fundamental to
+/// Janus's approach to memory and resource management.
+pub trait Drop {
+    /// Clean up resources associated with this value.
+    /// This method should release all allocated memory, close file handles,
+    /// release network connections, and perform any other necessary cleanup.
+    /// 
+    /// The drop method must be idempotent - calling it multiple times should
+    /// have the same effect as calling it once.
+    pub fn drop(self: *Self) -> void;
+}
+
+/// Helper trait for types that can be dropped with a specific allocator
+pub trait DropWith {
+    /// Clean up resources using the provided allocator
+    pub fn dropWith(self: *Self, alloc: Alloc) -> void;
+}
+
+/// Marker trait for types that have no resources to clean up
+pub trait NoDrop {
+    // Empty trait - no methods required
+}
+
+/// Implement DropWith for any type that implements Drop
+pub impl[T] DropWith for T where T: Drop {
+    pub fn dropWith(self: *T, _: Alloc) -> void {
+        self.drop();
+    }
+}
+
+/// Implement NoDrop for primitive types
+pub impl NoDrop for u8 {}
+pub impl NoDrop for u16 {}
+pub impl NoDrop for u32 {}
+pub impl NoDrop for u64 {}
+pub impl NoDrop for i8 {}
+pub impl NoDrop for i16 {}
+pub impl NoDrop for i32 {}
+pub impl NoDrop for i64 {}
+pub impl NoDrop for f32 {}
+pub impl NoDrop for f64 {}
+pub impl NoDrop for Bool {}
+pub impl NoDrop for String {}
+
+// Helper functions for working with Drop
+pub mod helpers {
+    /// Check if a type implements the Drop trait
+    pub fn hasDrop(comptime T: type) -> Bool {
+        // In a real implementation, this would use compile-time reflection
+        // to check if T implements the Drop trait
+        return @hasField(T, "drop");
+    }
+    
+    /// Check if a type implements the NoDrop trait (primitives)
+    pub fn isNoDrop(comptime T: type) -> Bool {
+        return @isPrimitive(T);
+    }
+    
+    /// Get the drop behavior for a type as a string
+    pub fn dropBehavior(comptime T: type) -> String {
+        if (isNoDrop(T)) {
+            return "no-op (primitive type)";
+        } else if (hasDrop(T)) {
+            return "custom drop implementation";
+        } else {
+            return "default drop behavior";
+        }
+    }
+}

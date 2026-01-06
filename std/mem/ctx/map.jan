@@ -1,0 +1,349 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+/// ============================
+/// Context-Bound Hash Map
+/// ============================
+
+import "./alloc.jan" as Alloc
+import "./context.jan" as AllocContext
+import "./traits.jan" as Drop
+
+/// A context-bound hash map (Map) that stores its allocator at construction time.
+/// This eliminates the need to pass allocator arguments to every method call.
+///
+/// Usage in different profiles:
+/// - :min profile: Map.with(alloc) - explicit allocator required
+/// - :script profile: Map.with(default) - uses thread-local region if no allocator provided
+/// - :full profile: Map.with(alloc, ctx) - with context and capability tracking
+pub type Map[K, V] {
+    /// The underlying hash map implementation
+    inner: HashMapInner[K, V],
+    
+    /// The allocator capability bound to this map
+    alloc: Alloc,
+    
+    /// Hash function for key type (may be customized)
+    hash_fn: fn(*K) -> u64,
+    
+    /// Equality function for key type (may be customized)
+    eq_fn: fn(*K, *K) -> Bool,
+}
+
+/// Internal wrapper around hash map implementation
+type HashMapInner[K, V] {
+    // This would wrap the existing std.collections.HashMap in a real implementation
+    // For now, we'll use a simplified version that demonstrates the pattern
+    buckets: []MapBucket[K, V],
+    len: usize,
+    capacity: usize,
+    load_factor: f32,
+}
+
+/// A bucket in the hash map
+type MapBucket[K, V] {
+    key: *K,
+    value: *V,
+    next: *MapBucket[K, V]?,
+    occupied: Bool,
+}
+
+/// Hash map error types
+pub type MapError {
+    KeyNotFound,
+    OutOfMemory,
+    InvalidKey,
+}
+
+/// Context-bound Map implementation
+impl[K, V] Map[K, V] {
+    /// Create a new Map with the given allocator capability
+    /// This is the primary constructor for all profiles
+    pub fn with(alloc: Alloc, capacity: usize) -> Map[K, V] {
+        let hash_fn = defaultHashFn[K];
+        let eq_fn = defaultEqFn[K];
+        return Map[K, V]{
+            .inner = HashMapInner[K, V].init(capacity),
+            .alloc = alloc,
+            .hash_fn = hash_fn,
+            .eq_fn = eq_fn,
+        };
+    }
+    
+    /// Create a new Map using an allocator from the context
+    /// For :go and :full profiles
+    pub fn withContext(ctx: AllocContext, purpose: AllocContext.AllocPurpose, capacity: usize) -> Map[K, V] {
+        let alloc = AllocContext.get(ctx, purpose);
+        return Map[K, V].with(alloc, capacity);
+    }
+    
+    /// Insert a key-value pair into the map
+    /// No allocator argument needed - uses the bound allocator
+    pub fn insert(self: *Self, key: *K, value: *V) -> Result[Void, MapError] {
+        // Hash the key
+        let hash = self.hash_fn(key);
+        
+        // Find or create bucket
+        let bucket_index = @intFromPtr(key) % self.inner.capacity;
+        let mut bucket = &self.inner.buckets[bucket_index];
+        
+        // Handle collisions with chaining
+        while (bucket.occupied) {
+            if (self.eq_fn(bucket.key, key)) {
+                // Update existing key
+                bucket.value = value;
+                return Ok(());
+            }
+            bucket = bucket.next.? else {
+                break;
+            }
+        }
+        
+        // Create new bucket if needed
+        if (bucket.occupied) {
+            // Collision - create new bucket in chain
+            let new_bucket = try self.allocateBucket();
+            bucket.next = new_bucket;
+            new_bucket.key = key;
+            new_bucket.value = value;
+            new_bucket.occupied = true;
+        } else {
+            // Direct insertion
+            bucket.key = key;
+            bucket.value = value;
+            bucket.occupied = true;
+        }
+        
+        self.inner.len += 1;
+        return Ok(());
+    }
+    
+    /// Get a value by key
+    pub fn get(self: *Self, key: *K) -> Result[*V, MapError] {
+        let hash = self.hash_fn(key);
+        let bucket_index = hash % self.inner.capacity;
+        let mut bucket = &self.inner.buckets[bucket_index];
+        
+        while (bucket.occupied) {
+            if (self.eq_fn(bucket.key, key)) {
+                return Ok(bucket.value);
+            }
+            bucket = bucket.next.? else {
+                break;
+            }
+        }
+        
+        return Err(MapError.KeyNotFound);
+    }
+    
+    /// Check if a key exists in the map
+    pub fn contains(self: *Self, key: *K) -> Bool {
+        return self.get(key) != Err(MapError.KeyNotFound);
+    }
+    
+    /// Remove a key-value pair from the map
+    pub fn remove(self: *Self, key: *K) -> Result[*V, MapError] {
+        let hash = self.hash_fn(key);
+        let bucket_index = hash % self.inner.capacity;
+        let mut bucket = &self.inner.buckets[bucket_index];
+        
+        if (!bucket.occupied) {
+            return Err(MapError.KeyNotFound);
+        }
+        
+        // Check first bucket
+        if (self.eq_fn(bucket.key, key)) {
+            let value = bucket.value;
+            bucket.occupied = false;
+            self.inner.len -= 1;
+            return Ok(value);
+        }
+        
+        // Check chained buckets
+        while (bucket.next != null) {
+            let next_bucket = bucket.next.?;
+            if (next_bucket.occupied and self.eq_fn(next_bucket.key, key)) {
+                let value = next_bucket.value;
+                bucket.next = next_bucket.next;
+                next_bucket.occupied = false;
+                self.inner.len -= 1;
+                return Ok(value);
+            }
+            bucket = next_bucket;
+        }
+        
+        return Err(MapError.KeyNotFound);
+    }
+    
+    /// Get the current number of elements
+    pub fn len(self: *Self) -> usize {
+        return self.inner.len;
+    }
+    
+    /// Check if the map is empty
+    pub fn isEmpty(self: *Self) -> Bool {
+        return self.inner.len == 0;
+    }
+    
+    /// Get the current capacity
+    pub fn capacity(self: *Self) -> usize {
+        return self.inner.capacity;
+    }
+    
+    /// Clear all elements from the map
+    pub fn clear(self: *Self) -> Void {
+        for bucket in self.inner.buckets {
+            bucket.occupied = false;
+            bucket.next = null;
+        }
+        self.inner.len = 0;
+    }
+    
+    /// Get the load factor
+    pub fn loadFactor(self: *Self) -> f32 {
+        return @as(f32, self.inner.len) / @as(f32, self.inner.capacity);
+    }
+    
+    /// Internal: allocate a new bucket using bound allocator
+    fn allocateBucket(self: *Self) -> Result[*MapBucket[K, V], MapError] {
+        // In real implementation, would use self.alloc
+        // For now, simplified
+        return Err(MapError.OutOfMemory);
+    }
+}
+
+/// Implement Drop trait for automatic cleanup
+impl[K, V] Drop.Drop for Map[K, V] {
+    pub fn drop(self: *Self) -> Void {
+        // Clean up all buckets
+        self.clear();
+        // The allocator will handle freeing the bucket storage
+    }
+}
+
+/// Error types for map operations
+pub type KeyNotFound {
+    key: *any,
+}
+
+pub type OutOfMemory {
+    requested_size: usize,
+}
+
+pub type InvalidKey {
+    reason: String,
+}
+
+// Initialize hash map inner structure
+impl[K, V] HashMapInner[K, V] {
+    fn init(capacity: usize) -> HashMapInner[K, V] {
+        return HashMapInner[K, V]{
+            .buckets = @undefined, // Would allocate buckets using allocator
+            .len = 0,
+            .capacity = capacity,
+            .load_factor = 0.75, // Standard load factor
+        };
+    }
+}
+
+// Default hash functions for common types
+fn defaultHashFn[T](key: *T) -> u64 {
+    @compileError("No default hash function for type T");
+}
+
+// Specializations for common types
+impl defaultHashFn for u64 {
+    pub fn defaultHashFn(key: *u64) -> u64 {
+        // Simple hash for u64 (in real implementation, would use better hash)
+        return *key;
+    }
+}
+
+impl defaultHashFn for String {
+    pub fn defaultHashFn(key: *String) -> u64 {
+        // Hash string contents (simplified)
+        let mut hash: u64 = 0;
+        for char in key.*.chars() {
+            hash = hash * 31 + @as(u64, char);
+        }
+        return hash;
+    }
+}
+
+// Default equality functions for common types
+fn defaultEqFn[T](a: *T, b: *T) -> Bool {
+    @compileError("No default equality function for type T");
+}
+
+// Specializations for common types
+impl defaultEqFn for u64 {
+    pub fn defaultEqFn(a: *u64, b: *u64) -> Bool {
+        return a.* == b.*;
+    }
+}
+
+impl defaultEqFn for String {
+    pub fn defaultEqFn(a: *String, b: *String) -> Bool {
+        return a.* == b.*;
+    }
+}
+
+// Helper functions for common map operations
+pub mod helpers {
+    /// Create a map from key-value pairs
+    pub fn fromPairs[K, V](alloc: Alloc, pairs: [][*K, *V]) -> Map[K, V] {
+        let capacity = pairs.len * 2; // Reserve extra space
+        let map = Map[K, V].with(alloc, capacity);
+        
+        for (key, value) in pairs {
+            let result = map.insert(key, value);
+            // In real implementation, would handle result
+        }
+        
+        return map;
+    }
+    
+    /// Create a map with an initial capacity
+    pub fn withCapacity[K, V](alloc: Alloc, capacity: usize) -> Map[K, V] {
+        return Map[K, V].with(alloc, capacity);
+    }
+    
+    /// Iterate over key-value pairs
+    pub fn iterate[K, V](map: *Map[K, V]) -> MapIterator[K, V] {
+        return MapIterator[K, V].new(map);
+    }
+}
+
+/// Iterator over map key-value pairs
+pub type MapIterator[K, V] {
+    map: *Map[K, V],
+    current_bucket: usize,
+    current_pair: (*K, *V)?,
+}
+
+impl[K, V] MapIterator[K, V] {
+    pub fn new(map: *Map[K, V]) -> MapIterator[K, V] {
+        return MapIterator[K, V]{
+            .map = map,
+            .current_bucket = 0,
+            .current_pair = null,
+        };
+    }
+    
+    pub fn next(self: *Self) -> (*K, *V)? {
+        // Simplified iterator implementation
+        return null; // Would implement proper iteration
+    }
+}

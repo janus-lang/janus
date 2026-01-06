@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    print("VectorF64 Scientific Verification - Explicit Casting");
+    
+    // Create vector with capacity 10 (cast literal to i64)
+    let vec: i32 = vector_create(i32_to_i64(10));
+    
+    // Fill with squares: i^2 (cast to f64)
+    var i: i32 = 0;
+    while i < 5 do
+        let square: i32 = i * i;
+        let float_val: f64 = i32_to_f64(square);
+        vector_push(vec, float_val);
+        i = i + 1;
+    end
+    
+    print("Vector populated.");
+    print("Retrieving values:");
+    
+    // Get value at index 0 (0^2 = 0)
+    let v0: f64 = vector_get(vec, i32_to_i64(0));
+    print_float(v0);
+    
+    // Get value at index 1 (1^2 = 1)
+    let v1: f64 = vector_get(vec, i32_to_i64(1));
+    print_float(v1);
+    
+    // Get value at index 2 (2^2 = 4)
+    let v2: f64 = vector_get(vec, i32_to_i64(2));
+    print_float(v2);
+    
+    // Get value at index 4 (4^2 = 16)
+    let v4: f64 = vector_get(vec, i32_to_i64(4));
+    print_float(v4);
+    
+    // Cleanup
+    vector_free(vec);
+    print("VectorF64 COMPLETE - Scientific Domination Achieved");
+}

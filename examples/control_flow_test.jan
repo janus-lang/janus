@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    // Test real control flow execution
+    let x = 10
+    let y = 20
+
+    // Test if statement with real condition
+    if x < y {
+        print("x is less than y")
+        print("This should execute")
+    } else {
+        print("x is not less than y")
+    }
+
+    // Test while loop with counter
+    var counter = 0
+    while counter < 3 {
+        print("While loop iteration")
+        counter = counter + 1
+    }
+
+    // Test for loop
+    for i in 1..5 {
+        print("For loop iteration")
+    }
+
+    // Test nested control flow
+    if x > 5 {
+        if y > 15 {
+            print("Both conditions true")
+        }
+    }
+
+    // Test function with return
+    let result = compute_max(x, y)
+    print("Maximum computed")
+}
+
+func compute_max(a: i32, b: i32) -> i32 {
+    if a > b {
+        return a
+    } else {
+        return b
+    }
+}

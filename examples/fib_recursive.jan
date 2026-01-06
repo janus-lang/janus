@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func fib(n: i32) -> i32 do
+    if n <= 1 do
+        return n
+    end
+    return fib(n - 1) + fib(n - 2)
+end
+
+func main() do
+    let result = fib(10)
+    println(result)
+end

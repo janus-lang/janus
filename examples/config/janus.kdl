@@ -1,0 +1,85 @@
+// janus.kdl - Janus Project Configuration
+// The single source of truth for project-level settings
+// Read by LSP server, build system, and janusd for consistent behavior
+
+project "example-janus-project"
+version "0.1.0"
+
+// THE PROFILE DECLARATION - Single Source of Truth
+// The LSP server reads this to provide profile-aware completions and diagnostics
+// Valid profiles: :min, :go, :full
+profile ":go"
+
+// Build configuration
+build {
+    target "native"
+    optimize "ReleaseSafe"
+
+    // Profile-specific build options
+    if-profile ":min" {
+        features "basic_types" "simple_functions"
+    }
+
+    if-profile ":go" {
+        features "basic_types" "simple_functions" "goroutines" "channels" "context"
+    }
+
+    if-profile ":full" {
+        features "basic_types" "simple_functions" "goroutines" "channels" "context" "capabilities" "effects" "actors"
+    }
+}
+
+// Dependencies (future)
+dependencies {
+    // Example dependency with profile-specific requirements
+    // crypto {
+    //     version "1.0.0"
+    //     source "git+https://github.com/janus-lang/crypto.git"
+    //
+    //     if-profile ":full" {
+    //         capabilities "crypto.hash" "crypto.sign"
+    //     }
+    // }
+}
+
+// LSP server configuration
+lsp {
+    enabled true
+
+    // Profile-aware features
+    completions {
+        show-profile-hints true
+        suggest-upgrades true
+    }
+
+    diagnostics {
+        profile-violations "error"  // error, warning, info
+        suggest-profile-upgrade true
+    }
+
+    hover {
+        show-profile-info true
+        show-signature-variants true  // Show all profile variants of functions
+    }
+}
+
+// Development tools
+dev {
+    // Auto-format on save
+    format-on-save true
+
+    // Profile-specific linting
+    lint {
+        if-profile ":min" {
+            rules "basic" "syntax"
+        }
+
+        if-profile ":go" {
+            rules "basic" "syntax" "concurrency" "context-usage"
+        }
+
+        if-profile ":full" {
+            rules "basic" "syntax" "concurrency" "context-usage" "capability-safety" "effect-purity"
+        }
+    }
+}

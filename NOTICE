@@ -1,0 +1,53 @@
+=========================================================================
+                           NOTICE & ATTRIBUTION
+=========================================================================
+
+1. REQUIRED ATTRIBUTION
+-------------------------------------------------------------------------
+Per the Libertaria License Suite (LCL-1.0, LSL-1.0, LUL-1.0),
+any redistribution of this software, whether in Source Code or Executable
+Form, must retain the following acknowledgment:
+
+   Portions Copyright (c) 2026 Self Sovereign Society Foundation.
+   Used under the Libertaria License Suite.
+
+2. THE SOCIAL CONTRACT (PLAIN ENGLISH SUMMARY)
+-------------------------------------------------------------------------
+This software is an instrument of sovereign infrastructure. It is free to
+use, but it is not without cost. The cost is reciprocity.
+
+THE ENGINE (LCL-1.0):
+   The compiler and its core tools are licensed under LCL-1.0.
+   If you modify OR run these tools as a service (SaaS),
+   you MUST share those modifications back with the commonwealth.
+
+THE MODULES (LSL-1.0):
+   The standard libraries and runtime are licensed under LSL-1.0.
+   You are free to link these into proprietary applications ("Larger Works").
+   We do not require you to open-source your own logic, but changes
+   to the modules themselves must be shared.
+
+THE COMMONS (LUL-1.0):
+   Examples, tests, and documentation are licensed under LUL-1.0.
+   Maximum freedom for learning, teaching, and peripheral tooling.
+
+THE BRAND (The Shield):
+   You have a license to the code, NOT the identity.
+   You may NOT use the names "Self Sovereign Society," "Janus Core," or
+   associated Foundation logos to endorse or promote your derived products
+   without written permission.
+
+   If you fork this, you must distinguish it.
+   Do not confuse the market.
+
+3. PATENT GRANT & TERMINATION
+-------------------------------------------------------------------------
+This license includes an express grant of patent rights. However, if you
+initiate patent litigation against the Foundation or any Contributor
+claiming this software infringes a patent, your license terminates
+immediately and automatically.
+
+-------------------------------------------------------------------------
+For the full legal text, see the directory: legal/
+Governance & Stewardship: Self Sovereign Society Foundation (The Netherlands)
+=========================================================================

@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Simple test for :min profile - no filesystem operations
+import std.string;
+import std.core;
+
+// Simple test function
+func test_basic() -> void {
+    // Test basic string operations
+    let hello = "Hello, World!"
+    let len = std.string.len(hello)
+    print("Length: " + len)
+
+    // Test case conversion
+    let lower = std.string.to_lower(hello)
+    print("Lower: " + lower)
+}
+
+func main() -> i32 {
+    test_basic()
+    return 0
+}

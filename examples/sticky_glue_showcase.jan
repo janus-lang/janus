@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+profile :min
+
+// Rebinding (RFC-017)
+func process_user(id: i32) do
+  let user = fetch(id)
+  let user = validate(user)      // Rebind
+  let user = enrich(user)         // Rebind again
+  print(user)
+end
+
+// UFCS (RFC-016)
+func pipeline_demo(text: string) -> string do
+  return text.trim().lowercase().reverse()
+end
+
+// Postfix Guards (RFC-018)
+func safe_divide(a: i32, b: i32) -> Result[i32, string] do
+  return Err("Division by zero") when b == 0
+  return Ok(a / b)
+end
+
+// with Expression (RFC-019)
+func fetch_and_process(id: i32) -> Result[User, Error] do
+  with user <- fetch_user(id),
+       validated <- validate(user),
+       enriched <- enrich(validated)
+  do
+    return Ok(enriched)
+  else err
+    return Err(err)
+  end
+end
+
+// Function Capture (RFC-020)
+func map_demo() do
+  let numbers = [1, 2, 3, 4, 5]
+  let doubled = map(numbers, multiply(_, 2))
+  print(doubled)
+end
+
+// Tag Functions (RFC-015)
+func query_demo() do
+  let id = 42
+  let query = sql`SELECT * FROM users WHERE id = ${id}`
+  execute(query)
+end

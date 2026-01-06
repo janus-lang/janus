@@ -1,0 +1,67 @@
+name: gRPC Smoke
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: gRPC Smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
+
+      - name: Install deps (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ protobuf-compiler libprotobuf-dev libgrpc++-dev grpc-proto grpc-health-probe
+
+      - name: Install deps (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install protobuf grpc
+
+      - name: Build
+        run: zig build -Doptimize=ReleaseSafe
+
+      - name: Smoke (gRPC live-fire)
+        env:
+          SM_HOST: 127.0.0.1
+          SM_PORT: 55051
+        run: |
+          # Run the scripted live-fire test from build.zig (janusd + oracle-smoke)
+          zig build smoke -Doptimize=ReleaseSafe
+
+  smoke-musl:
+    name: gRPC Smoke (Alpine musl static)
+    runs-on: ubuntu-latest
+    container: alpine:3.20
+    steps:
+      - name: Install deps
+        run: |
+          apk add --no-cache bash git build-base cmake pkgconfig zig protobuf-dev grpc-dev abseil-cpp-dev re2-dev zlib-dev openssl-dev c-ares-dev protobuf-static grpc-static abseil-cpp-static re2-static zlib-static openssl-libs-static c-ares-static
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Generate gRPC stubs
+        run: bash tools/gen_grpc.sh
+      - name: Build (musl static)
+        run: zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl
+      - name: Smoke (musl static)
+        run: zig build smoke -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl

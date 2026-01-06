@@ -1,0 +1,360 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Interactive Dispatch Resolution Examples
+// These examples demonstrate step-by-step how dispatch resolution works
+
+import std.io.{println}
+import std.dispatch.{traceDispatch, queryDispatch}
+
+// Example 1: Basic Dispatch Resolution
+// ===================================
+
+type Shape = Circle | Rectangle | Triangle
+type Circle = { radius: float }
+type Rectangle = { width: float, height: float }
+type Triangle = { base: float, height: float }
+
+// Step 1: Define implementations with different specificity
+func area(shape: Shape) -> float {
+    println("🔍 Dispatch Resolution: Using generic Shape implementation")
+    match shape {
+        case Circle(c) => PI * c.radius * c.radius
+        case Rectangle(r) => r.width * r.height
+        case Triangle(t) => 0.5 * t.base * t.height
+    }
+}
+
+func area(circle: Circle) -> float {
+    println("🎯 Dispatch Resolution: Using specific Circle implementation")
+    PI * circle.radius * circle.radius
+}
+
+func area(rect: Rectangle) -> float {
+    println("🎯 Dispatch Resolution: Using specific Rectangle implementation")
+    rect.width * rect.height
+}
+
+// Interactive Example 1: Watch dispatch resolution
+func example1_basic_dispatch() -> void {
+    println("=== Example 1: Basic Dispatch Resolution ===")
+
+    let circle = Circle{radius: 5.0}
+    let rect = Rectangle{width: 10.0, height: 8.0}
+    let triangle = Triangle{base: 6.0, height: 4.0}
+
+    println("\n1. Calling area(circle) - specific Circle type:")
+    println("   Expected: Will use area(Circle) - most specific match")
+    let area1 = area(circle)
+    println("   Result: {}", area1)
+
+    println("\n2. Calling area(rect) - specific Rectangle type:")
+    println("   Expected: Will use area(Rectangle) - most specific match")
+    let area2 = area(rect)
+    println("   Result: {}", area2)
+
+    println("\n3. Calling area(triangle) - Triangle type (no specific implementation):")
+    println("   Expected: Will use area(Shape) - only available match")
+    let area3 = area(triangle)
+    println("   Result: {}", area3)
+
+    // Show what the dispatch system sees
+    println("\n🔍 Dispatch Analysis:")
+    let resolution1 = queryDispatch("area", [typeof(circle)])
+    let resolution2 = queryDispatch("area", [typeof(rect)])
+    let resolution3 = queryDispatch("area", [typeof(triangle)])
+
+    println("   area(Circle): {}", resolution1)
+    println("   area(Rectangle): {}", resolution2)
+    println("   area(Triangle): {}", resolution3)
+}
+
+// Example 2: Specificity Hierarchy
+// =================================
+
+type Number = int | float
+type Integer = int
+type SpecificInt = int  // Same as int, but shows concept
+
+func process(n: Number) -> string {
+    println("🔍 Using Number implementation (least specific)")
+    "processed number: " ++ toString(n)
+}
+
+func process(i: Integer) -> string {
+    println("🎯 Using Integer implementation (more specific)")
+    "processed integer: " ++ toString(i)
+}
+
+func process(s: SpecificInt) -> string {
+    println("🎯 Using SpecificInt implementation (most specific)")
+    "processed specific int: " ++ toString(s)
+}
+
+func example2_specificity_hierarchy() -> void {
+    println("\n=== Example 2: Specificity Hierarchy ===")
+
+    let num_val: Number = 42
+    let int_val: Integer = 42
+    let spec_val: SpecificInt = 42
+
+    println("\n1. Calling process(num_val) where num_val: Number:")
+    println("   Available implementations: process(Number), process(Integer), process(SpecificInt)")
+    println("   Expected: Will use process(Number) - exact type match")
+    let result1 = process(num_val)
+    println("   Result: {}", result1)
+
+    println("\n2. Calling process(int_val) where int_val: Integer:")
+    println("   Available implementations: process(Number), process(Integer), process(SpecificInt)")
+    println("   Expected: Will use process(Integer) - most specific applicable match")
+    let result2 = process(int_val)
+    println("   Result: {}", result2)
+
+    println("\n3. Calling process(spec_val) where spec_val: SpecificInt:")
+    println("   Available implementations: process(Number), process(Integer), process(SpecificInt)")
+    println("   Expected: Will use process(SpecificInt) - most specific match")
+    let result3 = process(spec_val)
+    println("   Result: {}", result3)
+}
+
+// Example 3: Multiple Argument Dispatch
+// =====================================
+
+type Weapon = Sword | Bow | Staff
+type Enemy = Goblin | Dragon | Wizard
+
+type Sword = { damage: int }
+type Bow = { range: int, damage: int }
+type Staff = { magic_power: int }
+
+type Goblin = { health: int, armor: int }
+type Dragon = { health: int, fire_resistance: int }
+type Wizard = { health: int, magic_resistance: int }
+
+// Multiple implementations for different weapon-enemy combinations
+func attack(weapon: Weapon, enemy: Enemy) -> string {
+    println("🔍 Using generic Weapon vs Enemy implementation")
+    "Generic attack with {} against {}"
+}
+
+func attack(sword: Sword, goblin: Goblin) -> string {
+    println("🎯 Using specific Sword vs Goblin implementation")
+    let damage = max(0, sword.damage - goblin.armor)
+    "Sword strike deals {} damage to goblin"
+}
+
+func attack(bow: Bow, dragon: Dragon) -> string {
+    println("🎯 Using specific Bow vs Dragon implementation")
+    let damage = bow.damage  // Dragons have thick hide, but bows can find weak spots
+    "Arrow shot deals {} damage to dragon from {} range"
+}
+
+func attack(staff: Staff, wizard: Wizard) -> string {
+    println("🎯 Using specific Staff vs Wizard implementation")
+    let damage = max(0, staff.magic_power - wizard.magic_resistance)
+    "Magic blast deals {} damage to wizard"
+}
+
+func example3_multiple_arguments() -> void {
+    println("\n=== Example 3: Multiple Argument Dispatch ===")
+
+    let sword = Sword{damage: 10}
+    let bow = Bow{range: 50, damage: 8}
+    let staff = Staff{magic_power: 15}
+
+    let goblin = Goblin{health: 20, armor: 2}
+    let dragon = Dragon{health: 100, fire_resistance: 5}
+    let wizard = Wizard{health: 30, magic_resistance: 3}
+
+    println("\n1. Sword vs Goblin (specific implementation exists):")
+    println("   Expected: Will use attack(Sword, Goblin)")
+    let result1 = attack(sword, goblin)
+    println("   Result: {}", result1)
+
+    println("\n2. Bow vs Dragon (specific implementation exists):")
+    println("   Expected: Will use attack(Bow, Dragon)")
+    let result2 = attack(bow, dragon)
+    println("   Result: {}", result2)
+
+    println("\n3. Staff vs Wizard (specific implementation exists):")
+    println("   Expected: Will use attack(Staff, Wizard)")
+    let result3 = attack(staff, wizard)
+    println("   Result: {}", result3)
+
+    println("\n4. Sword vs Dragon (no specific implementation):")
+    println("   Expected: Will use attack(Weapon, Enemy) - generic fallback")
+    let result4 = attack(sword, dragon)
+    println("   Result: {}", result4)
+}
+
+// Example 4: Ambiguity Detection
+// ==============================
+
+type TypeA = { value: int }
+type TypeB = { value: int }
+
+func ambiguous_example(a: TypeA, b: TypeB) -> string {
+    println("🎯 Using TypeA, TypeB implementation")
+    "A-B combination"
+}
+
+func ambiguous_example(a: TypeB, b: TypeA) -> string {
+    println("🎯 Using TypeB, TypeA implementation")
+    "B-A combination"
+}
+
+// This would cause ambiguity if we tried to call with union types
+func example4_ambiguity_detection() -> void {
+    println("\n=== Example 4: Ambiguity Detection ===")
+
+    let a = TypeA{value: 1}
+    let b = TypeB{value: 2}
+
+    println("\n1. Calling ambiguous_example(a, b) where a: TypeA, b: TypeB:")
+    println("   Expected: Will use ambiguous_example(TypeA, TypeB)")
+    let result1 = ambiguous_example(a, b)
+    println("   Result: {}", result1)
+
+    println("\n2. Calling ambiguous_example(b, a) where b: TypeB, a: TypeA:")
+    println("   Expected: Will use ambiguous_example(TypeB, TypeA)")
+    let result2 = ambiguous_example(b, a)
+    println("   Result: {}", result2)
+
+    println("\n3. What happens with union types?")
+    println("   If we had: let mixed: TypeA | TypeB = ...")
+    println("   Then: ambiguous_example(mixed, mixed) would be AMBIGUOUS")
+    println("   Because both implementations could match!")
+
+    // Show the dispatch analysis
+    let union_type = typeof(a) | typeof(b)
+    println("\n🔍 Dispatch Analysis for union types:")
+    let resolution = queryDispatch("ambiguous_example", [union_type, union_type])
+    println("   ambiguous_example(TypeA|TypeB, TypeA|TypeB): {}", resolution)
+}
+
+// Example 5: Performance Characteristics
+// ======================================
+
+type sealed FastType = Fast1 | Fast2 | Fast3  // Sealed = static dispatch
+type open SlowType = Slow1 | Slow2 | Slow3    // Open = runtime dispatch
+
+type Fast1 = { value: int }
+type Fast2 = { value: int }
+type Fast3 = { value: int }
+
+type Slow1 = { value: int }
+type Slow2 = { value: int }
+type Slow3 = { value: int }
+
+func fast_dispatch(ft: FastType) -> string {
+    println("⚡ Static dispatch - zero overhead")
+    match ft {
+        case Fast1(f) => "fast1: " ++ toString(f.value)
+        case Fast2(f) => "fast2: " ++ toString(f.value)
+        case Fast3(f) => "fast3: " ++ toString(f.value)
+    }
+}
+
+func slow_dispatch(st: SlowType) -> string {
+    println("🐌 Runtime dispatch - small overhead")
+    match st {
+        case Slow1(s) => "slow1: " ++ toString(s.value)
+        case Slow2(s) => "slow2: " ++ toString(s.value)
+        case Slow3(s) => "slow3: " ++ toString(s.value)
+    }
+}
+
+func example5_performance_characteristics() -> void {
+    println("\n=== Example 5: Performance Characteristics ===")
+
+    let fast = Fast1{value: 42}
+    let slow = Slow1{value: 42}
+
+    println("\n1. Static dispatch with sealed types:")
+    println("   Sealed types allow compile-time dispatch resolution")
+    println("   Result: Zero overhead - compiled to direct function calls")
+    let result1 = fast_dispatch(fast)
+    println("   Result: {}", result1)
+
+    println("\n2. Runtime dispatch with open types:")
+    println("   Open types require runtime dispatch table lookup")
+    println("   Result: Small overhead - but still very fast")
+    let result2 = slow_dispatch(slow)
+    println("   Result: {}", result2)
+
+    println("\n🔍 Performance Analysis:")
+    println("   Static dispatch: ~0-5 nanoseconds overhead")
+    println("   Runtime dispatch: ~10-50 nanoseconds overhead")
+    println("   Both are extremely fast for most use cases!")
+}
+
+// Example 6: Cross-Module Dispatch
+// ================================
+
+// Simulate cross-module dispatch
+module math {
+    export func add(x: int, y: int) -> int {
+        println("🎯 Using math module's int addition")
+        x + y
+    }
+
+    export func add(x: float, y: float) -> float {
+        println("🎯 Using math module's float addition")
+        x + y
+    }
+}
+
+module string_ops {
+    import math.{add}  // Import existing signature
+
+    // Extend the signature with string support
+    func add(x: string, y: string) -> string {
+        println("🎯 Using string_ops module's string concatenation")
+        x ++ y
+    }
+}
+
+func example6_cross_module_dispatch() -> void {
+    println("\n=== Example 6: Cross-Module Dispatch ===")
+
+    println("\n1. Using math module implementations:")
+    let int_result = math::add(5, 3)
+    println("   math::add(5, 3) = {}", int_result)
+
+    let float_result = math::add(5.0, 3.0)
+    println("   math::add(5.0, 3.0) = {}", float_result)
+
+    println("\n2. Using extended signature from string_ops:")
+    let string_result = string_ops::add("Hello", " World")
+    println("   string_ops::add(\"Hello\", \" World\") = {}", string_result)
+
+    println("\n3. Unified dispatch across modules:")
+    println("   When importing both modules, all implementations are available")
+    println("   The system automatically selects the right implementation")
+}
+
+// Main function to run all examples
+func main() -> void {
+    println("🚀 Interactive Dispatch Resolution Examples")
+    println("==========================================")
+
+    // Enable dispatch tracing for detailed output
+    traceDispatch(true)
+
+    example1_basic_dispatch()
+    example2_specificity_hierarchy()
+    example3_multiple_arguments()
+    example4_ambiguity_detection()
+    example5_performance_characteristics()
+    example6_cross_module_dispatch()
+
+    println("\n✅ All examples completed!")
+    println("These examples show how the dispatch system:")
+    println("  - Selects the most specific implementation")
+    println("  - Handles multiple arguments correctly")
+    println("  - Detects and prevents ambiguity")
+    println("  - Optimizes for performance")
+    println("  - Works across module boundaries")
+
+    traceDispatch(false)
+}

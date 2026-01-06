@@ -1,0 +1,220 @@
+# AI-Airlock Gatekeeper Workflow
+# Validates "Proof Packages" from AI contributions before human review
+
+name: AI-Airlock Gatekeeper
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - stable
+      - main
+
+jobs:
+  detect-author:
+    name: Detect AI Authorship
+    runs-on: ubuntu-latest
+    outputs:
+      is_ai: ${{ steps.check.outputs.is_ai }}
+      author_email: ${{ steps.check.outputs.author_email }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check Author Identity
+        id: check
+        run: |
+          # Get the author email from the most recent commit in PR
+          AUTHOR_EMAIL=$(git log -1 --format='%ae')
+          AUTHOR_NAME=$(git log -1 --format='%an')
+          
+          echo "author_email=$AUTHOR_EMAIL" >> $GITHUB_OUTPUT
+          echo "author_name=$AUTHOR_NAME" >> $GITHUB_OUTPUT
+          
+          # Check if this is the AI agent
+          if [[ "$AUTHOR_EMAIL" == "voxis-forge@janus-lang.org" ]] || \
+             [[ "$AUTHOR_NAME" == "Voxis Forge AI" ]]; then
+            echo "is_ai=true" >> $GITHUB_OUTPUT
+            echo "🤖 AI-authored PR detected"
+            echo "   Author: $AUTHOR_NAME <$AUTHOR_EMAIL>"
+          else
+            echo "is_ai=false" >> $GITHUB_OUTPUT
+            echo "👤 Human-authored PR detected"
+            echo "   Author: $AUTHOR_NAME <$AUTHOR_EMAIL>"
+          fi
+
+  validate-proof-package:
+    name: Validate Proof Package
+    runs-on: ubuntu-latest
+    needs: detect-author
+    if: needs.detect-author.outputs.is_ai == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Cache Zig artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/zig
+            zig-cache
+          key: ${{ runner.os }}-zig-${{ hashFiles('build.zig') }}
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm-18 clang-18
+          sudo ln -sf /usr/bin/llc-18 /usr/bin/llc
+
+      - name: Validate Proof Package Structure
+        run: |
+          echo "🔍 Validating AI Proof Package..."
+          echo ""
+          
+          # Identify changed files in this PR
+          BASE_SHA=$(git merge-base HEAD origin/${{ github.base_ref }})
+          CHANGED_FILES=$(git diff --name-only $BASE_SHA HEAD)
+          
+          echo "📁 Changed files:"
+          echo "$CHANGED_FILES"
+          echo ""
+          
+          # Check 1: Spec file exists
+          SPEC_FOUND=$(echo "$CHANGED_FILES" | grep -E '^(specs|docs/rfcs)/.*\.md$' || echo "")
+          if [[ -z "$SPEC_FOUND" ]]; then
+            echo "❌ PROOF PACKAGE INCOMPLETE: No spec file found"
+            echo "   AI contributions must include a spec in specs/ or docs/rfcs/"
+            exit 1
+          fi
+          echo "✅ Spec file found: $SPEC_FOUND"
+          echo ""
+          
+          # Check 2: Test file exists
+          TEST_FOUND=$(echo "$CHANGED_FILES" | grep -E '^tests/.*\.zig$' || echo "")
+          if [[ -z "$TEST_FOUND" ]]; then
+            echo "❌ PROOF PACKAGE INCOMPLETE: No test file found"
+            echo "   AI contributions must include tests in tests/"
+            exit 1
+          fi
+          echo "✅ Test file found: $TEST_FOUND"
+          echo ""
+          
+          # Check 3: Implementation file exists
+          IMPL_FOUND=$(echo "$CHANGED_FILES" | grep -E '^(compiler|src|std)/.*\.zig$' || echo "")
+          if [[ -z "$IMPL_FOUND" ]]; then
+            echo "⚠️  WARNING: No implementation file found in compiler/src/std"
+            echo "   This may be a spec-only PR"
+          else
+            echo "✅ Implementation found: $IMPL_FOUND"
+          fi
+          echo ""
+          
+          echo "✅ Proof Package structure validated"
+
+      - name: Build Validation
+        run: |
+          echo "🔨 Building project..."
+          if ! zig build; then
+            echo "❌ Build failed"
+            exit 1
+          fi
+          echo "✅ Build successful"
+
+      - name: Test Suite Validation
+        run: |
+          echo "🧪 Running test suite..."
+          if ! zig build test --summary all; then
+            echo "❌ Tests failed"
+            exit 1
+          fi
+          echo "✅ All tests passed"
+
+      - name: Spec Format Validation
+        run: |
+          echo "📋 Validating spec format..."
+          
+          BASE_SHA=$(git merge-base HEAD origin/${{ github.base_ref }})
+          SPEC_FILE=$(git diff --name-only $BASE_SHA HEAD | grep -E '^(specs|docs/rfcs)/.*\.md$' | head -1)
+          
+          if [[ -n "$SPEC_FILE" ]]; then
+            echo "Checking: $SPEC_FILE"
+            
+            # Check for acceptance criteria format
+            if ! grep -q "Acceptance Criteria" "$SPEC_FILE"; then
+              echo "⚠️  WARNING: Spec may be missing 'Acceptance Criteria' section"
+            else
+              echo "✅ Acceptance Criteria section found"
+            fi
+            
+            # Check for examples
+            if ! grep -qE "(Example|```)" "$SPEC_FILE"; then
+              echo "⚠️  WARNING: Spec may be missing examples or code blocks"
+            else
+              echo "✅ Examples/code blocks found"
+            fi
+          fi
+
+      - name: Summary
+        if: success()
+        run: |
+          echo ""
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║         PROOF PACKAGE VALIDATED                            ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          echo ""
+          echo "✅ All automated checks passed"
+          echo "🔒 AI cannot self-merge - Human approval required"
+          echo ""
+          echo "Next steps for Human Reviewer:"
+          echo "  1. Review the Spec for clarity and correctness"
+          echo "  2. Review the Tests for completeness"
+          echo "  3. Review the Code for quality and simplicity"
+          echo "  4. Merge with GPG signature if approved"
+          echo ""
+
+  block-ai-merge:
+    name: Block AI Self-Merge
+    runs-on: ubuntu-latest
+    needs: detect-author
+    if: needs.detect-author.outputs.is_ai == 'true'
+    steps:
+      - name: Enforce Human Review
+        run: |
+          echo "🚫 AI-Airlock: Self-merge blocked"
+          echo ""
+          echo "This PR was authored by: ${{ needs.detect-author.outputs.author_email }}"
+          echo ""
+          echo "MECHANISM ENFORCED:"
+          echo "  - AI agents cannot approve their own PRs"
+          echo "  - Human reviewer must perform the merge"
+          echo "  - Merge commit must be GPG-signed by a human"
+          echo ""
+          echo "📖 See: docs/doctrines/AIRLOCK.md"
+          echo ""
+          # This job succeeds but signals that human action is required
+          exit 0
+
+  summary:
+    name: Gatekeeper Summary
+    runs-on: ubuntu-latest
+    needs: [detect-author, validate-proof-package, block-ai-merge]
+    if: always()
+    steps:
+      - name: Report Status
+        run: |
+          if [[ "${{ needs.detect-author.outputs.is_ai }}" == "true" ]]; then
+            echo "🤖 AI Contribution Detected"
+            echo "✅ Proof Package Validation: ${{ needs.validate-proof-package.result }}"
+            echo "🔒 Merge Block Active: Human approval required"
+          else
+            echo "👤 Human Contribution - Standard review process"
+          fi

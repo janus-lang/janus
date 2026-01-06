@@ -1,0 +1,42 @@
+{
+  "test_name": "cid_invariance_whitespace",
+  "description": "CIDs should be identical for semantically equivalent code with different whitespace",
+  "files": {
+    "A_src.jan": {
+      "unit_cid": "blake3:placeholder_unit_cid_a",
+      "items": [
+        {
+          "name": "add",
+          "cid": "blake3:placeholder_add_function_cid",
+          "node_type": "function"
+        },
+        {
+          "name": "multiply",
+          "cid": "blake3:placeholder_multiply_function_cid",
+          "node_type": "function"
+        }
+      ]
+    },
+    "B_src_whitespace_only.jan": {
+      "unit_cid": "blake3:placeholder_unit_cid_a",
+      "items": [
+        {
+          "name": "add",
+          "cid": "blake3:placeholder_add_function_cid",
+          "node_type": "function"
+        },
+        {
+          "name": "multiply",
+          "cid": "blake3:placeholder_multiply_function_cid",
+          "node_type": "function"
+        }
+      ]
+    }
+  },
+  "expected_result": "identical_cids",
+  "validation_rules": [
+    "unit_cids_must_match",
+    "all_item_cids_must_match",
+    "whitespace_changes_ignored"
+  ]
+}

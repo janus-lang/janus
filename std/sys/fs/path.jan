@@ -1,0 +1,472 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// janus.fs.path - Object-Oriented Path & Filesystem Operations
+//
+// Provides Path, Entry, and DirHandle types with capability-based
+// filesystem access. All operations require explicit capabilities.
+//
+// REQUIRED CAPABILITIES: CapFsRead, CapFsWrite, CapFsCreate
+// EFFECTS: Filesystem operations with explicit capability requirements.
+
+import std.core;
+import std.core.iter;
+import std.sys.fs.fs; // for FS trait reference in follow-symlinks variant
+
+// Path type - Object-oriented, borrowed path view
+struct Path {
+    path: string,
+}
+
+// PathBuf - Owned, mutable path buffer (functional style API for now)
+struct PathBuf {
+    path: string,
+}
+
+// Structured path component
+enum Component {
+    Root,            // leading "/"
+    CurDir,          // "."
+    ParentDir,       // ".."
+    Normal(string),  // a normal path segment
+}
+
+// Iterator over path components
+struct ComponentsIter {
+    s: string,
+    pos: usize,
+    yielded_root: bool,
+}
+
+impl ComponentsIter {
+    func new(s: string) -> ComponentsIter {
+        ComponentsIter { s: s, pos: 0, yielded_root: false }
+    }
+
+    func next(self) -> Option<Component> {
+        let s = self.s;
+        let n = s.len();
+
+        // Root handling
+        if !self.yielded_root && n > 0 && s[0..1] == "/" {
+            self.yielded_root = true;
+            // Skip consecutive slashes
+            while self.pos < n && s[self.pos..self.pos+1] == "/" { self.pos = self.pos + 1; }
+            return Some(Component::Root);
+        }
+
+        // Skip separators
+        while self.pos < n && s[self.pos..self.pos+1] == "/" { self.pos = self.pos + 1; }
+        if self.pos >= n { return None; }
+
+        // Find next separator
+        let start = self.pos;
+        var end = start;
+        while end < n && s[end..end+1] != "/" { end = end + 1; }
+        self.pos = end;
+
+        let seg = s[start..end].to_string();
+        if seg == "." { return Some(Component::CurDir); }
+        if seg == ".." { return Some(Component::ParentDir); }
+        Some(Component::Normal(seg))
+    }
+}
+
+// Iterator over ancestors (current → parent → ... → root)
+struct AncestorsIter {
+    current: Option<Path>,
+}
+
+impl AncestorsIter {
+    func new(start: Path) -> AncestorsIter { AncestorsIter { current: Some(start) } }
+
+    func next(self) -> Option<Path> {
+        match self.current {
+            None => None,
+            Some(p) => {
+                let ret = p;
+                self.current = p.parent();
+                Some(ret)
+            }
+        }
+    }
+}
+
+impl Path {
+    // Create Path from string
+    func new(path: string) -> Path {
+        Path { path: path }
+    }
+
+    // Get string representation
+    func as_string(self) -> string {
+        self.path
+    }
+
+    // Join path components (returns owned PathBuf)
+    // Rules:
+    // - absolute RHS returns RHS (ignores base)
+    // - ensure exactly one separator between segments
+    func join(self, component: string) -> PathBuf {
+        if component.starts_with("/") {
+            return PathBuf::new(component);
+        }
+
+        let sep_needed = if self.path == "" { false } else { !self.path.ends_with("/") };
+        let joined = if sep_needed { self.path + "/" + component } else { self.path + component };
+        PathBuf::new(joined)
+    }
+
+    // Join with another Path
+    func join_path(self, other: Path) -> PathBuf {
+        self.join(other.path)
+    }
+
+    // Ancestors lazy iterator
+    func ancestors(self) -> AncestorsIter { AncestorsIter::new(self) }
+
+    // Get parent directory (None for root-only or empty)
+    func parent(self) -> Option<Path> {
+        let s = self.path;
+        if s == "" { return None; }
+        if s == "/" { return None; }
+
+        // Trim trailing separators except when the path is just "/"
+        let mut end = s.len();
+        while end > 1 && s[0..end].ends_with("/") {
+            end = end - 1;
+        }
+        let prefix = s[0..end].to_string();
+
+        let idx = prefix.rfind("/");
+        match idx {
+            None => None,
+            Some(0) => Some(Path::new("/")),
+            Some(i) => Some(Path::new(prefix[0..i].to_string())),
+        }
+    }
+
+    // Get filename component
+    func name(self) -> string {
+        let parts = self.path.split("/");
+        if parts.len() == 0 {
+            return "";
+        }
+        parts[parts.len()-1]
+    }
+
+    // Get file extension
+    func extension(self) -> string {
+        let name = self.name();
+        let dot_pos = name.rfind(".");
+        match dot_pos {
+            Some(pos) => name[pos+1..].to_string(),
+            None => "",
+        }
+    }
+
+    // Optional-returning variants preferred by spec
+    func file_name(self) -> Option<string> {
+        // Ignore trailing separators
+        let s = self.path;
+        if s == "" { return None; }
+        // Trim trailing slashes (except root)
+        let mut end = s.len();
+        while end > 1 && s[0..end].ends_with("/") { end = end - 1; }
+        let trimmed = s[0..end].to_string();
+        if trimmed == "/" { return None; }
+
+        let last_sep = trimmed.rfind("/");
+        match last_sep {
+            None => if trimmed == "" { None } else { Some(trimmed) },
+            Some(i) => {
+                let base = trimmed[i+1..].to_string();
+                if base == "" { None } else { Some(base) }
+            }
+        }
+    }
+
+    func extension_opt(self) -> Option<string> {
+        match self.file_name() {
+            None => None,
+            Some(name) => {
+                let dot = name.rfind(".");
+                match dot {
+                    None => None,
+                    Some(0) => None, // dotfile without extension
+                    Some(i) => Some(name[i+1..].to_string()),
+                }
+            }
+        }
+    }
+
+    func stem(self) -> Option<string> {
+        match self.file_name() {
+            None => None,
+            Some(name) => {
+                let dot = name.rfind(".");
+                match dot {
+                    None => Some(name),
+                    Some(0) => Some(name), // ".bashrc" → stem is ".bashrc"
+                    Some(i) => Some(name[0..i].to_string()),
+                }
+            }
+        }
+    }
+
+    // Check if path exists
+    func exists(self, cap: CapFsRead) -> bool {
+        // Implementation would check filesystem
+        // For now, return false as placeholder
+        @intrinsic("unreachable")
+    }
+
+    // Get path metadata
+    func metadata(self, cap: CapFsRead) -> Option<FileMetadata> {
+        if !self.exists(cap) {
+            return None;
+        }
+        // Implementation would get file metadata
+        @intrinsic("unreachable")
+    }
+
+    // Check if path is a file
+    func is_file(self, cap: CapFsRead) -> bool {
+        match self.metadata(cap) {
+            Some(meta) => meta.file_type == FileType::File,
+            None => false,
+        }
+    }
+
+    // Check if path is a directory
+    func is_dir(self, cap: CapFsRead) -> bool {
+        match self.metadata(cap) {
+            Some(meta) => meta.file_type == FileType::Directory,
+            None => false,
+        }
+    }
+
+    // List directory contents
+    func read_dir(self, cap: CapFsRead) -> Option<Vec<DirEntry>> {
+        if !self.is_dir(cap) {
+            return None;
+        }
+        // Implementation would read directory
+        @intrinsic("unreachable")
+    }
+
+    // Read file contents as string
+    func read_string(self, cap: CapFsRead) -> Option<string> {
+        if !self.is_file(cap) {
+            return None;
+        }
+        // Implementation would read file contents
+        @intrinsic("unreachable")
+    }
+
+    // Write string to file
+    func write_string(self, content: string, cap: CapFsWrite) -> Result<(), fs.FsError> {
+        // Implementation would write to file
+        @intrinsic("unreachable")
+    }
+}
+
+// PathBuf implementation
+impl PathBuf {
+    func new(path: string) -> PathBuf { PathBuf { path: path } }
+
+    func as_string(self) -> string { self.path }
+
+    // Convert to borrowed Path view
+    func as_path(self) -> Path { Path { path: self.path.clone() } }
+
+    // Join component; respects absolute RHS rule and single-separator invariant
+    func join(self, component: string) -> PathBuf {
+        Path { path: self.path }.join(component)
+    }
+
+    // Replace file name with given name
+    func with_file_name(self, name: string) -> PathBuf {
+        match Path { path: self.path }.parent() {
+            Some(parent) => parent.join(name),
+            None => PathBuf::new(name),
+        }
+    }
+
+    // Replace extension; empty ext removes it if present.
+    // Dotfiles (e.g., ".bashrc") are treated as having no extension.
+    func with_extension(self, ext: string) -> PathBuf {
+        let p = Path { path: self.path };
+        let base = p.name();
+        let dot_pos = base.rfind(".");
+        let (has_ext, stem) = match dot_pos {
+            None => (false, base),
+            Some(0) => (false, base), // dotfile
+            Some(i) => (true, base[0..i].to_string()),
+        };
+
+        let new_name = if ext == "" {
+            if has_ext { stem } else { base }
+        } else {
+            stem + "." + ext
+        };
+
+        p.parent().map(|parent| parent.join(new_name)).unwrap_or(PathBuf::new(new_name))
+    }
+}
+
+// File metadata
+struct FileMetadata {
+    file_type: FileType,
+    size: u64,
+    modified: Timestamp,
+    permissions: FilePermissions,
+}
+
+enum FileType {
+    File,
+    Directory,
+    Symlink,
+    Other,
+}
+
+struct FilePermissions {
+    readonly: bool,
+    write: bool,
+    execute: bool,
+}
+
+struct Timestamp {
+    seconds: i64,
+    nanos: u32,
+}
+
+// Directory entry
+struct DirEntry {
+    path: Path,
+    file_name: string,
+    file_type: FileType,
+}
+
+// Filesystem errors
+enum FsError {
+    NotFound,
+    PermissionDenied,
+    IsADirectory,
+    NotADirectory,
+    AlreadyExists,
+    IoError(string),
+    CapabilityDenied(string),
+}
+
+// DirHandle - Directory iteration with capability control
+struct DirHandle {
+    path: Path,
+    cap: CapFsRead,
+    entries: Vec<DirEntry>,
+    index: usize = 0,
+}
+
+impl DirHandle {
+    func new(path: Path, cap: CapFsRead) -> Option<DirHandle> {
+        let entries = path.read_dir(cap)?;
+        Some(DirHandle {
+            path: path,
+            cap: cap,
+            entries: entries,
+            index: 0,
+        })
+    }
+
+    // Iterator implementation
+    func next(self) -> Option<DirEntry> {
+        if self.index >= self.entries.len() {
+            return None;
+        }
+
+        let entry = self.entries[self.index];
+        self.index = self.index + 1;
+        Some(entry)
+    }
+}
+
+// Capability types for filesystem operations
+enum CapFsRead;
+enum CapFsWrite;
+enum CapFsCreate;
+
+// Path utility functions
+func cwd() -> Path {
+    Path::new(".")  // Placeholder - would get current working directory
+}
+
+func home() -> Option<Path> {
+    // Would get user home directory from environment
+    Some(Path::new("/home/user"))  // Placeholder
+}
+
+// Path construction from components
+func path_from_components(components: Vec<string>) -> Path {
+    let path_str = components.iter().collect::<Vec<_>>().join("/");
+    Path::new(path_str)
+}
+
+// Find files with glob patterns (simplified)
+func glob(pattern: string, cap: CapFsRead) -> Vec<Path> {
+    // Implementation would do glob matching
+    Vec::new()  // Placeholder
+}
+
+// Test filesystem operations
+func main() {
+    // Test path operations
+    let p1 = Path::new("/home/user");
+    let p2 = p1.join("documents");
+    let p3 = p2.join("readme.txt");
+
+    assert_eq(p2.as_string(), "/home/user/documents");
+    assert_eq(p3.as_string(), "/home/user/documents/readme.txt");
+
+    let parent = p3.parent().unwrap();
+    assert_eq(parent.as_string(), "/home/user/documents");
+
+    assert_eq(p3.name(), "readme.txt");
+    assert_eq(p3.extension(), "txt");
+
+    // Test path construction
+    let components = Vec::new();
+    components.push("usr");
+    components.push("bin");
+    components.push("janus");
+
+    let constructed = path_from_components(components);
+    assert_eq(constructed.as_string(), "usr/bin/janus");
+
+    print("✅ janus.fs.path: All path tests passed");
+}
+
+// Additional utility functions moved above; legacy block removed to avoid duplication
+
+// Safe file operations with explicit capabilities
+func read_file(path: Path, cap: CapFsRead) -> Option<string> {
+    path.read_string(cap)
+}
+
+func write_file(path: Path, content: string, cap: CapFsWrite) -> Result<(), fs.FsError> {
+    path.write_string(content, cap)
+}
+
+func create_dir(path: Path, cap: CapFsCreate) -> Result<(), fs.FsError> {
+    // Implementation would create directory
+    Ok(())  // Placeholder
+}
+
+func copy_file(from: Path, to: Path, cap: CapFsRead & CapFsWrite) -> Result<(), fs.FsError> {
+    let content = from.read_string(cap)?;
+    to.write_string(content, cap)
+}
+
+// Join multiple components starting from a borrowed Path
+func join_all(path: Path, parts: Vec<string>) -> PathBuf {
+    PathBuf::new(path.as_string()).join_all(parts)
+}

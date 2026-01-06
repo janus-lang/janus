@@ -1,10 +1,15 @@
+<!--
+SPDX-License-Identifier: LUL-1.0
+Copyright (c) 2026 Self Sovereign Society Foundation
+-->
+
 # JANUS
 
 > "System programming has lost its way. We are returning it to the Forge."
 
-**Version:** 0.2.0-2 (Alpha)
+**Version:** 2026.1.5 (Alpha)
 **Status:** Alpha Release
-**License:** [SSS-1.0](LICENSE) (Self Sovereign Society License)
+**License:** [Libertaria Suite](docs/legal/licensing-explained.md) (LCL-1.0 / LSL-1.0 / LUL-1.0)
 
 ---
 

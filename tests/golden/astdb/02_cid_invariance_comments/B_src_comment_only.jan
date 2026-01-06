@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Fibonacci function - computes nth Fibonacci number
+func fibonacci(n: u32) -> u32 {
+    // Base case: return n if n <= 1
+    if (n <= 1) return n;
+    // Recursive case: sum of previous two numbers
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}

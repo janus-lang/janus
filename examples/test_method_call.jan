@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Test method call syntax
+import std.string;
+
+func test() -> void {
+    let hello = "test"
+    let len = std.string.len(hello)
+}
+
+func main() -> i32 {
+    test()
+    return 0
+}

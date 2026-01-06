@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// @description: Perfect hash dispatch optimization - canonical truth for hash-based strategy
+// @author: Golden Test Framework
+// @expected-strategy: perfect_hash
+// @fallback-strategies: switch_table, binary_search
+// @performance: dispatch_overhead_ns < 20 ±3% @99%
+// @performance: instruction_count <= 30
+// @performance: memory_usage_bytes <= 128
+// @performance: cache_hit_ratio > 0.95
+// @performance-profile: hash_dispatch:x86_64:constant:1.0
+// @platforms: all
+// @optimization-levels: release_safe, release_fast
+// @validate: ir_structure:validate_perfect_hash:Ensure perfect hash table generation
+// @validate: performance_bounds:validate_hash_performance:Validate hash lookup performance
+// @quality-gate: hash_stability:performance_stability:0.02:100
+// @test-group: dynamic_dispatch
+// @test-group: hash_optimization
+// @test-group: performance_critical
+
+// Optimal case for perfect hash - 4 implementations with distinct signatures
+func compute(x: i32) -> i32 {
+    x * x
+}
+
+func compute(x: f64) -> f64 {
+    x * x
+}
+
+func compute(x: bool) -> i32 {
+    if x { 1 } else { 0 }
+}
+
+func compute(x: string) -> i32 {
+    x.length()
+}
+
+func main() {
+    let result1 = compute(7)
+    let result2 = compute(2.5)
+    let result3 = compute(true)
+    let result4 = compute("hello")
+}

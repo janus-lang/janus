@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+import std.hash;
+
+func hash_data(data: []const u8) -> u64 {.effects: "pure"} {
+    return std.hash.fnv1a(data);
+}
+
+func process_batch(items: [][]const u8) -> []u64 {
+    var results = make([]u64, items.len);
+    for (i, item) in enumerate(items) {
+        results[i] = hash_data(item);
+    }
+    return results;
+}

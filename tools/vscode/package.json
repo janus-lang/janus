@@ -1,0 +1,80 @@
+{
+    "name": "janus-lang",
+    "displayName": "Janus Language",
+    "description": "Sovereign Systems Language - v0.2.1-alpha",
+    "version": "0.2.2",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/SelfSovereignSociety/janus-lang.git"
+    },
+    "publisher": "SelfSovereignSociety",
+    "engines": {
+        "vscode": "^1.75.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "main": "./out/extension.js",
+    "activationEvents": [
+        "onLanguage:janus"
+    ],
+    "contributes": {
+        "languages": [
+            {
+                "id": "janus",
+                "aliases": [
+                    "Janus",
+                    "janus"
+                ],
+                "extensions": [
+                    ".jan"
+                ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "janus",
+                "scopeName": "source.janus",
+                "path": "./syntaxes/janus.tmLanguage.json"
+            }
+        ],
+        "snippets": [
+            {
+                "language": "janus",
+                "path": "./snippets/janus.code-snippets"
+            }
+        ],
+        "configuration": {
+            "type": "object",
+            "title": "Janus Configuration",
+            "properties": {
+                "janus.lsp.serverPath": {
+                    "type": "string",
+                    "default": "janus-lsp",
+                    "description": "Path to the Janus compiler binary."
+                },
+                "janus.lsp.arguments": {
+                    "type": "array",
+                    "default": [],
+                    "description": "Arguments passed to Janus to start the Language Server."
+                }
+            }
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -b",
+        "watch": "tsc -b -w",
+        "package": "vsce package"
+    },
+    "dependencies": {
+        "vscode-languageclient": "^9.0.1"
+    },
+    "devDependencies": {
+        "@types/node": "^16.11.7",
+        "@types/vscode": "^1.75.0",
+        "@vscode/vsce": "^2.22.0",
+        "typescript": "^5.3.3"
+    }
+}

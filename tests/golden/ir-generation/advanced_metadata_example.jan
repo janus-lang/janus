@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// @description: Advanced dispatch test showcasing comprehensive metadata system
+// @author: Golden Test Framework Team
+// @expected-strategy: hybrid_dispatch
+// @performance: dispatch_overhead_ns < 20
+// @performance: cache_miss_rate <= 0.05
+// @performance: memory_footprint < 1024
+// @performance: throughput_ops_per_sec >= 10000
+// @platforms: all
+// @optimization: release_fast
+// @timeout: 180
+
+// Advanced multiple dispatch example with complex type hierarchy
+func process(data: DataStream, processor: CPUProcessor) -> ProcessedResult {
+    // CPU-optimized processing
+    processor.optimizeForCPU(data)
+}
+
+func process(data: DataStream, processor: GPUProcessor) -> ProcessedResult {
+    // GPU-accelerated processing
+    processor.optimizeForGPU(data)
+}
+
+func process(data: DataStream, processor: HybridProcessor) -> ProcessedResult {
+    // Hybrid CPU/GPU processing
+    processor.optimizeHybrid(data)
+}
+
+func process(data: LargeDataStream, processor: DistributedProcessor) -> ProcessedResult {
+    // Distributed processing for large datasets
+    processor.distributeAndProcess(data)
+}
+
+func main() {
+    let cpu_data = DataStream.fromFile("input.dat")
+    let gpu_data = DataStream.fromFile("large_input.dat")
+    let hybrid_data = DataStream.fromFile("complex_input.dat")
+    let distributed_data = LargeDataStream.fromFile("massive_input.dat")
+
+    let cpu_processor = CPUProcessor.new()
+    let gpu_processor = GPUProcessor.new()
+    let hybrid_processor = HybridProcessor.new()
+    let distributed_processor = DistributedProcessor.new()
+
+    let result1 = process(cpu_data, cpu_processor)
+    let result2 = process(gpu_data, gpu_processor)
+    let result3 = process(hybrid_data, hybrid_processor)
+    let result4 = process(distributed_data, distributed_processor)
+}

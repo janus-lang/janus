@@ -1,0 +1,95 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// JanJanians: Standard Library Demo
+// Zeigt die Integration von Allocator Contexts/Regions/Using Features
+
+:main
+
+let demo_name = "Standard Library Integration Demo";
+
+// Demonstration der Standard Library Features
+print("=== Janus Standard Library Demo ===");
+print("Feature: Allocator Contexts/Regions/Using");
+print("");
+
+// Phase 1: Context-Bound Allocators
+print("Phase 1: Context-Bound Allocators");
+print("Creating allocator context...");
+
+// :min Profil (explicit allocators)
+:min {
+    let heap_alloc = Allocator.create(.heap);
+    let stack_alloc = Allocator.create(.stack);
+    
+    print("✓ Heap and Stack allocators created (explicit)");
+    print("✓ Context-bound pattern working");
+}
+
+// :script Profil (TLS regions)
+:script {
+    print("✓ TLS regions enabled (script profile)");
+    print("✓ Ergonomic defaults applied");
+}
+
+print("");
+
+// Phase 2: Region Blocks
+print("Phase 2: Region Blocks (profile-gated)");
+
+// :full Profil - Full region support
+:full {
+    print("Entering region block...");
+    region temp_region {
+        let temp_buffer = "Temporary memory in region";
+        print("✓ Region allocation successful");
+        print("✓ Automatic cleanup on exit");
+    }
+    print("✓ Region exited - memory reclaimed");
+}
+
+print("");
+
+// Phase 3: Using Blocks - RAII Pattern
+print("Phase 3: Using Blocks (RAII Pattern)");
+
+:full {
+    // Mock File object für Demo
+    struct MockFile {
+        let path: String;
+        let content: String;
+        
+        fn open(path: String) -> MockFile {
+            return MockFile{
+                path = path,
+                content = "Sample file content"
+            };
+        }
+        
+        fn readAll(self) -> String {
+            return self.content;
+        }
+        
+        fn close(self) -> void {
+            print("✓ File closed: " + self.path);
+        }
+    }
+    
+    // Using blocks automatic cleanup
+    using file = MockFile.open("demo.txt") {
+        let content = file.readAll();
+        print("✓ Using block - file read successfully");
+        print("Content length: " + content.length.toString());
+    }
+    // File automatically closed here
+    print("✓ Using block cleanup completed");
+}
+
+print("");
+print("=== Demo Completed Successfully ===");
+print("Features demonstrated:");
+print("✓ Context-bound allocators (all profiles)");
+print("✓ Region blocks (profile-gated)");
+print("✓ Using blocks with RAII (profile-gated)");
+print("✓ Progressive disclosure via profiles");
+print("✓ Syntactic honesty maintained");

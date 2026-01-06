@@ -1,0 +1,43 @@
+// janus.policy.kdl - Simple API key based security (easy to ship)
+
+// Simple API key based auth - no JWT complexity
+api-key id="ci-pipeline" {
+    key-hash "blake3:ci_pipeline_key_hash_here"
+    actions "build" "test.run" "rebuild"
+    description "CI/CD pipeline automation"
+}
+
+api-key id="formatter" {
+    key-hash "blake3:formatter_key_hash_here"
+    actions "format.file" "format.check" "format.dry_run"
+    description "Code formatting agent"
+}
+
+api-key id="refactor" {
+    key-hash "blake3:refactor_key_hash_here"
+    actions "refactor.apply" "refactor.dry_run" "refactor.validate"
+    description "Code refactoring agent"
+}
+
+api-key id="admin" {
+    key-hash "blake3:admin_key_hash_here"
+    actions "*"  // All actions allowed
+    description "Administrative access"
+}
+
+// Simple policy rules
+policy {
+    // Basic rate limiting
+    rate-limit "100/min"
+
+    // Audit all actions
+    audit-enabled true
+    audit-file ".janus/mcp-audit.jsonl"
+
+    // Dry-run enforcement for specific keys
+    require-dry-run {
+        "ci-pipeline" false  // CI can commit
+        "formatter" false    // Formatter can commit
+        "refactor" true      // Refactor must dry-run first
+    }
+}

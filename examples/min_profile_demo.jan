@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// The full text of the license can be found in the LICENSE file at the root of the repository.
+
+// Janus :min Profile Demo
+// This program demonstrates all the tokens and features available in the :min profile
+// including the newly added keywords and operators.
+
+func fibonacci(n: i32) -> i32 do
+  match n do
+    0 => 0
+    1 => 1
+    _ when n > 1 => fibonacci(n - 1) + fibonacci(n - 2)
+  end
+end
+
+func main() do
+  var i := 0
+  while i < 10 do
+    let result := fibonacci(i)
+    if result > 50 do
+      break
+    else
+      continue when result < 5
+    end
+    i = i + 1
+  end
+
+  for j in 0..5 do
+    let x := j | 1  // Bitwise OR using pipe operator
+    return x when x > 3
+  end
+end

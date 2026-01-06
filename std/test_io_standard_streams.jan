@@ -1,0 +1,547 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// std/test_io_standard_streams.jan - Unit tests for standard stream operations
+// Validates capability-gated access to stdin, stdout, and stderr
+
+import std.core
+import std.io
+import std.string
+
+// Test standard stream capability validation
+func testStandardStreamCapabilityValidation() -> void {
+    var gpa = GeneralPurposeAllocator.init();
+    defer gpa.deinit();
+    let allocator = gpa.allocator();
+
+    // Test valid stdin capability
+    let valid_stdin_cap = StdinReadCapability{
+        .max_size = 1024,
+    };
+    assert(valid_stdin_cap.validate());
+
+    // Test stdin reader creation
+    let stdin_reader_result = io.createStdinReader(allocator, valid_stdin_cap, 256);
+    switch (stdin_reader_result) {
+        .ok => |reader| {
+            // Verify reader was created successfully
+            assert(reader.buffer.capacity == 256);
+            reader.deinit();
+        },
+        .err => |err| {
+            // System-level errors are acceptable in tests
+            switch (err) {
+                .SystemError => {}, // Expected in test environment
+                else => @panic("Unexpected error creating stdin reader"),
+            }
+        }
+    }
+
+    // Test valid stdout capability
+    let valid_stdout_cap = StdoutWriteCapability{
+        .max_size = 2048,
+    };
+    assert(valid_stdout_cap.validate());
+
+    // Test stdout writer creation
+    let stdout_writer_result = io.createStdoutWriter(allocator, valid_stdout_cap, 512, true);
+    switch (stdout_writer_result) {
+        .ok => |writer| {
+            // Verify writer was created successfully
+            assert(writer.buffer.capacity == 512);
+            assert(writer.auto_flush == true);
+            writer.deinit();
+        },
+        .err => |err| {
+            // System-level errors are acceptable in tests
+            switch (err) {
+                .SystemError => {}, // Expected in test environment
+                else => @panic("Unexpected error creating stdout writer"),
+            }
+        }
+    }
+
+    // Test valid stderr capability
+    let valid_stderr_cap = StderrWriteCapability{
+        .max_size = null, // No limit
+    };
+    assert(valid_stderr_cap.validate());
+
+    // Test stderr writer creation
+    let stderr_writer_result = io.createStderrWriter(allocator, valid_stderr_cap, 128, false);
+    switch (stderr_writer_result) {
+        .ok => |writer| {
+            // Verify writer was created successfully
+            assert(writer.buffer.capacity == 128);
+            assert(writer.auto_flush == false);
+            writer.deinit();
+        },
+        .err => |err| {
+            // System-level errors are acceptable in tests
+            switch (err) {
+                .SystemError => {}, // Expected in test environment
+                else => @panic("Unexpected error creating stderr writer"),
+            }
+        }
+    }
+}
+
+// Test size limit enforcement in standard streams
+func testSizeLimitEnforcementInStandardStreams() -> void {
+    var gpa = GeneralPurposeAllocator.init();
+    defer gpa.deinit();
+    let allocator = gpa.allocator();
+
+    // Test stdin size limit
+    let limited_stdin_cap = StdinReadCapability{
+        .max_size = 50,
+    };
+
+    // Test that buffer size exceeding limit fails
+    let large_buffer_result = io.createStdinReader(allocator, limited_stdin_cap, 100);
+    switch (large_buffer_result) {
+        .ok => @panic("Should have failed on buffer size exceeding limit"),
+        .err => |err| {
+            switch (err) {
+                .SizeLimitExceeded => |info| {
+                    assert(info.size == 100);
+                    assert(info.limit == 50);
+                },
+                .SystemError => {}, // Also acceptable in test environment
+                else => @panic("Wrong error type for size limit test"),
+            }
+        }
+    }
+
+    // Test stdout size limit
+    let limited_stdout_cap = StdoutWriteCapability{
+        .max_size = 30,
+    };
+
+    let large_content = "This message is longer than 30 characters and should fail";
+    let large_write_buffer = WriteBuffer.init(large_content);
+    let write_result = io.writeStdout(large_write_buffer, limited_stdout_cap);
+    switch (write_result) {
+        .ok => @panic("Should have failed on content exceeding size limit"),
+        .err => |err| {
+            switch (err) {
+                .SizeLimitExceeded => |info| {
+                    assert(info.size == large_content.len);
+                    assert(info.limit == 30);
+                },
+                .SystemError => {}, // Also acceptable in test environment
+                else => @panic("Wrong error type for stdout size limit test"),
+            }
+        }
+    }
+
+    // Test stderr size limit
+    let limited_stderr_cap = StderrWriteCapability{
+        .max_size = 20,
+    };
+
+    let stderr_write_result = io.writeStderr(large_write_buffer, limited_stderr_cap);
+    switch (stderr_write_result) {
+        .ok => @panic("Should have failed on stderr content exceeding size limit"),
+        .err => |err| {
+            switch (err) {
+                .SizeLimitExceeded => |info| {
+                    assert(info.size == large_content.len);
+                    assert(info.limit == 20);
+                },
+                .SystemError => {}, // Also acceptable in test environment
+                else => @panic("Wrong error type for stderr size limit test"),
+            }
+        }
+    }
+}
+
+// Test stdout operations
+func testStdoutOperations() -> void {
+    let stdout_cap = StdoutWriteCapability{
+        .max_size = null, // No limit for testing
+    };
+
+    // Test basic stdout write
+    let test_message = "Hello, stdout!";
+    let write_result = io.print(test_message, stdout_cap);
+    switch (write_result) {
+        .ok => {}, // Success expected
+        .err => |err| {
+            // System-level errors are acceptable in tests
+            switch (err) {
+                .BrokenPipe, .WouldBlock => {}, // Expected in test environment
+                else => @panic("Unexpected error in stdout write"),
+            }
+        }
+    }
+
+    // Test stdout line write
+    let line_message = "This is a line";
+    let line_result = io.println(line_message, stdout_cap);
+    switch (line_result) {
+        .ok => {}, // Success expected
+        .err => |err| {
+            // System-level errors are acceptable in tests
+            switch (err) {
+                .BrokenPipe, .WouldBlock => {}, // Expected in test environment
+                else => @panic("Unexpected error in stdout line write"),
+            }
+        }
+    }
+
+    // Test stdout flush
+    let flush_result = io.flushStdout();
+    switch (flush_result) {
+        .ok => {}, // Success expected
+        .err => |err| {
+            // System-level errors are acceptable in tests
+            switch (err) {
+                .SystemError => {}, // Expected in test environment
+                else => @panic("Unexpected error in stdout flush"),
+            }
+        }
+    }
+}
+
+// Test stderr operations
+func testStderrOperations() -> void {
+    let stderr_cap = StderrWriteCapability{
+        .max_size = null, // No limit for testing
+    };
+
+    // Test basic stderr write
+    let error_message = "Error: Something went wrong";
+    let write_result = io.eprint(error_message, stderr_cap);
+    switch (write_result) {
+        .ok => {}, // Success expected
+        .err => |err| {
+            // System-level errors are acceptable in tests
+            switch (err) {
+                .BrokenPipe, .WouldBlock => {}, // Expected in test environment
+                else => @panic("Unexpected error in stderr write"),
+            }
+        }
+    }
+
+    // Test stderr line write
+    let error_line = "Error line with newline";
+    let line_result = io.eprintln(error_line, stderr_cap);
+    switch (line_result) {
+        .ok => {}, // Success expected
+        .err => |err| {
+            // System-level errors are acceptable in tests
+            switch (err) {
+                .BrokenPipe, .WouldBlock => {}, // Expected in test environment
+                else => @panic("Unexpected error in stderr line write"),
+            }
+        }
+    }
+
+    // Test stderr flush
+    let flush_result = io.flushStderr();
+    switch (flush_result) {
+        .ok => {}, // Success expected
+        .err => |err| {
+            // System-level errors are acceptable in tests
+            switch (err) {
+                .SystemError => {}, // Expected in test environment
+                else => @panic("Unexpected error in stderr flush"),
+            }
+        }
+    }
+}
+
+// Test buffered standard stream operations
+func testBufferedStandardStreamOperations() -> void {
+    var gpa = GeneralPurposeAllocator.init();
+    defer gpa.deinit();
+    let allocator = gpa.allocator();
+
+    // Test buffered stdout writer
+    let stdout_cap = StdoutWriteCapability{
+        .max_size = null,
+    };
+
+    let stdout_writer_result = io.createStdoutWriter(allocator, stdout_cap, 256, false);
+    switch (stdout_writer_result) {
+        .ok => |writer| {
+            defer writer.deinit();
+
+            // Test writing to buffer
+            let message = "Buffered message";
+            let write_result = writer.write(message);
+            switch (write_result) {
+                .ok => |bytes_written| {
+                    assert(bytes_written == message.len);
+                },
+                .err => |err| {
+                    // System-level errors are acceptable in tests
+                    switch (err) {
+                        .BrokenPipe, .WouldBlock => {}, // Expected in test environment
+                        else => @panic("Unexpected error in buffered write"),
+                    }
+                }
+            }
+
+            // Test line writing
+            let line = "Buffered line";
+            let line_result = writer.writeLine(line);
+            switch (line_result) {
+                .ok => {},
+                .err => |err| {
+                    // System-level errors are acceptable in tests
+                    switch (err) {
+                        .BrokenPipe, .WouldBlock => {}, // Expected in test environment
+                        else => @panic("Unexpected error in buffered line write"),
+                    }
+                }
+            }
+
+            // Test manual flush
+            let flush_result = writer.flush();
+            switch (flush_result) {
+                .ok => {},
+                .err => |err| {
+                    // System-level errors are acceptable in tests
+                    switch (err) {
+                        .BrokenPipe, .WouldBlock => {}, // Expected in test environment
+                        else => @panic("Unexpected error in buffered flush"),
+                    }
+                }
+            }
+        },
+        .err => |err| {
+            // System-level errors are acceptable in tests
+            switch (err) {
+                .SystemError => {}, // Expected in test environment
+                else => @panic("Unexpected error creating buffered stdout writer"),
+            }
+        }
+    }
+
+    // Test buffered stderr writer with auto-flush
+    let stderr_cap = StderrWriteCapability{
+        .max_size = null,
+    };
+
+    let stderr_writer_result = io.createStderrWriter(allocator, stderr_cap, 128, true);
+    switch (stderr_writer_result) {
+        .ok => |writer| {
+            defer writer.deinit();
+
+            // Test auto-flush behavior
+            let long_message = "This is a long error message that should trigger auto-flush when the buffer fills up";
+            let auto_flush_result = writer.write(long_message);
+            switch (auto_flush_result) {
+                .ok => |bytes_written| {
+                    assert(bytes_written == long_message.len);
+                },
+                .err => |err| {
+                    // System-level errors are acceptable in tests
+                    switch (err) {
+                        .BrokenPipe, .WouldBlock => {}, // Expected in test environment
+                        else => @panic("Unexpected error in auto-flush write"),
+                    }
+                }
+            }
+        },
+        .err => |err| {
+            // System-level errors are acceptable in tests
+            switch (err) {
+                .SystemError => {}, // Expected in test environment
+                else => @panic("Unexpected error creating buffered stderr writer"),
+            }
+        }
+    }
+}
+
+// Test stdin reading operations
+func testStdinReadingOperations() -> void {
+    var gpa = GeneralPurposeAllocator.init();
+    defer gpa.deinit();
+    let allocator = gpa.allocator();
+
+    let stdin_cap = StdinReadCapability{
+        .max_size = 1024,
+    };
+
+    // Test stdin line reading (will likely return null in test environment)
+    let line_result = io.readStdinLine(allocator, stdin_cap);
+    switch (line_result) {
+        .ok => |maybe_line| {
+            if (maybe_line) |line| {
+                defer allocator.free(line);
+                // Verify line was read
+                assert(line.len >= 0);
+            }
+            // null is acceptable - no input available
+        },
+        .err => |err| {
+            // System-level errors are acceptable in tests
+            switch (err) {
+                .EndOfFile, .WouldBlock => {}, // Expected in test environment
+                else => @panic("Unexpected error in stdin line read"),
+            }
+        }
+    }
+
+    // Test full stdin reading (will likely return empty in test environment)
+    let full_read_result = io.readStdin(allocator, stdin_cap);
+    switch (full_read_result) {
+        .ok => |buffer| {
+            defer buffer.deinit();
+            // Verify buffer was created
+            assert(buffer.allocator != null);
+        },
+        .err => |err| {
+            // System-level errors are acceptable in tests
+            switch (err) {
+                .EndOfFile, .WouldBlock => {}, // Expected in test environment
+                else => @panic("Unexpected error in full stdin read"),
+            }
+        }
+    }
+}
+
+// Test allocator sovereignty in standard streams
+func testAllocatorSovereigntyInStandardStreams() -> void {
+    // Test with arena allocator
+    var arena_buffer: [4096]u8 = undefined;
+    var arena = ArenaAllocator.init(arena_buffer[0..]);
+    let arena_alloc = arena.allocator();
+
+    let stdin_cap = StdinReadCapability{
+        .max_size = 512,
+    };
+
+    // Create stdin reader with arena allocator
+    let arena_reader_result = io.createStdinReader(arena_alloc, stdin_cap, 256);
+    switch (arena_reader_result) {
+        .ok => |reader| {
+            // Verify reader uses arena allocator
+            assert(reader.buffer.allocator == arena_alloc);
+            // No explicit deinit needed - arena cleanup handles it
+        },
+        .err => |err| {
+            // System-level errors are acceptable in tests
+            switch (err) {
+                .SystemError => {}, // Expected in test environment
+                else => @panic("Unexpected error with arena allocator"),
+            }
+        }
+    }
+
+    // Reset arena - O(1) cleanup
+    arena.reset();
+
+    // Test with general purpose allocator
+    var gpa = GeneralPurposeAllocator.init();
+    defer gpa.deinit();
+    let gpa_alloc = gpa.allocator();
+
+    let stdout_cap = StdoutWriteCapability{
+        .max_size = null,
+    };
+
+    let gpa_writer_result = io.createStdoutWriter(gpa_alloc, stdout_cap, 512, false);
+    switch (gpa_writer_result) {
+        .ok => |writer| {
+            defer writer.deinit(); // Explicit cleanup required
+
+            // Verify writer uses GPA
+            assert(writer.buffer.allocator == gpa_alloc);
+        },
+        .err => |err| {
+            // System-level errors are acceptable in tests
+            switch (err) {
+                .SystemError => {}, // Expected in test environment
+                else => @panic("Unexpected error with GPA"),
+            }
+        }
+    }
+}
+
+// Test convenience functions
+func testConvenienceFunctions() -> void {
+    let stdout_cap = StdoutWriteCapability{
+        .max_size = null,
+    };
+
+    let stderr_cap = StderrWriteCapability{
+        .max_size = null,
+    };
+
+    // Test print function
+    let print_result = io.print("Test print", stdout_cap);
+    switch (print_result) {
+        .ok => {},
+        .err => |err| {
+            // System-level errors are acceptable in tests
+            switch (err) {
+                .BrokenPipe, .WouldBlock => {}, // Expected in test environment
+                else => @panic("Unexpected error in print"),
+            }
+        }
+    }
+
+    // Test println function
+    let println_result = io.println("Test println", stdout_cap);
+    switch (println_result) {
+        .ok => {},
+        .err => |err| {
+            // System-level errors are acceptable in tests
+            switch (err) {
+                .BrokenPipe, .WouldBlock => {}, // Expected in test environment
+                else => @panic("Unexpected error in println"),
+            }
+        }
+    }
+
+    // Test eprint function
+    let eprint_result = io.eprint("Test eprint", stderr_cap);
+    switch (eprint_result) {
+        .ok => {},
+        .err => |err| {
+            // System-level errors are acceptable in tests
+            switch (err) {
+                .BrokenPipe, .WouldBlock => {}, // Expected in test environment
+                else => @panic("Unexpected error in eprint"),
+            }
+        }
+    }
+
+    // Test eprintln function
+    let eprintln_result = io.eprintln("Test eprintln", stderr_cap);
+    switch (eprintln_result) {
+        .ok => {},
+        .err => |err| {
+            // System-level errors are acceptable in tests
+            switch (err) {
+                .BrokenPipe, .WouldBlock => {}, // Expected in test environment
+                else => @panic("Unexpected error in eprintln"),
+            }
+        }
+    }
+}
+
+// Main test runner
+func main() -> void {
+    testStandardStreamCapabilityValidation();
+    testSizeLimitEnforcementInStandardStreams();
+    testStdoutOperations();
+    testStderrOperations();
+    testBufferedStandardStreamOperations();
+    testStdinReadingOperations();
+    testAllocatorSovereigntyInStandardStreams();
+    testConvenienceFunctions();
+
+    print("✅ Standard stream capability validation complete");
+    print("✅ Size limit enforcement in standard streams complete");
+    print("✅ Stdout operations validation complete");
+    print("✅ Stderr operations validation complete");
+    print("✅ Buffered standard stream operations complete");
+    print("✅ Stdin reading operations complete");
+    print("✅ Allocator sovereignty in standard streams complete");
+    print("✅ Convenience functions validation complete");
+}

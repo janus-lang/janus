@@ -1,0 +1,368 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025 Janus Project Authors
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+/// ===================================
+/// Profile Integration für Region Blocks
+/// ===================================
+
+import "./region.jan" as Region
+import "./escape_analysis.jan" as EscapeAnalysis
+import "../context.jan" as AllocContext
+
+/// ==============================
+/// Profile Configuration System
+/// ==============================
+
+/// Profile-specific region configuration
+pub type ProfileConfig {
+    /// Whether region blocks are enabled in this profile
+    regions_enabled: Bool,
+    
+    /// Whether region escape analysis is enforced
+    escape_analysis_required: Bool,
+    
+    /// Default region size for this profile
+    default_region_size: usize,
+    
+    /// Maximum region nesting depth
+    max_region_depth: usize,
+    
+    /// Whether TLS regions are available (for :script profile)
+    tls_regions_enabled: Bool,
+    
+    /// Whether regions can be used in published code
+    publication_allowed: Bool,
+}
+
+/// Configuration for :min profile (Teaching Subset)
+pub fn configForMin() -> ProfileConfig {
+    return ProfileConfig{
+        .regions_enabled = false,      // Disabled in :min - compile error
+        .escape_analysis_required = false,
+        .default_region_size = 0,
+        .max_region_depth = 0,
+        .tls_regions_enabled = false,
+        .publication_allowed = true,
+    };
+}
+
+/// Configuration for :script profile (Interactive Scripting)
+pub fn configForScript() -> ProfileConfig {
+    return ProfileConfig{
+        .regions_enabled = true,       // Enabled for ergonomics
+        .escape_analysis_required = true, // But safety still enforced
+        .default_region_size = 1024 * 1024, // 1MB default
+        .max_region_depth = 16,        // Reasonable nesting limit
+        .tls_regions_enabled = true,   // TLS region injection
+        .publication_allowed = false,  // Cannot publish :script artifacts
+    };
+}
+
+/// Configuration for :full profile (Complete Language)
+pub fn configForFull() -> ProfileConfig {
+    return ProfileConfig{
+        .regions_enabled = true,       // Full region support
+        .escape_analysis_required = true, // Complete safety analysis
+        .default_region_size = 4 * 1024 * 1024, // 4MB default
+        .max_region_depth = 64,        // Deep nesting support
+        .tls_regions_enabled = true,   // Available but explicit
+        .publication_allowed = true,   // Full production support
+    };
+}
+
+/// Get configuration for a specific profile
+pub fn getConfigForProfile(profile: JanusProfile) -> ProfileConfig {
+    match profile {
+        .min => return configForMin(),
+        .script => return configForScript(),
+        .full => return configForFull(),
+        .go => return configForMin(), // Same as :min for now
+        .elixir => return configForMin(), // Same as :min for now
+        .npu => return configForFull(), // Same as :full for now
+    }
+}
+
+/// Janus language profiles
+pub enum JanusProfile {
+    min,
+    script,
+    go,
+    elixir,
+    full,
+    npu,
+}
+
+/// ==============================
+/// Profile-Guided Region Factory
+/// ==============================
+
+/// Factory for creating profile-appropriate regions
+pub type RegionFactory {
+    /// Current profile configuration
+    config: ProfileConfig,
+    
+    /// Allocator context for region creation
+    context: AllocContext,
+    
+    /// Escape analyzer for safety checking
+    analyzer: EscapeAnalysis.EscapeAnalyzer,
+    
+    /// Current profile
+    profile: JanusProfile,
+}
+
+/// Create a region factory for a specific profile
+pub fn createFactory(profile: JanusProfile, ctx: AllocContext) -> Result[RegionFactory, FactoryError] {
+    let config = getConfigForProfile(profile);
+    
+    // Validate profile configuration
+    if (!config.regions_enabled and profile != .min) {
+        return Err(FactoryError.RegionsDisabled);
+    }
+    
+    if (profile == .min) {
+        return Err(FactoryError.RegionsDisabledInMin);
+    }
+    
+    let analyzer = EscapeAnalysis.createAnalyzer(ctx);
+    
+    return Ok(RegionFactory{
+        .config = config,
+        .context = ctx,
+        .analyzer = analyzer,
+        .profile = profile,
+    });
+}
+
+/// Create a region with profile-specific defaults
+pub fn createRegion(factory: *RegionFactory, name: String, size: usize?) -> Result[ProfileRegion, ProfileError] {
+    // Use default size if not provided
+    let actual_size = if (size != null) size.? else factory.config.default_region_size;
+    
+    // Validate region parameters
+    if (actual_size > factory.config.default_region_size * 4) {
+        return Err(ProfileError.RegionTooLarge);
+    }
+    
+    // Create the underlying region
+    let region_result = Region.createWithContext(factory.context, .scratch, actual_size);
+    if (region_result == Err(_)) {
+        return Err(ProfileError.OutOfMemory);
+    }
+    
+    let region = region_result.?;
+    
+    return Ok(ProfileRegion{
+        .region = region,
+        .name = name,
+        .factory = factory,
+        .profile = factory.profile,
+    });
+}
+
+/// Create a TLS region for :script profile (convenience)
+pub fn createTlsRegion(factory: *RegionFactory) -> Result[ProfileRegion, ProfileError] {
+    if (!factory.config.tls_regions_enabled) {
+        return Err(ProfileError.TlsRegionsDisabled);
+    }
+    
+    if (factory.profile != .script) {
+        return Err(ProfileError.TlsRegionsScriptOnly);
+    }
+    
+    // TLS regions are special - they use thread-local storage
+    // This is a simplified representation
+    return createRegion(factory, "tls_region", null);
+}
+
+/// ==============================
+/// Profile-Wrapped Region Type
+/// ==============================
+
+/// A region with profile-specific behavior and safety guarantees
+pub type ProfileRegion {
+    /// The underlying region implementation
+    region: Region.BumpRegion,
+    
+    /// Human-readable name for debugging
+    name: String,
+    
+    /// Factory that created this region (for configuration access)
+    factory: *RegionFactory,
+    
+    /// The profile this region was created for
+    profile: JanusProfile,
+}
+
+/// Implement Region trait for ProfileRegion (delegation)
+impl Region.Region for ProfileRegion {
+    pub fn alloc[T](self: *Self, size: usize) -> Result[*T, Region.RegionError] {
+        // Begin escape analysis for this allocation
+        EscapeAnalysis.beginRegion(&self.factory.analyzer, &self.region);
+        defer EscapeAnalysis.endRegion(&self.factory.analyzer);
+        
+        // Perform allocation
+        let result = self.region.alloc[T](size);
+        
+        if (result == Ok(ptr)) {
+            // Register pointer for escape analysis
+            EscapeAnalysis.registerPointer(&self.factory.analyzer, ptr, getCurrentLocation());
+        }
+        
+        return result;
+    }
+    
+    pub fn pos(self: *Self) -> usize {
+        return self.region.pos();
+    }
+    
+    pub fn capacity(self: *Self) -> usize {
+        return self.region.capacity();
+    }
+    
+    pub fn contains(self: *Self, ptr: *any) -> Bool {
+        return self.region.contains(ptr);
+    }
+    
+    pub fn reset(self: *Self) -> Void {
+        self.region.reset();
+    }
+}
+
+/// Check if region operations are allowed in current profile
+pub fn checkProfilePermissions(factory: *RegionFactory, operation: RegionOperation) -> Result[Void, ProfileError] {
+    match operation {
+        .CreateRegion => {
+            if (!factory.config.regions_enabled) {
+                return Err(ProfileError.RegionsDisabled);
+            }
+        },
+        .CreateTlsRegion => {
+            if (!factory.config.tls_regions_enabled) {
+                return Err(ProfileError.TlsRegionsDisabled);
+            }
+        },
+        .PublishCode => {
+            if (!factory.config.publication_allowed) {
+                return Err(ProfileError.PublicationNotAllowed);
+            }
+        },
+    }
+    
+    return Ok(());
+}
+
+/// Types of region operations that require profile checks
+pub enum RegionOperation {
+    CreateRegion,
+    CreateTlsRegion,
+    PublishCode,
+}
+
+/// Error types for profile-aware operations
+pub type ProfileError {
+    RegionsDisabled,
+    RegionsDisabledInMin,
+    TlsRegionsDisabled,
+    TlsRegionsScriptOnly,
+    RegionTooLarge,
+    PublicationNotAllowed,
+    OutOfMemory,
+}
+
+/// Factory creation errors
+pub type FactoryError {
+    RegionsDisabled,
+    RegionsDisabledInMin,
+    InvalidProfile,
+}
+
+/// ==============================
+/// Migration and Compatibility
+/// ==============================
+
+/// Migration helper for code moving between profiles
+pub type RegionMigrator {
+    /// Source profile
+    from_profile: JanusProfile,
+    
+    /// Target profile
+    to_profile: JanusProfile,
+    
+    /// Source configuration
+    from_config: ProfileConfig,
+    
+    /// Target configuration
+    to_config: ProfileConfig,
+}
+
+/// Check if region usage is compatible between profiles
+pub fn checkMigrationCompatibility(from: JanusProfile, to: JanusProfile) -> MigrationResult {
+    let from_config = getConfigForProfile(from);
+    let to_config = getConfigForProfile(to);
+    
+    // :min -> other profiles
+    if (from == .min and to != .min) {
+        return MigrationResult{
+            .compatible = true,
+            .warnings = vec!["Region blocks will now be available".toString()],
+            .migration_steps = vec!["Add explicit region declarations".toString()],
+        };
+    }
+    
+    // :script -> other profiles
+    if (from == .script and to != .script) {
+        var warnings = vec![]
+        var steps = vec!["Remove TLS region dependencies".toString()];
+        
+        if (!to_config.publication_allowed) {
+            warnings.push("Publication restrictions removed".toString());
+        }
+        
+        return MigrationResult{
+            .compatible = true,
+            .warnings = warnings,
+            .migration_steps = steps,
+        };
+    }
+    
+    // Other migrations are generally compatible
+    return MigrationResult{
+        .compatible = true,
+        .warnings = vec![],
+        .migration_steps = vec![],
+    };
+}
+
+/// Result of profile migration analysis
+pub type MigrationResult {
+    /// Whether the migration is compatible
+    compatible: Bool,
+    
+    /// Warnings about the migration
+    warnings: Vec[String],
+    
+    /// Steps needed for migration
+    migration_steps: Vec[String],
+}
+
+/// Get the current source location (stub implementation)
+fn getCurrentLocation() -> EscapeAnalysis.SourceLocation {
+    return EscapeAnalysis.SourceLocation{
+        .file = "unknown".toString(),
+        .line = 0,
+        .column = 0,
+        .function = "unknown".toString(),
+    };
+}

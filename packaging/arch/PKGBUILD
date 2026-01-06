@@ -1,0 +1,60 @@
+# Maintainer: Janus Development Team <maintainer@janus-lang.org>
+pkgname=janus-lang
+pkgver=0.1.2
+pkgrel=1
+pkgdesc="Systems language with precise incremental compilation and revolutionary ASTDB architecture"
+arch=('x86_64')
+url="https://github.com/janus-lang/janus"
+license=('CC0-1.0')
+depends=('glibc')
+makedepends=('zig>=0.14.0' 'git')
+provides=('janus')
+conflicts=('janus')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/janus-lang/janus/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP')  # Update with actual checksum when releasing
+
+# For development builds from git
+# source=("git+https://github.com/janus-lang/janus.git")
+# sha256sums=('SKIP')
+
+build() {
+    cd "$srcdir/janus-$pkgver"
+
+    # Build with Zig
+    zig build -Doptimize=ReleaseSafe
+}
+
+check() {
+    cd "$srcdir/janus-$pkgver"
+
+    # Run basic tests
+    ./zig-out/bin/janus version
+
+    # Test CAS functionality
+    ./zig-out/bin/janus test-cas
+}
+
+package() {
+    cd "$srcdir/janus-$pkgver"
+
+    # Install main executable
+    install -Dm755 zig-out/bin/janus "$pkgdir/usr/bin/janus"
+
+    # Install documentation
+    install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+    install -Dm644 CONTRIBUTING.md "$pkgdir/usr/share/doc/$pkgname/CONTRIBUTING.md"
+    install -Dm644 SECURITY.md "$pkgdir/usr/share/doc/$pkgname/SECURITY.md"
+
+    # Install license files
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+    # Install examples
+    install -dm755 "$pkgdir/usr/share/doc/$pkgname/examples"
+    cp -r examples/* "$pkgdir/usr/share/doc/$pkgname/examples/"
+
+    # Install specifications (for developers)
+    install -dm755 "$pkgdir/usr/share/doc/$pkgname/specs"
+    cp -r docs/specs/* "$pkgdir/usr/share/doc/$pkgname/specs/"
+}
+
+# vim:set ts=2 sw=2 et:

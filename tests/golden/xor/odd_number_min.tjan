@@ -1,0 +1,6 @@
+# golden test: odd number via simple loop
+let nums := [2, 3, 5, 2, 3]
+var acc := 0
+for n in nums { acc ^= n }
+print acc
+# EXPECT: 5

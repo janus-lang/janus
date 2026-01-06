@@ -1,0 +1,55 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// @description: Advanced dispatch optimization with comprehensive metadata
+// @author: Golden Test Framework
+// @created: 2025-01-27
+// @expected-strategy: perfect_hash
+// @fallback-strategies: switch_table, binary_search
+// @performance: dispatch_overhead_ns < 25 ±3% @99%
+// @performance: memory_usage_bytes <= 512
+// @performance: cache_hit_ratio > 0.95 ±1%
+// @performance: instruction_count < 50
+// @performance-profile: heavy_dispatch:x86_64:constant:1.0
+// @platforms: linux_x86_64, macos_aarch64
+// @exclude-platforms: windows_x86_64
+// @optimization-levels: release_safe, release_fast
+// @timeout: 180
+// @max-retries: 2
+// @parallel: true
+// @requires-isolation: false
+// @setup: echo "Starting advanced dispatch test"
+// @cleanup: echo "Advanced dispatch test completed"
+// @env: JANUS_TEST_MODE=advanced
+// @env: DISPATCH_OPTIMIZATION=aggressive
+// @depends-on: setup_dependency:basic_dispatch_test:before
+// @test-group: advanced_tests
+// @test-group: performance_validation
+// @test-group: dispatch_optimization
+// @validate: ir_structure:validate_advanced_ir:Validate advanced IR structure and optimization
+// @validate: performance_bounds:validate_advanced_perf:Validate advanced performance characteristics
+// @quality-gate: advanced_stability:performance_stability:0.02:50
+// @quality-gate: advanced_success:success_rate:0.98:25
+
+func process(x: i32) -> i32 {
+    x * 2 + 1
+}
+
+func process(x: f64) -> f64 {
+    x * 2.0 + 1.0
+}
+
+func process(x: string) -> string {
+    x ++ "_processed"
+}
+
+func process(x: bool) -> string {
+    if x { "true_processed" } else { "false_processed" }
+}
+
+func main() {
+    let result1 = process(42)
+    let result2 = process(3.14)
+    let result3 = process("test")
+    let result4 = process(true)
+}

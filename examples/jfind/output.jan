@@ -1,0 +1,103 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Output formatter with deterministic sorting and memory-efficient result collection
+// Provides consistent, scriptable output for jfind results
+
+use std.io
+use std.os
+
+// Result collector with optional sorting
+struct OutputFormatter {
+    results: ArrayList(string),
+    allocator: *Allocator,
+    should_sort: bool,
+}
+
+// Initialize output formatter
+func OutputFormatter.init(allocator: *Allocator, should_sort: bool) -> OutputFormatter {
+    return OutputFormatter{
+        results: ArrayList(string).init(&allocator),
+        allocator: allocator,
+        should_sort: should_sort,
+    }
+}
+
+// Clean up resources
+func OutputFormatter.deinit(self: *OutputFormatter) -> void {
+    // Free all stored result strings
+    for result in self.results.items do
+        self.allocator.free(result)
+    end
+    self.results.deinit()
+}
+
+// Add a matching file path to results
+func OutputFormatter.add_result(self: *OutputFormatter, path: string) -> !void {
+    if self.should_sort do
+        // Store result for later sorting
+        let owned_path = try self.allocator.dupe(u8, path)
+        try self.results.append(owned_path)
+    else do
+        // Output immediately for maximum performance
+        print("{s}", .{path})
+    end
+}
+
+// Output all collected results (sorted if requested)
+func OutputFormatter.flush(self: *OutputFormatter) -> !void {
+    if !self.should_sort do
+        // Results were already output immediately
+        return
+    end
+
+    // Sort results alphabetically for deterministic output
+    if self.results.items.len > 0 do
+        sort_strings(self.results.items)
+
+        // Output sorted results
+        for result in self.results.items do
+            print("{s}", .{result})
+        end
+    end
+}
+
+// Sort array of strings alphabetically
+func sort_strings(strings: []string) -> void {
+    // TODO: Implement efficient string sorting
+    // For now, we'll use a simple bubble sort as a placeholder
+
+    let n = strings.len
+    var i: usize = 0
+    while i < n do
+        var j: usize = 0
+        while j < n - 1 - i do
+            if string_compare(strings[j], strings[j + 1]) > 0 do
+                // Swap strings
+                let temp = strings[j]
+                strings[j] = strings[j + 1]
+                strings[j + 1] = temp
+            end
+            j += 1
+        end
+        i += 1
+    end
+}
+
+// Compare two strings lexicographically
+func string_compare(a: string, b: string) -> i32 {
+    // TODO: Implement proper string comparison
+    // For now, return 0 (equal) as a stub
+    return 0
+}

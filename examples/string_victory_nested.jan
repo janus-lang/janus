@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    print("=== String Victory ===");
+    let alloc: i32 = 0;
+    
+    // Create string handle by passing intrinsic results directly
+    // This avoids potential type issues with intermediate variables
+    let h: i32 = string_create(
+        string_data_intrinsic("Janus Voice"),
+        i32_to_i64(string_len_intrinsic("Janus Voice")),
+        alloc
+    );
+    
+    print("Output:");
+    string_print(h);
+    print("");
+    
+    string_free(h, alloc);
+    print("=== Done ===");
+}

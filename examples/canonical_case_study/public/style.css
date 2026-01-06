@@ -1,0 +1,176 @@
+/* Janus Web Server - :min Profile Styling */
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    color: #333;
+}
+
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+    background: white;
+    margin-top: 20px;
+    margin-bottom: 20px;
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+}
+
+h1 {
+    color: #4a5568;
+    text-align: center;
+    margin-bottom: 30px;
+    font-size: 2.5em;
+}
+
+h2 {
+    color: #667eea;
+    border-bottom: 2px solid #667eea;
+    padding-bottom: 10px;
+    margin-top: 30px;
+}
+
+h3 {
+    color: #4a5568;
+    margin-top: 25px;
+}
+
+.profile-info {
+    background: #f7fafc;
+    padding: 20px;
+    border-radius: 8px;
+    border-left: 4px solid #48bb78;
+    margin: 20px 0;
+}
+
+.demo-links {
+    background: #fff5f5;
+    padding: 20px;
+    border-radius: 8px;
+    border-left: 4px solid #f56565;
+    margin: 20px 0;
+}
+
+.tri-signature-demo {
+    background: #f0fff4;
+    padding: 20px;
+    border-radius: 8px;
+    border-left: 4px solid #38a169;
+    margin: 20px 0;
+}
+
+.profile-comparison {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.profile {
+    background: white;
+    padding: 15px;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+    text-align: center;
+}
+
+.profile h4 {
+    margin-top: 0;
+    color: #2d3748;
+}
+
+.profile code {
+    background: #edf2f7;
+    padding: 8px;
+    border-radius: 4px;
+    display: block;
+    margin: 10px 0;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9em;
+}
+
+.adoption-message {
+    background: #fffaf0;
+    padding: 20px;
+    border-radius: 8px;
+    border-left: 4px solid #ed8936;
+    margin: 20px 0;
+}
+
+.about-section {
+    margin: 25px 0;
+    padding: 15px 0;
+}
+
+.navigation {
+    text-align: center;
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.navigation a {
+    color: #667eea;
+    text-decoration: none;
+    font-weight: bold;
+    padding: 10px 20px;
+    border: 2px solid #667eea;
+    border-radius: 5px;
+    transition: all 0.3s ease;
+}
+
+.navigation a:hover {
+    background: #667eea;
+    color: white;
+}
+
+ul, ol {
+    padding-left: 20px;
+}
+
+li {
+    margin: 8px 0;
+}
+
+a {
+    color: #667eea;
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+/* Profile-specific indicators */
+.profile-info li:first-child,
+.profile-info li:nth-child(2),
+.profile-info li:nth-child(3) {
+    color: #38a169;
+}
+
+.profile-info li:nth-child(4),
+.profile-info li:nth-child(5) {
+    color: #e53e3e;
+    font-weight: bold;
+}
+
+/* Responsive design */
+@media (max-width: 600px) {
+    .container {
+        margin: 10px;
+        padding: 15px;
+    }
+
+    h1 {
+        font-size: 2em;
+    }
+
+    .profile-comparison {
+        grid-template-columns: 1fr;
+    }
+}

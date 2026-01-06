@@ -1,0 +1,4 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func test() -> void { let x = "hello"[0..3] }

@@ -1,0 +1,281 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// janus.fs.fs — Filesystem Abstraction (skeleton)
+// Purpose: Define the FS trait interface (read-only + write ops gated by capabilities)
+// Aligns with .codex/steering/product.md (capability doctrine) and tech.md (explicit passing)
+
+import std.core;
+import std.sys.fs.path;
+
+// Capability tokens (declared in path.jan for now; referenced here)
+enum CapFsRead;
+enum CapFsWrite;
+
+// Error type (initial shape; unify with FsError in path.jan during implementation tasks)
+enum FsErrorKind {
+    NotFound,
+    PermissionDenied,
+    AlreadyExists,
+    InvalidInput,
+    CrossDevice,
+    CapabilityDenied,
+    Io,
+}
+
+// Lightweight cause detail to avoid recursive type size explosion
+struct ErrorCause { kind: FsErrorKind, os_code: i32, message: string }
+
+struct FsError {
+    kind: FsErrorKind,
+    os_code: i32,            // preserved platform error code (errno / Win32)
+    message: string,         // human-readable message
+    path: Option<string>,    // related path when available
+    cause: Option<ErrorCause>,
+}
+
+// Metadata (mirror of FileMetadata; kept here to anchor FS trait signatures)
+struct Metadata {
+    size: u64,
+    // TODO: Replace with unified Timestamp once consolidated
+    modified_ms_utc: i64,
+    file_type: path.FileType,
+}
+
+// Forward-declare File (defined in file.jan)
+struct File;
+
+// Options for cross-device-safe rename
+struct RenameOptions {
+    recursive: bool = false,
+    follow_symlinks: bool = false,
+    replace: bool = true,
+    preserve_symlinks: bool = false,
+}
+
+impl RenameOptions {
+    func default() -> RenameOptions { RenameOptions { recursive: false, follow_symlinks: false, replace: true } }
+}
+
+// Open options for FS.open
+struct OpenOptions {
+    read: bool = false,
+    write: bool = false,
+    append: bool = false,
+    create: bool = false,
+    truncate: bool = false,
+    exclusive: bool = false,
+    no_follow: bool = false,
+    sync: bool = false,
+}
+
+impl OpenOptions {
+    func read_only() -> OpenOptions { OpenOptions { read: true } }
+    func write_only() -> OpenOptions { OpenOptions { write: true, create: true } }
+    func read_write() -> OpenOptions { OpenOptions { read: true, write: true } }
+}
+
+// FS trait: strategic decoupling between callers and concrete backends.
+trait FS {
+    // Open a file with options (write intents are capability-gated by CapFsWrite)
+    func open(self, p: path.Path, cap: CapFsRead | CapFsWrite, opts: OpenOptions) -> Result<File, FsError>;
+
+    // Read directory as a lazy stream in later tasks; vector placeholder for skeleton.
+    func read_dir(self, p: path.Path, cap: CapFsRead) -> Result<Vec<path.DirEntry>, FsError>;
+
+    // Iterator-first API for scalable traversal
+    func read_dir_iter(self, p: path.Path, cap: CapFsRead) -> Result<DirIterator, FsError>;
+
+    // Metadata/stat
+    func metadata(self, p: path.Path, cap: CapFsRead) -> Result<Metadata, FsError>;
+
+    // Existence check (cheap)
+    func exists(self, p: path.Path, cap: CapFsRead) -> bool;
+
+    // Write operations (capability-gated)
+    func rename(self, from: path.Path, to: path.Path, cap: CapFsWrite) -> Result<(), FsError>;
+    // Cross-device-safe rename when requested: on EXDEV, perform copy+fsync+atomic swap
+    func rename_or_copy(self, from: path.Path, to: path.Path, cap: CapFsWrite) -> Result<(), FsError>;
+    func rename_or_copy_opts(self, from: path.Path, to: path.Path, cap: CapFsWrite, opts: RenameOptions) -> Result<(), FsError>;
+    func write_atomic(self, p: path.Path, data: string, cap: CapFsWrite) -> Result<(), FsError>;
+    func create_dir(self, p: path.Path, cap: CapFsWrite) -> Result<(), FsError>;
+}
+
+// =====================
+// Mapping & Constructors
+// =====================
+
+impl FsErrorKind {
+    func from_os_code(code: i32) -> FsErrorKind {
+        // POSIX-common errno subset; fallback to Io
+        match code {
+            2 => FsErrorKind::NotFound,         // ENOENT
+            13 => FsErrorKind::PermissionDenied,// EACCES
+            17 => FsErrorKind::AlreadyExists,   // EEXIST
+            18 => FsErrorKind::CrossDevice,     // EXDEV
+            22 => FsErrorKind::InvalidInput,    // EINVAL
+            _ => FsErrorKind::Io,
+        }
+    }
+}
+
+impl FsError {
+    func from_os(code: i32, message: string) -> FsError {
+        FsError { kind: FsErrorKind::from_os_code(code), os_code: code, message: message, path: None, cause: None }
+    }
+
+    func with_path(self, p: path.Path) -> FsError {
+        FsError { kind: self.kind, os_code: self.os_code, message: self.message, path: Some(p.as_string()), cause: self.cause }
+    }
+
+    func with_cause(self, cause: ErrorCause) -> FsError {
+        FsError { kind: self.kind, os_code: self.os_code, message: self.message, path: self.path, cause: Some(cause) }
+    }
+}
+
+// =====================
+// Directory Iterator (unified facade)
+// =====================
+
+// Backend tag for iterator; currently only Physical is implemented
+enum DirIterBackend {
+    Physical(*anyopaque),
+    Memory(Vec<path.DirEntry>, usize), // entries, index
+}
+
+struct DirIterator {
+    backend: DirIterBackend,
+    base: path.Path,
+    ended: bool = false,
+}
+
+impl DirIterator {
+    // Fetch next entry; returns None on end
+    func next(self) -> Result<Option<path.DirEntry>, FsError> {
+        if self.ended { return Ok(None); }
+        match self.backend {
+            DirIterBackend::Physical(handle) => {
+                let mut cptr: *u8 = null;
+                let mut len: usize = 0;
+                let mut kind: u8 = 0;
+                let code = readDirNextImpl(handle, &cptr, &len, &kind);
+                if code == 1 { self.ended = true; return Ok(None); }
+                if code != 0 { return Err(FsError::from_os(5, "iterate error".to_string()).with_path(self.base)); }
+                let name = String::fromRaw(cptr, len);
+                freeC(cptr);
+
+                let full = self.base.join(name);
+                let entry = path::DirEntry { path: path::Path::new(full.as_string()), file_name: name, file_type: map_kind(kind) };
+                Ok(Some(entry))
+            }
+            DirIterBackend::Memory(entries, idx) => {
+                if idx >= entries.len() { self.ended = true; return Ok(None); }
+                let e = entries[idx];
+                // advance index
+                self.backend = DirIterBackend::Memory(entries, idx + 1);
+                Ok(Some(e))
+            }
+        }
+    }
+
+    // RAII: automatically release resources when iterator goes out of scope
+    func drop(self) void {
+        if self.ended { return; }
+        match self.backend {
+            DirIterBackend::Physical(handle) => {
+                if handle != null { closeDirIterImpl(handle); }
+            }
+        }
+        self.ended = true;
+    }
+}
+
+// Externs needed by Physical backend
+extern fn readDirNextImpl(handle: *anyopaque, out_name_ptr: *[*]u8, out_name_len: *usize, out_kind: *u8) i32;
+extern fn closeDirIterImpl(handle: *anyopaque) void;
+extern fn freeC(ptr: *u8) void;
+
+fn map_kind(kind: u8) -> path::FileType {
+    match kind {
+        0 => path::FileType::File,
+        1 => path::FileType::Directory,
+        2 => path::FileType::Symlink,
+        _ => path::FileType::Other,
+    }
+}
+
+// =====================
+// File Handle (unified facade)
+// =====================
+
+// Backends for File
+enum FileBackend {
+    Physical(*anyopaque),
+    Memory(MemFile),
+}
+
+// In-memory file payload for MemoryFS
+struct MemFile { data: string }
+
+// RAII file wrapper
+struct File {
+    backend: FileBackend,
+    path: path.Path,
+    closed: bool = false,
+}
+
+impl File {
+    // Read up to dst.len bytes at offset; returns number of bytes read
+    func read_at(self, dst: *[*]u8, len: usize, offset: u64) -> Result<usize, FsError> {
+        if self.closed { return Err(FsError::from_os(9, "bad file descriptor".to_string()).with_path(self.path)); }
+        match self.backend {
+            FileBackend::Physical(handle) => {
+                let mut out: usize = 0;
+                let code = readFileAtImpl(handle, offset, dst, &out, len);
+                if code != 0 { return Err(FsError::from_os(code, "read error".to_string()).with_path(self.path)); }
+                Ok(out)
+            }
+            FileBackend::Memory(mem) => {
+                let bytes = mem.data.bytes;
+                if offset >= bytes.len() { return Ok(0); }
+                let avail = bytes.len() - @as(usize, offset);
+                let to_copy = if avail < len { avail } else { len };
+                @memcpy((*dst)[0..to_copy], bytes[@as(usize, offset)..@as(usize, offset)+to_copy]);
+                Ok(to_copy)
+            }
+        }
+    }
+
+    // Read entire file to string (small files convenience)
+    func read_string(self) -> Result<string, FsError> {
+        // Simple chunked read loop concatenating into a string
+        let mut buf: [4096]u8 = undefined;
+        var offset: u64 = 0;
+        var acc = "";
+        loop {
+            let mut ptr = &buf[0];
+            let readn = self.read_at(&ptr, buf.len(), offset)?;
+            if readn == 0 { break; }
+            let chunk = String::fromUtf8(buf[0..readn]);
+            acc = acc + chunk;
+            offset = offset + @as(u64, readn);
+        }
+        Ok(acc)
+    }
+
+    // Close on drop; explicit close available via drop semantics
+    func drop(self) void {
+        if self.closed { return; }
+        match self.backend {
+            FileBackend::Physical(handle) => { if handle != null { closeFileImpl(handle); } },
+            FileBackend::Memory(_) => {},
+        }
+        self.closed = true;
+    }
+}
+
+// Externs for physical backend file operations
+extern fn openFileReadImpl(path: []const u8) *anyopaque;
+// readFileAtImpl fills out_len with bytes read and returns 0 on success, else OS error code
+extern fn readFileAtImpl(handle: *anyopaque, offset: u64, out_buf: *[*]u8, out_len: *usize, req_len: usize) i32;
+extern fn closeFileImpl(handle: *anyopaque) void;

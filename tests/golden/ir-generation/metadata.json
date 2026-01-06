@@ -1,0 +1,220 @@
+{
+  "golden_test_matrix": {
+    "version": "1.0.0",
+    "created_date": "2025-01-27T16:00:00Z",
+    "description": "Canonical truth for Janus dispatch LLVM IR generation",
+    "strategic_importance": "Establishes immutable reference for all future codegen implementation"
+  },
+
+  "test_cases": {
+    "static_dispatch_zero_overhead": {
+      "strategy": "static_direct",
+      "performance_contract": {
+        "dispatch_overhead_ns": 0,
+        "memory_overhead_bytes": 0,
+        "code_size_category": "minimal"
+      },
+      "semantic_contract": {
+        "sealed_types": true,
+        "single_implementation": true,
+        "direct_calls_only": true,
+        "no_dispatch_tables": true
+      },
+      "validation_points": [
+        "Direct call instructions only",
+        "No switch or phi nodes",
+        "No global dispatch infrastructure",
+        "Perfect debug info mapping"
+      ],
+      "platforms": ["linux_x86_64", "linux_aarch64", "macos_x86_64", "macos_aarch64", "windows_x86_64"],
+      "optimization_levels": ["debug", "release_safe", "release_fast", "release_small"]
+    },
+
+    "dynamic_dispatch_switch_table": {
+      "strategy": "switch_table",
+      "performance_contract": {
+        "dispatch_overhead_ns": {"max": 100, "typical": 75},
+        "memory_overhead_bytes": {"formula": "O(n)", "typical_n": 4},
+        "code_size_category": "moderate"
+      },
+      "semantic_contract": {
+        "unsealed_types": true,
+        "multiple_implementations": true,
+        "switch_based_dispatch": true,
+        "vtable_infrastructure": true
+      },
+      "validation_points": [
+        "Switch instruction with type ID comparison",
+        "Global vtables with function pointers",
+        "Dispatch wrapper functions",
+        "PHI nodes for result collection",
+        "Trap instruction for unknown types"
+      ],
+      "platforms": ["linux_x86_64", "linux_aarch64", "macos_x86_64", "macos_aarch64", "windows_x86_64"],
+      "optimization_levels": ["debug", "release_safe", "release_fast", "release_small"]
+    },
+
+    "ambiguous_dispatch_error": {
+      "strategy": "compile_error",
+      "performance_contract": {
+        "compile_time_only": true,
+        "error_detection_fast": true,
+        "comprehensive_diagnostics": true
+      },
+      "semantic_contract": {
+        "ambiguous_hierarchy": true,
+        "compile_time_rejection": true,
+        "error_code_s1101": true,
+        "detailed_explanation": true
+      },
+      "validation_points": [
+        "Compilation fails with S1101 error",
+        "Error message includes conflicting implementations",
+        "Error message includes resolution suggestions",
+        "Specificity analysis explanation provided",
+        "No IR generated"
+      ],
+      "platforms": ["all"],
+      "optimization_levels": ["all"],
+      "expected_output_file": "ambiguous_dispatch_error_expected_output.txt"
+    },
+
+    "coercion_dispatch_explicit": {
+      "strategy": "static_direct",
+      "performance_contract": {
+        "dispatch_overhead_ns": 0,
+        "coercion_overhead_ns": {"max": 10, "typical": 5},
+        "memory_overhead_bytes": 0
+      },
+      "semantic_contract": {
+        "explicit_coercion_only": true,
+        "no_magic_conversions": true,
+        "visible_coercion_calls": true,
+        "monomorphized_generics": true
+      },
+      "validation_points": [
+        "Direct calls to coercion functions",
+        "No hidden type conversions",
+        "Monomorphized generic functions",
+        "All coercion visible in IR"
+      ],
+      "platforms": ["linux_x86_64", "linux_aarch64", "macos_x86_64", "macos_aarch64", "windows_x86_64"],
+      "optimization_levels": ["debug", "release_safe", "release_fast", "release_small"]
+    }
+  },
+
+  "performance_contracts": {
+    "static_direct": {
+      "dispatch_overhead_ns": 0,
+      "memory_overhead_bytes": 0,
+      "guarantees": [
+        "Identical performance to direct function calls",
+        "No runtime dispatch infrastructure",
+        "Zero memory overhead for dispatch"
+      ]
+    },
+    "switch_table": {
+      "dispatch_overhead_ns": {"max": 100, "typical": 75},
+      "memory_overhead_formula": "sizeof(vtable) * implementation_count + sizeof(dispatch_table)",
+      "guarantees": [
+        "O(1) dispatch time regardless of implementation count",
+        "Predictable memory usage",
+        "Efficient branch prediction"
+      ]
+    },
+    "compile_error": {
+      "compile_time_detection": true,
+      "comprehensive_diagnostics": true,
+      "actionable_suggestions": true,
+      "guarantees": [
+        "All ambiguities detected at compile time",
+        "No runtime dispatch errors",
+        "Clear resolution guidance"
+      ]
+    }
+  },
+
+  "platform_differences": {
+    "calling_conventions": {
+      "linux": "System V ABI",
+      "macos": "System V ABI (with Darwin extensions)",
+      "windows": "Microsoft x64 calling convention"
+    },
+    "debug_info_formats": {
+      "linux": "DWARF 4+",
+      "macos": "DWARF 4+ with Apple extensions",
+      "windows": "PDB (via DWARF conversion)"
+    },
+    "acceptable_differences": [
+      "Calling convention parameter passing",
+      "Debug info metadata format",
+      "Symbol name mangling (platform ABI)",
+      "Stack alignment requirements"
+    ]
+  },
+
+  "validation_rules": {
+    "ir_comparison": {
+      "semantic_equivalence_required": true,
+      "textual_differences_acceptable": [
+        "Register naming (%0 vs %tmp)",
+        "Basic block naming",
+        "Metadata ordering",
+        "Comment differences"
+      ],
+      "semantic_differences_forbidden": [
+        "Instruction ordering changes",
+        "Control flow differences",
+        "Function signature changes",
+        "Type layout differences"
+      ]
+    },
+    "performance_validation": {
+      "statistical_significance_required": true,
+      "confidence_level": 0.95,
+      "measurement_iterations": 1000,
+      "acceptable_variance": "5%"
+    }
+  },
+
+  "ci_integration": {
+    "github_actions_matrix": {
+      "platforms": ["ubuntu-latest", "macos-latest", "windows-latest"],
+      "architectures": ["x86_64", "aarch64"],
+      "optimization_levels": ["debug", "release_safe", "release_fast"]
+    },
+    "approval_workflow": {
+      "golden_reference_changes": "manual_approval_required",
+      "performance_regressions": "automatic_failure",
+      "semantic_changes": "automatic_failure",
+      "acceptable_improvements": "automatic_baseline_update"
+    },
+    "artifact_management": {
+      "golden_references": "version_controlled",
+      "test_results": "archived_30_days",
+      "performance_baselines": "historical_tracking",
+      "diagnostic_logs": "failure_cases_only"
+    }
+  },
+
+  "extension_guidelines": {
+    "adding_new_strategies": [
+      "Create test case with performance contracts",
+      "Generate golden IR for all platforms",
+      "Document semantic guarantees",
+      "Validate against existing matrix"
+    ],
+    "modifying_existing_tests": [
+      "Requires approval with justification",
+      "Must maintain performance contracts",
+      "Cannot break semantic guarantees",
+      "Must update all platform variants"
+    ],
+    "platform_specific_tests": [
+      "Document platform-specific behavior",
+      "Justify differences from other platforms",
+      "Maintain semantic equivalence",
+      "Include in cross-platform validation"
+    ]
+  }
+}

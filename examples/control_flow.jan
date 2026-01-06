@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    let x = 42;
+    let y = 21;
+
+    if (x > y) do
+        print("x is greater than y");
+    else do
+        print("x is not greater than y");
+    end
+}

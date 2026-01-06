@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Example: Basic Semantic Analysis Demonstration
+// This example showcases the semantic engine's capabilities
+
+module BasicSemanticAnalysis
+
+// Symbol resolution example
+func calculateArea(width: f64, height: f64) -> f64 {
+    return width * height
+}
+
+// Type inference example
+func processNumbers() {
+    let x = 42          // Inferred as i32
+    let y = 3.14        // Inferred as f64
+    let z = x + y       // Type error: i32 + f64 requires explicit conversion
+}
+
+// Profile enforcement example (:min profile)
+func minProfileExample() {
+    let numbers = [1, 2, 3, 4, 5]  // Array literal
+    let sum = 0
+
+    // Simple loop (allowed in :min profile)
+    for num in numbers {
+        sum = sum + num
+    }
+
+    return sum
+}
+
+// Semantic validation example
+func validationExample() {
+    let area = calculateArea(10.0, 20.0)  // Valid function call
+    let invalid = calculateArea(10, 20)   // Error: type mismatch
+
+    // Unreachable code detection
+    return area
+    let unreachable = 42  // Warning: unreachable code
+}
+
+// Cross-module symbol resolution
+import StandardLibrary.Math
+
+func advancedCalculation() {
+    let result = Math.sqrt(16.0)  // Resolves to imported function
+    return result
+}

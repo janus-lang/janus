@@ -1,0 +1,218 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025 Janus Project Authors
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+/// =============================
+/// Region Infrastructure Module
+/// =============================
+
+import "./alloc.jan" as Alloc
+import "./context.jan" as AllocContext
+import "./traits.jan" as Drop
+
+/// ==============================
+/// Region Trait and Implementation
+/// ==============================
+
+/// A region is an arena allocator that provides scoped memory management.
+/// All allocations within a region are automatically reclaimed when the region
+/// goes out of scope, eliminating the need for manual deallocation.
+///
+/// Key characteristics:
+/// - Bump allocation for O(1) performance
+/// - Deterministic cleanup at scope exit
+/// - Hierarchical nesting support
+/// - Escape analysis for safety
+pub trait Region {
+    /// Allocate memory within this region
+    pub fn alloc[T](self: *Self, size: usize) -> Result[*T, RegionError];
+    
+    /// Get the current position in the region
+    pub fn pos(self: *Self) -> usize;
+    
+    /// Get the total capacity of the region
+    pub fn capacity(self: *Self) -> usize;
+    
+    /// Check if a pointer is within this region
+    pub fn contains(self: *Self, ptr: *any) -> Bool;
+    
+    /// Reset the region to its initial state
+    pub fn reset(self: *Self) -> Void;
+}
+
+/// Error types for region operations
+pub type RegionError {
+    OutOfMemory,
+    InvalidPointer,
+}
+
+/// Bump allocator implementation
+pub type BumpRegion {
+    /// Memory buffer backing this region
+    buffer: []u8,
+    
+    /// Current allocation position
+    pos: usize,
+    
+    /// Parent region (for hierarchical regions)
+    parent: *BumpRegion?,
+    
+    /// Region identifier for debugging and safety
+    id: u64,
+    
+    /// Allocator capability bound to this region
+    alloc_cap: Alloc,
+}
+
+/// Create a new bump region with a given buffer
+pub fn createBumpRegion(buffer: []u8, parent: *BumpRegion?, alloc_cap: Alloc) -> BumpRegion {
+    return BumpRegion{
+        .buffer = buffer,
+        .pos = 0,
+        .parent = parent,
+        .id = generateRegionId(),
+        .alloc_cap = alloc_cap,
+    };
+}
+
+/// Implement Region trait for BumpRegion
+impl Region for BumpRegion {
+    pub fn alloc[T](self: *Self, size: usize) -> Result[*T, RegionError] {
+        // Calculate required size with alignment
+        let required_size = alignSize(size, @alignOf(T));
+        let new_pos = self.pos + required_size;
+        
+        // Check if we have enough space
+        if (new_pos > self.buffer.len) {
+            return Err(RegionError.OutOfMemory);
+        }
+        
+        // Allocate at current position
+        let result_ptr = @ptrCast(*T, &self.buffer[self.pos]);
+        self.pos = new_pos;
+        
+        // Zero the allocated memory for safety
+        @memset(@as(*[1]u8, @ptrCast(result_ptr))[0..size], 0);
+        
+        return Ok(result_ptr);
+    }
+    
+    pub fn pos(self: *Self) -> usize {
+        return self.pos;
+    }
+    
+    pub fn capacity(self: *Self) -> usize {
+        return self.buffer.len;
+    }
+    
+    pub fn contains(self: *Self, ptr: *any) -> Bool {
+        let ptr_addr = @intFromPtr(ptr);
+        let buffer_start = @intFromPtr(&self.buffer[0]);
+        let buffer_end = buffer_start + self.buffer.len;
+        return ptr_addr >= buffer_start and ptr_addr < buffer_end;
+    }
+    
+    pub fn reset(self: *Self) -> Void {
+        self.pos = 0;
+    }
+}
+
+/// Helper function to calculate aligned size
+fn alignSize(size: usize, alignment: usize) -> usize {
+    let aligned = (size + alignment - 1) & ~(alignment - 1);
+    return aligned;
+}
+
+/// Generate a unique region identifier
+fn generateRegionId() -> u64 {
+    // In real implementation, would use secure random or counter
+    return 0xBEEFCAFE12345678; // Stub ID
+}
+
+/// Check if a region is a child of another region
+pub fn isChildOf(child: *BumpRegion, parent: *BumpRegion) -> Bool {
+    let mut current = child.parent;
+    while (current != null) {
+        if (current.? == parent) {
+            return true;
+        }
+        current = current.?.parent;
+    }
+    return false;
+}
+
+/// Get the root region of a region hierarchy
+pub fn getRootRegion(region: *BumpRegion) -> *BumpRegion {
+    let mut current = region;
+    while (current.parent != null) {
+        current = current.parent.?;
+    }
+    return current;
+}
+
+/// =======================
+/// Region Hierarchy Support
+/// =======================
+
+/// A region node in the hierarchy tree
+pub type RegionNode {
+    region: BumpRegion,
+    children: Vec[RegionNode],
+    parent: *RegionNode?,
+}
+
+/// Create a new region node
+pub fn createRegionNode(buffer: []u8, parent: *RegionNode?, alloc_cap: Alloc) -> RegionNode {
+    let region = createBumpRegion(buffer, 
+        if (parent != null) &parent.region else null, alloc_cap);
+    
+    return RegionNode{
+        .region = region,
+        .children = Vec[RegionNode].init(),
+        .parent = parent,
+    };
+}
+
+/// Create a child region with automatic buffer allocation
+pub fn createChildRegion(parent: *RegionNode, size: usize, alloc_cap: Alloc) -> Result[RegionNode, RegionError] {
+    // Allocate buffer for child region from parent
+    let buffer_ptr = parent.region.alloc[?u8](size);
+    if (buffer_ptr == Err(_)) {
+        return Err(RegionError.OutOfMemory);
+    }
+    
+    let buffer = buffer_ptr.?[0..size];
+    return Ok(createRegionNode(buffer, parent, alloc_cap));
+}
+
+/// =====================
+/// Integration Functions
+/// =====================
+
+/// Create a region using an allocator context
+pub fn createWithContext(ctx: AllocContext, purpose: AllocContext.AllocPurpose, buffer_size: usize) -> Result[BumpRegion, RegionError] {
+    let alloc = AllocContext.get(ctx, purpose);
+    
+    // Allocate buffer from the context
+    // In real implementation, this would use the allocator
+    let buffer = alloc; // Simplified for now
+    
+    return Ok(createBumpRegion(buffer, null, alloc));
+}
+
+/// Helper to create a temporary region for operations
+pub fn withTemporaryRegion[T](ctx: AllocContext, size: usize, func: fn(*BumpRegion) -> T) -> T {
+    let temp_region = createWithContext(ctx, .scratch, size).?;
+    defer temp_region.reset();
+    return func(&temp_region);
+}

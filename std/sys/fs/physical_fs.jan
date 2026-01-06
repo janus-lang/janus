@@ -1,0 +1,173 @@
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// std.janus.fs.physical_fs — Physical filesystem (read-only baseline skeleton)
+// Implements fs::FS with placeholder logic; to be wired to runtime syscalls in later tasks.
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.core;
+
+struct PhysicalFS {}
+
+impl PhysicalFS {
+    func new() -> PhysicalFS { PhysicalFS {} }
+
+    // Convenience read helpers (Task 5.1 baseline for PhysicalFS)
+    func read_string(self, p: path::Path, cap: fs::CapFsRead) -> Result<string, fs::FsError> {
+        let f = try self.open(p, cap, fs::OpenOptions::read_only());
+        f.read_string()
+    }
+
+    // Symlink helpers for tests (platform support may vary)
+    func symlink_file(self, target: path::Path, link: path::Path, cap: fs::CapFsWrite) -> Result<(), fs::FsError> {
+        let _ = cap;
+        let code = createSymlinkFileImpl(target.as_string().bytes, link.as_string().bytes);
+        if (code == 0) { return Ok(()); }
+        Err(fs::FsError::from_os(code, "symlink_file failed".to_string()).with_path(link))
+    }
+
+    func symlink_dir(self, target: path::Path, link: path::Path, cap: fs::CapFsWrite) -> Result<(), fs::FsError> {
+        let _ = cap;
+        let code = createSymlinkDirImpl(target.as_string().bytes, link.as_string().bytes);
+        if (code == 0) { return Ok(()); }
+        Err(fs::FsError::from_os(code, "symlink_dir failed".to_string()).with_path(link))
+    }
+}
+
+// Minimal Dir iterator that currently yields nothing (skeleton)
+struct DirIter {
+    done: bool = false,
+}
+
+impl DirIter {
+    func new() -> DirIter { DirIter { done: false } }
+
+    func next(self) -> Option<path::DirEntry> {
+        if self.done { return None; }
+        self.done = true;
+        None
+    }
+}
+
+impl fs::FS for PhysicalFS {
+    // Read baseline: support read-only opens; writes remain ENOSYS for now
+    func open(self, p: path::Path, cap: fs::CapFsRead | fs::CapFsWrite, opts: fs::OpenOptions) -> Result<fs::File, fs::FsError> {
+        let _ = cap; // capability is type-checked at call sites; physical backend assumes proper gating
+        if !opts.read || opts.write { return Err(fs::FsError::from_os(38, "write not supported".to_string()).with_path(p)); }
+        let handle = openFileReadImpl(p.as_string().bytes);
+        if handle == null {
+            return Err(fs::FsError::from_os(2, "open failed".to_string()).with_path(p));
+        }
+        Ok(fs::File { backend: fs::FileBackend::Physical(handle), path: p, closed: false })
+    }
+
+    func read_dir(self, p: path::Path, cap: fs::CapFsRead) -> Result<Vec<path::DirEntry>, fs::FsError> {
+        // Drain iterator into Vec for convenience
+        let it = try self.read_dir_iter(p, cap);
+        let mut entries = Vec::new();
+        loop {
+            match it.next()? {
+                None => break,
+                Some(e) => entries.push(e),
+            }
+        }
+        Ok(entries)
+    }
+
+    func read_dir_iter(self, p: path::Path, cap: fs::CapFsRead) -> Result<fs::DirIterator, fs::FsError> {
+        let _ = cap;
+        let handle = openDirIter(p.as_string());
+        if handle == null {
+            return Err(fs::FsError::from_os(2, "failed to open directory".to_string()).with_path(p));
+        }
+        Ok(fs::DirIterator { backend: fs::DirIterBackend::Physical(handle), base: p })
+    }
+
+    func metadata(self, p: path::Path, cap: fs::CapFsRead) -> Result<fs::Metadata, fs::FsError> {
+        let _ = cap;
+        let (ok, kind_u8, size, perms, mtime) = statPath(p.as_string());
+        if !ok {
+            return Err(fs::FsError::from_os(1, "stat failed".to_string()).with_path(p));
+        }
+        Ok(fs::Metadata { size: size, modified_ms_utc: mtime, file_type: map_kind(kind_u8) })
+    }
+
+    func exists(self, p: path::Path, cap: fs::CapFsRead) -> bool {
+        let _ = cap;
+        let (ok, _, _, _, _) = statPath(p.as_string());
+        ok
+    }
+
+    // ===== Write operations (capability-gated at type level) =====
+    func rename(self, from: path::Path, to: path::Path, cap: fs::CapFsWrite) -> Result<(), fs::FsError> {
+        let _ = cap;
+        let code = renamePathImpl(from.as_string().bytes, to.as_string().bytes);
+        if code == 0 { return Ok(()); }
+        let err = match code {
+            18 => fs::FsError::from_os(18, "cross-device rename".to_string()),
+            2 => fs::FsError::from_os(2, "not found".to_string()),
+            13 => fs::FsError::from_os(13, "permission denied".to_string()),
+            _ => fs::FsError::from_os(code, "rename failed".to_string()),
+        };
+        Err(err.with_path(from))
+    }
+
+    func write_atomic(self, p: path::Path, data: string, cap: fs::CapFsWrite) -> Result<(), fs::FsError> {
+        let _ = cap;
+        let code = writeAtomicImpl(p.as_string().bytes, data.bytes);
+        if code == 0 { return Ok(()); }
+        Err(fs::FsError::from_os(code, "write_atomic failed".to_string()).with_path(p))
+    }
+
+    func rename_or_copy(self, from: path::Path, to: path::Path, cap: fs::CapFsWrite) -> Result<(), fs::FsError> {
+        let _ = cap;
+        let flags: u32 = (1 << 2); // replace
+        let code = renameOrCopyExImpl(from.as_string().bytes, to.as_string().bytes, flags);
+        if code == 0 { return Ok(()); }
+        Err(fs::FsError::from_os(code, "rename_or_copy failed".to_string()).with_path(from))
+    }
+
+    func rename_or_copy_opts(self, from: path::Path, to: path::Path, cap: fs::CapFsWrite, opts: fs::RenameOptions) -> Result<(), fs::FsError> {
+        let _ = cap;
+        let mut flags: u32 = 0;
+        if opts.recursive { flags = flags | 1; }
+        if opts.follow_symlinks { flags = flags | 2; }
+        if opts.replace { flags = flags | 4; }
+        if opts.preserve_symlinks { flags = flags | 8; }
+        let code = renameOrCopyExImpl(from.as_string().bytes, to.as_string().bytes, flags);
+        if code == 0 { return Ok(()); }
+        Err(fs::FsError::from_os(code, "rename_or_copy_opts failed".to_string()).with_path(from))
+    }
+
+    func create_dir(self, p: path::Path, cap: fs::CapFsWrite) -> Result<(), fs::FsError> {
+        let _ = cap;
+        let code = createDirImpl(p.as_string().bytes);
+        if code == 0 { return Ok(()); }
+        Err(fs::FsError::from_os(code, "create_dir failed".to_string()).with_path(p))
+    }
+}
+
+// ===== Runtime FFI bindings =====
+
+extern fn openDirIterImpl(path: []const u8) *anyopaque;
+extern fn statPathImpl(path: []const u8, out_kind: *u8, out_size: *u64, out_perms: *u32, out_mtime: *i64) i32;
+extern fn renamePathImpl(from: []const u8, to: []const u8) i32;
+extern fn writeAtomicImpl(path: []const u8, data: []const u8) i32;
+extern fn renameOrCopyExImpl(from: []const u8, to: []const u8, flags: u32) i32;
+extern fn createDirImpl(path: []const u8) i32;
+extern fn createSymlinkFileImpl(target: []const u8, link: []const u8) i32;
+extern fn createSymlinkDirImpl(target: []const u8, link: []const u8) i32;
+
+fn openDirIter(path: string) *anyopaque {
+    openDirIterImpl(path.bytes)
+}
+
+fn statPath(path: string) -> (bool, u8, u64, u32, i64) {
+    let mut kind: u8 = 0;
+    let mut size: u64 = 0;
+    let mut perms: u32 = 0;
+    let mut mtime: i64 = 0;
+    let code = statPathImpl(path.bytes, &kind, &size, &perms, &mtime);
+    (code == 0, kind, size, perms, mtime)
+}

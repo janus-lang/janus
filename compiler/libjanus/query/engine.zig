@@ -1,0 +1,695 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Query Engine Core - LSP-focused semantic queries
+// Task 2.1: Query trait & registry implementation
+// Requirements: SPEC-astdb-query.md section E-8, LSP integration
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const deps = @import("dependencies.zig");
+
+// For now, define minimal types needed for the query engine
+// TODO: Import from proper ASTDB modules when module structure is finalized
+
+// Import dependency tracking types
+const DependencyGraph = deps.DependencyGraph;
+const DependencyTracker = deps.DependencyTracker;
+const DependencySet = deps.DependencySet;
+
+// Minimal type definitions for query engine (will be replaced with proper imports)
+pub const NodeId = enum(u32) { _ };
+pub const CID = [32]u8;
+pub const Snapshot = struct {
+    // Placeholder - will be replaced with actual ASTDB snapshot
+    dummy: u8 = 0,
+};
+
+/// Query kinds for LSP-focused semantic analysis
+pub const QueryKind = enum(u8) {
+    // LSP Core Queries (front-loaded for VSCode alpha)
+    node_at, // NodeAt(pos) → find AST node at source position
+    type_of, // TypeOf(node_id) → get type information
+    def_of, // DefOf(symbol_at_pos) → resolve symbol definition
+    refs_of, // RefsOf(node_id) → find all references to symbol
+    diagnostics, // Diag() → collect parse/semantic diagnostics
+
+    // Extended Queries (for full semantic analysis)
+    parse_unit, // ParseUnit → parse source into AST
+    ast_of_item, // AstOfTopItem → get AST for top-level declaration
+    resolve_type, // ResolveType → resolve type expressions
+    ir_of_func, // IROfFunc → generate IR for function
+
+    pub fn toString(self: QueryKind) []const u8 {
+        return switch (self) {
+            .node_at => "NodeAt",
+            .type_of => "TypeOf",
+            .def_of => "DefOf",
+            .refs_of => "RefsOf",
+            .diagnostics => "Diagnostics",
+            .parse_unit => "ParseUnit",
+            .ast_of_item => "AstOfTopItem",
+            .resolve_type => "ResolveType",
+            .ir_of_func => "IROfFunc",
+        };
+    }
+};
+
+/// Source position for position-based queries
+pub const SourcePos = struct {
+    line: u32, // 1-based line number
+    column: u32, // 1-based column number
+    byte_offset: u32, // 0-based byte offset (computed)
+
+    pub fn fromLineCol(line: u32, column: u32) SourcePos {
+        return SourcePos{
+            .line = line,
+            .column = column,
+            .byte_offset = 0, // Will be computed by position mapper
+        };
+    }
+
+    pub fn fromByteOffset(byte_offset: u32) SourcePos {
+        return SourcePos{
+            .line = 0, // Will be computed by position mapper
+            .column = 0,
+            .byte_offset = byte_offset,
+        };
+    }
+};
+
+/// Query key - uniquely identifies a query for memoization
+pub const QueryKey = union(QueryKind) {
+    node_at: SourcePos,
+    type_of: NodeId,
+    def_of: SourcePos,
+    refs_of: NodeId,
+    diagnostics: void,
+    parse_unit: CID, // Source file CID
+    ast_of_item: NodeId,
+    resolve_type: NodeId,
+    ir_of_func: NodeId,
+
+    /// Compute hash for memoization cache
+    pub fn hash(self: QueryKey) u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        hasher.update(std.mem.asBytes(&@intFromEnum(self)));
+
+        switch (self) {
+            .node_at, .def_of => |pos| {
+                hasher.update(std.mem.asBytes(&pos.line));
+                hasher.update(std.mem.asBytes(&pos.column));
+                hasher.update(std.mem.asBytes(&pos.byte_offset));
+            },
+            .type_of, .refs_of, .ast_of_item, .resolve_type, .ir_of_func => |node_id| {
+                hasher.update(std.mem.asBytes(&node_id));
+            },
+            .parse_unit => |source_cid| {
+                hasher.update(&source_cid);
+            },
+            .diagnostics => {},
+        }
+
+        return hasher.final();
+    }
+
+    /// Check equality for memoization cache
+    pub fn eql(self: QueryKey, other: QueryKey) bool {
+        if (@intFromEnum(self) != @intFromEnum(other)) return false;
+
+        return switch (self) {
+            .node_at, .def_of => |pos| switch (other) {
+                .node_at, .def_of => |other_pos| std.meta.eql(pos, other_pos),
+                else => false,
+            },
+            .type_of, .refs_of, .ast_of_item, .resolve_type, .ir_of_func => |node_id| switch (other) {
+                .type_of, .refs_of, .ast_of_item, .resolve_type, .ir_of_func => |other_node_id| std.meta.eql(node_id, other_node_id),
+                else => false,
+            },
+            .parse_unit => |source_cid| switch (other) {
+                .parse_unit => |other_cid| std.mem.eql(u8, &source_cid, &other_cid),
+                else => false,
+            },
+            .diagnostics => switch (other) {
+                .diagnostics => true,
+                else => false,
+            },
+        };
+    }
+};
+
+/// Query result data - polymorphic result based on query type
+pub const QueryResult = struct {
+    /// Result data (query-specific)
+    data: QueryData,
+
+    /// Dependencies for invalidation tracking
+    dependencies: std.ArrayList(CID),
+
+    /// Performance metrics
+    execution_time_ns: u64,
+    cache_hit: bool,
+
+    /// Error information (if query failed)
+    error_info: ?QueryError,
+
+    pub fn deinit(self: *QueryResult, allocator: Allocator) void {
+        self.data.deinit(allocator);
+        self.dependencies.deinit();
+    }
+};
+
+/// Query-specific result data
+pub const QueryData = union(QueryKind) {
+    node_at: ?NodeId, // Found node or null
+    type_of: TypeInfo, // Type information
+    def_of: ?DefinitionInfo, // Definition location or null
+    refs_of: std.ArrayList(ReferenceInfo), // All references
+    diagnostics: std.ArrayList(Diagnostic), // Parse/semantic errors
+    parse_unit: NodeId, // Root AST node
+    ast_of_item: NodeId, // Item AST node
+    resolve_type: TypeInfo, // Resolved type
+    ir_of_func: IRInfo, // Generated IR
+
+    pub fn deinit(self: *QueryData, allocator: Allocator) void {
+        switch (self.*) {
+            .refs_of => |*refs| refs.deinit(),
+            .diagnostics => |*diags| {
+                for (diags.items) |*diag| {
+                    diag.deinit(allocator);
+                }
+                diags.deinit();
+            },
+            .type_of, .resolve_type => |*type_info| type_info.deinit(allocator),
+            .def_of => |*def_info| if (def_info.*) |*def| def.deinit(allocator),
+            .ir_of_func => |*ir_info| ir_info.deinit(allocator),
+            else => {}, // Other types don't need cleanup
+        }
+    }
+};
+
+/// Type information for hover and semantic analysis
+pub const TypeInfo = struct {
+    name: []const u8, // Type name (e.g., "i32", "string")
+    kind: TypeKind, // Type category
+    documentation: ?[]const u8, // Documentation string
+    source_range: ?SourceRange, // Definition location
+
+    pub const TypeKind = enum {
+        primitive, // Built-in types (i32, f64, bool, string)
+        function, // Function types
+        struct_type, // Struct types
+        enum_type, // Enum types
+        pointer, // Pointer types
+        array, // Array types
+        optional, // Optional types
+        unknown, // Type inference failed
+    };
+
+    pub fn deinit(self: *TypeInfo, allocator: Allocator) void {
+        if (self.documentation) |doc| allocator.free(doc);
+    }
+};
+
+/// Definition information for go-to-definition
+pub const DefinitionInfo = struct {
+    node_id: NodeId, // AST node of definition
+    source_range: SourceRange, // Source location
+    symbol_name: []const u8, // Symbol name
+    symbol_kind: SymbolKind, // Symbol category
+
+    pub const SymbolKind = enum {
+        function,
+        variable,
+        parameter,
+        struct_field,
+        enum_variant,
+        type_alias,
+        module,
+    };
+
+    pub fn deinit(self: *DefinitionInfo, allocator: Allocator) void {
+        allocator.free(self.symbol_name);
+    }
+};
+
+/// Reference information for find-references
+pub const ReferenceInfo = struct {
+    node_id: NodeId, // AST node of reference
+    source_range: SourceRange, // Source location
+    reference_kind: ReferenceKind, // Reference type
+
+    pub const ReferenceKind = enum {
+        read, // Variable read
+        write, // Variable assignment
+        call, // Function call
+        definition, // Symbol definition
+    };
+};
+
+/// Source range for precise location information
+pub const SourceRange = struct {
+    start: SourcePos,
+    end: SourcePos,
+
+    pub fn contains(self: SourceRange, pos: SourcePos) bool {
+        return pos.byte_offset >= self.start.byte_offset and
+            pos.byte_offset <= self.end.byte_offset;
+    }
+};
+
+/// Diagnostic information for error reporting
+pub const Diagnostic = struct {
+    severity: Severity,
+    message: []const u8,
+    source_range: SourceRange,
+    error_code: ?[]const u8,
+    fix_suggestions: std.ArrayList(FixSuggestion),
+
+    pub const Severity = enum {
+        err,
+        warning,
+        info,
+        hint,
+    };
+
+    pub const FixSuggestion = struct {
+        message: []const u8,
+        range: SourceRange,
+        replacement: []const u8,
+    };
+
+    pub fn deinit(self: *Diagnostic, allocator: Allocator) void {
+        allocator.free(self.message);
+        if (self.error_code) |code| allocator.free(code);
+        for (self.fix_suggestions.items) |*fix| {
+            allocator.free(fix.message);
+            allocator.free(fix.replacement);
+        }
+        self.fix_suggestions.deinit();
+    }
+};
+
+/// IR information for code generation
+pub const IRInfo = struct {
+    ir_cid: CID, // Content ID of generated IR
+    instructions: []const u8, // IR instruction text (placeholder)
+
+    pub fn deinit(self: *IRInfo, allocator: Allocator) void {
+        allocator.free(self.instructions);
+    }
+};
+
+/// Query execution error
+pub const QueryError = struct {
+    code: ErrorCode,
+    message: []const u8,
+    source_range: ?SourceRange,
+
+    pub const ErrorCode = enum {
+        invalid_position, // Position out of bounds
+        node_not_found, // Node ID not in snapshot
+        type_inference_failed, // Cannot determine type
+        symbol_not_found, // Symbol not in scope
+        parse_error, // Syntax error
+        semantic_error, // Semantic analysis error
+        query_timeout, // Query exceeded time limit
+        purity_violation, // Query attempted I/O (Q1001)
+    };
+};
+
+/// Query execution context
+pub const QueryContext = struct {
+    allocator: Allocator,
+    snapshot: *const Snapshot,
+    memo_cache: *MemoCache,
+    performance_monitor: *PerformanceMonitor,
+    dependency_graph: *DependencyGraph,
+    dependency_tracker: DependencyTracker,
+
+    /// Execute a query with memoization and dependency tracking
+    pub fn execute(self: *QueryContext, key: QueryKey) !QueryResult {
+        const start_time = std.time.nanoTimestamp();
+
+        // Check memo cache first
+        if (self.memo_cache.get(key)) |cached_result| {
+            return QueryResult{
+                .data = try cached_result.data.clone(self.allocator),
+                .dependencies = try cached_result.dependencies.clone(),
+                .execution_time_ns = std.time.nanoTimestamp() - start_time,
+                .cache_hit = true,
+                .error_info = null,
+            };
+        }
+
+        // Set up dependency tracking for this query
+        var dependency_set = DependencySet.init(self.allocator);
+        try self.dependency_tracker.startTracking(&dependency_set);
+        defer self.dependency_tracker.stopTracking();
+
+        // Execute query with dependency tracking
+        var result = try self.executeQuery(key);
+        result.execution_time_ns = std.time.nanoTimestamp() - start_time;
+        result.cache_hit = false;
+
+        // Record dependencies in the graph
+        try self.dependency_graph.recordDependencies(key, dependency_set);
+
+        // Cache result for future queries
+        try self.memo_cache.put(key, &result);
+
+        // Record performance metrics
+        self.performance_monitor.recordQuery(key, result.execution_time_ns);
+
+        return result;
+    }
+
+    fn executeQuery(self: *QueryContext, key: QueryKey) !QueryResult {
+        // TODO: Implement actual query execution
+        // For now, return placeholder results
+
+        const dependencies = std.ArrayList(CID).init(self.allocator);
+
+        const data = switch (key) {
+            .node_at => QueryData{ .node_at = null }, // No node found (placeholder)
+            .type_of => QueryData{ .type_of = TypeInfo{
+                .name = "unknown",
+                .kind = .unknown,
+                .documentation = null,
+                .source_range = null,
+            } },
+            .def_of => QueryData{ .def_of = null }, // No definition found (placeholder)
+            .refs_of => QueryData{ .refs_of = std.ArrayList(ReferenceInfo).init(self.allocator) },
+            .diagnostics => QueryData{ .diagnostics = std.ArrayList(Diagnostic).init(self.allocator) },
+            .parse_unit => QueryData{ .parse_unit = @enumFromInt(0) }, // Invalid node (placeholder)
+            .ast_of_item => QueryData{ .ast_of_item = @enumFromInt(0) },
+            .resolve_type => QueryData{ .resolve_type = TypeInfo{
+                .name = "unknown",
+                .kind = .unknown,
+                .documentation = null,
+                .source_range = null,
+            } },
+            .ir_of_func => QueryData{ .ir_of_func = IRInfo{
+                .ir_cid = std.mem.zeroes(CID),
+                .instructions = try self.allocator.dupe(u8, "; placeholder IR"),
+            } },
+        };
+
+        return QueryResult{
+            .data = data,
+            .dependencies = dependencies,
+            .execution_time_ns = 0, // Will be set by caller
+            .cache_hit = false,
+            .error_info = null,
+        };
+    }
+};
+
+/// Memoization cache for query results
+pub const MemoCache = struct {
+    cache: std.HashMap(QueryKey, QueryResult, QueryKeyContext, std.hash_map.default_max_load_percentage),
+    allocator: Allocator,
+
+    const QueryKeyContext = struct {
+        pub fn hash(self: @This(), key: QueryKey) u64 {
+            _ = self;
+            return key.hash();
+        }
+
+        pub fn eql(self: @This(), a: QueryKey, b: QueryKey) bool {
+            _ = self;
+            return a.eql(b);
+        }
+    };
+
+    pub fn init(allocator: Allocator) MemoCache {
+        return MemoCache{
+            .cache = std.HashMap(QueryKey, QueryResult, QueryKeyContext, std.hash_map.default_max_load_percentage).init(allocator),
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *MemoCache) void {
+        var iterator = self.cache.iterator();
+        while (iterator.next()) |entry| {
+            var result = entry.value_ptr;
+            result.deinit(self.allocator);
+        }
+        self.cache.deinit();
+    }
+
+    pub fn get(self: *MemoCache, key: QueryKey) ?*QueryResult {
+        return self.cache.getPtr(key);
+    }
+
+    pub fn put(self: *MemoCache, key: QueryKey, result: *const QueryResult) !void {
+        // Clone result for cache storage
+        const cached_result = QueryResult{
+            .data = try result.data.clone(self.allocator),
+            .dependencies = try result.dependencies.clone(),
+            .execution_time_ns = result.execution_time_ns,
+            .cache_hit = result.cache_hit,
+            .error_info = result.error_info,
+        };
+
+        try self.cache.put(key, cached_result);
+    }
+
+    pub fn invalidate(self: *MemoCache, changed_cids: []const CID) void {
+        // TODO: Implement dependency-based invalidation
+        // For now, clear entire cache when any CID changes
+        _ = changed_cids;
+        self.cache.clearRetainingCapacity();
+    }
+
+    pub fn stats(self: *const MemoCache) struct { entries: u32, capacity: u32 } {
+        return .{
+            .entries = @as(u32, @intCast(self.cache.count())),
+            .capacity = @as(u32, @intCast(self.cache.capacity())),
+        };
+    }
+};
+
+/// Performance monitoring for query optimization
+pub const PerformanceMonitor = struct {
+    query_times: std.HashMap(QueryKind, QueryStats, QueryKindContext, std.hash_map.default_max_load_percentage),
+    allocator: Allocator,
+
+    const QueryStats = struct {
+        total_calls: u64,
+        total_time_ns: u64,
+        min_time_ns: u64,
+        max_time_ns: u64,
+        cache_hits: u64,
+
+        pub fn addSample(self: *QueryStats, time_ns: u64, was_cache_hit: bool) void {
+            self.total_calls += 1;
+            self.total_time_ns += time_ns;
+
+            if (self.total_calls == 1) {
+                self.min_time_ns = time_ns;
+                self.max_time_ns = time_ns;
+            } else {
+                self.min_time_ns = @min(self.min_time_ns, time_ns);
+                self.max_time_ns = @max(self.max_time_ns, time_ns);
+            }
+
+            if (was_cache_hit) {
+                self.cache_hits += 1;
+            }
+        }
+
+        pub fn averageTimeNs(self: QueryStats) u64 {
+            if (self.total_calls == 0) return 0;
+            return self.total_time_ns / self.total_calls;
+        }
+
+        pub fn cacheHitRate(self: QueryStats) f64 {
+            if (self.total_calls == 0) return 0.0;
+            return @as(f64, @floatFromInt(self.cache_hits)) / @as(f64, @floatFromInt(self.total_calls));
+        }
+    };
+
+    const QueryKindContext = struct {
+        pub fn hash(self: @This(), key: QueryKind) u64 {
+            _ = self;
+            return @intFromEnum(key);
+        }
+
+        pub fn eql(self: @This(), a: QueryKind, b: QueryKind) bool {
+            _ = self;
+            return a == b;
+        }
+    };
+
+    pub fn init(allocator: Allocator) PerformanceMonitor {
+        return PerformanceMonitor{
+            .query_times = std.HashMap(QueryKind, QueryStats, QueryKindContext, std.hash_map.default_max_load_percentage).init(allocator),
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *PerformanceMonitor) void {
+        self.query_times.deinit();
+    }
+
+    pub fn recordQuery(self: *PerformanceMonitor, key: QueryKey, execution_time_ns: u64) void {
+        const kind = @as(QueryKind, key);
+
+        var stats = self.query_times.getPtr(kind) orelse blk: {
+            self.query_times.put(kind, QueryStats{
+                .total_calls = 0,
+                .total_time_ns = 0,
+                .min_time_ns = 0,
+                .max_time_ns = 0,
+                .cache_hits = 0,
+            }) catch return; // Ignore allocation failures in monitoring
+            break :blk self.query_times.getPtr(kind).?;
+        };
+
+        stats.addSample(execution_time_ns, false); // TODO: Track cache hits properly
+    }
+
+    pub fn getStats(self: *const PerformanceMonitor, kind: QueryKind) ?QueryStats {
+        return self.query_times.get(kind);
+    }
+
+    pub fn printReport(self: *const PerformanceMonitor) void {
+        std.debug.print("\n=== Query Performance Report ===\n");
+
+        var iterator = self.query_times.iterator();
+        while (iterator.next()) |entry| {
+            const kind = entry.key_ptr.*;
+            const stats = entry.value_ptr.*;
+
+            std.debug.print("{s}: {} calls, avg {d:.2}ms, cache hit {d:.1}%\n", .{
+                kind.toString(),
+                stats.total_calls,
+                @as(f64, @floatFromInt(stats.averageTimeNs())) / 1_000_000.0,
+                stats.cacheHitRate() * 100.0,
+            });
+        }
+    }
+};
+
+// Helper methods for QueryData cloning (needed for caching)
+const QueryDataCloneError = error{OutOfMemory};
+
+fn cloneQueryData(data: QueryData, allocator: Allocator) QueryDataCloneError!QueryData {
+    return switch (data) {
+        .node_at => |node_id| QueryData{ .node_at = node_id },
+        .type_of => |type_info| QueryData{ .type_of = try cloneTypeInfo(type_info, allocator) },
+        .def_of => |def_info| QueryData{ .def_of = if (def_info) |def| try cloneDefinitionInfo(def, allocator) else null },
+        .refs_of => |refs| QueryData{ .refs_of = try refs.clone() },
+        .diagnostics => |diags| QueryData{ .diagnostics = try cloneDiagnostics(diags, allocator) },
+        .parse_unit => |node_id| QueryData{ .parse_unit = node_id },
+        .ast_of_item => |node_id| QueryData{ .ast_of_item = node_id },
+        .resolve_type => |type_info| QueryData{ .resolve_type = try cloneTypeInfo(type_info, allocator) },
+        .ir_of_func => |ir_info| QueryData{ .ir_of_func = try cloneIRInfo(ir_info, allocator) },
+    };
+}
+
+fn cloneTypeInfo(type_info: TypeInfo, allocator: Allocator) !TypeInfo {
+    return TypeInfo{
+        .name = type_info.name, // Assume string literals (no allocation needed)
+        .kind = type_info.kind,
+        .documentation = if (type_info.documentation) |doc| try allocator.dupe(u8, doc) else null,
+        .source_range = type_info.source_range,
+    };
+}
+
+fn cloneDefinitionInfo(def_info: DefinitionInfo, allocator: Allocator) !DefinitionInfo {
+    return DefinitionInfo{
+        .node_id = def_info.node_id,
+        .source_range = def_info.source_range,
+        .symbol_name = try allocator.dupe(u8, def_info.symbol_name),
+        .symbol_kind = def_info.symbol_kind,
+    };
+}
+
+fn cloneDiagnostics(diags: std.ArrayList(Diagnostic), allocator: Allocator) !std.ArrayList(Diagnostic) {
+    var cloned = std.ArrayList(Diagnostic).init(allocator);
+    for (diags.items) |diag| {
+        var cloned_fixes = std.ArrayList(Diagnostic.FixSuggestion).init(allocator);
+        for (diag.fix_suggestions.items) |fix| {
+            try cloned_fixes.append(Diagnostic.FixSuggestion{
+                .message = try allocator.dupe(u8, fix.message),
+                .range = fix.range,
+                .replacement = try allocator.dupe(u8, fix.replacement),
+            });
+        }
+
+        try cloned.append(Diagnostic{
+            .severity = diag.severity,
+            .message = try allocator.dupe(u8, diag.message),
+            .source_range = diag.source_range,
+            .error_code = if (diag.error_code) |code| try allocator.dupe(u8, code) else null,
+            .fix_suggestions = cloned_fixes,
+        });
+    }
+    return cloned;
+}
+
+fn cloneIRInfo(ir_info: IRInfo, allocator: Allocator) !IRInfo {
+    return IRInfo{
+        .ir_cid = ir_info.ir_cid,
+        .instructions = try allocator.dupe(u8, ir_info.instructions),
+    };
+}
+
+// Add clone method to QueryData
+pub fn cloneQueryDataMethod(self: QueryData, allocator: Allocator) !QueryData {
+    return cloneQueryData(self, allocator);
+}
+
+test "Query engine basic functionality" {
+    const testing = std.testing;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    // Test QueryKey hashing and equality
+    const key1 = QueryKey{ .node_at = SourcePos.fromLineCol(10, 5) };
+    const key2 = QueryKey{ .node_at = SourcePos.fromLineCol(10, 5) };
+    const key3 = QueryKey{ .node_at = SourcePos.fromLineCol(10, 6) };
+
+    try testing.expect(key1.eql(key2));
+    try testing.expect(!key1.eql(key3));
+    try testing.expectEqual(key1.hash(), key2.hash());
+    try testing.expect(key1.hash() != key3.hash());
+
+    // Test MemoCache
+    var cache = MemoCache.init(allocator);
+    defer cache.deinit();
+
+    const stats = cache.stats();
+    try testing.expectEqual(@as(u32, 0), stats.entries);
+
+    // Test PerformanceMonitor
+    var monitor = PerformanceMonitor.init(allocator);
+    defer monitor.deinit();
+
+    monitor.recordQuery(key1, 5_000_000); // 5ms
+    const query_stats = monitor.getStats(.node_at);
+    try testing.expect(query_stats != null);
+    try testing.expectEqual(@as(u64, 1), query_stats.?.total_calls);
+}
+
+test "Source position utilities" {
+    const testing = std.testing;
+
+    const pos1 = SourcePos.fromLineCol(5, 10);
+    try testing.expectEqual(@as(u32, 5), pos1.line);
+    try testing.expectEqual(@as(u32, 10), pos1.column);
+
+    const pos2 = SourcePos.fromByteOffset(100);
+    try testing.expectEqual(@as(u32, 100), pos2.byte_offset);
+
+    const range = SourceRange{
+        .start = SourcePos.fromByteOffset(10),
+        .end = SourcePos.fromByteOffset(20),
+    };
+
+    try testing.expect(range.contains(SourcePos.fromByteOffset(15)));
+    try testing.expect(!range.contains(SourcePos.fromByteOffset(25)));
+}

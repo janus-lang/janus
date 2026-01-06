@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Example: Type Inference Engine Demonstration
+// Shows constraint-based type inference and unification
+
+module TypeInferenceShowcase
+
+// Generic function with type inference
+func identity<T>(value: T) -> T {
+    return value
+}
+
+// Complex type inference scenario
+func complexInference() {
+    // Simple inference
+    let a = 42                    // Inferred: i32
+    let b = 3.14                  // Inferred: f64
+    let c = "hello"               // Inferred: string
+
+    // Function type inference
+    let numbers = [1, 2, 3, 4]    // Inferred: Array[i32]
+    let doubled = numbers.map(|x| x * 2)  // Inferred: Array[i32]
+
+    // Generic instantiation
+    let id_int = identity(42)     // T = i32
+    let id_str = identity("test") // T = string
+
+    // Constraint solving
+    let result = if true { 42 } else { 0 }  // Unified to i32
+}
+
+// Function with complex return type inference
+func processData(items: Array[i32]) {
+    return items
+        .filter(|x| x > 0)        // Array[i32]
+        .map(|x| x * 2)           // Array[i32]
+        .reduce(0, |acc, x| acc + x)  // i32
+}
+
+// Error cases for type inference
+func inferenceErrors() {
+    // Ambiguous type - requires annotation
+    let ambiguous = []            // Error: cannot infer element type
+
+    // Conflicting constraints
+    let conflict = if true { 42 } else { "string" }  // Error: type mismatch
+
+    // Recursive type inference
+    func recursive(x) {           // Error: cannot infer parameter type
+        return recursive(x)
+    }
+}

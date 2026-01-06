@@ -1,0 +1,8 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() do
+    let arr = [10, 20, 30]
+    let val = arr[1]
+    println(val)
+end

@@ -1,0 +1,9 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    print("start");
+    defer print("end");
+    defer print("middle");
+    print("working");
+}

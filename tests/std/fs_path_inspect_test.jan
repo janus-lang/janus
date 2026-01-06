@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Tests for Path inspection methods: parent, file_name, extension_opt, stem
+
+import std.sys.fs.path;
+
+func test_parent_root_none() -> Result<(), string> {
+    let p = Path::new("/");
+    match p.parent() {
+        None => Ok(()),
+        Some(_) => Err("parent of root should be None".to_string()),
+    }
+}
+
+func test_parent_trailing_sep() -> Result<(), string> {
+    let p = Path::new("/a/b/");
+    let par = p.parent().unwrap();
+    if par.as_string() != "/a" { return Err("parent of /a/b/ should be /a".to_string()); }
+    Ok(())
+}
+
+func test_file_name_and_extension() -> Result<(), string> {
+    let p = Path::new("/a/b.txt");
+    if p.file_name().unwrap() != "b.txt" { return Err("file_name mismatch".to_string()); }
+    if p.extension_opt().unwrap() != "txt" { return Err("extension_opt mismatch".to_string()); }
+    if p.stem().unwrap() != "b" { return Err("stem mismatch".to_string()); }
+    Ok(())
+}
+
+func test_file_name_none_on_root() -> Result<(), string> {
+    let p = Path::new("/");
+    match p.file_name() {
+        None => Ok(()),
+        Some(_) => Err("file_name for root should be None".to_string()),
+    }
+}

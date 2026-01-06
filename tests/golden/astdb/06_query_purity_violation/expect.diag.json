@@ -1,0 +1,37 @@
+{
+  "test_name": "query_purity_violation",
+  "description": "Debug mode should detect and report purity violations with Q1001 error",
+  "expected_errors": [
+    {
+      "code": "Q1001",
+      "message": "Query purity violation detected: I/O operation in query context",
+      "severity": "error",
+      "functions": ["read_config_file", "fetch_remote_data", "run_external_command"],
+      "fix_suggestions": [
+        "Move I/O operation to dependent query boundary",
+        "Use capability-gated query instead",
+        "Separate pure computation from I/O effects"
+      ]
+    },
+    {
+      "code": "Q1002",
+      "message": "Query purity violation: Non-deterministic time access",
+      "severity": "warning",
+      "functions": ["get_current_timestamp"],
+      "fix_suggestions": [
+        "Use deterministic time source or move to context",
+        "Pass time as parameter instead of accessing globally"
+      ]
+    }
+  ],
+  "validation_rules": [
+    "debug_mode_must_detect_io_violations",
+    "q1001_error_must_be_generated_for_io_operations",
+    "fix_suggestions_must_be_actionable",
+    "error_locations_must_be_precise"
+  ],
+  "debug_mode_behavior": {
+    "enabled": "errors_must_be_reported",
+    "disabled": "violations_ignored_for_performance"
+  }
+}

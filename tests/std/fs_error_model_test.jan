@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Tests for error model mapping and constructors
+
+import std.sys.fs.fs;
+
+func test_map_common_errno() -> Result<(), string> {
+    if fs.FsErrorKind::from_os_code(2) != fs.FsErrorKind::NotFound { return Err("ENOENT map failed".to_string()); }
+    if fs.FsErrorKind::from_os_code(13) != fs.FsErrorKind::PermissionDenied { return Err("EACCES map failed".to_string()); }
+    if fs.FsErrorKind::from_os_code(17) != fs.FsErrorKind::AlreadyExists { return Err("EEXIST map failed".to_string()); }
+    if fs.FsErrorKind::from_os_code(18) != fs.FsErrorKind::CrossDevice { return Err("EXDEV map failed".to_string()); }
+    if fs.FsErrorKind::from_os_code(22) != fs.FsErrorKind::InvalidInput { return Err("EINVAL map failed".to_string()); }
+    if fs.FsErrorKind::from_os_code(5) != fs.FsErrorKind::Io { return Err("fallback Io map failed".to_string()); }
+    Ok(())
+}
+
+func test_fs_error_from_os_and_cause() -> Result<(), string> {
+    let base = fs.FsError::from_os(2, "no such file".to_string());
+    if base.kind != fs.FsErrorKind::NotFound { return Err("from_os kind mismatch".to_string()); }
+    if base.os_code != 2 { return Err("from_os code mismatch".to_string()); }
+
+    let cause = fs.ErrorCause { kind: fs.FsErrorKind::Io, os_code: 5, message: "io".to_string() };
+    let wrapped = base.with_cause(cause);
+    match wrapped.cause {
+        None => Err("missing cause".to_string()),
+        Some(c) => if c.os_code != 5 { Err("cause os_code mismatch".to_string()) } else { Ok(()) },
+    }
+}

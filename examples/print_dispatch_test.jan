@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    print("Testing print with integer:");
+    print(12345);
+    
+    let x: i32 = 42;
+    print(x);
+    
+    let len: i32 = string_len_intrinsic("Hello");
+    print(len);
+}

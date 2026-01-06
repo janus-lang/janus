@@ -1,0 +1,49 @@
+{
+    "Function": {
+        "prefix": "func",
+        "body": [
+            "func ${1:name}(${2:params}) -> ${3:void} do",
+            "\t$0",
+            "end"
+        ],
+        "description": "Function definition"
+    },
+    "Test": {
+        "prefix": "test",
+        "body": [
+            "test \"${1:description}\" do",
+            "\t$0",
+            "end"
+        ],
+        "description": "Test block"
+    },
+    "Spec": {
+        "prefix": "spec",
+        "body": [
+            "spec \"${1:description}\" do",
+            "\t$0",
+            "end"
+        ],
+        "description": "Specification block"
+    },
+    "If": {
+        "prefix": "if",
+        "body": [
+            "if ${1:condition} do",
+            "\t$0",
+            "end"
+        ],
+        "description": "If statement"
+    },
+    "If Else": {
+        "prefix": "ifelse",
+        "body": [
+            "if ${1:condition} do",
+            "\t${2:body}",
+            "else",
+            "\t$0",
+            "end"
+        ],
+        "description": "If-Else statement"
+    }
+}

@@ -1,0 +1,257 @@
+# Validation Benchmark CI Job
+# Integration Protocol: Enforce performance contracts for semantic validation engine
+
+name: Validation Benchmarks
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run daily at 2 AM UTC for trend tracking
+    - cron: '0 2 * * *'
+
+jobs:
+  validation-bench:
+    name: Validation Performance Benchmarks
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        arch: [x86_64]
+        include:
+          - os: ubuntu-latest
+            arch: aarch64
+          - os: macos-latest
+            arch: arm64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Zig
+      uses: goto-bus-stop/setup-zig@v2
+      with:
+        version: 0.14.1
+
+    - name: Cache Zig artifacts
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/zig
+          .zig-cache
+        key: ${{ runner.os }}-${{ matrix.arch }}-zig-${{ hashFiles('build.zig', 'build.zig.zon') }}
+
+    - name: Build semantic validation engine
+      run: |
+        zig build -Doptimize=ReleaseFast
+
+    - name: Runn benchmarks
+      id: benchmark
+      run: |
+        # Create benchmark test files
+        mkdir -p benchmark_files
+
+        # Generate test files of various sizes
+        echo "Creating benchmark test files..."
+
+        # Small file (100 lines)
+        cat > benchmark_files/small.jan << 'EOF'
+        module SmallTest
+
+        func fibonacci(n: i32) -> i32 {
+            if n <= 1 {
+                return n
+            }
+            return fibonacci(n - 1) + fibonacci(n - 2)
+        }
+
+        func main() -> i32 {
+            let result = fibonacci(10)
+            return result
+        }
+        EOF
+
+        # Medium file (1000 lines) - generate programmatically
+        python3 -c "
+        print('module MediumTest')
+        print()
+        for i in range(100):
+            print(f'func function_{i}(x: i32, y: i32) -> i32 {{')
+            print(f'    let temp = x + y + {i}')
+            print(f'    if temp > {i * 10} {{')
+            print(f'        return temp * 2')
+            print(f'    }} else {{')
+            print(f'        return temp + {i}')
+            print(f'    }}')
+            print(f'}}')
+            print()
+        " > benchmark_files/medium.jan
+
+        # Large file (10000 lines) - generate programmatically
+        python3 -c "
+        print('module LargeTest')
+        print()
+        for i in range(1000):
+            print(f'func complex_function_{i}(a: i32, b: i32, c: i32) -> i32 {{')
+            print(f'    let x = a + b * c + {i}')
+            print(f'    let y = x * 2 + {i * 2}')
+            print(f'    if x > y {{')
+            print(f'        let z = x - y + {i * 3}')
+            print(f'        return z * 3')
+            print(f'    }} else {{')
+            print(f'        let w = y - x + {i * 4}')
+            print(f'        return w / 2')
+            print(f'    }}')
+            print(f'}}')
+            print()
+        " > benchmark_files/large.jan
+
+        # Run benchmarks and capture metrics
+        echo "Running validation benchmarks..."
+
+        # Test small file
+        echo "=== Small File Benchmark ==="
+        ./zig-out/bin/janus trace dispatch --timing benchmark_files/small.jan > small_results.txt 2>&1
+
+        # Test medium file
+        echo "=== Medium File Benchmark ==="
+        ./zig-out/bin/janus trace dispatch --timing benchmark_files/medium.jan > medium_results.txt 2>&1
+
+        # Test large file
+        echo "=== Large File Benchmark ==="
+        ./zig-out/bin/janus trace dispatch --timing benchmark_files/large.jan > large_results.txt 2>&1
+
+        # Extract metrics using grep and awk
+        echo "Extracting performance metrics..."
+
+        small_ms=$(grep "Total validation time:" small_results.txt | awk '{print $4}' || echo "0")
+        medium_ms=$(grep "Total validation time:" medium_results.txt | awk '{print $4}' || echo "0")
+        large_ms=$(grep "Total validation time:" large_results.txt | awk '{print $4}' || echo "0")
+
+        small_dedup=$(grep "Error deduplication ratio:" small_results.txt | awk '{print $4}' || echo "0")
+        medium_dedup=$(grep "Error deduplication ratio:" medium_results.txt | awk '{print $4}' || echo "0")
+        large_dedup=$(grep "Error deduplication ratio:" large_results.txt | awk '{print $4}' || echo "0")
+
+        small_cache=$(grep "Cache hit rate:" small_results.txt | awk '{print $4}' || echo "0")
+        medium_cache=$(grep "Cache hit rate:" medium_results.txt | awk '{print $4}' || echo "0")
+        large_cache=$(grep "Cache hit rate:" large_results.txt | awk '{print $4}' || echo "0")
+
+        echo "Performance Results:"
+        echo "Small file: ${small_ms}ms, dedup: ${small_dedup}, cache: ${small_cache}"
+        echo "Medium file: ${medium_ms}ms, dedup: ${medium_dedup}, cache: ${medium_cache}"
+        echo "Large file: ${large_ms}ms, dedup: ${large_dedup}, cache: ${large_cache}"
+
+        # Set outputs for contract checking
+        echo "small_ms=${small_ms}" >> $GITHUB_OUTPUT
+        echo "medium_ms=${medium_ms}" >> $GITHUB_OUTPUT
+        echo "large_ms=${large_ms}" >> $GITHUB_OUTPUT
+        echo "small_dedup=${small_dedup}" >> $GITHUB_OUTPUT
+        echo "medium_dedup=${medium_dedup}" >> $GITHUB_OUTPUT
+        echo "large_dedup=${large_dedup}" >> $GITHUB_OUTPUT
+        echo "small_cache=${small_cache}" >> $GITHUB_OUTPUT
+        echo "medium_cache=${medium_cache}" >> $GITHUB_OUTPUT
+        echo "large_cache=${large_cache}" >> $GITHUB_OUTPUT
+
+    - name: Check Performance Contracts
+      run: |
+        # Performance contract thresholds
+        MAX_VALIDATION_MS=25.0
+        MIN_DEDUP_RATIO=0.85
+        MIN_CACHE_HIT_RATE=0.95
+
+        echo "Checking performance contracts..."
+        echo "Thresholds: validation_ms <= ${MAX_VALIDATION_MS}, dedup_ratio >= ${MIN_DEDUP_RATIO}, cache_hit_rate >= ${MIN_CACHE_HIT_RATE}"
+
+        # Check validation time (use large file as worst case)
+        large_ms="${{ steps.benchmark.outputs.large_ms }}"
+        if (( $(echo "$large_ms > $MAX_VALIDATION_MS" | bc -l) )); then
+          echo "❌ PERFORMANCE CONTRACT VIOLATION: Validation time ${large_ms}ms exceeds ${MAX_VALIDATION_MS}ms"
+          exit 1
+        else
+          echo "✅ Validation time: ${large_ms}ms <= ${MAX_VALIDATION_MS}ms"
+        fi
+
+        # Check deduplication ratio
+        large_dedup="${{ steps.benchmark.outputs.large_dedup }}"
+        if (( $(echo "$large_dedup < $MIN_DEDUP_RATIO" | bc -l) )); then
+          echo "❌ PERFORMANCE CONTRACT VIOLATION: Dedup ratio ${large_dedup} below ${MIN_DEDUP_RATIO}"
+          exit 1
+        else
+          echo "✅ Dedup ratio: ${large_dedup} >= ${MIN_DEDUP_RATIO}"
+        fi
+
+        # Check cache hit rate
+        large_cache="${{ steps.benchmark.outputs.large_cache }}"
+        if (( $(echo "$large_cache < $MIN_CACHE_HIT_RATE" | bc -l) )); then
+          echo "❌ PERFORMANCE CONTRACT VIOLATION: Cache hit rate ${large_cache} below ${MIN_CACHE_HIT_RATE}"
+          exit 1
+        else
+          echo "✅ Cache hit rate: ${large_cache} >= ${MIN_CACHE_HIT_RATE}"
+        fi
+
+        echo "🎉 All performance contracts satisfied!"
+
+    - name: Store Performance Metrics
+      if: github.ref == 'refs/heads/main'
+      run: |
+        # Store metrics for trend analysis
+        mkdir -p performance_history
+
+        cat > performance_history/metrics_$(date +%Y%m%d_%H%M%S).json << EOF
+        {
+          "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+          "commit": "${{ github.sha }}",
+          "os": "${{ matrix.os }}",
+          "arch": "${{ matrix.arch }}",
+          "metrics": {
+            "small_ms": ${{ steps.benchmark.outputs.small_ms }},
+            "medium_ms": ${{ steps.benchmark.outputs.medium_ms }},
+            "large_ms": ${{ steps.benchmark.outputs.large_ms }},
+            "small_dedup": ${{ steps.benchmark.outputs.small_dedup }},
+            "medium_dedup": ${{ steps.benchmark.outputs.medium_dedup }},
+            "large_dedup": ${{ steps.benchmark.outputs.large_dedup }},
+            "small_cache": ${{ steps.benchmark.outputs.small_cache }},
+            "medium_cache": ${{ steps.benchmark.outputs.medium_cache }},
+            "large_cache": ${{ steps.benchmark.outputs.large_cache }}
+          }
+        }
+        EOF
+
+    - name: Upload Performance Results
+      uses: actions/upload-artifact@v3
+      with:
+        name: validation-benchmark-${{ matrix.os }}-${{ matrix.arch }}
+        path: |
+          *_results.txt
+          performance_history/
+        retention-days: 30
+
+    - name: Comment PR with Results
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const results = `
+          ## 🚀 Validation Performance Results (${{ matrix.os }}-${{ matrix.arch }})
+
+          | File Size | Validation Time | Dedup Ratio | Cache Hit Rate |
+          |-----------|----------------|-------------|----------------|
+          | Small     | ${{ steps.benchmark.outputs.small_ms }}ms | ${{ steps.benchmark.outputs.small_dedup }} | ${{ steps.benchmark.outputs.small_cache }} |
+          | Medium    | ${{ steps.benchmark.outputs.medium_ms }}ms | ${{ steps.benchmark.outputs.medium_dedup }} | ${{ steps.benchmark.outputs.medium_cache }} |
+          | Large     | ${{ steps.benchmark.outputs.large_ms }}ms | ${{ steps.benchmark.outputs.large_dedup }} | ${{ steps.benchmark.outputs.large_cache }} |
+
+          **Performance Contracts:** ✅ All thresholds met
+          - Validation time: ≤ 25ms
+          - Dedup ratio: ≥ 0.85
+          - Cache hit rate: ≥ 0.95
+          `;
+
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: results
+          });

@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// PhysicalFS: assert FileType == Symlink after preserve_symlinks on same device
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.sys.fs.physical_fs;
+import std.string;
+
+extern fn hasEnvVarImpl(name: []const u8) i32;
+extern fn symlinkSupportStatusImpl(base_ptr: []const u8) i32;
+
+func main() -> void {
+    // CI gating
+    let key = string.fromLiteral("JANUS_ENABLE_SYMLINK_TESTS");
+    if (hasEnvVarImpl(key.bytes) == 0) {
+        print("⚠️  Skipping PhysicalFS symlink ftype test (env not set)\n");
+        return;
+    }
+    let base = string.fromLiteral(".zig-cache");
+    let status = symlinkSupportStatusImpl(base.bytes);
+    if (status != 1) {
+        print("⚠️  Skipping symlink ftype test (unsupported)\n");
+        return;
+    }
+
+    let pfs = physical_fs::PhysicalFS::new();
+    let dir = path::Path::new(".zig-cache/ftype_preserve");
+    _ = pfs.create_dir(dir, fs::CapFsWrite);
+    let target = path::Path::new(".zig-cache/ftype_preserve/real.txt");
+    let link = path::Path::new(".zig-cache/ftype_preserve/link.txt");
+    let dst = path::Path::new(".zig-cache/ftype_preserve/dst.txt");
+    _ = pfs.write_atomic(target, "R", fs::CapFsWrite);
+    // Create file symlink
+    try pfs.symlink_file(target, link, fs::CapFsWrite);
+    // preserve_symlinks=true move (should be same-device rename)
+    try pfs.rename_or_copy_opts(link, dst, fs::CapFsWrite, fs::RenameOptions { preserve_symlinks: true, replace: true });
+
+    // Iterate dir to find dst entry and check file_type is Symlink
+    let it = try pfs.read_dir_iter(dir, fs::CapFsRead);
+    var found = false;
+    loop {
+        match it.next()? {
+            None => break,
+            Some(e) => {
+                if (e.file_name == "dst.txt") {
+                    assert(e.file_type == path::FileType::Symlink);
+                    found = true;
+                    break;
+                }
+            }
+        }
+    }
+    assert(found);
+    print("✅ PhysicalFS preserve_symlinks FileType verified on same device");
+}

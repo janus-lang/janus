@@ -1,0 +1,78 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// tests/integration/match_exhaustiveness.jan
+// Profile: :min
+// Status: Should Compile
+//
+// This file tests the Elm Guarantee: exhaustive pattern matching.
+// All match statements here are exhaustive and should compile successfully.
+
+func classify_bool(flag: bool) -> string do
+    // 1. Exhaustive Match (Happy Path)
+    match flag do
+        true => "yes"
+        false => "no"
+    end
+end
+
+func classify_int_with_wildcard(x: i32) -> string do
+    // 2. Integer Match with Wildcard (Exhaustive via '_')
+    match x do
+        0 => "zero"
+        1 => "one"
+        _ => "many"
+    end
+end
+
+func classify_int_with_identifier(x: i32) -> string do
+    // 3. Integer Match with Identifier (Exhaustive via binding)
+    match x do
+        0 => "zero"
+        n => "non-zero"
+    end
+end
+
+func nested_match(x: bool, y: bool) -> string do
+    // 4. Nested Exhaustiveness
+    match x do
+        true => match y do
+            true => "both true"
+            false => "x true, y false"
+        end
+        false => "x false"
+    end
+end
+
+func wildcard_only(x: i32) -> string do
+    // 5. Wildcard-only match (trivially exhaustive)
+    match x do
+        _ => "anything"
+    end
+end
+
+func identifier_only(x: bool) -> string do
+    // 6. Identifier-only match (trivially exhaustive)
+    match x do
+        result => "bound"
+    end
+end
+
+// Entry point for testing
+func main() -> i32 do
+    let b1 = classify_bool(true)
+    let b2 = classify_bool(false)
+    
+    let i1 = classify_int_with_wildcard(0)
+    let i2 = classify_int_with_wildcard(1)
+    let i3 = classify_int_with_wildcard(42)
+    
+    let n1 = nested_match(true, true)
+    let n2 = nested_match(true, false)
+    let n3 = nested_match(false, true)
+    
+    let w = wildcard_only(999)
+    let id = identifier_only(true)
+    
+    0
+end

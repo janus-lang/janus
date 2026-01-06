@@ -1,0 +1,64 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Trait-centric tests that run against both PhysicalFS and MemoryFS
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.sys.fs.physical_fs;
+import std.sys.fs.memory_fs;
+
+// Shared checks for read_dir_iter, exists, metadata, open+read
+func run_fs_smoke(vfs: physical_fs::PhysicalFS) -> void {
+    // Directory iteration on current directory
+    let it = try vfs.read_dir_iter(path::Path::new("."), fs::CapFsRead);
+    var saw_any: bool = false;
+    loop { match it.next()? { None => break, Some(e) => { if e.file_name.len() > 0 { saw_any = true; break; } } } }
+    assert(saw_any);
+
+    // Read README.md (should exist in repo)
+    let opts = fs::OpenOptions::read_only();
+    let file = try vfs.open(path::Path::new("README.md"), fs::CapFsRead, opts);
+    let content = try file.read_string();
+    assert(content.len() > 0);
+
+    // Metadata
+    let md = try vfs.metadata(path::Path::new("README.md"), fs::CapFsRead);
+    assert(md.size > 0);
+}
+
+func run_fs_smoke(vfs: memory_fs::MemoryFS) -> void {
+    // Prepare content
+    let fs = vfs
+        .add_dir(path::Path::new("mem"))
+        .add_file(path::Path::new("mem/test.txt"), "hello world");
+
+    // Iterate directory
+    let it = try fs.read_dir_iter(path::Path::new("mem"), fs::CapFsRead);
+    var found = false;
+    loop { match it.next()? { None => break, Some(e) => { if e.file_name == "test.txt" { found = true; break; } } } }
+    assert(found);
+
+    // Open and read
+    let opts = fs::OpenOptions::read_only();
+    let f = try fs.open(path::Path::new("mem/test.txt"), fs::CapFsRead, opts);
+    let s = try f.read_string();
+    assert(s == "hello world");
+
+    // Metadata and exists
+    assert(fs.exists(path::Path::new("mem/test.txt"), fs::CapFsRead));
+    let md = try fs.metadata(path::Path::new("mem/test.txt"), fs::CapFsRead);
+    assert(md.size == 11);
+}
+
+func main() -> void {
+    // PhysicalFS
+    let pfs = physical_fs::PhysicalFS::new();
+    run_fs_smoke(pfs);
+
+    // MemoryFS
+    let mfs = memory_fs::MemoryFS::new();
+    run_fs_smoke(mfs);
+
+    print("✅ FS trait parity smoke tests passed for PhysicalFS and MemoryFS");
+}

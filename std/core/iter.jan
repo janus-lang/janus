@@ -1,0 +1,276 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// janus.iter - Iterator Adapters & Lazy Sequences
+//
+// Core iterator traits and adapters providing lazy, zero-alloc iteration
+// capabilities. Foundation for all collection processing in Janus.
+//
+// CAPABILITIES: This module requires no external capabilities.
+// EFFECTS: Pure functional transformations with no side effects.
+
+import std.core;
+
+// Iterator trait - Core abstraction for lazy sequences
+trait Iterator<T> {
+    // Get next element, returns none if exhausted
+    func next() -> T?
+
+    // Transform each element with a closure
+    func map<U>(self, transform: func(T) -> U) -> MapIterator<T, U> {
+        return MapIterator { iter: self, transform: transform };
+    }
+
+    // Filter elements with a predicate
+    func filter(self, predicate: func(T) -> bool) -> FilterIterator<T> {
+        return FilterIterator { iter: self, predicate: predicate };
+    }
+
+    // Chain with another iterator
+    func chain(self, other: Iterator<T>) -> ChainIterator<T> {
+        return ChainIterator { first: self, second: other };
+    }
+
+    // Collect all remaining elements into a vector
+    func collect(self) -> Vec<T> {
+        var result = Vec<T> {};
+        while let Some(item) = self.next() {
+            result.push(item);
+        }
+        return result;
+    }
+}
+
+// Map iterator adapter - Transform elements lazily
+struct MapIterator<T, U> {
+    iter: Iterator<T>,
+    transform: func(T) -> U,
+}
+
+impl Iterator<U> for MapIterator<T, U> {
+    func next() -> U? {
+        match self.iter.next() {
+            Some(value) => Some(self.transform(value)),
+            None => None,
+        }
+    }
+}
+
+// Filter iterator adapter - Filter elements lazily
+struct FilterIterator<T> {
+    iter: Iterator<T>,
+    predicate: func(T) -> bool,
+}
+
+impl Iterator<T> for FilterIterator<T> {
+    func next() -> T? {
+        loop {
+            match self.iter.next() {
+                Some(value) => {
+                    if self.predicate(value) {
+                        return Some(value);
+                    }
+                    // Continue to next element
+                }
+                None => return None,
+            }
+        }
+    }
+}
+
+// Chain iterator adapter - Concatenate two iterators
+struct ChainIterator<T> {
+    first: Iterator<T>,
+    second: Iterator<T>,
+    first_exhausted: bool = false,
+}
+
+impl Iterator<T> for ChainIterator<T> {
+    func next() -> T? {
+        if !self.first_exhausted {
+            match self.first.next() {
+                Some(value) => return Some(value),
+                None => self.first_exhausted = true,
+            }
+        }
+
+        self.second.next()
+    }
+}
+
+// Range iterator - Generate sequences of numbers
+struct RangeIterator {
+    current: i32,
+    end: i32,
+    step: i32,
+}
+
+impl Iterator<i32> for RangeIterator {
+    func next() -> i32? {
+        if self.current >= self.end {
+            return None;
+        }
+
+        let value = self.current;
+        self.current = self.current + self.step;
+        Some(value)
+    }
+}
+
+// Range function - Create range iterators
+func range(start: i32, end: i32) -> RangeIterator {
+    RangeIterator { current: start, end: end, step: 1 }
+}
+
+func range_step(start: i32, end: i32, step: i32) -> RangeIterator {
+    RangeIterator { current: start, end: end, step: step }
+}
+
+// Vector iterator - Iterate over vector elements
+struct VecIterator<T> {
+    vec: Vec<T>,
+    index: i32 = 0,
+}
+
+impl Iterator<T> for VecIterator<T> {
+    func next() -> T? {
+        if self.index >= self.vec.len() as i32 {
+            return None;
+        }
+
+        let value = self.vec[self.index as usize];
+        self.index = self.index + 1;
+        Some(value)
+    }
+}
+
+// Extend Vec with iterator capability
+impl<T> Vec<T> {
+    func iter(self) -> VecIterator<T> {
+        VecIterator { vec: self, index: 0 }
+    }
+}
+
+// Common iterator functions
+func zip<T, U>(first: Iterator<T>, second: Iterator<U>) -> ZipIterator<T, U> {
+    ZipIterator { first: first, second: second }
+}
+
+struct ZipIterator<T, U> {
+    first: Iterator<T>,
+    second: Iterator<U>,
+}
+
+impl Iterator<(T, U)> for ZipIterator<T, U> {
+    func next() -> (T, U)? {
+        match (self.first.next(), self.second.next()) {
+            (Some(a), Some(b)) => Some((a, b)),
+            _ => None,
+        }
+    }
+}
+
+// Enumerate iterator - Add index to each element
+func enumerate<T>(iter: Iterator<T>) -> EnumerateIterator<T> {
+    EnumerateIterator { iter: iter, index: 0 }
+}
+
+struct EnumerateIterator<T> {
+    iter: Iterator<T>,
+    index: i32,
+}
+
+impl Iterator<(i32, T)> for EnumerateIterator<T> {
+    func next() -> (i32, T)? {
+        match self.iter.next() {
+            Some(value) => {
+                let current = self.index;
+                self.index = self.index + 1;
+                Some((current, value))
+            }
+            None => None,
+        }
+    }
+}
+
+// Test the iterator system
+func main() {
+    // Test basic range iteration
+    let numbers = range(1, 5);
+    let doubled: Vec<i32> = numbers.map(|x| x * 2).collect();
+    assert(doubled[0] == 2);
+    assert(doubled[1] == 4);
+    assert(doubled[2] == 6);
+    assert(doubled[3] == 8);
+
+    // Test filtering
+    let filtered: Vec<i32> = range(1, 10).filter(|x| x % 2 == 0).collect();
+    assert(filtered.len() == 4);
+    assert(filtered[0] == 2);
+    assert(filtered[1] == 4);
+
+    // Test chaining
+    let chained: Vec<i32> = range(1, 3).chain(range(5, 7)).collect();
+    assert(chained.len() == 4);
+    assert(chained[0] == 1);
+    assert(chained[1] == 2);
+    assert(chained[2] == 5);
+    assert(chained[3] == 6);
+
+    // Test vector iteration
+    let vec = Vec<i32> { 10, 20, 30 };
+    let vec_iter = vec.iter();
+    let sum: i32 = vec_iter.map(|x| x / 10).collect().iter().fold(0, |acc, x| acc + x);
+    assert(sum == 6);
+
+    // Test enumerate
+    let enumerated: Vec<(i32, i32)> = enumerate(range(5, 8)).collect();
+    assert(enumerated.len() == 3);
+    assert(enumerated[0] == (0, 5));
+    assert(enumerated[1] == (1, 6));
+    assert(enumerated[2] == (2, 7));
+
+    print("✅ janus.iter: All iterator tests passed");
+}
+
+// Utility functions for working with iterators
+extension Iterator<T> {
+    // Fold/reduce - Combine all elements with an accumulator
+    func fold<U>(self, init: U, f: func(U, T) -> U) -> U {
+        let mut acc = init;
+        while let Some(item) = self.next() {
+            acc = f(acc, item);
+        }
+        acc
+    }
+
+    // Count elements
+    func count(self) -> i32 {
+        self.fold(0, |acc, _| acc + 1)
+    }
+
+    // Find first element matching predicate
+    func find(self, predicate: func(T) -> bool) -> T? {
+        while let Some(item) = self.next() {
+            if predicate(item) {
+                return Some(item);
+            }
+        }
+        None
+    }
+
+    // Check if any element matches predicate
+    func any(self, predicate: func(T) -> bool) -> bool {
+        self.find(predicate).is_some()
+    }
+
+    // Check if all elements match predicate
+    func all(self, predicate: func(T) -> bool) -> bool {
+        while let Some(item) = self.next() {
+            if !predicate(item) {
+                return false;
+            }
+        }
+        true
+    }
+}

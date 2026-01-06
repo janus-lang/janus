@@ -1,0 +1,9 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    print("Step 1");
+    // Force i32 type for the pointer handle (legacy Janus behavior apparently?)
+    let ptr: i32 = string_data_intrinsic("Hello");
+    print("Step 2");
+}

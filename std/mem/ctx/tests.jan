@@ -1,0 +1,155 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+/// ================================
+/// Context-Bound Memory Tests
+/// ================================
+
+import "./alloc.jan" as Alloc
+import "./context.jan" as AllocContext
+import "./traits.jan" as Drop
+import "./list.jan" as List
+import "./map.jan" as Map
+import "./buffer.jan" as Buffer
+import "./region.jan" as Region
+import "./using_blocks.jan" as Using
+
+test "List.allocates effect when growing" {
+    // Testet, ob das List.withelement-Verhalten den korrekten Allocates-Effekt auslöst
+}
+
+test "List.insert at capacity triggers reallocation" {
+    // Testet, ob List.insert bei vollem Speicher korrekt realloziert
+}
+
+test "List.drop verwendet den gebundenen Allocator" {
+    // Testet, ob der Drop-Handler der List den korrekten Allocator verwendet
+}
+
+test "Map.insert with collision creates chain" {
+    // Testet Kollisionserkennung und Verkettung in Maps
+}
+
+test "Map.get on empty returns KeyNotFound" {
+    // Testet das Verhalten bei Zugriff auf nichtexistierende Schlüssel
+}
+
+test "Map.remove on non-existent key returns KeyNotFound" {
+    // Testet das Entfernen nichtexistierender Schlüssel
+}
+
+test "Buffer.writeSlice with insufficient space returns OutOfBounds" {
+    // Testet die Grenzüberprüfung beim Schreiben
+}
+
+test "Buffer.readSlice beyond available returns OutOfBounds" {
+    // Testet die Grenzüberprüfung beim Lesen
+}
+
+test "Region.escape detection prevents use-after-free" {
+    // Testet die Escape-Erkennung des Compilers
+}
+
+test "Using.block calls drop exactly once" {
+    // Testet die idempotente Drop-Semantik
+}
+
+test "Using.manual_drop before scope exit is no-op" {
+    // Testet das idempotente Verhalten bei manuellem Drop
+}
+
+test "Profile.gating for :min profile" {
+    // Testet, ob Features im :min-Profile korrekt deaktiviert sind
+}
+
+test "Profile.script uses thread-local region by default" {
+    // Testet das Standardverhalten im :script-Profile
+}
+
+test "Effect.allocates is required for allocating operations" {
+    // Testet die Effekt-System-Integration
+}
+
+test "Compiler.escape detection for regions" {
+    // Testet die Compiler-Integration zur Escape-Erkennung
+}
+
+test "janus.inspect effects shows allocation effects" {
+    // Testet das Tooling zur Effekt-Inspektion
+}
+
+test "Zero.copy buffer creation preserves external data" {
+    // Testet das Zero-Copy-Verhalten bei Puffererstellung
+}
+
+test "Context-bound collections propagate allocator" {
+    // Testet die korrekte Weitergabe des Allocators
+}
+
+test "Drop.implementation calls are idempotent" {
+    // Testet die Idempotenz der Drop-Implementierungen
+}
+
+test "Performance.overhead within 3 percent" {
+    // Testet die Performance-Anforderungen
+}
+
+test "Migration.compatibility with existing code" {
+    // Testet die Abwärtskompatibilität und Migrationspfade
+}
+
+test "Memory.safety with allocator contexts" {
+    // Testet allgemeine Speichersicherheit
+}
+
+test "Capability.safety for I/O operations" {
+    // Testet dieCapability-basierte Sicherheit
+}
+
+test "Deterministic.behavior across profiles" {
+    // Testet deterministisches Verhalten
+}
+
+test "Error.handling for allocation failures" {
+    // Testet die Fehlerbehandlung bei Speicherengpässen
+}
+
+test "Type.safety for context-bound types" {
+    // Testet die Typsicherheit
+}
+
+test "Semantic.consistency across profiles" {
+    // Testet semantische Konsistenz
+}
+
+test "Documentation.examples compile and run" {
+    // Testet die Beispiele in der Dokumentation
+}
+
+test "Compiler.integration for region escape analysis" {
+    // Testet die Compiler-Integration
+}
+
+test "Tooling.integration for janus inspect" {
+    // Testet die Tooling-Integration
+}
+
+test "Effect.system integration for allocates effect" {
+    // Testet die Effekt-System-Integration
+}
+
+test "Comprehensive.coverage for all code paths" {
+    // Testet die Testabdeckung
+}

@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Minimal match test
+func test(x: bool) -> i32 do
+    match x do
+        true => 1
+        false => 0
+    end
+end

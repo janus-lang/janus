@@ -1,0 +1,40 @@
+{
+  "test_name": "no_work_rebuild",
+  "description": "Second build should perform zero work due to caching",
+  "expected_trace": {
+    "run1": {
+      "description": "Initial build - all stages execute",
+      "stages": {
+        "parse": { "executed": ">0", "files_processed": ">0" },
+        "sema": { "executed": ">0", "files_processed": ">0" },
+        "ir": { "executed": ">0", "files_processed": ">0" },
+        "codegen": { "executed": ">0", "files_processed": ">0" }
+      },
+      "cache_stats": {
+        "hits": 0,
+        "misses": ">0",
+        "hit_rate": 0.0
+      }
+    },
+    "run2": {
+      "description": "Rebuild - zero work due to caching",
+      "stages": {
+        "parse": { "executed": 0, "files_processed": 0 },
+        "sema": { "executed": 0, "files_processed": 0 },
+        "ir": { "executed": 0, "files_processed": 0 },
+        "codegen": { "executed": 0, "files_processed": 0 }
+      },
+      "cache_stats": {
+        "hits": ">0",
+        "misses": 0,
+        "hit_rate": 1.0
+      }
+    }
+  },
+  "validation_rules": [
+    "run2_must_have_zero_executed_stages",
+    "run2_must_have_100_percent_cache_hit_rate",
+    "run2_must_be_faster_than_run1",
+    "all_cids_must_be_identical_between_runs"
+  ]
+}

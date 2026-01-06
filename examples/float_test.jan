@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    print("Testing float:");
+    let pi: f64 = 3.14159;
+    print(pi);
+    let x: f64 = 1.0;
+    print(x);
+}

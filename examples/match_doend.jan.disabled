@@ -1,0 +1,13 @@
+// Test match with do...end syntax (as shown in min_profile_demo.jan)
+func fibonacci(n: i32) -> i32 do
+  match n do
+    0 => 0
+    1 => 1
+    2 => 2
+  end
+end
+
+func main() do
+  let result = fibonacci(1)
+  print(result)
+end

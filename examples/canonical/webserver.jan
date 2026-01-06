@@ -1,0 +1,160 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Janus Canonical Case Study - Single-File Web Server
+// THE TROJAN HORSE: Familiar, boring syntax that infiltrates conservative environments
+// THE PAYLOAD: Same code becomes concurrent (:go) and secure (:full) without rewrites
+
+func main() {
+    // Profile-agnostic initialization - looks familiar and safe
+    allocator := std.heap.page_allocator
+
+    print("🌐 Janus Web Server Starting...")
+    print("📡 Listening on http://localhost:8080")
+    print("📁 Serving files from /public directory")
+    print("🎯 Profile: Adapts automatically to compilation profile")
+
+    // THE MAGIC: This single line adapts to all three profiles
+    // :min  → Sequential, blocking server
+    // :go   → Concurrent, context-aware server
+    // :full → Secure, capability-gated server
+    http.serve(":8080", handle_request, allocator)
+}
+
+func handle_request(req: HttpRequest, allocator: Allocator) HttpResponse {
+    print("📥 Request: " + req.method + " " + req.path)
+
+    // Route handling - same logic across all profiles
+    if (req.path == "/") {
+        return serve_file("public/index.html", allocator)
+    }
+
+    if (req.path == "/about") {
+        return serve_file("public/about.html", allocator)
+    }
+
+    if (req.path == "/style.css") {
+        return serve_file("public/style.css", allocator)
+    }
+
+    // Static file serving - security behavior varies by profile
+    // :min/:go  → Serves any file (if accessible)
+    // :full     → Only serves files from /public (capability-gated)
+    if (starts_with(req.path, "/public/")) {
+        return serve_static_file(req.path, allocator)
+    }
+
+    // Test endpoint for security demonstration
+    if (req.path == "/secret") {
+        return serve_file("private/secret.txt", allocator)
+    }
+
+    // 404 for unknown paths
+    return error_response(404, "Not Found", allocator)
+}
+
+func serve_file(path: []const u8, allocator: Allocator) HttpResponse {
+    print("📄 Serving file: " + path)
+
+    // THE MAGIC: File operations adapt to profile capabilities
+    // :min  → fs.read(path, allocator) - unrestricted access
+    // :go   → fs.read(path, ctx, allocator) - context-aware with timeout
+    // :full → fs.read(path, cap, allocator) - capability-gated security
+    content := fs.read(path, allocator) catch |err| {
+        print("❌ File read failed: " + @errorName(err))
+        return error_response(404, "File not found", allocator)
+    }
+
+    // Determine content type from file extension
+    content_type := get_content_type(path)
+
+    return HttpResponse{
+        .status = 200,
+        .body = content,
+        .headers = {
+            "Content-Type": content_type,
+            "Content-Length": @intToString(content.len),
+            "Server": "Janus-WebServer/1.0",
+        },
+    }
+}
+
+func serve_static_file(path: []const u8, allocator: Allocator) HttpResponse {
+    // Remove leading slash for file system access
+    file_path := if (starts_with(path, "/")) path[1..] else path
+    return serve_file(file_path, allocator)
+}
+
+func error_response(status: u16, message: []const u8, allocator: Allocator) HttpResponse {
+    error_html := format_html_error(status, message, allocator)
+
+    return HttpResponse{
+        .status = status,
+        .body = error_html,
+        .headers = {
+            "Content-Type": "text/html",
+            "Content-Length": @intToString(error_html.len),
+            "Server": "Janus-WebServer/1.0",
+        },
+    }
+}
+
+func format_html_error(status: u16, message: []const u8, allocator: Allocator) []const u8 {
+    return format(allocator,
+        \\<!DOCTYPE html>
+        \\<html>
+        \\<head><title>Error {d}</title></head>
+        \\<body>
+        \\<h1>Error {d}</h1>
+        \\<p>{s}</p>
+        \\<hr>
+        \\<p><em>Janus Web Server - Profile-Aware Compilation</em></p>
+        \\</body>
+        \\</html>
+    , .{ status, status, message })
+}
+
+func get_content_type(path: []const u8) []const u8 {
+    if (ends_with(path, ".html")) return "text/html"
+    if (ends_with(path, ".css")) return "text/css"
+    if (ends_with(path, ".js")) return "application/javascript"
+    if (ends_with(path, ".json")) return "application/json"
+    if (ends_with(path, ".txt")) return "text/plain"
+    return "application/octet-stream"
+}
+
+func starts_with(str: []const u8, prefix: []const u8) bool {
+    if (str.len < prefix.len) return false
+    return str[0..prefix.len] == prefix
+}
+
+func ends_with(str: []const u8, suffix: []const u8) bool {
+    if (str.len < suffix.len) return false
+    return str[str.len - suffix.len..] == suffix
+}
+
+// Data structures for HTTP handling
+struct HttpRequest {
+    method: []const u8,      // "GET", "POST", etc.
+    path: []const u8,        // "/index.html"
+    headers: StringMap,      // Request headers
+    body: []const u8,        // Request body
+}
+
+struct HttpResponse {
+    status: u16,             // 200, 404, etc.
+    headers: StringMap,      // Response headers
+    body: []const u8,        // Response body
+}
+
+struct StringMap {
+    // Simple key-value map for headers
+    // In real implementation, would be proper hash map
+    keys: [][]const u8,
+    values: [][]const u8,
+}
+
+// THE TROJAN HORSE IS COMPLETE
+// This code looks familiar, boring, and safe - perfect for infiltration
+// But it contains the seeds of revolution: tri-signature function calls
+// that will unlock progressive power without changing a single line

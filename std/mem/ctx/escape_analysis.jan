@@ -1,0 +1,326 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025 Janus Project Authors
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+/// ================================
+/// Escape Analysis for Region Safety
+/// ================================
+
+import "./region.jan" as Region
+
+/// ============================
+/// Escape Analysis Engine
+/// ============================
+
+/// Represents a memory pointer and its potential escape properties
+pub type PointerInfo {
+    /// The pointer value
+    ptr: *any,
+    
+    /// The region where this pointer was allocated
+    source_region: *Region.BumpRegion?,
+    
+    /// Whether this pointer can escape its region scope
+    can_escape: Bool,
+    
+    /// Whether this pointer is borrowed (cannot be freed independently)
+    is_borrowed: Bool,
+    
+    /// Lifetime annotation (for compile-time analysis)
+    lifetime: LifetimeInfo,
+}
+
+/// Information about pointer lifetime and scope
+pub type LifetimeInfo {
+    /// The lexical scope where this pointer is valid
+    scope_id: u64,
+    
+    /// Whether the pointer escapes the current function
+    escapes_function: Bool,
+    
+    /// Whether the pointer escapes the current region block
+    escapes_region: Bool,
+    
+    /// Stack depth where pointer was created
+    stack_depth: usize,
+}
+
+/// Analysis result for a pointer or allocation site
+pub type EscapeAnalysisResult {
+    /// Whether the pointer escapes its allocation scope
+    escapes: Bool,
+    
+    /// Detailed escape paths if any
+    escape_paths: Vec[EscapePath],
+    
+    /// Safety warnings or errors
+    diagnostics: Vec[Diagnostic],
+}
+
+/// A path through which a pointer could escape
+pub type EscapePath {
+    /// Type of escape (return, assignment, parameter, etc.)
+    escape_type: EscapeType,
+    
+    /// Location where escape occurs
+    location: SourceLocation,
+    
+    /// Description of the escape mechanism
+    description: String,
+}
+
+/// Types of pointer escapes
+pub enum EscapeType {
+    Return,      // Function return
+    Parameter,   // Function parameter
+    Assignment,  // Assignment to outer scope
+    Field,       // Field access through outer scope
+    Closure,     // Captured in closure
+    Cast,        // Type cast to broader type
+}
+
+/// Compile-time diagnostic message
+pub type Diagnostic {
+    severity: DiagnosticSeverity,
+    message: String,
+    location: SourceLocation,
+    code: String,
+}
+
+/// Severity levels for diagnostics
+pub enum DiagnosticSeverity {
+    Info,
+    Warning,
+    Error,
+    Fatal,
+}
+
+/// Source code location information
+pub type SourceLocation {
+    file: String,
+    line: usize,
+    column: usize,
+    function: String,
+}
+
+/// The main escape analysis engine
+pub type EscapeAnalyzer {
+    /// Current analysis scope stack
+    scope_stack: Vec[AnalysisScope],
+    
+    /// Region stack for tracking active regions
+    region_stack: Vec[*Region.BumpRegion],
+    
+    /// Allocator context for current analysis
+    context: alloc.context.AllocContext,
+}
+
+/// A scope in the analysis stack
+type AnalysisScope {
+    scope_id: u64,
+    scope_type: ScopeType,
+    parent_scope: *AnalysisScope?,
+    local_pointers: Vec[PointerInfo],
+}
+
+/// Types of analysis scopes
+enum ScopeType {
+    Function,
+    Region,
+    Block,
+    Loop,
+}
+
+/// Create a new escape analyzer
+pub fn createAnalyzer(ctx: alloc.context.AllocContext) -> EscapeAnalyzer {
+    return EscapeAnalyzer{
+        .scope_stack = Vec[AnalysisScope].init(),
+        .region_stack = Vec[*Region.BumpRegion].init(),
+        .context = ctx,
+    };
+}
+
+/// Begin analysis of a new scope
+pub fn beginScope(analyzer: *EscapeAnalyzer, scope_type: ScopeType, scope_id: u64) -> Void {
+    let new_scope = AnalysisScope{
+        .scope_id = scope_id,
+        .scope_type = scope_type,
+        .parent_scope = if (analyzer.scope_stack.len > 0) &analyzer.scope_stack[analyzer.scope_stack.len - 1] else null,
+        .local_pointers = Vec[PointerInfo].init(),
+    };
+    
+    analyzer.scope_stack.push(new_scope);
+}
+
+/// End analysis of the current scope
+pub fn endScope(analyzer: *EscapeAnalyzer) -> Result[Vec[Diagnostic], AnalyzerError] {
+    if (analyzer.scope_stack.len == 0) {
+        return Err(AnalyzerError.StackUnderflow);
+    }
+    
+    let scope = analyzer.scope_stack.pop();
+    
+    // Analyze all pointers in this scope for escapes
+    var diagnostics = Vec[Diagnostic].init();
+    
+    for (scope.local_pointers) |ptr_info| {
+        let result = analyzePointerEscape(ptr_info, &analyzer.scope_stack);
+        
+        if (result.escapes) {
+            for (result.diagnostics) |diag| {
+                diagnostics.push(diag);
+            }
+        }
+    }
+    
+    return Ok(diagnostics);
+}
+
+/// Begin tracking a region allocation
+pub fn beginRegion(analyzer: *EscapeAnalyzer, region: *Region.BumpRegion) -> Void {
+    analyzer.region_stack.push(region);
+}
+
+/// End tracking of a region allocation
+pub fn endRegion(analyzer: *EscapeAnalyzer) -> Void {
+    if (analyzer.region_stack.len > 0) {
+        analyzer.region_stack.pop();
+    }
+}
+
+/// Register a pointer allocation for analysis
+pub fn registerPointer(analyzer: *EscapeAnalyzer, ptr: *any, source_location: SourceLocation) -> PointerInfo {
+    let current_region = if (analyzer.region_stack.len > 0) analyzer.region_stack[analyzer.region_stack.len - 1] else null;
+    
+    let pointer_info = PointerInfo{
+        .ptr = ptr,
+        .source_region = current_region,
+        .can_escape = false, // Initially assume safe
+        .is_borrowed = false,
+        .lifetime = LifetimeInfo{
+            .scope_id = getCurrentScopeId(analyzer),
+            .escapes_function = false,
+            .escapes_region = current_region != null,
+            .stack_depth = analyzer.scope_stack.len,
+        },
+    };
+    
+    // Add to current scope
+    if (analyzer.scope_stack.len > 0) {
+        let current_scope = &analyzer.scope_stack[analyzer.scope_stack.len - 1];
+        current_scope.local_pointers.push(pointer_info);
+    }
+    
+    return pointer_info;
+}
+
+/// Mark a pointer as escaping through a specific path
+pub fn markEscape(pointer: *PointerInfo, escape_type: EscapeType, location: SourceLocation, description: String) -> Void {
+    pointer.can_escape = true;
+    pointer.lifetime.escapes_function = true;
+    pointer.lifetime.escapes_region = true;
+}
+
+/// Analyze whether a pointer escapes its allocation scope
+fn analyzePointerEscape(pointer: PointerInfo, scope_stack: *Vec[AnalysisScope]) -> EscapeAnalysisResult {
+    var result = EscapeAnalysisResult{
+        .escapes = false,
+        .escape_paths = Vec[EscapePath].init(),
+        .diagnostics = Vec[Diagnostic].init(),
+    };
+    
+    // Check if pointer escapes region scope
+    if (pointer.source_region != null and pointer.lifetime.escapes_region) {
+        result.escapes = true;
+        
+        let escape_path = EscapePath{
+            .escape_type = EscapeType.Return, // Default assumption
+            .location = getCurrentLocation(), // Would be actual source location
+            .description = "Pointer escapes region scope through function return or assignment".toString(),
+        };
+        
+        result.escape_paths.push(escape_path);
+        
+        let diagnostic = Diagnostic{
+            .severity = DiagnosticSeverity.Error,
+            .message = "E5001_REGION_ESCAPE: Pointer allocated in region escapes scope".toString(),
+            .location = getCurrentLocation(),
+            .code = "E5001".toString(),
+        };
+        
+        result.diagnostics.push(diagnostic);
+    }
+    
+    return result;
+}
+
+/// Get the current scope ID
+fn getCurrentScopeId(analyzer: *EscapeAnalyzer) -> u64 {
+    if (analyzer.scope_stack.len == 0) {
+        return 0;
+    }
+    return analyzer.scope_stack[analyzer.scope_stack.len - 1].scope_id;
+}
+
+/// Get the current source location (stub for now)
+fn getCurrentLocation() -> SourceLocation {
+    return SourceLocation{
+        .file = "<unknown>".toString(),
+        .line = 0,
+        .column = 0,
+        .function = "<unknown>".toString(),
+    };
+}
+
+/// Error types for escape analyzer
+pub type AnalyzerError {
+    StackUnderflow,
+    InvalidScope,
+    RegionMismatch,
+}
+
+/// Validate that a pointer is safe to use within current region scope
+pub fn validatePointerSafety(analyzer: *EscapeAnalyzer, pointer: *any) -> Result[Void, EscapeValidationError] {
+    // Check if pointer was allocated in a current region
+    let pointer_info = findPointerInfo(analyzer, pointer);
+    
+    if (pointer_info == null) {
+        return Ok(()); // External pointer, assume safe
+    }
+    
+    if (pointer_info.escapes_region) {
+        return Err(EscapeValidationError.PointerEscapesRegion);
+    }
+    
+    return Ok(());
+}
+
+/// Find pointer information for a given pointer
+fn findPointerInfo(analyzer: *EscapeAnalyzer, target_ptr: *any) -> *PointerInfo {
+    // Search through all scopes for the pointer
+    for (analyzer.scope_stack) |scope| {
+        for (scope.local_pointers) |*ptr_info| {
+            if (ptr_info.ptr == target_ptr) {
+                return ptr_info;
+            }
+        }
+    }
+    return null;
+}
+
+/// Error for escape validation
+pub type EscapeValidationError {
+    PointerEscapesRegion,
+    InvalidPointer,
+    RegionScopeError,
+}

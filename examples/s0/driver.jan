@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// S0 Tokenizer driver - basic tokenization for roundtrip testing
+
+func main() {
+  // For S0 bootstrap: just tokenize a simple sample to test basic functionality
+  let sample = "func main() { return 1 + 2 }"
+  tokenize_to_json(sample)
+}

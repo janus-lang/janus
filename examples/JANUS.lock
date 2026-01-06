@@ -1,0 +1,128 @@
+{
+  "version": 1,
+  "packages": {
+    "crypto-utils": {
+      "name": "crypto-utils",
+      "version": "3.1.0",
+      "content_id": "a1b2c3d4e5f6789012345678901234567890123456789012345678901234567890",
+      "source": {
+        "type": "git",
+        "url": "https://github.com/janus-lang/crypto-utils.git",
+        "ref": "v3.1.0"
+      },
+      "capabilities": [
+        {
+          "name": "fs",
+          "params": {
+            "path": "./cache",
+            "mode": "rw"
+          }
+        },
+        {
+          "name": "net",
+          "params": {
+            "hosts": "*.api.example.com"
+          }
+        }
+      ],
+      "dependencies": ["base64", "hash-algorithms"]
+    },
+    "http-client": {
+      "name": "http-client",
+      "version": "2.4.1",
+      "content_id": "b2c3d4e5f6789012345678901234567890123456789012345678901234567890a1",
+      "source": {
+        "type": "git",
+        "url": "https://github.com/janus-lang/http-client.git",
+        "ref": "main"
+      },
+      "capabilities": [
+        {
+          "name": "net",
+          "params": {
+            "hosts": "api.example.com,cdn.example.com"
+          }
+        },
+        {
+          "name": "fs",
+          "params": {
+            "path": "./logs"
+          }
+        }
+      ],
+      "dependencies": ["tls", "url-parser"]
+    },
+    "data-parser": {
+      "name": "data-parser",
+      "version": "2.0.1",
+      "content_id": "c3d4e5f6789012345678901234567890123456789012345678901234567890a1b2",
+      "source": {
+        "type": "tar",
+        "url": "https://releases.janus-lang.org/data-parser-2.0.1.tar.gz",
+        "checksum": "sha256:a1b2c3d4e5f6..."
+      },
+      "capabilities": [],
+      "dependencies": ["string-utils"]
+    },
+    "base64": {
+      "name": "base64",
+      "version": "1.0.0",
+      "content_id": "d4e5f6789012345678901234567890123456789012345678901234567890a1b2c3",
+      "source": {
+        "type": "git",
+        "url": "https://github.com/janus-lang/base64.git",
+        "ref": "v1.0.0"
+      },
+      "capabilities": [],
+      "dependencies": []
+    },
+    "hash-algorithms": {
+      "name": "hash-algorithms",
+      "version": "4.2.0",
+      "content_id": "e5f6789012345678901234567890123456789012345678901234567890a1b2c3d4",
+      "source": {
+        "type": "git",
+        "url": "https://github.com/janus-lang/hash-algorithms.git",
+        "ref": "v4.2.0"
+      },
+      "capabilities": [],
+      "dependencies": []
+    },
+    "tls": {
+      "name": "tls",
+      "version": "1.3.2",
+      "content_id": "f6789012345678901234567890123456789012345678901234567890a1b2c3d4e5",
+      "source": {
+        "type": "git",
+        "url": "https://github.com/janus-lang/tls.git",
+        "ref": "v1.3.2"
+      },
+      "capabilities": [],
+      "dependencies": ["crypto-utils"]
+    },
+    "url-parser": {
+      "name": "url-parser",
+      "version": "2.1.0",
+      "content_id": "789012345678901234567890123456789012345678901234567890a1b2c3d4e5f6",
+      "source": {
+        "type": "git",
+        "url": "https://github.com/janus-lang/url-parser.git",
+        "ref": "v2.1.0"
+      },
+      "capabilities": [],
+      "dependencies": ["string-utils"]
+    },
+    "string-utils": {
+      "name": "string-utils",
+      "version": "3.0.0",
+      "content_id": "89012345678901234567890123456789012345678901234567890a1b2c3d4e5f678",
+      "source": {
+        "type": "git",
+        "url": "https://github.com/janus-lang/string-utils.git",
+        "ref": "v3.0.0"
+      },
+      "capabilities": [],
+      "dependencies": []
+    }
+  }
+}

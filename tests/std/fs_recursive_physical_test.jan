@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// PhysicalFS recursive rename_or_copy_opts test using .zig-cache workspace
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.sys.fs.physical_fs;
+
+func main() -> void {
+    let pfs = physical_fs::PhysicalFS::new();
+
+    // Base test dir
+    let base = path::Path::new(".zig-cache/fs_recursive_test");
+    // Prepare fresh tree (best-effort cleanup not available; ensure unique by suffix)
+    let src = path::Path::new(".zig-cache/fs_recursive_test/src");
+    let a = path::Path::new(".zig-cache/fs_recursive_test/src/a");
+    let b = path::Path::new(".zig-cache/fs_recursive_test/src/a/b");
+    let dst = path::Path::new(".zig-cache/fs_recursive_test/dst");
+
+    // Create nested dirs
+    _ = pfs.create_dir(base, fs::CapFsWrite);
+    _ = pfs.create_dir(src, fs::CapFsWrite);
+    _ = pfs.create_dir(a, fs::CapFsWrite);
+    _ = pfs.create_dir(b, fs::CapFsWrite);
+
+    // Write file deep in tree
+    let fpath = path::Path::new(".zig-cache/fs_recursive_test/src/a/b/file.txt");
+    try pfs.write_atomic(fpath, "deep content", fs::CapFsWrite);
+
+    // Sanity
+    assert(pfs.exists(fpath, fs::CapFsRead));
+
+    // Recursive move src -> dst
+    let opts = fs::RenameOptions { recursive: true, follow_symlinks: false, replace: true };
+    try pfs.rename_or_copy_opts(src, dst, fs::CapFsWrite, opts);
+
+    // Validate move
+    assert(!pfs.exists(src, fs::CapFsRead));
+    let f2 = path::Path::new(".zig-cache/fs_recursive_test/dst/a/b/file.txt");
+    assert(pfs.exists(f2, fs::CapFsRead));
+
+    // Read moved file
+    let fh = try pfs.open(f2, fs::CapFsRead, fs::OpenOptions::read_only());
+    let s = try fh.read_string();
+    assert(s == "deep content");
+
+    print("✅ PhysicalFS recursive rename_or_copy_opts passed");
+}

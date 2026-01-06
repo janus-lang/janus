@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() do
+  let x = true
+  match x do
+    true => println("yes")
+    false => println("no")
+  end
+end

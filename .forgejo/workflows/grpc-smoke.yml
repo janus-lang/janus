@@ -1,0 +1,52 @@
+name: gRPC Smoke
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate gRPC stubs
+        run: bash tools/gen_grpc.sh
+
+      - name: Ensure Zig available
+        run: |
+          if ! command -v zig >/dev/null 2>&1; then
+            echo "Zig not found on runner" >&2
+            exit 1
+          fi
+
+      - name: Build
+        run: zig build -Doptimize=ReleaseSafe
+
+      - name: Smoke (gRPC live-fire)
+        run: |
+          zig build smoke -Doptimize=ReleaseSafe
+
+  smoke-musl:
+    runs-on: ubuntu-latest
+    container: alpine:3.20
+    steps:
+      - name: Install deps
+        run: |
+          apk add --no-cache bash git build-base cmake pkgconfig zig \
+            protobuf-dev grpc-dev abseil-cpp-dev re2-dev zlib-dev openssl-dev c-ares-dev \
+            protobuf-static grpc-static abseil-cpp-static re2-static zlib-static openssl-libs-static c-ares-static
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Generate gRPC stubs
+        run: bash tools/gen_grpc.sh
+      - name: Build (musl static)
+        run: zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl
+      - name: Smoke (musl static)
+        run: zig build smoke -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl

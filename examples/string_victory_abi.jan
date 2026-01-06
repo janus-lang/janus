@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+func main() {
+    print("=== String Victory ===");
+    
+    // We need a pointer for the 3rd argument to match ABI
+    // Since the allocator is currently ignored by runtime, we can use a dummy pointer
+    let dummy_alloc := string_data_intrinsic("alloc_placeholder");
+    
+    // Create string handle with correct argument types: (ptr, i64, ptr)
+    let h: i32 = string_create(
+        string_data_intrinsic("Janus Voice"),
+        i32_to_i64(string_len_intrinsic("Janus Voice")),
+        dummy_alloc
+    );
+    
+    // Print
+    print("Output:");
+    string_print(h);
+    print("");
+    
+    // Cleanup
+    string_free(h, dummy_alloc);
+    print("=== Done ===");
+}

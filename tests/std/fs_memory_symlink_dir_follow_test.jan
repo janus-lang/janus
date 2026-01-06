@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// MemoryFS: directory symlink dereference behavior
+
+import std.sys.fs.fs;
+import std.sys.fs.path;
+import std.sys.fs.memory_fs;
+
+func main() -> void {
+    var mfs = memory_fs::MemoryFS::new()
+        .add_dir(path::Path::new("mem/real"))
+        .add_dir(path::Path::new("mem/real/sub"))
+        .add_file(path::Path::new("mem/real/sub/file.txt"), "DIR-TARGET")
+        .add_symlink(path::Path::new("mem/link"), "mem/real");
+
+    // follow_symlinks=false should error even with recursive
+    let bad = mfs.rename_or_copy_opts(path::Path::new("mem/link"), path::Path::new("mem/dst"), fs::CapFsWrite, fs::RenameOptions { recursive: true, follow_symlinks: false, replace: true });
+    switch (bad) { .ok => @panic("expected error with follow_symlinks=false"), .err => {} }
+
+    // follow_symlinks=true: deref and copy subtree content
+    try mfs.rename_or_copy_opts(path::Path::new("mem/link"), path::Path::new("mem/dst"), fs::CapFsWrite, fs::RenameOptions { recursive: true, follow_symlinks: true, replace: true });
+
+    // Verify
+    assert(!mfs.exists(path::Path::new("mem/link"), fs::CapFsRead));
+    assert(mfs.exists(path::Path::new("mem/dst/sub/file.txt"), fs::CapFsRead));
+    let f = try mfs.open(path::Path::new("mem/dst/sub/file.txt"), fs::CapFsRead, fs::OpenOptions::read_only());
+    let s = try f.read_string();
+    assert(s == "DIR-TARGET");
+    print("✅ MemoryFS directory symlink dereference passed");
+}

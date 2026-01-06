@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: LUL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Minimal :min-friendly file read shim for S0
+// Delegates to a host-provided intrinsic. In production, this is capability-gated.
+
+func read_file_unsafe(path: string) -> string {
+  @intrinsic("read_file", path)
+}
+
+// Read all input from stdin
+func read_stdin() -> string {
+  @intrinsic("read_stdin")
+}
