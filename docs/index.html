@@ -652,47 +652,106 @@
         
         <nav id="nav">
             <ul>
+                <!-- Root level pages -->
                 <li><a href="#" data-page="INDEX.md" class="active">🏠 Home</a></li>
                 <li><a href="#" data-page="README.md">🚀 Getting Started</a></li>
                 <li><a href="#" data-page="profiles-overview.md">📊 Profiles</a></li>
+                <li><a href="#" data-page="dev-standards.md">📝 Dev Standards</a></li>
                 
+                <!-- Specs section - sorted alphabetically -->
                 <li><details open>
                     <summary>📋 Specs</summary>
                     <ul>
                         <li><a href="#" data-page="specs/SPEC-000-meta.md">Meta (RFC 2119)</a></li>
+                        <li><a href="#" data-page="specs/SPEC-conditionals.md">Conditionals</a></li>
                         <li><a href="#" data-page="specs/SPEC-profiles.md">Profiles</a></li>
                         <li><a href="#" data-page="specs/SPEC-semantics.md">Semantics</a></li>
                         <li><a href="#" data-page="specs/SPEC-versioning.md">Versioning</a></li>
                     </ul>
                 </details></li>
                 
+                <!-- Architecture section -->
                 <li><details>
                     <summary>📐 Architecture</summary>
                     <ul>
                         <li><a href="#" data-page="architecture/ASTDB.md">ASTDB</a></li>
                         <li><a href="#" data-page="architecture/ASTDB-ARCHITECTURE.md">ASTDB Architecture</a></li>
-                        <li><a href="#" data-page="architecture/parser-architecture.md">Parser</a></li>
                         <li><a href="#" data-page="architecture/GRPC-BACKBONE.md">gRPC Backbone</a></li>
+                        <li><a href="#" data-page="architecture/parser-architecture.md">Parser</a></li>
+                        <li><a href="#" data-page="architecture/SIMDJSON_INTEGRATION.md">SIMDJSON</a></li>
                     </ul>
                 </details></li>
                 
+                <!-- Dispatch section -->
+                <li><details>
+                    <summary>⚡ Dispatch</summary>
+                    <ul>
+                        <li><a href="#" data-page="architecture/dispatch/dispatch-api-reference.md">API Reference</a></li>
+                        <li><a href="#" data-page="architecture/dispatch/dispatch-codegen-implementation.md">Codegen</a></li>
+                        <li><a href="#" data-page="architecture/dispatch/dispatch-performance-guide.md">Performance</a></li>
+                        <li><a href="#" data-page="architecture/dispatch/dispatch-profiling-and-optimization.md">Profiling</a></li>
+                        <li><a href="#" data-page="architecture/dispatch/dispatch-table-caching.md">Table Caching</a></li>
+                        <li><a href="#" data-page="architecture/dispatch/dispatch-visualization-and-debugging.md">Visualization</a></li>
+                    </ul>
+                </details></li>
+                
+                <!-- Multiple Dispatch section -->
+                <li><details>
+                    <summary>🔀 Multiple Dispatch</summary>
+                    <ul>
+                        <li><a href="#" data-page="multiple-dispatch/DOCUMENTATION_SUMMARY.md">Summary</a></li>
+                        <li><a href="#" data-page="multiple-dispatch/examples.md">Examples</a></li>
+                        <li><a href="#" data-page="multiple-dispatch/migration-guide.md">Migration Guide</a></li>
+                        <li><a href="#" data-page="multiple-dispatch/performance-guide.md">Performance</a></li>
+                        <li><a href="#" data-page="multiple-dispatch/troubleshooting.md">Troubleshooting</a></li>
+                        <li><a href="#" data-page="multiple-dispatch/examples/advanced-patterns.md">Advanced Patterns</a></li>
+                        <li><a href="#" data-page="multiple-dispatch/examples/basic-dispatch.md">Basic Dispatch</a></li>
+                    </ul>
+                </details></li>
+                
+                <!-- RFCs section -->
                 <li><details>
                     <summary>📜 RFCs</summary>
                     <ul>
-                        <li><a href="#" data-page="rfcs/RFC-002-profile-taxonomy-v2.md">Profile Taxonomy v2</a></li>
                         <li><a href="#" data-page="rfcs/0001-error-model.md">Error Model</a></li>
                         <li><a href="#" data-page="rfcs/0002-allocator-model.md">Allocator Model</a></li>
+                        <li><a href="#" data-page="rfcs/RFC-002-profile-taxonomy-v2.md">Profile Taxonomy v2</a></li>
+                        <li><a href="#" data-page="rfcs/RFC-015-tag-functions.md">Tag Functions</a></li>
+                        <li><a href="#" data-page="rfcs/RFC-016-ufcs.md">UFCS</a></li>
+                        <li><a href="#" data-page="rfcs/RFC-017-rebinding.md">Rebinding</a></li>
+                        <li><a href="#" data-page="rfcs/RFC-018-postfix-guards.md">Postfix Guards</a></li>
+                        <li><a href="#" data-page="rfcs/RFC-019-with-expression.md">With Expression</a></li>
+                        <li><a href="#" data-page="rfcs/RFC-020-function-capture.md">Function Capture</a></li>
+                        <li><a href="#" data-page="rfcs/RFC-compiler-versioning.md">Compiler Versioning</a></li>
+                        <li><a href="#" data-page="rfcs/RFC-jit-revolution.md">JIT Revolution</a></li>
+                        <li><a href="#" data-page="rfcs/RFC-numerical-excellence.md">Numerical Excellence</a></li>
+                        <li><a href="#" data-page="rfcs/RFC-path-join-operator.md">Path Join Operator</a></li>
+                        <li><a href="#" data-page="rfcs/RFC-ui-graft-integration.md">UI Graft</a></li>
+                        <li><a href="#" data-page="rfcs/dispatch-language-integration.md">Dispatch Integration</a></li>
+                        <li><a href="#" data-page="rfcs/dispatch-language-integration-2.md">Dispatch Integration v2</a></li>
+                        <li><a href="#" data-page="rfcs/dispatch-map-rpc-schema.md">Dispatch Map RPC</a></li>
+                        <li><a href="#" data-page="rfcs/dispatch-semantics-v0.md">Dispatch Semantics</a></li>
                     </ul>
                 </details></li>
                 
+                <!-- Teaching section -->
                 <li><details>
                     <summary>🎓 Teaching</summary>
                     <ul>
                         <li><a href="#" data-page="teaching/README.md">Overview</a></li>
                         <li><a href="#" data-page="teaching/LSP_ARCHITECTURE.md">LSP Architecture</a></li>
+                        <li><a href="#" data-page="teaching/jit-course/curriculum.md">JIT Course</a></li>
+                        <li><a href="#" data-page="teaching/case-studies/prophetic-jit-vs-legacy.md">JIT vs Legacy</a></li>
+                        <li><a href="#" data-page="teaching/labs/jit-implementation-lab.md">JIT Lab</a></li>
+                        <li><a href="#" data-page="teaching/modules/01-philosophy-of-creation.md">Philosophy</a></li>
+                        <li><a href="#" data-page="teaching/modules/02-what-is-programming.md">What is Programming</a></li>
+                        <li><a href="#" data-page="teaching/modules/03-setup-your-forge.md">Setup</a></li>
+                        <li><a href="#" data-page="teaching/modules/04-hello-sovereignty.md">Hello Sovereignty</a></li>
+                        <li><a href="#" data-page="teaching/modules/05-min-fundamentals.md">Fundamentals</a></li>
                     </ul>
                 </details></li>
                 
+                <!-- CLI section -->
                 <li><details>
                     <summary>🛠️ CLI</summary>
                     <ul>
@@ -700,27 +759,170 @@
                     </ul>
                 </details></li>
                 
+                <!-- Operations section -->
+                <li><details>
+                    <summary>⚙️ Operations</summary>
+                    <ul>
+                        <li><a href="#" data-page="ops/allocator-regions.md">Allocator Regions</a></li>
+                        <li><a href="#" data-page="ops/blake3-submodule.md">BLAKE3</a></li>
+                        <li><a href="#" data-page="ops/ci-firewall.md">CI Firewall</a></li>
+                        <li><a href="#" data-page="ops/cross-compilation.md">Cross Compilation</a></li>
+                        <li><a href="#" data-page="ops/deployment-checklist.md">Deployment</a></li>
+                        <li><a href="#" data-page="ops/forgejo-integration.md">Forgejo</a></li>
+                        <li><a href="#" data-page="ops/hinge-signing.md">Hinge Signing</a></li>
+                        <li><a href="#" data-page="ops/hinge-transparency-log.md">Hinge Log</a></li>
+                        <li><a href="#" data-page="ops/license-automation.md">License Automation</a></li>
+                        <li><a href="#" data-page="ops/release-builds.md">Release Builds</a></li>
+                        <li><a href="#" data-page="ops/release-process.md">Release Process</a></li>
+                        <li><a href="#" data-page="ops/strategic-pipeline.md">Pipeline</a></li>
+                        <li><a href="#" data-page="ops/version-management.md">Versioning</a></li>
+                        <li><a href="#" data-page="ops/VERSION-POLICY.md">Version Policy</a></li>
+                    </ul>
+                </details></li>
+                
+                <!-- Registry section -->
+                <li><details>
+                    <summary>📡 Registry</summary>
+                    <ul>
+                        <li><a href="#" data-page="registry/endpoints.md">Endpoints</a></li>
+                        <li><a href="#" data-page="registry/rsp1.md">RSP1</a></li>
+                    </ul>
+                </details></li>
+                
+                <!-- Release Notes section -->
+                <li><details>
+                    <summary>📢 Release Notes</summary>
+                    <ul>
+                        <li><a href="#" data-page="release_notes/CHANGELOG.md">Changelog</a></li>
+                        <li><a href="#" data-page="release_notes/RELEASE-NOTES-0.1.0.md">v0.1.0</a></li>
+                        <li><a href="#" data-page="release_notes/RELEASE-NOTES-0.1.1.md">v0.1.1</a></li>
+                    </ul>
+                </details></li>
+                
+                <!-- Philosophy section -->
                 <li><details>
                     <summary>📚 Philosophy</summary>
                     <ul>
                         <li><a href="#" data-page="philosophy/SYMBOLOGY.md">Symbology</a></li>
                         <li><a href="#" data-page="philosophy/THE_BEDROCK.md">The Bedrock</a></li>
+                        <li><a href="#" data-page="philosophy/THE_LAST_LANGUAGE.md">The Last Language</a></li>
                         <li><a href="#" data-page="philosophy/STRATEGIC_PRAGMATISM.md">Strategic Pragmatism</a></li>
                     </ul>
                 </details></li>
                 
+                <!-- Manual section -->
                 <li><details>
-                    <summary>⚖️ Legal</summary>
+                    <summary>📖 Manual</summary>
                     <ul>
-                        <li><a href="#" data-page="legal/licensing.md">Licensing</a></li>
-                        <li><a href="#" data-page="legal/SECURITY.md">Security</a></li>
+                        <li><a href="#" data-page="manual/README.md">Overview</a></li>
+                        <li><a href="#" data-page="manual/ERRORS.md">Errors</a></li>
+                        <li><a href="#" data-page="manual/filesystem.md">Filesystem</a></li>
+                        <li><a href="#" data-page="manual/grafting.md">Grafting</a></li>
+                        <li><a href="#" data-page="manual/UFCS.md">UFCS</a></li>
                     </ul>
                 </details></li>
                 
+                <!-- Legal section -->
+                <li><details>
+                    <summary>⚖️ Legal</summary>
+                    <ul>
+                        <li><a href="#" data-page="legal/cla.md">CLA</a></li>
+                        <li><a href="#" data-page="legal/license-headers.md">License Headers</a></li>
+                        <li><a href="#" data-page="legal/license-policy.md">License Policy</a></li>
+                        <li><a href="#" data-page="legal/licensing.md">Licensing</a></li>
+                        <li><a href="#" data-page="legal/licensing-explained.md">Licensing Explained</a></li>
+                        <li><a href="#" data-page="legal/SECURITY.md">Security</a></li>
+                        <li><a href="#" data-page="legal/LICENSE.Apache-2.0">Apache 2.0</a></li>
+                        <li><a href="#" data-page="legal/LICENSE.CC0-1.0">CC0 1.0</a></li>
+                        <li><a href="#" data-page="legal/LICENSE_COMMONWEALTH.md">Commonwealth</a></li>
+                        <li><a href="#" data-page="legal/LICENSE_SOVEREIGN.md">Sovereign</a></li>
+                        <li><a href="#" data-page="legal/LICENSE_UNBOUND.md">Unbound</a></li>
+                        <li><a href="#" data-page="legal/LICENSE_VENTURE.md">Venture</a></li>
+                    </ul>
+                </details></li>
+                
+                <!-- Examples section -->
                 <li><details>
                     <summary>📦 Examples</summary>
                     <ul>
                         <li><a href="#" data-page="examples/xor-tour.md">XOR Tour</a></li>
+                    </ul>
+                </details></li>
+                
+                <!-- Stdlib section -->
+                <li><details>
+                    <summary>📚 Stdlib</summary>
+                    <ul>
+                        <li><a href="#" data-page="stdlib/README.md">Overview</a></li>
+                        <li><a href="#" data-page="stdlib/STDLIB_NUMERICS.md">Numerics</a></li>
+                    </ul>
+                </details></li>
+                
+                <!-- Tests section -->
+                <li><details>
+                    <summary>🧪 Tests</summary>
+                    <ul>
+                        <li><a href="#" data-page="tests/symlink-tests.md">Symlink Tests</a></li>
+                    </ul>
+                </details></li>
+                
+                <!-- Bugs section -->
+                <li><details>
+                    <summary>🐛 Bugs</summary>
+                    <ul>
+                        <li><a href="#" data-page="bugs/CRITICAL-match-parser-hang.md">Parser Hang</a></li>
+                    </ul>
+                </details></li>
+                
+                <!-- Attic section -->
+                <li><details>
+                    <summary>🗄️ Attic</summary>
+                    <ul>
+                        <li><a href="#" data-page="attic/CURRENT_PLAN-v0.2.1.md">Plan v0.2.1</a></li>
+                        <li><a href="#" data-page="attic/CURRENT_PLAN-v0.2.2.md">Plan v0.2.2</a></li>
+                        <li><a href="#" data-page="attic/LSP-IMPLEMENTATION-BRIEF.md">LSP Brief</a></li>
+                        <li><a href="#" data-page="attic/LSP-PHASE-1-DIAGNOSTICS.md">LSP Phase 1</a></li>
+                        <li><a href="#" data-page="attic/LSP-STATUS.md">LSP Status</a></li>
+                        <li><a href="#" data-page="attic/LSP-TESTING.md">LSP Testing</a></li>
+                        <li><a href="#" data-page="attic/profiles-v1.md">Profiles v1</a></li>
+                        <li><a href="#" data-page="attic/RELEASE-SUMMARY-v0.2.1.md">Release v0.2.1</a></li>
+                    </ul>
+                </details></li>
+                
+                <!-- Development section -->
+                <li><details>
+                    <summary>🔧 Development</summary>
+                    <ul>
+                        <li><a href="#" data-page="dev/README.md">Overview</a></li>
+                        <li><a href="#" data-page="dev/ASTDB_CURRENT_STATE.md">ASTDB State</a></li>
+                        <li><a href="#" data-page="dev/EXECUTABLES_ARCHITECTURE.md">Executables</a></li>
+                        <li><a href="#" data-page="dev/FUTURE_PLAN-v0.3.0.md">Future Plan</a></li>
+                        <li><a href="#" data-page="dev/GRAFT-onyx-lobster.md">Graft: Onyx</a></li>
+                        <li><a href="#" data-page="dev/j-inspired-tacit-arrays.md">Tacit Arrays</a></li>
+                        <li><a href="#" data-page="dev/match-exhaustiveness-implementation.md">Match Exhaustiveness</a></li>
+                        <li><a href="#" data-page="dev/memory-model-v0.2.5-v0.2.15.md">Memory Model</a></li>
+                        <li><a href="#" data-page="dev/PLAN-v0.2.2.md">Plan v0.2.2</a></li>
+                        <li><a href="#" data-page="dev/PLAN-v0.3.0.md">Plan v0.3.0</a></li>
+                    </ul>
+                </details></li>
+                
+                <!-- Meta section -->
+                <li><details>
+                    <summary>🛡️ Meta</summary>
+                    <ul>
+                        <li><a href="#" data-page="meta/AGENTS.md">Agents</a></li>
+                        <li><a href="#" data-page="meta/comparison.md">Comparison</a></li>
+                        <li><a href="#" data-page="meta/REPOSITORY_STRUCTURE.md">Repository</a></li>
+                    </ul>
+                </details></li>
+                
+                <!-- Doctrines section -->
+                <li><details>
+                    <summary>📜 Doctrines</summary>
+                    <ul>
+                        <li><a href="#" data-page="doctrines/AIRLOCK.md">Airlock</a></li>
+                        <li><a href="#" data-page="doctrines/RELEASE_CYCLE.md">Release Cycle</a></li>
+                        <li><a href="#" data-page="doctrines/SERIALIZATION.md">Serialization</a></li>
                     </ul>
                 </details></li>
             </ul>
