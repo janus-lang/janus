@@ -12,8 +12,25 @@ Our model ensures that the Core remains a communal tool ("The Hammer"), while th
 
 ---
 
-## 🏛️ The Libertaria Sovereign License (LSL-1.0)
-**Applied to:** Compiler, Standard Library, Runtime, Core Tooling.
+## 🏛️ The Libertaria Commonwealth License (LCL-1.0)
+**Applied to:** The Core (`libjanus`, `janusd`, `core`).
+
+### ⚡ Developer Summary (TL;DR)
+
+**This software belongs to the tribe.** It is free to use, modify, and distribute, but you cannot privatize it.
+
+We enforce **Total Reciprocity**:
+
+1. **No Secrets:** If you modify this code, you must share your changes.
+2. **No "Cloud" Loophole:** If you run this software as a Service (SaaS) or backend API, you **must** offer the source code to your users. Hiding behind a server does not exempt you.
+3. **Virality:** You cannot link this code into a closed-source application. If you mix your code with ours, your code becomes Commonwealth too.
+
+Code for the common good, or not at all.
+
+---
+
+## 🛡️ The Libertaria Sovereign License (LSL-1.0)
+**Applied to:** Libraries and Modules (e.g., Standard Library).
 
 ### ⚡ Developer Summary (TL;DR)
 
@@ -21,22 +38,15 @@ Our model ensures that the Core remains a communal tool ("The Hammer"), while th
 
 We ask only two things:
 
-1. **File-Level Reciprocity:** If you modify the **Core Files** (the engine), you must share those specific changes back.
-2. **Proprietary Freedom:** If you build _on top_ of this engine (using new files), you own that work. You can keep your application closed and sell it.
+1. **File-Level Reciprocity:** If you modify the **Library Files**, you must share those specific changes back.
+2. **Proprietary Freedom:** If you build _on top_ of these libraries (using new files), you own that work. You can keep your application closed and sell it.
 
-That’s it. **Communal Core. Individual Profit.**
-
-### 🛡️ Why LSL-1.0?
-
-- **Business Ready:** Safe for commercial use. Your proprietary logic stays yours; our core logic stays ours.
-- **Patent Disarmament:** Includes a "Cold War" clause. If you sue for patents, you lose your license. Peace through strength.
-- **No "Viral" Infection:** Unlike the Commonwealth License, this does not force your entire app open. It acts as a firewall between the Engine and the App.
-- **Fortified:** Governed by **Dutch Law** (Amsterdam) for absolute _Rechtssicherheit_.
+That’s it. **Communal Base. Individual Profit.**
 
 ---
 
-## 📦 The Libertaria Unbound License (LUL-1.0)
-**Applied to:** SDKs, Examples, Tests, Community Packages.
+## 📦 The Libertaria Universal License (LUL-1.0)
+**Applied to:** Packages, SDKs, Examples, Tests, Ecosystem Tools.
 
 ### ⚡ Developer Summary (TL;DR)
 
@@ -53,33 +63,10 @@ The only requirement is **Attribution**: You must keep our copyright notice and 
 
 Take this idea. Run with it. Make it the standard.
 
-### 🛡️ Why LUL-1.0?
-
-- **Zero Friction:** Designed for protocols, specifications, and rapid adoption. We want this technology everywhere, even in the hands of competitors.
-- **Patent Disarmament:** Even though it is permissive, you are still protected by our "Cold War" patent grant.
-- **Fortified:** Governed by **Dutch Law** (Amsterdam). Simple, but legally bulletproof.
-
----
-
-## 🤝 The Libertaria Commonwealth License (LCL-1.0)
-**Available for:** Community Infrastructure, Common Goods, Public Utilities.
-
-### ⚡ Developer Summary (TL;DR)
-
-**This software belongs to the tribe.** It is free to use, modify, and distribute, but you cannot privatize it.
-
-We enforce **Total Reciprocity**:
-
-1. **No Secrets:** If you modify this code, you must share your changes.
-2. **No "Cloud" Loophole:** If you run this software as a Service (SaaS) or backend API, you **must** offer the source code to your users. Hiding behind a server does not exempt you.
-3. **Virality:** You cannot link this code into a closed-source application. If you mix your code with ours, your code becomes Commonwealth too.
-
-Code for the common good, or not at all.
-
 ---
 
 ## 🏢 The Libertaria Venture License (LVL-1.0)
-**Available for:** Proprietary Integrations, Enterprise Modules.
+**Available for:** User Packages, Proprietary Integrations, Enterprise Modules.
 
 ### ⚡ Developer Summary (TL;DR)
 
@@ -99,15 +86,21 @@ We enforce **Trust through Verification**:
 
 ## 📋 License Headers for Contributors
 
-When contributing to Janus, ensure you apply the correct SPDX header:
+When contributing to Janus, ensure you apply the correct SPDX header based on the component:
 
-**For Core (Compiler, Std, Runtime):**
+**For The Core (`libjanus`, `janusd`, `core`):**
 ```zig
-// SPDX-License-Identifier: LUL-1.0
+// SPDX-License-Identifier: LCL-1.0
 // Copyright (c) 2026 Self Sovereign Society Foundation
 ```
 
-**For Unbound (Tests, Examples):**
+**For Libraries & Modules:**
+```zig
+// SPDX-License-Identifier: LSL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+```
+
+**For Packages, Tests, Examples:**
 ```zig
 // SPDX-License-Identifier: LUL-1.0
 // Copyright (c) 2026 Self Sovereign Society Foundation
