@@ -75,6 +75,7 @@ pub const TokenType = enum {
     plus, // +
     minus, // -
     star, // *
+    star_star, // ** (power/exponentiation)
     slash, // /
     percent, // %
     equal_equal, // ==
@@ -330,7 +331,10 @@ pub const Tokenizer = struct {
                 }
             },
             '*' => {
-                if (self.match('=')) {
+                if (self.match('*')) {
+                    const end_pos = self.currentPos();
+                    try self.addToken(.star_star, "**", SourceSpan.init(start_pos, end_pos));
+                } else if (self.match('=')) {
                     const end_pos = self.currentPos();
                     try self.addToken(.star_equal, "*=", SourceSpan.init(start_pos, end_pos));
                 } else {

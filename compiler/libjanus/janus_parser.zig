@@ -419,6 +419,7 @@ fn convertOldTokenType(old_type: tokenizer.TokenType) TokenKind {
         .plus => .plus,
         .minus => .minus,
         .star => .star,
+        .star_star => .star_star,
         .slash => .slash,
         .left_paren => .left_paren,
         .right_paren => .right_paren,
@@ -485,6 +486,7 @@ fn convertTokenType(janus_type: tokenizer.TokenType) TokenKind {
         .plus => .plus,
         .minus => .minus,
         .star => .star,
+        .star_star => .star_star,
         .slash => .slash,
         .percent => .percent,
         .equal => .assign, // Use assign for consistency with walrus operator
@@ -638,7 +640,7 @@ fn validateS0Tokens(unit: *astdb_core.CompilationUnit) !void {
 
 fn isTokenAllowedInS0(kind: TokenKind) bool {
     return switch (kind) {
-        .func, .return_, .identifier, .integer_literal, .float_literal, .string_literal, .true_, .false_, .left_paren, .right_paren, .left_brace, .right_brace, .semicolon, .comma, .newline, .eof, .left_bracket, .right_bracket, .let, .var_, .plus, .minus, .star, .slash, .equal, .assign, .equal_equal, .not_equal, .less, .less_equal, .greater, .greater_equal, .colon, .if_, .else_, .arrow, .arrow_fat, .while_, .for_, .in_, .match, .when, .break_, .continue_, .defer_, .do_, .end, .struct_, .dot, .test_, .question, .optional_chain, .null_coalesce, .null_, .type_, .logical_and, .logical_or, .logical_not, .exclamation, .tilde, .bitwise_and, .bitwise_or, .bitwise_xor, .bitwise_not, .left_shift, .right_shift, .ampersand, .pipe, .caret, .range_inclusive, .range_exclusive, .walrus_assign, .percent, .and_, .or_, .not_, .pipeline, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign, .ampersand_assign, .pipe_assign, .xor_assign, .left_shift_assign, .right_shift_assign, .char_literal => true,
+        .func, .return_, .identifier, .integer_literal, .float_literal, .string_literal, .true_, .false_, .left_paren, .right_paren, .left_brace, .right_brace, .semicolon, .comma, .newline, .eof, .left_bracket, .right_bracket, .let, .var_, .plus, .minus, .star, .star_star, .slash, .equal, .assign, .equal_equal, .not_equal, .less, .less_equal, .greater, .greater_equal, .colon, .if_, .else_, .arrow, .arrow_fat, .while_, .for_, .in_, .match, .when, .break_, .continue_, .defer_, .do_, .end, .struct_, .dot, .test_, .question, .optional_chain, .null_coalesce, .null_, .type_, .logical_and, .logical_or, .logical_not, .exclamation, .tilde, .bitwise_and, .bitwise_or, .bitwise_xor, .bitwise_not, .left_shift, .right_shift, .ampersand, .pipe, .caret, .range_inclusive, .range_exclusive, .walrus_assign, .percent, .and_, .or_, .not_, .pipeline, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign, .ampersand_assign, .pipe_assign, .xor_assign, .left_shift_assign, .right_shift_assign, .char_literal => true,
 
         else => false,
     };
@@ -2339,10 +2341,11 @@ const Precedence = enum(u8) {
     range = 11, // .. ..<
     term = 12, // + -
     factor = 13, // * / %
-    unary = 14, // ! -
-    pipeline = 15, // |>
-    call = 16, // . ()
-    primary = 17,
+    power = 14, // ** (right-associative)
+    unary = 15, // ! -
+    pipeline = 16, // |>
+    call = 17, // . ()
+    primary = 18,
 };
 
 /// Get precedence for a token kind
@@ -2361,6 +2364,7 @@ fn getTokenPrecedence(kind: TokenKind) Precedence {
         .range_inclusive, .range_exclusive => .range,
         .plus, .minus => .term,
         .star, .slash, .percent => .factor,
+        .star_star => .power,
         .pipeline => .pipeline,
         else => .none,
     };
