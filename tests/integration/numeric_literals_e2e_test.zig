@@ -366,3 +366,88 @@ test "Epic 11.12: Underscore in expression" {
 
     std.debug.print("\n=== UNDERSCORE EXPRESSION PASSED ===\n", .{});
 }
+
+test "Epic 11.13: Character literal simple" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    let c = 'A'
+        \\    print_int(c)
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "char_simple");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // 'A' = 65
+    try testing.expectEqualStrings("65\n", output);
+
+    std.debug.print("\n=== CHARACTER LITERAL SIMPLE PASSED ===\n", .{});
+}
+
+test "Epic 11.14: Character literal escape newline" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    let c = '\n'
+        \\    print_int(c)
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "char_newline");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // '\n' = 10
+    try testing.expectEqualStrings("10\n", output);
+
+    std.debug.print("\n=== CHARACTER LITERAL NEWLINE PASSED ===\n", .{});
+}
+
+test "Epic 11.15: Character literal escape tab" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    let c = '\t'
+        \\    print_int(c)
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "char_tab");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // '\t' = 9
+    try testing.expectEqualStrings("9\n", output);
+
+    std.debug.print("\n=== CHARACTER LITERAL TAB PASSED ===\n", .{});
+}
+
+test "Epic 11.16: Character arithmetic" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    let a = 'a'
+        \\    let offset = a - 'A'
+        \\    print_int(offset)
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "char_arithmetic");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // 'a' - 'A' = 97 - 65 = 32
+    try testing.expectEqualStrings("32\n", output);
+
+    std.debug.print("\n=== CHARACTER ARITHMETIC PASSED ===\n", .{});
+}

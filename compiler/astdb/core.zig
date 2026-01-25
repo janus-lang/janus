@@ -157,6 +157,12 @@ pub const Token = struct {
         minus_assign, // -=
         star_assign, // *=
         slash_assign, // /=
+        percent_assign, // %=
+        ampersand_assign, // &=
+        pipe_assign, // |=
+        xor_assign, // ^=
+        left_shift_assign, // <<=
+        right_shift_assign, // >>=
 
         // Advanced Operators (:full profile)
         pipeline, // |>
