@@ -1744,6 +1744,27 @@ pub fn build(b: *std.Build) void {
     test_numeric_literals_e2e_step.dependOn(&run_numeric_literals_e2e_tests.step);
     test_step.dependOn(&run_numeric_literals_e2e_tests.step);
 
+    // Compound Assignment E2E Tests
+    const compound_assignment_e2e_tests = b.addTest(.{
+        .name = "compound_assignment_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/compound_assignment_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    compound_assignment_e2e_tests.linkLibC();
+    compound_assignment_e2e_tests.linkSystemLibrary("LLVM-21");
+    compound_assignment_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    compound_assignment_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    compound_assignment_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    compound_assignment_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_compound_assignment_e2e_tests = b.addRunArtifact(compound_assignment_e2e_tests);
+
+    const test_compound_assignment_e2e_step = b.step("test-compound-assignment-e2e", "Run Compound Assignment end-to-end integration test");
+    test_compound_assignment_e2e_step.dependOn(&run_compound_assignment_e2e_tests.step);
+    test_step.dependOn(&run_compound_assignment_e2e_tests.step);
+
     if (enable_s0_extended) {
         const s0_neg = b.addTest(.{
             .name = "s0_negative_tests",

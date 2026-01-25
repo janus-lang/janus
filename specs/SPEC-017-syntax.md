@@ -345,6 +345,10 @@ simple_type <- IDENT '?'                                   # T? sugar for Option
 # Destructuring and record updates
 assign      <- destructure_pattern '=' expr               # destructuring assignment
              / lvalue '=' expr                             # regular assignment
+             / lvalue compound_op expr                     # compound assignment
+compound_op <- '+=' / '-=' / '*=' / '/=' / '%='           # arithmetic compound
+             / '&=' / '|=' / '^='                          # bitwise compound
+             / '<<=' / '>>='                               # shift compound
 destructure_pattern <- '{' field_pattern (',' field_pattern)* '}'
 field_pattern <- IDENT ( ':' pattern )?                   # { name, id } := person
 
@@ -370,12 +374,14 @@ arg         <- '**' IDENT                                 # splat forwarding
              / expr                                       # positional arg
 
 # String interpolation and literals
-literal     <- interpolated_string / regex_literal / byte_literal / ...
+literal     <- interpolated_string / regex_literal / byte_literal / char_literal / ...
 interpolated_string <- '$"' interp_part* '"'
 interp_part <- STRING_CHAR / '{' expr format_spec? '}'
 format_spec <- ':' FORMAT_SPEC                            # :.2f, :x, etc.
 regex_literal <- 're"' REGEX_PATTERN '"'
 byte_literal <- 'b"' BYTE_SEQUENCE '"'
+char_literal <- "'" ( ESCAPE_SEQ / CHAR ) "'"             # 'a', '\n', '\t', etc.
+ESCAPE_SEQ  <- '\' ( 'n' / 't' / 'r' / '0' / '\' / "'" / '"' )
 
 # Ranges and slicing
 expr        <- range_expr / ...
