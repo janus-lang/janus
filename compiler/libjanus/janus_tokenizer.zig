@@ -479,9 +479,9 @@ pub const Tokenizer = struct {
         if (first_char == '0' and !self.isAtEnd()) {
             const prefix = self.peek();
             if (prefix == 'x' or prefix == 'X') {
-                // Hexadecimal: 0x[0-9a-fA-F]+
+                // Hexadecimal: 0x[0-9a-fA-F_]+
                 _ = self.advance(); // consume 'x'
-                while (self.isHexDigit(self.peek())) {
+                while (self.isHexDigit(self.peek()) or self.peek() == '_') {
                     _ = self.advance();
                 }
                 const end_pos = self.currentPos();
@@ -489,9 +489,9 @@ pub const Tokenizer = struct {
                 try self.addToken(.number, lexeme, SourceSpan.init(start_pos, end_pos));
                 return;
             } else if (prefix == 'b' or prefix == 'B') {
-                // Binary: 0b[01]+
+                // Binary: 0b[01_]+
                 _ = self.advance(); // consume 'b'
-                while (self.isBinaryDigit(self.peek())) {
+                while (self.isBinaryDigit(self.peek()) or self.peek() == '_') {
                     _ = self.advance();
                 }
                 const end_pos = self.currentPos();
@@ -499,9 +499,9 @@ pub const Tokenizer = struct {
                 try self.addToken(.number, lexeme, SourceSpan.init(start_pos, end_pos));
                 return;
             } else if (prefix == 'o' or prefix == 'O') {
-                // Octal: 0o[0-7]+
+                // Octal: 0o[0-7_]+
                 _ = self.advance(); // consume 'o'
-                while (self.isOctalDigit(self.peek())) {
+                while (self.isOctalDigit(self.peek()) or self.peek() == '_') {
                     _ = self.advance();
                 }
                 const end_pos = self.currentPos();
@@ -511,8 +511,8 @@ pub const Tokenizer = struct {
             }
         }
 
-        // Decimal number (original logic)
-        while (self.isDigit(self.peek())) {
+        // Decimal number with optional underscores
+        while (self.isDigit(self.peek()) or self.peek() == '_') {
             _ = self.advance();
         }
 
@@ -522,7 +522,23 @@ pub const Tokenizer = struct {
             // Consume the '.'
             _ = self.advance();
 
-            while (self.isDigit(self.peek())) {
+            while (self.isDigit(self.peek()) or self.peek() == '_') {
+                _ = self.advance();
+            }
+        }
+
+        // Look for exponent part (e.g., 1e10, 2.5E-3)
+        if (self.peek() == 'e' or self.peek() == 'E') {
+            is_float = true;
+            _ = self.advance(); // consume 'e' or 'E'
+
+            // Optional sign
+            if (self.peek() == '+' or self.peek() == '-') {
+                _ = self.advance();
+            }
+
+            // Exponent digits
+            while (self.isDigit(self.peek()) or self.peek() == '_') {
                 _ = self.advance();
             }
         }
@@ -1035,4 +1051,50 @@ test "tokenizer mixed numeric literals" {
 
     try std.testing.expect(tokens[3].type == .number);
     try std.testing.expectEqualStrings("0o77", tokens[3].lexeme);
+}
+
+test "tokenizer underscore separators in numbers" {
+    const allocator = std.testing.allocator;
+
+    const source = "1_000_000 0xFF_FF 0b1010_1010 0o7_7_7";
+    var tokenizer = Tokenizer.init(allocator, source);
+    defer tokenizer.deinit();
+
+    const tokens = try tokenizer.tokenize();
+    defer allocator.free(tokens);
+
+    try std.testing.expect(tokens[0].type == .number);
+    try std.testing.expectEqualStrings("1_000_000", tokens[0].lexeme);
+
+    try std.testing.expect(tokens[1].type == .number);
+    try std.testing.expectEqualStrings("0xFF_FF", tokens[1].lexeme);
+
+    try std.testing.expect(tokens[2].type == .number);
+    try std.testing.expectEqualStrings("0b1010_1010", tokens[2].lexeme);
+
+    try std.testing.expect(tokens[3].type == .number);
+    try std.testing.expectEqualStrings("0o7_7_7", tokens[3].lexeme);
+}
+
+test "tokenizer float with exponent" {
+    const allocator = std.testing.allocator;
+
+    const source = "1e10 2.5E-3 3.14e+2 1_000e6";
+    var tokenizer = Tokenizer.init(allocator, source);
+    defer tokenizer.deinit();
+
+    const tokens = try tokenizer.tokenize();
+    defer allocator.free(tokens);
+
+    try std.testing.expect(tokens[0].type == .float_literal);
+    try std.testing.expectEqualStrings("1e10", tokens[0].lexeme);
+
+    try std.testing.expect(tokens[1].type == .float_literal);
+    try std.testing.expectEqualStrings("2.5E-3", tokens[1].lexeme);
+
+    try std.testing.expect(tokens[2].type == .float_literal);
+    try std.testing.expectEqualStrings("3.14e+2", tokens[2].lexeme);
+
+    try std.testing.expect(tokens[3].type == .float_literal);
+    try std.testing.expectEqualStrings("1_000e6", tokens[3].lexeme);
 }

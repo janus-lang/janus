@@ -28,13 +28,16 @@ Version scheme: `YYYY.MM.patch` (Mars Calendar).
 - **Hexadecimal**: `0xFF`, `0x1A2B` (case insensitive)
 - **Binary**: `0b1010`, `0b11111111`
 - **Octal**: `0o755`, `0o777`
+- **Underscore separators**: `1_000_000`, `0xFF_FF`, `0b1010_1010`
+- **Exponent notation**: `1e10`, `2.5E-3`, `3.14e+2`
 - Both tokenizers updated (janus_tokenizer and ASTDB lexer) for consistency
+- SPEC-017 updated with complete numeric literal grammar
 
 #### Comprehensive E2E Test Suite
 - `modulo_e2e_test.zig`: 8 tests covering basic modulo, zero remainder, expressions, loops, digit extraction
 - `bitwise_e2e_test.zig`: 8 tests covering AND, OR, XOR, shifts, bit flags, mask patterns
-- `numeric_literals_e2e_test.zig`: 8 tests covering hex, binary, octal literals and mixed expressions
-- Total: 24 new E2E tests, bringing suite to 16 passing test modules
+- `numeric_literals_e2e_test.zig`: 12 tests covering hex, binary, octal, underscores, and mixed expressions
+- Total: 28 new E2E tests, bringing suite to 16 passing test modules
 
 ### Fixed
 

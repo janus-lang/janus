@@ -280,3 +280,89 @@ test "Epic 11.8: Mixed bases" {
 
     std.debug.print("\n=== MIXED BASES PASSED ===\n", .{});
 }
+
+test "Epic 11.9: Underscore separators in decimal" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    let million = 1_000_000
+        \\    print_int(million)
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "underscore_decimal");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // 1_000_000 = 1000000
+    try testing.expectEqualStrings("1000000\n", output);
+
+    std.debug.print("\n=== UNDERSCORE DECIMAL PASSED ===\n", .{});
+}
+
+test "Epic 11.10: Underscore separators in hex" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    let color = 0xFF_FF_FF
+        \\    print_int(color)
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "underscore_hex");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // 0xFF_FF_FF = 16777215
+    try testing.expectEqualStrings("16777215\n", output);
+
+    std.debug.print("\n=== UNDERSCORE HEX PASSED ===\n", .{});
+}
+
+test "Epic 11.11: Underscore separators in binary" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    let byte = 0b1111_0000
+        \\    print_int(byte)
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "underscore_binary");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // 0b1111_0000 = 240
+    try testing.expectEqualStrings("240\n", output);
+
+    std.debug.print("\n=== UNDERSCORE BINARY PASSED ===\n", .{});
+}
+
+test "Epic 11.12: Underscore in expression" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    let a = 1_000
+        \\    let b = 2_000
+        \\    let c = a + b
+        \\    print_int(c)
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "underscore_expr");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // 1_000 + 2_000 = 3000
+    try testing.expectEqualStrings("3000\n", output);
+
+    std.debug.print("\n=== UNDERSCORE EXPRESSION PASSED ===\n", .{});
+}
