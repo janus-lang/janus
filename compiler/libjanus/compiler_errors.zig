@@ -25,6 +25,8 @@ pub const Phase = enum {
     semantic,
     codegen,
     linker,
+    warning, // NextGen: Warnings (W0xxx)
+    info, // NextGen: Info/Hints (I0xxx)
 
     pub fn prefix(self: Phase) []const u8 {
         return switch (self) {
@@ -33,6 +35,8 @@ pub const Phase = enum {
             .semantic => "S",
             .codegen => "C",
             .linker => "K",
+            .warning => "W",
+            .info => "I",
         };
     }
 };
@@ -388,6 +392,7 @@ pub const ParserError = enum(u16) {
 // ============================================================================
 
 pub const SemanticError = enum(u16) {
+    // S0xxx - General Semantic Errors
     undefined_identifier = 1, // S0001: Undefined identifier
     undefined_function = 2, // S0002: Undefined function
     undefined_type = 3, // S0003: Undefined type
@@ -401,6 +406,89 @@ pub const SemanticError = enum(u16) {
     unreachable_code = 11, // S0011: Unreachable code
     profile_violation = 100, // S0100: Feature not available in profile
     capability_required = 101, // S0101: Capability required
+
+    // S1xxx - Dispatch and Resolution (NextGen)
+    dispatch_ambiguous = 1101, // S1101: Ambiguous function dispatch
+    dispatch_no_match = 1102, // S1102: No matching function
+    dispatch_internal = 1103, // S1103: Internal resolution error
+    dispatch_visibility = 1104, // S1104: Visibility violation in dispatch
+
+    // S2xxx - Type Inference (NextGen)
+    type_inference_mismatch = 2001, // S2001: Type mismatch (inferred vs expected)
+    type_inference_failed = 2002, // S2002: Type inference failed
+    type_constraint_violation = 2003, // S2003: Generic constraint violated
+    type_flow_divergence = 2004, // S2004: Type flow diverged from expected
+
+    // S3xxx - Effect System (NextGen)
+    effect_missing_capability = 3001, // S3001: Required capability not available
+    effect_leak = 3002, // S3002: Effect escapes its handler
+    effect_purity_violation = 3003, // S3003: Impure operation in pure context
+    effect_unhandled = 3004, // S3004: Effect not handled
+
+    // S4xxx - Module and Import (NextGen)
+    import_not_found = 4001, // S4001: Import not found
+    import_ambiguous = 4002, // S4002: Ambiguous import
+    import_circular = 4003, // S4003: Circular import dependency
+    visibility_violation = 4004, // S4004: Visibility violation
+
+    // S5xxx - Pattern Matching (NextGen)
+    pattern_incomplete = 5001, // S5001: Non-exhaustive pattern match
+    pattern_unreachable = 5002, // S5002: Unreachable pattern
+    pattern_type_mismatch = 5003, // S5003: Pattern type mismatch
+
+    // S6xxx - Lifetime and Memory (NextGen)
+    lifetime_exceeded = 6001, // S6001: Lifetime exceeded
+    borrow_conflict = 6002, // S6002: Conflicting borrows
+    use_after_move = 6003, // S6003: Use after move
+};
+
+// ============================================================================
+// WARNING CODES (W0xxx) - NextGen
+// ============================================================================
+
+pub const Warning = enum(u16) {
+    // W0xxx - General Warnings
+    unused_variable = 1, // W0001: Unused variable
+    unused_import = 2, // W0002: Unused import
+    unused_function = 3, // W0003: Unused function
+    deprecated_usage = 4, // W0004: Using deprecated feature
+    shadowed_variable = 5, // W0005: Variable shadows outer scope
+
+    // W01xx - Type Warnings
+    implicit_conversion = 100, // W0100: Implicit type conversion
+    lossy_conversion = 101, // W0101: Potentially lossy conversion
+    nullable_access = 102, // W0102: Accessing potentially null value
+
+    // W02xx - Performance Warnings
+    inefficient_pattern = 200, // W0200: Inefficient pattern detected
+    redundant_clone = 201, // W0201: Redundant clone operation
+    allocation_in_loop = 202, // W0202: Allocation inside loop
+
+    // W03xx - Style Warnings
+    naming_convention = 300, // W0300: Naming convention violation
+    complexity_high = 301, // W0301: High cyclomatic complexity
+    function_too_long = 302, // W0302: Function exceeds recommended length
+};
+
+// ============================================================================
+// INFO/HINT CODES (I0xxx) - NextGen
+// ============================================================================
+
+pub const Info = enum(u16) {
+    // I0xxx - Informational Messages
+    similar_function_exists = 1, // I0001: Similar function exists in scope
+    conversion_available = 2, // I0002: Type conversion is available
+    alternative_approach = 3, // I0003: Alternative approach suggested
+
+    // I01xx - Type Hints
+    inferred_type = 100, // I0100: Type was inferred as
+    constraint_from = 101, // I0101: Constraint originates from
+    type_flow_trace = 102, // I0102: Type flow trace
+
+    // I02xx - Resolution Hints
+    candidate_rejected = 200, // I0200: Candidate rejected because
+    visibility_note = 201, // I0201: Note about visibility
+    import_suggestion = 202, // I0202: Consider importing
 };
 
 // ============================================================================
