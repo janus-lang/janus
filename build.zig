@@ -1555,6 +1555,27 @@ pub fn build(b: *std.Build) void {
     test_match_e2e_step.dependOn(&run_match_e2e_tests.step);
     test_step.dependOn(&run_match_e2e_tests.step);
 
+    // Struct Types E2E Tests
+    const struct_e2e_tests = b.addTest(.{
+        .name = "struct_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/struct_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    struct_e2e_tests.linkLibC();
+    struct_e2e_tests.linkSystemLibrary("LLVM-21");
+    struct_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    struct_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    struct_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    struct_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_struct_e2e_tests = b.addRunArtifact(struct_e2e_tests);
+
+    const test_struct_e2e_step = b.step("test-struct-e2e", "Run Struct Types end-to-end integration test");
+    test_struct_e2e_step.dependOn(&run_struct_e2e_tests.step);
+    test_step.dependOn(&run_struct_e2e_tests.step);
+
     if (enable_s0_extended) {
         const s0_neg = b.addTest(.{
             .name = "s0_negative_tests",

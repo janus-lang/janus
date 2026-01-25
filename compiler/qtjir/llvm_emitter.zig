@@ -33,12 +33,20 @@ pub const LLVMEmitter = struct {
     // Current function being emitted
     current_function: llvm.Value,
 
+    // Struct metadata: maps struct node_id -> (llvm_type, field_names)
+    struct_info: std.AutoHashMap(u32, StructInfo),
+
     const DeferredPhi = struct {
         phi_value: llvm.Value,
         input_ids: []const u32,
     };
 
     const DeferredPhiList = std.ArrayList(DeferredPhi);
+
+    const StructInfo = struct {
+        llvm_type: llvm.Type,
+        field_names: []const u8, // Comma-separated field names
+    };
 
     pub fn init(allocator: std.mem.Allocator, module_name: []const u8) !LLVMEmitter {
         llvm.initializeNativeTarget();
@@ -62,6 +70,7 @@ pub const LLVMEmitter = struct {
             .node_blocks = std.AutoHashMap(u32, llvm.BasicBlock).init(allocator),
             .deferred_phis = .{},
             .current_function = undefined,
+            .struct_info = std.AutoHashMap(u32, StructInfo).init(allocator),
         };
     }
 
@@ -69,6 +78,7 @@ pub const LLVMEmitter = struct {
         self.values.deinit();
         self.label_blocks.deinit();
         self.node_blocks.deinit();
+        self.struct_info.deinit();
         for (self.deferred_phis.items) |phi| {
             self.allocator.free(phi.input_ids);
         }
@@ -211,6 +221,8 @@ pub const LLVMEmitter = struct {
             .Phi => try self.emitPhi(node),
             .Array_Construct => try self.emitArrayConstruct(node),
             .Index => try self.emitIndex(node),
+            .Struct_Construct => try self.emitStructConstruct(node),
+            .Field_Access => try self.emitFieldAccess(node),
             // Tensor / Quantum (Placeholder)
             .Tensor_Contract => {
                 std.debug.print("Warning: Unimplemented Tensor_Contract\n", .{});
@@ -1061,5 +1073,103 @@ pub const LLVMEmitter = struct {
         var indices = [_]llvm.Value{index_val};
         const elem_ptr = llvm.buildInBoundsGEP2(self.builder, elem_type, array_ptr, &indices, 1, "elem_ptr");
         try self.values.put(node.id, elem_ptr);
+    }
+
+    /// Emit struct literal: Point { x: 10, y: 20 }
+    /// Creates LLVM struct type from values, builds using insertvalue
+    fn emitStructConstruct(self: *LLVMEmitter, node: *const IRNode) !void {
+        const count = node.inputs.items.len;
+        if (count == 0) {
+            // Empty struct - create empty struct type
+            var empty_types: [0]llvm.Type = .{};
+            const struct_type = llvm.structTypeInContext(self.context, &empty_types, 0, false);
+            const undef_struct = llvm.getUndef(struct_type);
+            try self.values.put(node.id, undef_struct);
+
+            // Store struct info for field access
+            const field_names = switch (node.data) {
+                .string => |s| s,
+                else => "",
+            };
+            try self.struct_info.put(node.id, .{
+                .llvm_type = struct_type,
+                .field_names = field_names,
+            });
+            return;
+        }
+
+        // Collect LLVM types from input values
+        var elem_types = try self.allocator.alloc(llvm.Type, count);
+        defer self.allocator.free(elem_types);
+
+        for (node.inputs.items, 0..) |input_id, i| {
+            const val = self.values.get(input_id) orelse return error.MissingOperand;
+            elem_types[i] = llvm.typeof(val);
+        }
+
+        // Create anonymous struct type
+        const struct_type = llvm.structTypeInContext(self.context, elem_types.ptr, @intCast(count), false);
+
+        // Build struct using insertvalue chain
+        var struct_val = llvm.getUndef(struct_type);
+        for (node.inputs.items, 0..) |input_id, i| {
+            const val = self.values.get(input_id) orelse return error.MissingOperand;
+            struct_val = llvm.buildInsertValue(self.builder, struct_val, val, @intCast(i), "struct_field");
+        }
+
+        try self.values.put(node.id, struct_val);
+
+        // Store struct info for field access
+        const field_names = switch (node.data) {
+            .string => |s| s,
+            else => "",
+        };
+        try self.struct_info.put(node.id, .{
+            .llvm_type = struct_type,
+            .field_names = field_names,
+        });
+    }
+
+    /// Emit field access: s.field
+    /// Uses extractvalue with field index
+    fn emitFieldAccess(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+        const struct_node_id = node.inputs.items[0];
+        const struct_val = self.values.get(struct_node_id) orelse return error.MissingOperand;
+
+        // Get field name from node data
+        const field_name = switch (node.data) {
+            .string => |s| s,
+            else => return error.InvalidNode,
+        };
+
+        // Find field index by looking up struct info
+        const info = self.struct_info.get(struct_node_id) orelse {
+            // Struct info not found - try to infer from input chain
+            // For now, error out
+            std.debug.print("Warning: Struct info not found for node {d}\n", .{struct_node_id});
+            return error.MissingOperand;
+        };
+
+        // Parse field names (comma-separated) and find index
+        var field_idx: u32 = 0;
+        var found = false;
+        var iter = std.mem.splitScalar(u8, info.field_names, ',');
+        while (iter.next()) |name| {
+            if (std.mem.eql(u8, name, field_name)) {
+                found = true;
+                break;
+            }
+            field_idx += 1;
+        }
+
+        if (!found) {
+            std.debug.print("Warning: Field '{s}' not found in struct\n", .{field_name});
+            return error.InvalidNode;
+        }
+
+        // Extract value at field_idx
+        const result = llvm.buildExtractValue(self.builder, struct_val, field_idx, "field_val");
+        try self.values.put(node.id, result);
     }
 };

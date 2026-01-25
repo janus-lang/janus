@@ -222,3 +222,53 @@ pub fn buildBr(builder: Builder, dest: BasicBlock) Value {
 pub fn buildCondBr(builder: Builder, cond: Value, then_blk: BasicBlock, else_blk: BasicBlock) Value {
     return c.LLVMBuildCondBr(builder, cond, then_blk, else_blk);
 }
+
+/// Create an anonymous struct type
+pub fn structTypeInContext(ctx: Context, element_types: [*]Type, element_count: u32, is_packed: bool) Type {
+    return c.LLVMStructTypeInContext(ctx, element_types, element_count, if (is_packed) 1 else 0);
+}
+
+/// Create a named struct type (for recursive types)
+pub fn structCreateNamed(ctx: Context, name: [*:0]const u8) Type {
+    return c.LLVMStructCreateNamed(ctx, name);
+}
+
+/// Set body of a named struct type
+pub fn structSetBody(struct_ty: Type, element_types: [*]Type, element_count: u32, is_packed: bool) void {
+    c.LLVMStructSetBody(struct_ty, element_types, element_count, if (is_packed) 1 else 0);
+}
+
+/// Get struct element type at index
+pub fn getElementType(ty: Type) Type {
+    return c.LLVMGetElementType(ty);
+}
+
+/// Build struct GEP (typed for opaque pointers)
+pub fn buildStructGEP2(builder: Builder, ty: Type, ptr: Value, idx: u32, name: [*:0]const u8) Value {
+    return c.LLVMBuildStructGEP2(builder, ty, ptr, idx, name);
+}
+
+/// Build insert value (for aggregates - struct/array)
+pub fn buildInsertValue(builder: Builder, agg_val: Value, elem_val: Value, idx: u32, name: [*:0]const u8) Value {
+    return c.LLVMBuildInsertValue(builder, agg_val, elem_val, idx, name);
+}
+
+/// Build extract value (for aggregates - struct/array)
+pub fn buildExtractValue(builder: Builder, agg_val: Value, idx: u32, name: [*:0]const u8) Value {
+    return c.LLVMBuildExtractValue(builder, agg_val, idx, name);
+}
+
+/// Get undefined value of type
+pub fn getUndef(ty: Type) Value {
+    return c.LLVMGetUndef(ty);
+}
+
+/// Count struct element types
+pub fn countStructElementTypes(struct_ty: Type) u32 {
+    return c.LLVMCountStructElementTypes(struct_ty);
+}
+
+/// Get struct element types
+pub fn getStructElementTypes(struct_ty: Type, dest: [*]Type) void {
+    c.LLVMGetStructElementTypes(struct_ty, dest);
+}
