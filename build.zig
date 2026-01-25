@@ -1597,6 +1597,27 @@ pub fn build(b: *std.Build) void {
     test_string_e2e_step.dependOn(&run_string_e2e_tests.step);
     test_step.dependOn(&run_string_e2e_tests.step);
 
+    // Type Annotation E2E Tests
+    const type_annotation_e2e_tests = b.addTest(.{
+        .name = "type_annotation_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/type_annotation_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    type_annotation_e2e_tests.linkLibC();
+    type_annotation_e2e_tests.linkSystemLibrary("LLVM-21");
+    type_annotation_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    type_annotation_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    type_annotation_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    type_annotation_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_type_annotation_e2e_tests = b.addRunArtifact(type_annotation_e2e_tests);
+
+    const test_type_annotation_e2e_step = b.step("test-type-annotation-e2e", "Run Type Annotation end-to-end integration test");
+    test_type_annotation_e2e_step.dependOn(&run_type_annotation_e2e_tests.step);
+    test_step.dependOn(&run_type_annotation_e2e_tests.step);
+
     if (enable_s0_extended) {
         const s0_neg = b.addTest(.{
             .name = "s0_negative_tests",
