@@ -1576,6 +1576,27 @@ pub fn build(b: *std.Build) void {
     test_struct_e2e_step.dependOn(&run_struct_e2e_tests.step);
     test_step.dependOn(&run_struct_e2e_tests.step);
 
+    // String Literals E2E Tests
+    const string_e2e_tests = b.addTest(.{
+        .name = "string_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/string_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    string_e2e_tests.linkLibC();
+    string_e2e_tests.linkSystemLibrary("LLVM-21");
+    string_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    string_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    string_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    string_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_string_e2e_tests = b.addRunArtifact(string_e2e_tests);
+
+    const test_string_e2e_step = b.step("test-string-e2e", "Run String Literals end-to-end integration test");
+    test_string_e2e_step.dependOn(&run_string_e2e_tests.step);
+    test_step.dependOn(&run_string_e2e_tests.step);
+
     if (enable_s0_extended) {
         const s0_neg = b.addTest(.{
             .name = "s0_negative_tests",
