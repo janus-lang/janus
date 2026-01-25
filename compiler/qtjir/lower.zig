@@ -966,18 +966,31 @@ fn lowerIntegerLiteral(ctx: *LoweringContext, node_id: NodeId, node: *const AstN
     const unit = ctx.snapshot.astdb.getUnitConst(ctx.unit_id) orelse return error.InvalidToken;
     const lexeme = unit.source[token.span.start..token.span.end];
 
-    // Detect base from prefix: 0x (hex), 0b (binary), 0o (octal)
-    const val: i32 = blk: {
-        if (lexeme.len > 2) {
-            if (lexeme[0] == '0' and (lexeme[1] == 'x' or lexeme[1] == 'X')) {
-                break :blk std.fmt.parseInt(i32, lexeme[2..], 16) catch 0;
-            } else if (lexeme[0] == '0' and (lexeme[1] == 'b' or lexeme[1] == 'B')) {
-                break :blk std.fmt.parseInt(i32, lexeme[2..], 2) catch 0;
-            } else if (lexeme[0] == '0' and (lexeme[1] == 'o' or lexeme[1] == 'O')) {
-                break :blk std.fmt.parseInt(i32, lexeme[2..], 8) catch 0;
+    // Strip underscores from numeric literal (e.g., 1_000_000 -> 1000000)
+    var stripped: [64]u8 = undefined;
+    var stripped_len: usize = 0;
+    for (lexeme) |c| {
+        if (c != '_') {
+            if (stripped_len < stripped.len) {
+                stripped[stripped_len] = c;
+                stripped_len += 1;
             }
         }
-        break :blk std.fmt.parseInt(i32, lexeme, 10) catch 0;
+    }
+    const clean_lexeme = stripped[0..stripped_len];
+
+    // Detect base from prefix: 0x (hex), 0b (binary), 0o (octal)
+    const val: i32 = blk: {
+        if (clean_lexeme.len > 2) {
+            if (clean_lexeme[0] == '0' and (clean_lexeme[1] == 'x' or clean_lexeme[1] == 'X')) {
+                break :blk std.fmt.parseInt(i32, clean_lexeme[2..], 16) catch 0;
+            } else if (clean_lexeme[0] == '0' and (clean_lexeme[1] == 'b' or clean_lexeme[1] == 'B')) {
+                break :blk std.fmt.parseInt(i32, clean_lexeme[2..], 2) catch 0;
+            } else if (clean_lexeme[0] == '0' and (clean_lexeme[1] == 'o' or clean_lexeme[1] == 'O')) {
+                break :blk std.fmt.parseInt(i32, clean_lexeme[2..], 8) catch 0;
+            }
+        }
+        break :blk std.fmt.parseInt(i32, clean_lexeme, 10) catch 0;
     };
     return try ctx.builder.createConstant(.{ .integer = val });
 }

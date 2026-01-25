@@ -119,8 +119,13 @@ These are the ONLY syntactic sugars. No others will be added post-1.0.
 WS          <- [ \t\r\n]+
 COMMENT     <- '//' [^\n]* / '/*' (!'*/' .)* '*/'
 IDENT       <- [_A-Za-z][_A-Za-z0-9]*
-INT         <- '0' | [1-9][0-9]*
-FLOAT       <- [0-9]+ '.' [0-9]+ ( [eE] [+\-]? [0-9]+ )?
+INT         <- HEX_INT / BIN_INT / OCT_INT / DEC_INT
+DEC_INT     <- '0' | [1-9][0-9_]*
+HEX_INT     <- '0' [xX] [0-9a-fA-F_]+
+BIN_INT     <- '0' [bB] [01_]+
+OCT_INT     <- '0' [oO] [0-7_]+
+FLOAT       <- [0-9_]+ '.' [0-9_]+ ( [eE] [+\-]? [0-9_]+ )?
+             / [0-9_]+ [eE] [+\-]? [0-9_]+
 STRING      <- '"' ( '\\"' | '\\n' | '\\t' | !'"' . )* '"'
 DOC         <- '///' [^\n]*
 
