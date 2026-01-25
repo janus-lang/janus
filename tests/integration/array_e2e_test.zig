@@ -285,3 +285,54 @@ test "Epic 6.8: Array swap elements" {
 
     std.debug.print("\n=== ARRAY SWAP ELEMENTS PASSED ===\n", .{});
 }
+
+test "Epic 6.9: Flat matrix simulation (row-major)" {
+    const allocator = testing.allocator;
+
+    // Simulate 2x3 matrix as flat array with manual indexing
+    // matrix[row][col] = flat[row * cols + col]
+    const source =
+        \\func main() {
+        \\    let matrix = [1, 2, 3, 4, 5, 6]
+        \\    let cols = 3
+        \\    print_int(matrix[0 * cols + 0])
+        \\    print_int(matrix[0 * cols + 2])
+        \\    print_int(matrix[1 * cols + 1])
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "array_flat_matrix");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // [0][0]=1, [0][2]=3, [1][1]=5
+    try testing.expectEqualStrings("1\n3\n5\n", output);
+
+    std.debug.print("\n=== FLAT MATRIX SIMULATION PASSED ===\n", .{});
+}
+
+test "Epic 6.10: Array accumulator pattern" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    let arr = [1, 2, 3, 4, 5]
+        \\    var sum = 0
+        \\    for i in 0..<5 do
+        \\        sum = sum + arr[i]
+        \\    end
+        \\    print_int(sum)
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "array_accumulator");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // 1+2+3+4+5 = 15
+    try testing.expectEqualStrings("15\n", output);
+
+    std.debug.print("\n=== ARRAY ACCUMULATOR PATTERN PASSED ===\n", .{});
+}
