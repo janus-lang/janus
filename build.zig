@@ -1471,6 +1471,27 @@ pub fn build(b: *std.Build) void {
     test_if_else_e2e_step.dependOn(&run_if_else_e2e_tests.step);
     test_step.dependOn(&run_if_else_e2e_tests.step);
 
+    // Add While Loop End-to-End Integration Test (Epic 1.7)
+    const while_loop_e2e_tests = b.addTest(.{
+        .name = "while_loop_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/while_loop_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    while_loop_e2e_tests.linkLibC();
+    while_loop_e2e_tests.linkSystemLibrary("LLVM-21");
+    while_loop_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    while_loop_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    while_loop_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    while_loop_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_while_loop_e2e_tests = b.addRunArtifact(while_loop_e2e_tests);
+
+    const test_while_loop_e2e_step = b.step("test-while-loop-e2e", "Run While Loop end-to-end integration test");
+    test_while_loop_e2e_step.dependOn(&run_while_loop_e2e_tests.step);
+    test_step.dependOn(&run_while_loop_e2e_tests.step);
+
     if (enable_s0_extended) {
         const s0_neg = b.addTest(.{
             .name = "s0_negative_tests",

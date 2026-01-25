@@ -6,6 +6,28 @@
 
 ## Resolved Issues
 
+### While Loop End-to-End (RESOLVED 2026-01-25)
+
+**Status**: ✅ Complete (4/4 E2E tests passing)
+**Date Resolved**: 2026-01-25
+**Component**: While Loop Compilation Pipeline
+
+**Milestone**: While loops now compile and execute end-to-end.
+
+**Syntax**: `while condition do ... end`
+
+**Features**:
+- Condition evaluation at loop header
+- Body execution when condition is true
+- Exit when condition becomes false
+- Proper CFG: Header → Branch → Body → Jump(Header) | Exit
+
+**Files Changed**:
+- `tests/integration/while_loop_e2e_test.zig` - New E2E test
+- `build.zig` - Added `test-while-loop-e2e` step
+
+---
+
 ### If/Else Conditionals End-to-End (RESOLVED 2026-01-25)
 
 **Status**: ✅ Complete (3/3 E2E tests passing)
