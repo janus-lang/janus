@@ -966,7 +966,19 @@ fn lowerIntegerLiteral(ctx: *LoweringContext, node_id: NodeId, node: *const AstN
     const unit = ctx.snapshot.astdb.getUnitConst(ctx.unit_id) orelse return error.InvalidToken;
     const lexeme = unit.source[token.span.start..token.span.end];
 
-    const val = std.fmt.parseInt(i32, lexeme, 10) catch 0;
+    // Detect base from prefix: 0x (hex), 0b (binary), 0o (octal)
+    const val: i32 = blk: {
+        if (lexeme.len > 2) {
+            if (lexeme[0] == '0' and (lexeme[1] == 'x' or lexeme[1] == 'X')) {
+                break :blk std.fmt.parseInt(i32, lexeme[2..], 16) catch 0;
+            } else if (lexeme[0] == '0' and (lexeme[1] == 'b' or lexeme[1] == 'B')) {
+                break :blk std.fmt.parseInt(i32, lexeme[2..], 2) catch 0;
+            } else if (lexeme[0] == '0' and (lexeme[1] == 'o' or lexeme[1] == 'O')) {
+                break :blk std.fmt.parseInt(i32, lexeme[2..], 8) catch 0;
+            }
+        }
+        break :blk std.fmt.parseInt(i32, lexeme, 10) catch 0;
+    };
     return try ctx.builder.createConstant(.{ .integer = val });
 }
 

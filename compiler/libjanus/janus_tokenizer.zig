@@ -472,6 +472,46 @@ pub const Tokenizer = struct {
     fn number(self: *Self, start_pos: SourcePos) !void {
         var is_float = false;
 
+        // Check for hex (0x), binary (0b), or octal (0o) prefix
+        // At this point we've already consumed the first digit in scanToken
+        // So check if it was '0' and peek for prefix character
+        const first_char = self.source[start_pos.byte_offset];
+        if (first_char == '0' and !self.isAtEnd()) {
+            const prefix = self.peek();
+            if (prefix == 'x' or prefix == 'X') {
+                // Hexadecimal: 0x[0-9a-fA-F]+
+                _ = self.advance(); // consume 'x'
+                while (self.isHexDigit(self.peek())) {
+                    _ = self.advance();
+                }
+                const end_pos = self.currentPos();
+                const lexeme = self.source[start_pos.byte_offset..self.current];
+                try self.addToken(.number, lexeme, SourceSpan.init(start_pos, end_pos));
+                return;
+            } else if (prefix == 'b' or prefix == 'B') {
+                // Binary: 0b[01]+
+                _ = self.advance(); // consume 'b'
+                while (self.isBinaryDigit(self.peek())) {
+                    _ = self.advance();
+                }
+                const end_pos = self.currentPos();
+                const lexeme = self.source[start_pos.byte_offset..self.current];
+                try self.addToken(.number, lexeme, SourceSpan.init(start_pos, end_pos));
+                return;
+            } else if (prefix == 'o' or prefix == 'O') {
+                // Octal: 0o[0-7]+
+                _ = self.advance(); // consume 'o'
+                while (self.isOctalDigit(self.peek())) {
+                    _ = self.advance();
+                }
+                const end_pos = self.currentPos();
+                const lexeme = self.source[start_pos.byte_offset..self.current];
+                try self.addToken(.number, lexeme, SourceSpan.init(start_pos, end_pos));
+                return;
+            }
+        }
+
+        // Decimal number (original logic)
         while (self.isDigit(self.peek())) {
             _ = self.advance();
         }
@@ -595,6 +635,23 @@ pub const Tokenizer = struct {
     fn isDigit(self: *Self, c: u8) bool {
         _ = self; // unused
         return c >= '0' and c <= '9';
+    }
+
+    fn isHexDigit(self: *Self, c: u8) bool {
+        _ = self; // unused
+        return (c >= '0' and c <= '9') or
+            (c >= 'a' and c <= 'f') or
+            (c >= 'A' and c <= 'F');
+    }
+
+    fn isBinaryDigit(self: *Self, c: u8) bool {
+        _ = self; // unused
+        return c == '0' or c == '1';
+    }
+
+    fn isOctalDigit(self: *Self, c: u8) bool {
+        _ = self; // unused
+        return c >= '0' and c <= '7';
     }
 
     fn isAlpha(self: *Self, c: u8) bool {
@@ -898,4 +955,84 @@ test "when vs identifier disambiguation" {
 
     try std.testing.expect(ident_tokens[0].type == .identifier);
     try std.testing.expectEqualStrings("whenSomething", ident_tokens[0].lexeme);
+}
+
+test "tokenizer hexadecimal literals" {
+    const allocator = std.testing.allocator;
+
+    const source = "let x = 0xFF";
+    var tokenizer = Tokenizer.init(allocator, source);
+    defer tokenizer.deinit();
+
+    const tokens = try tokenizer.tokenize();
+    defer allocator.free(tokens);
+
+    try std.testing.expect(tokens.len == 5); // let, x, =, 0xFF, eof
+    try std.testing.expect(tokens[3].type == .number);
+    try std.testing.expectEqualStrings("0xFF", tokens[3].lexeme);
+}
+
+test "tokenizer hexadecimal lowercase" {
+    const allocator = std.testing.allocator;
+
+    const source = "0x1a2b3c";
+    var tokenizer = Tokenizer.init(allocator, source);
+    defer tokenizer.deinit();
+
+    const tokens = try tokenizer.tokenize();
+    defer allocator.free(tokens);
+
+    try std.testing.expect(tokens[0].type == .number);
+    try std.testing.expectEqualStrings("0x1a2b3c", tokens[0].lexeme);
+}
+
+test "tokenizer binary literals" {
+    const allocator = std.testing.allocator;
+
+    const source = "let flags = 0b1010";
+    var tokenizer = Tokenizer.init(allocator, source);
+    defer tokenizer.deinit();
+
+    const tokens = try tokenizer.tokenize();
+    defer allocator.free(tokens);
+
+    try std.testing.expect(tokens[3].type == .number);
+    try std.testing.expectEqualStrings("0b1010", tokens[3].lexeme);
+}
+
+test "tokenizer octal literals" {
+    const allocator = std.testing.allocator;
+
+    const source = "let perms = 0o755";
+    var tokenizer = Tokenizer.init(allocator, source);
+    defer tokenizer.deinit();
+
+    const tokens = try tokenizer.tokenize();
+    defer allocator.free(tokens);
+
+    try std.testing.expect(tokens[3].type == .number);
+    try std.testing.expectEqualStrings("0o755", tokens[3].lexeme);
+}
+
+test "tokenizer mixed numeric literals" {
+    const allocator = std.testing.allocator;
+
+    const source = "100 0xFF 0b1111 0o77";
+    var tokenizer = Tokenizer.init(allocator, source);
+    defer tokenizer.deinit();
+
+    const tokens = try tokenizer.tokenize();
+    defer allocator.free(tokens);
+
+    try std.testing.expect(tokens[0].type == .number);
+    try std.testing.expectEqualStrings("100", tokens[0].lexeme);
+
+    try std.testing.expect(tokens[1].type == .number);
+    try std.testing.expectEqualStrings("0xFF", tokens[1].lexeme);
+
+    try std.testing.expect(tokens[2].type == .number);
+    try std.testing.expectEqualStrings("0b1111", tokens[2].lexeme);
+
+    try std.testing.expect(tokens[3].type == .number);
+    try std.testing.expectEqualStrings("0o77", tokens[3].lexeme);
 }

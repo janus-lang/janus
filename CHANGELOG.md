@@ -24,10 +24,17 @@ Version scheme: `YYYY.MM.patch` (Mars Calendar).
 - **Bitwise Operators**: Full support for `^` (XOR), `<<` (left shift), `>>` (right shift), `~` (NOT)
 - **LLVM Bindings**: Added `buildSRem`, `buildXor`, `buildShl`, `buildAShr`, `buildNot`
 
+#### Numeric Literal Prefixes
+- **Hexadecimal**: `0xFF`, `0x1A2B` (case insensitive)
+- **Binary**: `0b1010`, `0b11111111`
+- **Octal**: `0o755`, `0o777`
+- Both tokenizers updated (janus_tokenizer and ASTDB lexer) for consistency
+
 #### Comprehensive E2E Test Suite
 - `modulo_e2e_test.zig`: 8 tests covering basic modulo, zero remainder, expressions, loops, digit extraction
 - `bitwise_e2e_test.zig`: 8 tests covering AND, OR, XOR, shifts, bit flags, mask patterns
-- Total: 16 new E2E tests, bringing suite to 15 passing test modules
+- `numeric_literals_e2e_test.zig`: 8 tests covering hex, binary, octal literals and mixed expressions
+- Total: 24 new E2E tests, bringing suite to 16 passing test modules
 
 ### Fixed
 
