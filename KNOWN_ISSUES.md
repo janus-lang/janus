@@ -6,6 +6,31 @@
 
 ## Resolved Issues
 
+### For Loop End-to-End Compilation (RESOLVED 2026-01-25)
+
+**Status**: ✅ Complete (2/2 E2E tests passing)
+**Date Resolved**: 2026-01-25
+**Component**: For Loop Compilation Pipeline
+
+**Milestone**: For loops now compile and execute end-to-end through the complete pipeline:
+Source → Parser → ASTDB → QTJIR Lowering → LLVM IR → Native Executable
+
+**Syntax Supported**:
+- Exclusive range: `for i in 0..<5 do ... end`
+- Inclusive range: `for i in 0..3 do ... end`
+
+**Implementation**:
+- Parser: `for identifier in iterable do ... end` or `{ ... }`
+- QTJIR Lowering: Creates Phi, Label, Branch, Add, Jump nodes
+- LLVM Emitter: Added Phi node support with deferred incoming edge resolution
+
+**Files Changed**:
+- `compiler/qtjir/llvm_emitter.zig` - Added `emitPhi()` and `resolveDeferredPhis()`
+- `tests/integration/for_loop_e2e_test.zig` - New E2E test
+- `build.zig` - Added `test-for-loop-e2e` step
+
+---
+
 ### Chained Pipeline Operator (RESOLVED 2026-01-25)
 
 **Status**: ✅ Fixed (3/3 tests passing)

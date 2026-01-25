@@ -1429,6 +1429,27 @@ pub fn build(b: *std.Build) void {
     test_hello_world_e2e_step.dependOn(&run_hello_world_e2e_tests.step);
     test_step.dependOn(&run_hello_world_e2e_tests.step);
 
+    // Add For Loop End-to-End Integration Test (Epic 1.5)
+    const for_loop_e2e_tests = b.addTest(.{
+        .name = "for_loop_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/for_loop_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    for_loop_e2e_tests.linkLibC();
+    for_loop_e2e_tests.linkSystemLibrary("LLVM-21");
+    for_loop_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    for_loop_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    for_loop_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    for_loop_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_for_loop_e2e_tests = b.addRunArtifact(for_loop_e2e_tests);
+
+    const test_for_loop_e2e_step = b.step("test-for-loop-e2e", "Run For Loop end-to-end integration test");
+    test_for_loop_e2e_step.dependOn(&run_for_loop_e2e_tests.step);
+    test_step.dependOn(&run_for_loop_e2e_tests.step);
+
     if (enable_s0_extended) {
         const s0_neg = b.addTest(.{
             .name = "s0_negative_tests",

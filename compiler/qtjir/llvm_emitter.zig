@@ -24,8 +24,21 @@ pub const LLVMEmitter = struct {
     // Label mapping: QTJIR Label Node ID → LLVM BasicBlock
     label_blocks: std.AutoHashMap(u32, llvm.BasicBlock),
 
+    // Track which basic block each node was defined in (for PHI incoming edges)
+    node_blocks: std.AutoHashMap(u32, llvm.BasicBlock),
+
+    // Deferred PHI nodes that need incoming edges resolved after all nodes are emitted
+    deferred_phis: DeferredPhiList,
+
     // Current function being emitted
     current_function: llvm.Value,
+
+    const DeferredPhi = struct {
+        phi_value: llvm.Value,
+        input_ids: []const u32,
+    };
+
+    const DeferredPhiList = std.ArrayList(DeferredPhi);
 
     pub fn init(allocator: std.mem.Allocator, module_name: []const u8) !LLVMEmitter {
         llvm.initializeNativeTarget();
@@ -46,6 +59,8 @@ pub const LLVMEmitter = struct {
             .builder = builder,
             .values = std.AutoHashMap(u32, llvm.Value).init(allocator),
             .label_blocks = std.AutoHashMap(u32, llvm.BasicBlock).init(allocator),
+            .node_blocks = std.AutoHashMap(u32, llvm.BasicBlock).init(allocator),
+            .deferred_phis = .{},
             .current_function = undefined,
         };
     }
@@ -53,6 +68,11 @@ pub const LLVMEmitter = struct {
     pub fn deinit(self: *LLVMEmitter) void {
         self.values.deinit();
         self.label_blocks.deinit();
+        self.node_blocks.deinit();
+        for (self.deferred_phis.items) |phi| {
+            self.allocator.free(phi.input_ids);
+        }
+        self.deferred_phis.deinit(self.allocator);
         llvm.disposeBuilder(self.builder);
         llvm.disposeModule(self.module);
         llvm.contextDispose(self.context);
@@ -119,10 +139,27 @@ pub const LLVMEmitter = struct {
         // Scan for labels and create BasicBlocks
         try self.scanLabels(ir_graph, function);
 
-        // Emit all nodes
+        // Clear deferred phis for this function
+        for (self.deferred_phis.items) |phi| {
+            self.allocator.free(phi.input_ids);
+        }
+        self.deferred_phis.clearRetainingCapacity();
+        self.node_blocks.clearRetainingCapacity();
+
+        // Emit all nodes, tracking which block each is in
         for (ir_graph.nodes.items) |*node| {
             try self.emitNode(node, ir_graph);
+            // Track which block this node's value was defined in
+            if (self.values.contains(node.id)) {
+                const current_block = llvm.c.LLVMGetInsertBlock(self.builder);
+                if (current_block != null) {
+                    try self.node_blocks.put(node.id, current_block);
+                }
+            }
         }
+
+        // Resolve deferred PHI incoming edges
+        try self.resolveDeferredPhis();
 
         // Add return statement
         if (is_main) {
@@ -169,6 +206,7 @@ pub const LLVMEmitter = struct {
             .Label => try self.emitLabel(node),
             .Jump => try self.emitJump(node),
             .Branch => try self.emitBranch(node),
+            .Phi => try self.emitPhi(node),
             .Array_Construct => try self.emitArrayConstruct(node),
             .Index => try self.emitIndex(node),
             // Tensor / Quantum (Placeholder)
@@ -271,6 +309,43 @@ pub const LLVMEmitter = struct {
         }
 
         _ = llvm.buildCondBr(self.builder, cond_i1, true_bb, false_bb);
+    }
+
+    fn emitPhi(self: *LLVMEmitter, node: *const IRNode) !void {
+        // Create a PHI node with i32 type (most common for loop counters)
+        const i32_type = llvm.int32TypeInContext(self.context);
+        const phi = llvm.c.LLVMBuildPhi(self.builder, i32_type, "phi");
+
+        // Register the value immediately so Store can use it
+        try self.values.put(node.id, phi);
+
+        // Defer incoming edge resolution - we don't know blocks yet
+        // Copy input_ids since node might be invalidated
+        const input_ids = try self.allocator.alloc(u32, node.inputs.items.len);
+        @memcpy(input_ids, node.inputs.items);
+
+        try self.deferred_phis.append(self.allocator, .{
+            .phi_value = phi,
+            .input_ids = input_ids,
+        });
+    }
+
+    fn resolveDeferredPhis(self: *LLVMEmitter) !void {
+        for (self.deferred_phis.items) |deferred| {
+            const phi = deferred.phi_value;
+            const input_ids = deferred.input_ids;
+
+            // For each input, find the value and the block it came from
+            for (input_ids) |input_id| {
+                const val = self.values.get(input_id) orelse continue;
+                const block = self.node_blocks.get(input_id) orelse continue;
+
+                // LLVM C API: LLVMAddIncoming(phi, values*, blocks*, count)
+                var values = [_]llvm.Value{val};
+                var blocks = [_]llvm.BasicBlock{block};
+                llvm.c.LLVMAddIncoming(phi, &values, &blocks, 1);
+            }
+        }
     }
 
     fn emitArgument(self: *LLVMEmitter, node: *const IRNode) !void {
