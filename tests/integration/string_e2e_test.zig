@@ -228,3 +228,121 @@ test "Epic 4.6: String in loop" {
 
     std.debug.print("\n=== STRING IN LOOP PASSED ===\n", .{});
 }
+
+test "Epic 4.7: String escape newline" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    print("Hello\nWorld")
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "string_escape_nl");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    try testing.expectEqualStrings("Hello\nWorld", output);
+
+    std.debug.print("\n=== STRING ESCAPE NEWLINE PASSED ===\n", .{});
+}
+
+test "Epic 4.8: String escape tab" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    print("Col1\tCol2\tCol3")
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "string_escape_tab");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    try testing.expectEqualStrings("Col1\tCol2\tCol3", output);
+
+    std.debug.print("\n=== STRING ESCAPE TAB PASSED ===\n", .{});
+}
+
+test "Epic 4.9: String escape quote" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    print("She said \"hello\"")
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "string_escape_quote");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    try testing.expectEqualStrings("She said \"hello\"", output);
+
+    std.debug.print("\n=== STRING ESCAPE QUOTE PASSED ===\n", .{});
+}
+
+test "Epic 4.10: String escape backslash" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    print("path\\to\\file")
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "string_escape_backslash");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    try testing.expectEqualStrings("path\\to\\file", output);
+
+    std.debug.print("\n=== STRING ESCAPE BACKSLASH PASSED ===\n", .{});
+}
+
+test "Epic 4.11: Multiline string" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    print("""Line 1
+        \\Line 2
+        \\Line 3""")
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "multiline_string");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    try testing.expectEqualStrings("Line 1\nLine 2\nLine 3", output);
+
+    std.debug.print("\n=== MULTILINE STRING PASSED ===\n", .{});
+}
+
+test "Epic 4.12: Null literal" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    let x = null
+        \\    print_int(x)
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "null_literal");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // null is represented as 0
+    try testing.expectEqualStrings("0\n", output);
+
+    std.debug.print("\n=== NULL LITERAL PASSED ===\n", .{});
+}
