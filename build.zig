@@ -111,11 +111,19 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Unified Compiler Errors Module
+    const compiler_errors_mod = b.addModule("compiler_errors", .{
+        .root_source_file = b.path("compiler/libjanus/compiler_errors.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const tokenizer_mod = b.addModule("janus_tokenizer", .{
         .root_source_file = b.path("compiler/libjanus/janus_tokenizer.zig"),
         .target = target,
         .optimize = optimize,
     });
+    tokenizer_mod.addImport("compiler_errors", compiler_errors_mod);
 
     const libjanus_parser_mod = b.addModule("janus_parser", .{
         .root_source_file = b.path("compiler/libjanus/janus_parser.zig"),
@@ -158,6 +166,7 @@ pub fn build(b: *std.Build) void {
     lib_mod.addImport("bootstrap_s0", bootstrap_s0_mod);
     lib_mod.addImport("janus_tokenizer", tokenizer_mod);
     lib_mod.addImport("janus_parser", libjanus_parser_mod);
+    lib_mod.addImport("compiler_errors", compiler_errors_mod);
 
     // Semantic Analysis Module - The Soul of the Compiler
     const semantic_mod = b.addModule("semantic", .{
@@ -1951,4 +1960,21 @@ pub fn build(b: *std.Build) void {
     const test_core_codegen_step = b.step("test-core-codegen", "Run core profile code generator tests");
     test_core_codegen_step.dependOn(&run_core_codegen_tests.step);
     test_step.dependOn(&run_core_codegen_tests.step);
+
+    // Error Framework Tests
+    const error_framework_tests = b.addTest(.{
+        .name = "error_framework_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("compiler/libjanus/tests/error_framework_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    error_framework_tests.root_module.addImport("compiler_errors", compiler_errors_mod);
+    error_framework_tests.root_module.addImport("janus_tokenizer", tokenizer_mod);
+    const run_error_framework_tests = b.addRunArtifact(error_framework_tests);
+
+    const test_error_framework_step = b.step("test-errors", "Run error framework tests");
+    test_error_framework_step.dependOn(&run_error_framework_tests.step);
+    test_step.dependOn(&run_error_framework_tests.step);
 }

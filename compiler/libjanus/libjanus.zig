@@ -38,6 +38,11 @@ pub const parser = @import("janus_parser");
 // Semantic Analysis
 pub const semantic = @import("libjanus_semantic.zig");
 
+// Unified Error Framework
+pub const errors = @import("compiler_errors");
+pub const Diagnostic = errors.Diagnostic;
+pub const DiagnosticCollector = errors.DiagnosticCollector;
+
 // Code Generation - :core profile
 pub const core_codegen = @import("core_profile_codegen.zig");
 pub const CoreProfileCodeGen = core_codegen.CoreProfileCodeGen;

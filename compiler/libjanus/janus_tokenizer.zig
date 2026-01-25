@@ -11,6 +11,9 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const compiler_errors = @import("compiler_errors");
+const DiagnosticCollector = compiler_errors.DiagnosticCollector;
+const LexerError = compiler_errors.LexerError;
 
 /// Token types for Janus :min profile
 pub const TokenType = enum {
@@ -179,6 +182,8 @@ pub const Tokenizer = struct {
     column: u32,
     tokens: std.ArrayList(Token),
     allocator: Allocator,
+    filename: ?[]const u8 = null,
+    diagnostics: ?*DiagnosticCollector = null,
 
     const Self = @This();
 
@@ -190,7 +195,39 @@ pub const Tokenizer = struct {
             .column = 1,
             .tokens = std.ArrayList(Token).initCapacity(allocator, 0) catch unreachable,
             .allocator = allocator,
+            .filename = null,
+            .diagnostics = null,
         };
+    }
+
+    /// Attach a diagnostic collector for detailed error reporting
+    pub fn setDiagnostics(self: *Self, collector: *DiagnosticCollector) void {
+        self.diagnostics = collector;
+    }
+
+    /// Set the filename for error messages
+    pub fn setFilename(self: *Self, filename: []const u8) void {
+        self.filename = filename;
+    }
+
+    /// Report a lexer error to the diagnostic collector
+    fn reportError(self: *Self, code: LexerError, span: SourceSpan, message: []const u8) void {
+        if (self.diagnostics) |diag| {
+            const err_span = compiler_errors.SourceSpan{
+                .file = self.filename,
+                .start = .{
+                    .line = span.start.line,
+                    .column = span.start.column,
+                    .byte_offset = span.start.byte_offset,
+                },
+                .end = .{
+                    .line = span.end.line,
+                    .column = span.end.column,
+                    .byte_offset = span.end.byte_offset,
+                },
+            };
+            _ = diag.addError(.lexer, @intFromEnum(code), err_span, message) catch {};
+        }
     }
 
     pub fn deinit(self: *Self) void {
@@ -396,7 +433,9 @@ pub const Tokenizer = struct {
                     try self.identifier(start_pos);
                 } else {
                     const lexeme = self.source[start_pos.byte_offset..self.current];
-                    try self.addToken(.invalid, lexeme, SourceSpan.init(start_pos, self.currentPos()));
+                    const span = SourceSpan.init(start_pos, self.currentPos());
+                    try self.addToken(.invalid, lexeme, span);
+                    self.reportError(.invalid_character, span, "unexpected character");
                 }
             },
         }
@@ -416,7 +455,9 @@ pub const Tokenizer = struct {
         if (self.isAtEnd()) {
             // Unterminated string - add as invalid token
             const lexeme = self.source[start_pos.byte_offset..self.current];
-            try self.addToken(.invalid, lexeme, SourceSpan.init(start_pos, self.currentPos()));
+            const span = SourceSpan.init(start_pos, self.currentPos());
+            try self.addToken(.invalid, lexeme, span);
+            self.reportError(.unterminated_string, span, "unterminated string literal");
             return;
         }
 
