@@ -14,6 +14,32 @@ All notable changes to the Janus programming language and compiler will be docum
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2026-01-25
+
+### Added
+
+#### Complete Operator Support in QTJIR Compiler
+- **Logical Operators**: `and`, `or` with proper short-circuit evaluation using alloca/store/load pattern
+- **Modulo Operator**: `%` (remainder) for integer arithmetic
+- **Bitwise Operators**: Full support for `^` (XOR), `<<` (left shift), `>>` (right shift), `~` (NOT)
+- **LLVM Bindings**: Added `buildSRem`, `buildXor`, `buildShl`, `buildAShr`, `buildNot`
+
+#### Comprehensive E2E Test Suite
+- `modulo_e2e_test.zig`: 8 tests covering basic modulo, zero remainder, expressions, loops, digit extraction
+- `bitwise_e2e_test.zig`: 8 tests covering AND, OR, XOR, shifts, bit flags, mask patterns
+- Total: 16 new E2E tests, bringing suite to 15 passing test modules
+
+### Fixed
+
+#### Parser Bug: Boolean `not` Operator
+- Fixed missing `.not_` token in `parseExpression` unary operator check
+- Fixed `parsePrimary` calling itself instead of `parseExpression` for operands
+- Boolean `not` now correctly works with variables, literals, and compound expressions
+
+### Changed
+- QTJIR `emitUnaryOp` helper added for single-operand operations (bitwise NOT)
+- Short-circuit logical operators use stack allocation instead of PHI nodes for robustness
+
 ## [0.2.5] - 2026-01-09
 
 ### Added

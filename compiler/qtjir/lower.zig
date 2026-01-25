@@ -1809,6 +1809,7 @@ fn lowerBinaryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
         .minus => .Sub,
         .star => .Mul,
         .slash => .Div,
+        .percent => .Mod,
         .equal_equal => .Equal,
         .not_equal => .NotEqual,
         .less => .Less,

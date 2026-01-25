@@ -133,6 +133,11 @@ pub fn buildSDiv(builder: Builder, lhs: Value, rhs: Value, name: [*:0]const u8) 
     return c.LLVMBuildSDiv(builder, lhs, rhs, name);
 }
 
+/// Build srem (signed remainder/modulo)
+pub fn buildSRem(builder: Builder, lhs: Value, rhs: Value, name: [*:0]const u8) Value {
+    return c.LLVMBuildSRem(builder, lhs, rhs, name);
+}
+
 /// Build bitwise AND
 pub fn buildAnd(builder: Builder, lhs: Value, rhs: Value, name: [*:0]const u8) Value {
     return c.LLVMBuildAnd(builder, lhs, rhs, name);
@@ -141,6 +146,26 @@ pub fn buildAnd(builder: Builder, lhs: Value, rhs: Value, name: [*:0]const u8) V
 /// Build bitwise OR
 pub fn buildOr(builder: Builder, lhs: Value, rhs: Value, name: [*:0]const u8) Value {
     return c.LLVMBuildOr(builder, lhs, rhs, name);
+}
+
+/// Build bitwise XOR
+pub fn buildXor(builder: Builder, lhs: Value, rhs: Value, name: [*:0]const u8) Value {
+    return c.LLVMBuildXor(builder, lhs, rhs, name);
+}
+
+/// Build left shift
+pub fn buildShl(builder: Builder, lhs: Value, rhs: Value, name: [*:0]const u8) Value {
+    return c.LLVMBuildShl(builder, lhs, rhs, name);
+}
+
+/// Build arithmetic right shift (sign-extend)
+pub fn buildAShr(builder: Builder, lhs: Value, rhs: Value, name: [*:0]const u8) Value {
+    return c.LLVMBuildAShr(builder, lhs, rhs, name);
+}
+
+/// Build bitwise NOT (xor with -1)
+pub fn buildNot(builder: Builder, val: Value, name: [*:0]const u8) Value {
+    return c.LLVMBuildNot(builder, val, name);
 }
 
 /// Build ICmp

@@ -206,8 +206,13 @@ pub const LLVMEmitter = struct {
             .Sub => try self.emitBinaryOp(node, llvm.buildSub),
             .Mul => try self.emitBinaryOp(node, llvm.buildMul),
             .Div => try self.emitBinaryOp(node, llvm.buildSDiv),
+            .Mod => try self.emitBinaryOp(node, llvm.buildSRem),
             .BitAnd => try self.emitBinaryOp(node, llvm.buildAnd),
             .BitOr => try self.emitBinaryOp(node, llvm.buildOr),
+            .Xor => try self.emitBinaryOp(node, llvm.buildXor),
+            .Shl => try self.emitBinaryOp(node, llvm.buildShl),
+            .Shr => try self.emitBinaryOp(node, llvm.buildAShr),
+            .BitNot => try self.emitUnaryOp(node, llvm.buildNot),
             .Equal => try self.emitCmpOp(node, llvm.c.LLVMIntEQ),
             .NotEqual => try self.emitCmpOp(node, llvm.c.LLVMIntNE),
             .Less => try self.emitCmpOp(node, llvm.c.LLVMIntSLT),
@@ -443,6 +448,19 @@ pub const LLVMEmitter = struct {
         const rhs = self.values.get(node.inputs.items[1]) orelse return error.MissingOperand;
 
         const result = build_fn(self.builder, lhs, rhs, "");
+        try self.values.put(node.id, result);
+    }
+
+    fn emitUnaryOp(
+        self: *LLVMEmitter,
+        node: *const IRNode,
+        build_fn: fn (llvm.Builder, llvm.Value, [*:0]const u8) llvm.Value,
+    ) !void {
+        if (node.inputs.items.len < 1) return error.InvalidUnaryOp;
+
+        const operand = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        const result = build_fn(self.builder, operand, "");
         try self.values.put(node.id, result);
     }
 

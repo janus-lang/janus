@@ -59,7 +59,22 @@ Every node has a `Tenancy` tag:
 - `QPU_Quantum` — Quantum superposition
 
 ### OpCodes
-Core operations: `Constant`, `Add`, `Call`, `Return`, `Tensor_Matmul`, `Quantum_Gate`, etc.
+
+**Data Flow:** `Constant`, `Argument`, `Alloca`, `Load`, `Store`, `Phi`
+
+**Arithmetic:** `Add`, `Sub`, `Mul`, `Div`, `Mod`
+
+**Comparison:** `Equal`, `NotEqual`, `Less`, `LessEqual`, `Greater`, `GreaterEqual`
+
+**Bitwise:** `BitAnd`, `BitOr`, `Xor`, `Shl`, `Shr`, `BitNot`
+
+**Control Flow:** `Call`, `Return`, `Branch`, `Jump`, `Label`
+
+**Aggregates:** `Array_Construct`, `Index`, `Index_Store`, `Struct_Construct`, `Struct_Alloca`, `Field_Access`, `Field_Store`
+
+**Tensor (NPU):** `Tensor_Matmul`, `Tensor_Conv`, `Tensor_Reduce`, `Tensor_Relu`, `Tensor_Softmax`
+
+**Quantum (QPU):** `Quantum_Gate`, `Quantum_Measure`
 
 ## Canonical Pipeline
 

@@ -1681,6 +1681,48 @@ pub fn build(b: *std.Build) void {
     test_logical_e2e_step.dependOn(&run_logical_e2e_tests.step);
     test_step.dependOn(&run_logical_e2e_tests.step);
 
+    // Modulo Operator E2E Tests
+    const modulo_e2e_tests = b.addTest(.{
+        .name = "modulo_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/modulo_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    modulo_e2e_tests.linkLibC();
+    modulo_e2e_tests.linkSystemLibrary("LLVM-21");
+    modulo_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    modulo_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    modulo_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    modulo_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_modulo_e2e_tests = b.addRunArtifact(modulo_e2e_tests);
+
+    const test_modulo_e2e_step = b.step("test-modulo-e2e", "Run Modulo Operator end-to-end integration test");
+    test_modulo_e2e_step.dependOn(&run_modulo_e2e_tests.step);
+    test_step.dependOn(&run_modulo_e2e_tests.step);
+
+    // Bitwise Operators E2E Tests
+    const bitwise_e2e_tests = b.addTest(.{
+        .name = "bitwise_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/bitwise_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    bitwise_e2e_tests.linkLibC();
+    bitwise_e2e_tests.linkSystemLibrary("LLVM-21");
+    bitwise_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    bitwise_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    bitwise_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    bitwise_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_bitwise_e2e_tests = b.addRunArtifact(bitwise_e2e_tests);
+
+    const test_bitwise_e2e_step = b.step("test-bitwise-e2e", "Run Bitwise Operators end-to-end integration test");
+    test_bitwise_e2e_step.dependOn(&run_bitwise_e2e_tests.step);
+    test_step.dependOn(&run_bitwise_e2e_tests.step);
+
     if (enable_s0_extended) {
         const s0_neg = b.addTest(.{
             .name = "s0_negative_tests",
