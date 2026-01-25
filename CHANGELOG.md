@@ -11,10 +11,10 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 
 All notable changes to the Janus programming language and compiler will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+Version scheme: `YYYY.MM.patch` (Mars Calendar).
 
-## [0.2.6] - 2026-01-25
+## [2026.1.10] - 2026-01-25
 
 ### Added
 
