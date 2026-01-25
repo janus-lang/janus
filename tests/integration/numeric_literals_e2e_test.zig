@@ -451,3 +451,87 @@ test "Epic 11.16: Character arithmetic" {
 
     std.debug.print("\n=== CHARACTER ARITHMETIC PASSED ===\n", .{});
 }
+
+test "Epic 11.17: Power operator basic" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    let x = 2 ** 10
+        \\    print_int(x)
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "power_basic");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // 2^10 = 1024
+    try testing.expectEqualStrings("1024\n", output);
+
+    std.debug.print("\n=== POWER OPERATOR BASIC PASSED ===\n", .{});
+}
+
+test "Epic 11.18: Power operator precedence" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    let x = 2 + 3 ** 2
+        \\    print_int(x)
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "power_prec");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // 2 + (3^2) = 2 + 9 = 11 (power has higher precedence than addition)
+    try testing.expectEqualStrings("11\n", output);
+
+    std.debug.print("\n=== POWER OPERATOR PRECEDENCE PASSED ===\n", .{});
+}
+
+test "Epic 11.19: Power operator with multiplication" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    let x = 2 * 3 ** 2
+        \\    print_int(x)
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "power_mul");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // 2 * (3^2) = 2 * 9 = 18 (power has higher precedence than multiplication)
+    try testing.expectEqualStrings("18\n", output);
+
+    std.debug.print("\n=== POWER OPERATOR WITH MUL PASSED ===\n", .{});
+}
+
+test "Epic 11.20: Power of zero" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    let x = 5 ** 0
+        \\    print_int(x)
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "power_zero");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // 5^0 = 1
+    try testing.expectEqualStrings("1\n", output);
+
+    std.debug.print("\n=== POWER OF ZERO PASSED ===\n", .{});
+}

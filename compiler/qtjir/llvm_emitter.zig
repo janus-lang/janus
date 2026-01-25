@@ -207,6 +207,7 @@ pub const LLVMEmitter = struct {
             .Mul => try self.emitBinaryOp(node, llvm.buildMul),
             .Div => try self.emitBinaryOp(node, llvm.buildSDiv),
             .Mod => try self.emitBinaryOp(node, llvm.buildSRem),
+            .Pow => try self.emitPow(node),
             .BitAnd => try self.emitBinaryOp(node, llvm.buildAnd),
             .BitOr => try self.emitBinaryOp(node, llvm.buildOr),
             .Xor => try self.emitBinaryOp(node, llvm.buildXor),
@@ -461,6 +462,28 @@ pub const LLVMEmitter = struct {
         const operand = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
 
         const result = build_fn(self.builder, operand, "");
+        try self.values.put(node.id, result);
+    }
+
+    fn emitPow(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 2) return error.InvalidBinaryOp;
+
+        const base = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+        const exp = self.values.get(node.inputs.items[1]) orelse return error.MissingOperand;
+
+        // Call janus_pow runtime function
+        const i32_type = llvm.int32TypeInContext(self.context);
+        var param_types = [_]llvm.Type{ i32_type, i32_type };
+        const func_type = llvm.functionType(i32_type, &param_types, 2, false);
+
+        var func = llvm.c.LLVMGetNamedFunction(self.module, "janus_pow");
+        if (func == null) {
+            func = llvm.addFunction(self.module, "janus_pow", func_type);
+        }
+
+        var args = [_]llvm.Value{ base, exp };
+        const result = llvm.c.LLVMBuildCall2(self.builder, func_type, func, &args, 2, "");
+
         try self.values.put(node.id, result);
     }
 

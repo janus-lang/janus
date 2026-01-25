@@ -74,6 +74,23 @@ export fn janus_panic(msg: [*:0]const u8) callconv(.c) noreturn {
     std.c.exit(1);
 }
 
+export fn janus_pow(base: i32, exp: i32) callconv(.c) i32 {
+    if (exp < 0) return 0; // Integer power with negative exponent returns 0
+    if (exp == 0) return 1;
+    var result: i32 = 1;
+    var b = base;
+    var e: u32 = @intCast(exp);
+    // Fast exponentiation by squaring
+    while (e > 0) {
+        if (e & 1 == 1) {
+            result *%= b;
+        }
+        b *%= b;
+        e >>= 1;
+    }
+    return result;
+}
+
 // ============================================================================
 // Math API (TODO: Requires -lm linkage in build.zig)
 // ============================================================================

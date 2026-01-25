@@ -254,7 +254,8 @@ logic_and   <- equality ( 'and' equality )*
 equality    <- compare ( ('==' | '!=') compare )*
 compare     <- add ( ('<' | '<=' | '>' | '>=') add )*
 add         <- mul ( ('+' | '-') mul )*
-mul         <- unary ( ('*' | '/' | '%') unary )*
+mul         <- power ( ('*' | '/' | '%') power )*
+power       <- unary ( '**' unary )*                      # right-associative exponentiation
 unary       <- ( 'not' | '-' ) unary / postfix
 
 # NOTE: The symbols '||', '&&', and '!' are NOT valid in Janus.
