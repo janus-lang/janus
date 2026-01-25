@@ -37,6 +37,7 @@ pub const OpCode = enum {
     Index_Store, // Array element store: arr[i] = v
     Range, // Range construction: start .. end
     Struct_Construct, // Struct literal { f1: v1, f2: v2 }
+    Struct_Alloca, // Struct allocation (mutable struct variable)
     Field_Access, // Struct field read: s.field
     Field_Store, // Struct field write: s.field = v
 

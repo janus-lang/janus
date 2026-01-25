@@ -36,6 +36,9 @@ pub const LLVMEmitter = struct {
     // Struct metadata: maps struct node_id -> (llvm_type, field_names)
     struct_info: std.AutoHashMap(u32, StructInfo),
 
+    // Track which nodes are allocas (for pointer-based field access)
+    alloca_types: std.AutoHashMap(u32, void),
+
     const DeferredPhi = struct {
         phi_value: llvm.Value,
         input_ids: []const u32,
@@ -71,6 +74,7 @@ pub const LLVMEmitter = struct {
             .deferred_phis = .{},
             .current_function = undefined,
             .struct_info = std.AutoHashMap(u32, StructInfo).init(allocator),
+            .alloca_types = std.AutoHashMap(u32, void).init(allocator),
         };
     }
 
@@ -79,6 +83,7 @@ pub const LLVMEmitter = struct {
         self.label_blocks.deinit();
         self.node_blocks.deinit();
         self.struct_info.deinit();
+        self.alloca_types.deinit();
         for (self.deferred_phis.items) |phi| {
             self.allocator.free(phi.input_ids);
         }
@@ -222,7 +227,9 @@ pub const LLVMEmitter = struct {
             .Array_Construct => try self.emitArrayConstruct(node),
             .Index => try self.emitIndex(node),
             .Struct_Construct => try self.emitStructConstruct(node),
+            .Struct_Alloca => try self.emitStructAlloca(node),
             .Field_Access => try self.emitFieldAccess(node),
+            .Field_Store => try self.emitFieldStore(node),
             // Tensor / Quantum (Placeholder)
             .Tensor_Contract => {
                 std.debug.print("Warning: Unimplemented Tensor_Contract\n", .{});
@@ -1131,11 +1138,10 @@ pub const LLVMEmitter = struct {
     }
 
     /// Emit field access: s.field
-    /// Uses extractvalue with field index
+    /// Uses extractvalue for value-based structs, GEP+Load for alloca-based structs
     fn emitFieldAccess(self: *LLVMEmitter, node: *const IRNode) !void {
         if (node.inputs.items.len < 1) return error.MissingOperand;
         const struct_node_id = node.inputs.items[0];
-        const struct_val = self.values.get(struct_node_id) orelse return error.MissingOperand;
 
         // Get field name from node data
         const field_name = switch (node.data) {
@@ -1145,8 +1151,6 @@ pub const LLVMEmitter = struct {
 
         // Find field index by looking up struct info
         const info = self.struct_info.get(struct_node_id) orelse {
-            // Struct info not found - try to infer from input chain
-            // For now, error out
             std.debug.print("Warning: Struct info not found for node {d}\n", .{struct_node_id});
             return error.MissingOperand;
         };
@@ -1168,8 +1172,100 @@ pub const LLVMEmitter = struct {
             return error.InvalidNode;
         }
 
-        // Extract value at field_idx
-        const result = llvm.buildExtractValue(self.builder, struct_val, field_idx, "field_val");
-        try self.values.put(node.id, result);
+        // Check if this is a pointer-based struct (Struct_Alloca)
+        const struct_val = self.values.get(struct_node_id) orelse return error.MissingOperand;
+        const is_alloca = self.alloca_types.contains(struct_node_id);
+
+        if (is_alloca) {
+            // Pointer-based: GEP + Load
+            const field_ptr = llvm.buildStructGEP2(self.builder, info.llvm_type, struct_val, field_idx, "field_ptr");
+
+            // Get element type for load
+            const elem_types = try self.allocator.alloc(llvm.Type, llvm.countStructElementTypes(info.llvm_type));
+            defer self.allocator.free(elem_types);
+            llvm.getStructElementTypes(info.llvm_type, elem_types.ptr);
+            const field_type = elem_types[field_idx];
+
+            const result = llvm.buildLoad2(self.builder, field_type, field_ptr, "field_val");
+            try self.values.put(node.id, result);
+        } else {
+            // Value-based: extractvalue
+            const result = llvm.buildExtractValue(self.builder, struct_val, field_idx, "field_val");
+            try self.values.put(node.id, result);
+        }
+    }
+
+    /// Emit struct alloca for mutable structs
+    fn emitStructAlloca(self: *LLVMEmitter, node: *const IRNode) !void {
+        const count = node.inputs.items.len;
+
+        // Infer types from input values (same as Struct_Construct)
+        var elem_types = try self.allocator.alloc(llvm.Type, count);
+        defer self.allocator.free(elem_types);
+
+        for (node.inputs.items, 0..) |input_id, i| {
+            const val = self.values.get(input_id) orelse return error.MissingOperand;
+            elem_types[i] = llvm.typeof(val);
+        }
+
+        // Create struct type
+        const struct_type = llvm.structTypeInContext(self.context, elem_types.ptr, @intCast(count), false);
+
+        // Alloca for the struct
+        const alloca_val = llvm.buildAlloca(self.builder, struct_type, "struct_var");
+        try self.values.put(node.id, alloca_val);
+
+        // Mark this as an alloca for field access handling
+        try self.alloca_types.put(node.id, {});
+
+        // Store struct info for field access
+        const field_names = switch (node.data) {
+            .string => |s| s,
+            else => "",
+        };
+        try self.struct_info.put(node.id, .{
+            .llvm_type = struct_type,
+            .field_names = field_names,
+        });
+    }
+
+    /// Emit field store: returns GEP pointer for storing to a field
+    fn emitFieldStore(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+        const struct_node_id = node.inputs.items[0];
+        const struct_ptr = self.values.get(struct_node_id) orelse return error.MissingOperand;
+
+        // Get field name from node data
+        const field_name = switch (node.data) {
+            .string => |s| s,
+            else => return error.InvalidNode,
+        };
+
+        // Find struct info
+        const info = self.struct_info.get(struct_node_id) orelse {
+            std.debug.print("Warning: Struct info not found for Field_Store\n", .{});
+            return error.MissingOperand;
+        };
+
+        // Parse field names and find index
+        var field_idx: u32 = 0;
+        var found = false;
+        var iter = std.mem.splitScalar(u8, info.field_names, ',');
+        while (iter.next()) |name| {
+            if (std.mem.eql(u8, name, field_name)) {
+                found = true;
+                break;
+            }
+            field_idx += 1;
+        }
+
+        if (!found) {
+            std.debug.print("Warning: Field '{s}' not found in struct for store\n", .{field_name});
+            return error.InvalidNode;
+        }
+
+        // Create GEP to get field pointer
+        const field_ptr = llvm.buildStructGEP2(self.builder, info.llvm_type, struct_ptr, field_idx, "field_ptr");
+        try self.values.put(node.id, field_ptr);
     }
 };

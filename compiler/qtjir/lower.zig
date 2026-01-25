@@ -1557,12 +1557,36 @@ fn lowerVarDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lo
 
     // Create alloca ONLY if mutable (var_stmt)
     if (node.kind == .var_stmt) {
-        const alloca_inst = try ctx.builder.buildAlloca(ctx.allocator, .i32, name); // Default to i32 for now
-        // Store init value
-        _ = try ctx.builder.buildStore(ctx.allocator, init_val, alloca_inst);
-        // Register variable in scope
-        try ctx.scope.put(name, alloca_inst);
-        return alloca_inst; // Return the alloca for var_stmt
+        // Check if initializer is a struct (Struct_Construct node)
+        const init_ir_node = &ctx.builder.graph.nodes.items[init_val];
+        if (init_ir_node.op == .Struct_Construct) {
+            // Create Struct_Alloca with struct metadata
+            const struct_alloca = try ctx.builder.createNode(.Struct_Alloca);
+            var alloca_node = &ctx.builder.graph.nodes.items[struct_alloca];
+            // Duplicate field names string (can't share with Struct_Construct)
+            const field_names_str = switch (init_ir_node.data) {
+                .string => |s| try ctx.dupeForGraph(s),
+                else => try ctx.dupeForGraph(""),
+            };
+            alloca_node.data = .{ .string = field_names_str };
+            // Store struct value input for type inference
+            try alloca_node.inputs.appendSlice(ctx.allocator, init_ir_node.inputs.items);
+
+            // Create Store to put struct value into alloca
+            const store_id = try ctx.builder.createNode(.Store);
+            var store_node = &ctx.builder.graph.nodes.items[store_id];
+            try store_node.inputs.append(ctx.allocator, struct_alloca);
+            try store_node.inputs.append(ctx.allocator, init_val);
+
+            try ctx.scope.put(name, struct_alloca);
+            return struct_alloca;
+        } else {
+            // Regular scalar alloca
+            const alloca_inst = try ctx.builder.buildAlloca(ctx.allocator, .i32, name);
+            _ = try ctx.builder.buildStore(ctx.allocator, init_val, alloca_inst);
+            try ctx.scope.put(name, alloca_inst);
+            return alloca_inst;
+        }
     } else {
         // Immutable (let_stmt): Direct Alias / Register Promotion
         try ctx.scope.put(name, init_val);
@@ -1597,7 +1621,7 @@ fn lowerLValue(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Low
 
             if (ctx.scope.get(name)) |target_id| {
                 const target_node = &ctx.builder.graph.nodes.items[target_id];
-                if (target_node.op == .Alloca) {
+                if (target_node.op == .Alloca or target_node.op == .Struct_Alloca) {
                     return target_id; // Return address
                 } else {
                     return error.InvalidCall; // Cannot assign to non-alloca
@@ -1609,6 +1633,33 @@ fn lowerLValue(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Low
         .index_expr => {
             // lowerArrayAccess returns the GEP node (Pointer)
             return try lowerArrayAccess(ctx, node_id, node);
+        },
+        .field_expr => {
+            // Field assignment: s.field = value
+            // Create Field_Store node that returns the field address
+            const children = ctx.snapshot.getChildren(node_id);
+            if (children.len < 2) return error.InvalidNode;
+
+            const struct_id = children[0];
+            const field_id = children[1];
+
+            const struct_node = ctx.snapshot.getNode(struct_id) orelse return error.InvalidNode;
+            const field_node = ctx.snapshot.getNode(field_id) orelse return error.InvalidNode;
+
+            // Get the struct alloca (must be mutable)
+            const struct_val = try lowerLValue(ctx, struct_id, struct_node);
+
+            // Get field name
+            const token = ctx.snapshot.getToken(field_node.first_token) orelse return error.InvalidToken;
+            const field_name = if (token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+            // Create Field_Store node (acts as field pointer for store)
+            const store_node = try ctx.builder.createNode(.Field_Store);
+            var ir_node = &ctx.builder.graph.nodes.items[store_node];
+            try ir_node.inputs.append(ctx.allocator, struct_val);
+            ir_node.data = .{ .string = try ctx.dupeForGraph(field_name) };
+
+            return store_node;
         },
         else => return error.InvalidBinaryExpr, // Not an L-Value
     }

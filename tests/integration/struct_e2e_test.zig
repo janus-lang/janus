@@ -172,3 +172,51 @@ test "Epic 3.3: Multiple struct instances" {
 
     std.debug.print("\n=== STRUCT MULTI TEST PASSED ===\n", .{});
 }
+
+test "Epic 3.4: Struct field assignment" {
+    const allocator = testing.allocator;
+
+    // Mutable struct with field assignment
+    const source =
+        \\func main() {
+        \\    var p = Point { x: 10, y: 20 }
+        \\    print_int(p.x)
+        \\    p.x = 99
+        \\    print_int(p.x)
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "struct_assign");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // Initial p.x=10, after assignment p.x=99
+    try testing.expectEqualStrings("10\n99\n", output);
+
+    std.debug.print("\n=== STRUCT FIELD ASSIGN TEST PASSED ===\n", .{});
+}
+
+test "Epic 3.5: Nested struct field access" {
+    const allocator = testing.allocator;
+
+    // Nested struct access
+    const source =
+        \\func main() {
+        \\    let inner = Inner { val: 42 }
+        \\    let outer = Outer { a: 1, nested: inner, b: 2 }
+        \\    print_int(outer.a)
+        \\    print_int(outer.b)
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "struct_nested");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // outer.a=1, outer.b=2
+    try testing.expectEqualStrings("1\n2\n", output);
+
+    std.debug.print("\n=== STRUCT NESTED TEST PASSED ===\n", .{});
+}
