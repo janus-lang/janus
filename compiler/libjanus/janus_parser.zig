@@ -2357,7 +2357,7 @@ fn parseExpression(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNod
     // Parse left side (primary expression or prefix expression)
     var left: astdb_core.AstNode = blk: {
         if (parser.peek()) |token| {
-            if (token.kind == .minus or token.kind == .logical_not or token.kind == .bitwise_not or token.kind == .exclamation or token.kind == .tilde) {
+            if (token.kind == .minus or token.kind == .logical_not or token.kind == .bitwise_not or token.kind == .exclamation or token.kind == .tilde or token.kind == .not_) {
                 const op_idx = parser.current;
                 _ = parser.advance();
 
@@ -2827,7 +2827,8 @@ fn parsePrimary(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode))
             .not_, .logical_not, .exclamation, .minus, .tilde, .bitwise_not => {
                 const op_idx = parser.current;
                 _ = parser.advance();
-                const expr = try parsePrimary(parser, nodes);
+                // Use parseExpression to handle nested unary and compound expressions
+                const expr = try parseExpression(parser, nodes, .unary);
                 const child_lo = @as(u32, @intCast(nodes.items.len));
                 try nodes.append(parser.allocator, expr);
                 const child_hi = @as(u32, @intCast(nodes.items.len));

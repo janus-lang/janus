@@ -190,15 +190,14 @@ test "Epic 7.4: Unary minus in expression" {
     std.debug.print("\n=== UNARY MINUS IN EXPRESSION PASSED ===\n", .{});
 }
 
-test "Epic 7.5: Not with comparison result" {
+test "Epic 7.5: Boolean not with true" {
     const allocator = testing.allocator;
 
-    // Simpler test: not applied to comparison result
+    // Test not keyword with boolean literal
     const source =
         \\func main() {
-        \\    let x = 5
-        \\    let is_big = x > 10
-        \\    if is_big do
+        \\    let flag = true
+        \\    if not flag do
         \\        print_int(0)
         \\    else do
         \\        print_int(1)
@@ -206,18 +205,70 @@ test "Epic 7.5: Not with comparison result" {
         \\}
     ;
 
-    const output = try compileAndRun(allocator, source, "unary_not_simple");
+    const output = try compileAndRun(allocator, source, "unary_not_true");
     defer allocator.free(output);
 
     std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
-    // 5 > 10 is false, so else branch prints 1
+    // not true = false, so else branch prints 1
+    try testing.expectEqualStrings("1\n", output);
+
+    std.debug.print("\n=== BOOLEAN NOT WITH TRUE PASSED ===\n", .{});
+}
+
+test "Epic 7.6: Boolean not with false" {
+    const allocator = testing.allocator;
+
+    // Test not keyword with false value
+    const source =
+        \\func main() {
+        \\    let flag = false
+        \\    if not flag do
+        \\        print_int(1)
+        \\    else do
+        \\        print_int(0)
+        \\    end
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "unary_not_false");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // not false = true, so then branch prints 1
+    try testing.expectEqualStrings("1\n", output);
+
+    std.debug.print("\n=== BOOLEAN NOT WITH FALSE PASSED ===\n", .{});
+}
+
+test "Epic 7.7: Not with comparison result" {
+    const allocator = testing.allocator;
+
+    // Test not with comparison result
+    const source =
+        \\func main() {
+        \\    let x = 5
+        \\    if not (x > 10) do
+        \\        print_int(1)
+        \\    else do
+        \\        print_int(0)
+        \\    end
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "unary_not_cmp");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // 5 > 10 is false, not false = true, so then branch prints 1
     try testing.expectEqualStrings("1\n", output);
 
     std.debug.print("\n=== NOT WITH COMPARISON PASSED ===\n", .{});
 }
 
-test "Epic 7.6: Negation in conditional" {
+test "Epic 7.8: Unary minus in conditional" {
     const allocator = testing.allocator;
 
     const source =
@@ -239,5 +290,5 @@ test "Epic 7.6: Negation in conditional" {
     // 5 is not < 0, so print 5
     try testing.expectEqualStrings("5\n", output);
 
-    std.debug.print("\n=== NEGATION IN CONDITIONAL PASSED ===\n", .{});
+    std.debug.print("\n=== UNARY MINUS IN CONDITIONAL PASSED ===\n", .{});
 }
