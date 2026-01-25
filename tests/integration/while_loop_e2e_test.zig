@@ -232,3 +232,86 @@ test "Epic 1.7: While true with limited iterations via for" {
 
     std.debug.print("\n✅ ✅ ✅ FOR+IF COMBO EXECUTED SUCCESSFULLY ✅ ✅ ✅\n", .{});
 }
+
+test "Epic 1.7: True while loop with var - countdown" {
+    const allocator = testing.allocator;
+
+    // True while loop with mutable variable
+    const source =
+        \\func main() {
+        \\    var i = 3
+        \\    while i > 0 do
+        \\        print_int(i)
+        \\        i = i - 1
+        \\    end
+        \\    print_int(0)
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "while_countdown_var");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT (TRUE WHILE) ===\n{s}\n", .{output});
+
+    // 3, 2, 1, 0
+    try testing.expectEqualStrings("3\n2\n1\n0\n", output);
+
+    std.debug.print("\n✅ ✅ ✅ TRUE WHILE LOOP WITH VAR PASSED ✅ ✅ ✅\n", .{});
+}
+
+test "Epic 1.7: While loop with break" {
+    const allocator = testing.allocator;
+
+    // While loop that breaks early
+    const source =
+        \\func main() {
+        \\    var i = 0
+        \\    while i < 10 do
+        \\        if i == 3 do
+        \\            break
+        \\        end
+        \\        print_int(i)
+        \\        i = i + 1
+        \\    end
+        \\    print_int(99)
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "while_break");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT (WHILE WITH BREAK) ===\n{s}\n", .{output});
+
+    // 0, 1, 2, then break, then 99
+    try testing.expectEqualStrings("0\n1\n2\n99\n", output);
+
+    std.debug.print("\n✅ ✅ ✅ WHILE LOOP WITH BREAK PASSED ✅ ✅ ✅\n", .{});
+}
+
+test "Epic 1.7: While loop with continue" {
+    const allocator = testing.allocator;
+
+    // While loop that skips via continue
+    const source =
+        \\func main() {
+        \\    var i = 0
+        \\    while i < 5 do
+        \\        i = i + 1
+        \\        if i == 3 do
+        \\            continue
+        \\        end
+        \\        print_int(i)
+        \\    end
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "while_continue");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT (WHILE WITH CONTINUE) ===\n{s}\n", .{output});
+
+    // 1, 2, skip 3, 4, 5
+    try testing.expectEqualStrings("1\n2\n4\n5\n", output);
+
+    std.debug.print("\n✅ ✅ ✅ WHILE LOOP WITH CONTINUE PASSED ✅ ✅ ✅\n", .{});
+}
