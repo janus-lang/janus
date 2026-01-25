@@ -1739,8 +1739,21 @@ fn lowerBinaryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
     }
 
     // Handle Logical Operators (Short-circuiting)
-    if (op_token_kind == .logical_and or op_token_kind == .logical_or) {
-        // LHS
+    // Note: .and_ and .or_ are the keyword tokens, .logical_and/.logical_or are alternative forms
+    if (op_token_kind == .logical_and or op_token_kind == .logical_or or
+        op_token_kind == .and_ or op_token_kind == .or_)
+    {
+        const is_and = (op_token_kind == .logical_and or op_token_kind == .and_);
+
+        // Create a result variable to store the final boolean value
+        // This avoids complex PHI node handling with proper block tracking
+        const result_alloca = try ctx.builder.buildAlloca(ctx.allocator, .i32, "logical_result");
+
+        // Store the short-circuit default value
+        const short_circuit_val = try ctx.builder.createConstant(.{ .integer = if (is_and) 0 else 1 });
+        _ = try ctx.builder.buildStore(ctx.allocator, short_circuit_val, result_alloca);
+
+        // LHS evaluation
         const lhs_val = try lowerExpression(ctx, lhs_id, lhs);
 
         // Branch Node: Branch(cond, true_label, false_label)
@@ -1756,10 +1769,15 @@ fn lowerBinaryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
         // RHS Evaluation
         const rhs_val = try lowerExpression(ctx, rhs_id, rhs);
 
+        // Convert RHS boolean to i32 (0 or 1) and store
+        // For AND: result = rhs (if we got here, lhs was true)
+        // For OR: result = rhs (if we got here, lhs was false)
+        _ = try ctx.builder.buildStore(ctx.allocator, rhs_val, result_alloca);
+
         // Jump to Merge (after RHS)
         const jump_node_id = try ctx.builder.createNode(.Jump);
-        var jump_node = &ctx.builder.graph.nodes.items[jump_node_id];
-        try jump_node.inputs.append(ctx.allocator, 0); // Placeholder Merge
+        ctx.builder.graph.nodes.items[jump_node_id].inputs = .{};
+        try ctx.builder.graph.nodes.items[jump_node_id].inputs.append(ctx.allocator, 0); // Placeholder Merge
 
         // Merge Label
         const merge_label_id = try ctx.builder.createNode(.Label);
@@ -1768,29 +1786,19 @@ fn lowerBinaryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
         ctx.builder.graph.nodes.items[jump_node_id].inputs.items[0] = merge_label_id;
 
         // Backpatch Branch
-        if (op_token_kind == .logical_and) {
-            // AND: True -> RHS, False -> Merge (Short circuit false)
+        if (is_and) {
+            // AND: True -> RHS (evaluate second operand), False -> Merge (short circuit with 0)
             ctx.builder.graph.nodes.items[branch_node_id].inputs.items[1] = rhs_label_id;
             ctx.builder.graph.nodes.items[branch_node_id].inputs.items[2] = merge_label_id;
         } else {
-            // OR: True -> Merge (Short circuit true), False -> RHS
+            // OR: True -> Merge (short circuit with 1), False -> RHS (evaluate second operand)
             ctx.builder.graph.nodes.items[branch_node_id].inputs.items[1] = merge_label_id;
             ctx.builder.graph.nodes.items[branch_node_id].inputs.items[2] = rhs_label_id;
         }
 
-        // Phi Node at Merge
-        const phi_node = try ctx.builder.createNode(.Phi);
-        var phi = &ctx.builder.graph.nodes.items[phi_node];
-
-        const short_circuit_val = try ctx.builder.createConstant(.{ .boolean = (op_token_kind == .logical_or) });
-
-        // Order assumptions for Phase 1 (Naive Phi):
-        // 1. Short Circuit Value (from Branch direct edge)
-        // 2. RHS Value (from RHS block via Jump)
-        try phi.inputs.append(ctx.allocator, short_circuit_val);
-        try phi.inputs.append(ctx.allocator, rhs_val);
-
-        return phi_node;
+        // Load and return the result
+        const result_load = try ctx.builder.buildLoad(ctx.allocator, result_alloca, "logical_result");
+        return result_load;
     }
 
     const lhs_val = try lowerExpression(ctx, lhs_id, lhs);
