@@ -746,6 +746,61 @@ pub fn build(b: *std.Build) void {
     test_type_calls_step.dependOn(&run_type_checking_calls_tests.step);
     test_step.dependOn(&run_type_checking_calls_tests.step);
 
+    const var_decl_tests = b.addTest(.{
+        .name = "var_decl_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/specs/test_var_decl.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    var_decl_tests.root_module.addIncludePath(b.path("."));
+    var_decl_tests.root_module.addImport("semantic_analyzer_only", semantic_analyzer_mod);
+    var_decl_tests.root_module.addImport("astdb", astdb_core_mod);
+    var_decl_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+
+    const run_var_decl_tests = b.addRunArtifact(var_decl_tests);
+    const test_var_decl_step = b.step("test-var-decl", "Run Variable Declaration tests");
+    test_var_decl_step.dependOn(&run_var_decl_tests.step);
+    test_step.dependOn(&run_var_decl_tests.step);
+
+    const if_stmt_tests = b.addTest(.{
+        .name = "if_stmt_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/specs/test_if_stmt.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    if_stmt_tests.root_module.addIncludePath(b.path("."));
+    if_stmt_tests.root_module.addImport("semantic_analyzer_only", semantic_analyzer_mod);
+    if_stmt_tests.root_module.addImport("astdb", astdb_core_mod);
+    if_stmt_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+
+    const run_if_stmt_tests = b.addRunArtifact(if_stmt_tests);
+    const test_if_stmt_step = b.step("test-if-stmt", "Run If Statement tests");
+    test_if_stmt_step.dependOn(&run_if_stmt_tests.step);
+
+    test_step.dependOn(&run_if_stmt_tests.step);
+
+    const while_stmt_tests = b.addTest(.{
+        .name = "while_stmt_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/specs/test_while_stmt.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    while_stmt_tests.root_module.addIncludePath(b.path("."));
+    while_stmt_tests.root_module.addImport("semantic_analyzer_only", semantic_analyzer_mod);
+    while_stmt_tests.root_module.addImport("astdb", astdb_core_mod);
+    while_stmt_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+
+    const run_while_stmt_tests = b.addRunArtifact(while_stmt_tests);
+    const test_while_stmt_step = b.step("test-while-stmt", "Run While Statement tests");
+    test_while_stmt_step.dependOn(&run_while_stmt_tests.step);
+    test_step.dependOn(&run_while_stmt_tests.step);
+
     // Full Stack Verification
     const verify_tests = b.addTest(.{
         .name = "full_stack_verify",

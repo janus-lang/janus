@@ -7,6 +7,7 @@
 //! including symbol resolution, type system, validation engine, and arena allocation.
 
 // Core semantic components
+// Core semantic components
 pub const SymbolTable = @import("symbol_table.zig").SymbolTable;
 pub const SymbolResolver = @import("symbol_resolver.zig").SymbolResolver;
 pub const TypeSystem = @import("type_system.zig").TypeSystem;
@@ -18,6 +19,11 @@ pub const TypeInferenceDiagnostics = @import("type_inference_diagnostics.zig").T
 pub const ValidationEngine = @import("validation_engine.zig").ValidationEngine;
 pub const ValidationResult = @import("validation_engine.zig").ValidationResult;
 pub const ProfileManager = @import("profile_manager.zig").ProfileManager;
+
+// Profile-specific validators
+pub const CoreProfileValidator = @import("core_profile_validator.zig").CoreProfileValidator;
+pub const CoreValidationResult = @import("core_profile_validator.zig").CoreValidationResult;
+pub const CoreProfileType = @import("core_profile_validator.zig").CoreProfileType;
 
 // Arena allocation components
 pub const ArenaValidationContext = @import("validation_engine_arena.zig").ArenaValidationContext;

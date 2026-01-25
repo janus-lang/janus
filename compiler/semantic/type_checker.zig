@@ -19,7 +19,7 @@ const NodeId = astdb.NodeId;
 const UnitId = astdb.UnitId;
 const SourceSpan = symbol_table.SourceSpan;
 // PATCH: Import type_store
-const type_store = @import("type_store.zig");
+const type_store = @import("type_system.zig");
 
 /// Type Checking Diagnostic
 pub const TypeDiagnostic = struct {

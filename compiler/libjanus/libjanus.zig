@@ -13,14 +13,14 @@ pub const astdb = @import("libjanus_astdb");
 // Re-export commonly used ASTDB types for direct access
 pub const ASTDBSystem = astdb.ASTDBSystem;
 pub const Snapshot = astdb.Snapshot;
-// pub const QueryEngine = astdb.QueryEngine; // TODO: Fix import
+pub const QueryEngine = astdb.QueryEngine;
+pub const QueryParser = astdb.QueryParser;
 pub const QueryResult = astdb.QueryResult;
 pub const Predicate = astdb.Predicate;
 pub const TokenId = astdb.TokenId;
 pub const RefId = astdb.RefId;
 pub const UnitId = astdb.UnitId;
 pub const SourceSpan = astdb.SourceSpan;
-pub const QueryCtx = astdb.QueryCtx;
 pub const NodeId = astdb.NodeId;
 pub const DeclId = astdb.DeclId;
 pub const AstNode = astdb.AstNode;

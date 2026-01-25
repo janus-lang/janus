@@ -3152,14 +3152,7 @@ fn parseVarStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstN
     var type_node: ?astdb_core.AstNode = null;
     if (parser.match(.colon)) {
         _ = parser.advance();
-        _ = try parser.consume(.identifier);
-        type_node = astdb_core.AstNode{
-            .kind = .primitive_type,
-            .first_token = @enumFromInt(parser.current - 1),
-            .last_token = @enumFromInt(parser.current - 1),
-            .child_lo = 0,
-            .child_hi = 0,
-        };
+        type_node = try parseType(parser, nodes);
     }
 
     // optional initializer

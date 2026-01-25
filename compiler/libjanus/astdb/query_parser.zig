@@ -2,18 +2,16 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
-const query = @import("astdb_core").query;
-const ids = @import("ids.zig");
-const snapshot = @import("astdb_core");
+const query = @import("query.zig");
 
 // ASTDB Query Language Parser - Parse query expressions from CLI/LSP
-// Task 2: Query Engine Core - Query language syntax and parsing
+// Task 6: CLI Tooling - Query language syntax and parsing
 // Requirements: Support predicates and combinators from SPEC-astdb-query.md
 
 const Predicate = query.Predicate;
-const NodeKind = snapshot.NodeKind;
-const DeclKind = snapshot.DeclKind;
-const TokenKind = snapshot.TokenKind;
+const CompareOp = query.CompareOp;
+const DeclKind = query.DeclKind;
+const NodeKind = query.NodeKind; // Re-exported from astdb_core.AstNode.NodeKind
 
 pub const QueryParseError = error{
     UnexpectedToken,
@@ -93,7 +91,7 @@ pub const QueryParser = struct {
 
     /// Parse a complete query expression
     /// Grammar: query := predicate
-    pub fn parseQuery(self: *QueryParser) !Predicate {
+    pub fn parseQuery(self: *QueryParser) (QueryParseError || std.mem.Allocator.Error)!Predicate {
         const predicate = try self.parseOrExpression();
         if (!self.isAtEnd()) {
             return QueryParseError.UnexpectedToken;
@@ -103,7 +101,7 @@ pub const QueryParser = struct {
 
     /// Parse OR expression (lowest precedence)
     /// Grammar: or_expr := and_expr ('or' and_expr)*
-    fn parseOrExpression(self: *QueryParser) !Predicate {
+    fn parseOrExpression(self: *QueryParser) (QueryParseError || std.mem.Allocator.Error)!Predicate {
         var left = try self.parseAndExpression();
 
         while (self.match(.kw_or)) {
@@ -123,7 +121,7 @@ pub const QueryParser = struct {
 
     /// Parse AND expression
     /// Grammar: and_expr := not_expr ('and' not_expr)*
-    fn parseAndExpression(self: *QueryParser) !Predicate {
+    fn parseAndExpression(self: *QueryParser) (QueryParseError || std.mem.Allocator.Error)!Predicate {
         var left = try self.parseNotExpression();
 
         while (self.match(.kw_and)) {
@@ -142,7 +140,7 @@ pub const QueryParser = struct {
 
     /// Parse NOT expression
     /// Grammar: not_expr := 'not' primary | primary
-    fn parseNotExpression(self: *QueryParser) !Predicate {
+    fn parseNotExpression(self: *QueryParser) (QueryParseError || std.mem.Allocator.Error)!Predicate {
         if (self.match(.kw_not)) {
             const inner = try self.parsePrimary();
             const inner_ptr = try self.allocator.create(Predicate);
@@ -155,7 +153,7 @@ pub const QueryParser = struct {
 
     /// Parse primary expression
     /// Grammar: primary := '(' or_expr ')' | node_predicate | decl_predicate | effect_predicate
-    fn parsePrimary(self: *QueryParser) !Predicate {
+    fn parsePrimary(self: *QueryParser) (QueryParseError || std.mem.Allocator.Error)!Predicate {
         if (self.match(.lparen)) {
             const expr = try self.parseOrExpression();
             if (!self.match(.rparen)) {
@@ -193,12 +191,12 @@ pub const QueryParser = struct {
     }
 
     /// Parse node kind predicate (func, var, const, struct, enum)
-    fn parseNodeKindPredicate(self: *QueryParser) !Predicate {
+    fn parseNodeKindPredicate(self: *QueryParser) QueryParseError!Predicate {
         const token = self.advance();
         const node_kind = switch (token.kind) {
             .kw_func => NodeKind.func_decl,
-            .kw_var => NodeKind.var_decl,
-            .kw_const => NodeKind.var_decl, // Both var and const use var_decl
+            .kw_var => NodeKind.var_stmt,
+            .kw_const => NodeKind.const_stmt,
             .kw_struct => NodeKind.struct_decl,
             .kw_enum => NodeKind.enum_decl,
             else => return QueryParseError.InvalidNodeKind,
@@ -208,7 +206,7 @@ pub const QueryParser = struct {
     }
 
     /// Parse property predicate (identifier.property)
-    fn parsePropertyPredicate(self: *QueryParser) !Predicate {
+    fn parsePropertyPredicate(self: *QueryParser) QueryParseError!Predicate {
         const subject = self.advance(); // identifier
         _ = self.advance(); // dot
         const property = self.advance(); // property name
@@ -237,18 +235,18 @@ pub const QueryParser = struct {
     }
 
     /// Parse comparison predicate (identifier op value)
-    fn parseComparisonPredicate(self: *QueryParser) !Predicate {
+    fn parseComparisonPredicate(self: *QueryParser) QueryParseError!Predicate {
         const identifier = self.advance();
         const op_token = self.advance();
         const value_token = self.advance();
 
-        const op = switch (op_token.kind) {
-            .eq => Predicate.CompareOp.eq,
-            .ne => Predicate.CompareOp.ne,
-            .lt => Predicate.CompareOp.lt,
-            .le => Predicate.CompareOp.le,
-            .gt => Predicate.CompareOp.gt,
-            .ge => Predicate.CompareOp.ge,
+        const op: CompareOp = switch (op_token.kind) {
+            .eq => .eq,
+            .ne => .ne,
+            .lt => .lt,
+            .le => .le,
+            .gt => .gt,
+            .ge => .ge,
             else => return QueryParseError.InvalidOperator,
         };
 
@@ -263,7 +261,7 @@ pub const QueryParser = struct {
     }
 
     /// Parse simple identifier predicate
-    fn parseIdentifierPredicate(self: *QueryParser) !Predicate {
+    fn parseIdentifierPredicate(self: *QueryParser) QueryParseError!Predicate {
         const token = self.advance();
 
         // Try to match against known declaration kinds
@@ -321,8 +319,8 @@ pub const QueryParser = struct {
 
 /// Tokenize query string into tokens
 fn tokenize(allocator: std.mem.Allocator, input: []const u8) ![]QueryParser.Token {
-    var tokens = std.ArrayList(QueryParser.Token).init(allocator);
-    defer tokens.deinit();
+    var tokens = std.ArrayList(QueryParser.Token){};
+    defer tokens.deinit(allocator);
 
     var i: usize = 0;
     while (i < input.len) {
@@ -337,48 +335,48 @@ fn tokenize(allocator: std.mem.Allocator, input: []const u8) ![]QueryParser.Toke
         // Single character tokens
         switch (c) {
             '(' => {
-                try tokens.append(.{ .kind = .lparen, .text = input[i .. i + 1] });
+                try tokens.append(allocator, .{ .kind = .lparen, .text = input[i .. i + 1] });
                 i += 1;
                 continue;
             },
             ')' => {
-                try tokens.append(.{ .kind = .rparen, .text = input[i .. i + 1] });
+                try tokens.append(allocator, .{ .kind = .rparen, .text = input[i .. i + 1] });
                 i += 1;
                 continue;
             },
             ',' => {
-                try tokens.append(.{ .kind = .comma, .text = input[i .. i + 1] });
+                try tokens.append(allocator, .{ .kind = .comma, .text = input[i .. i + 1] });
                 i += 1;
                 continue;
             },
             '.' => {
-                try tokens.append(.{ .kind = .dot, .text = input[i .. i + 1] });
+                try tokens.append(allocator, .{ .kind = .dot, .text = input[i .. i + 1] });
                 i += 1;
                 continue;
             },
             '<' => {
                 if (i + 1 < input.len and input[i + 1] == '=') {
-                    try tokens.append(.{ .kind = .le, .text = input[i .. i + 2] });
+                    try tokens.append(allocator, .{ .kind = .le, .text = input[i .. i + 2] });
                     i += 2;
                 } else {
-                    try tokens.append(.{ .kind = .lt, .text = input[i .. i + 1] });
+                    try tokens.append(allocator, .{ .kind = .lt, .text = input[i .. i + 1] });
                     i += 1;
                 }
                 continue;
             },
             '>' => {
                 if (i + 1 < input.len and input[i + 1] == '=') {
-                    try tokens.append(.{ .kind = .ge, .text = input[i .. i + 2] });
+                    try tokens.append(allocator, .{ .kind = .ge, .text = input[i .. i + 2] });
                     i += 2;
                 } else {
-                    try tokens.append(.{ .kind = .gt, .text = input[i .. i + 1] });
+                    try tokens.append(allocator, .{ .kind = .gt, .text = input[i .. i + 1] });
                     i += 1;
                 }
                 continue;
             },
             '=' => {
                 if (i + 1 < input.len and input[i + 1] == '=') {
-                    try tokens.append(.{ .kind = .eq, .text = input[i .. i + 2] });
+                    try tokens.append(allocator, .{ .kind = .eq, .text = input[i .. i + 2] });
                     i += 2;
                 } else {
                     i += 1; // Skip single =
@@ -387,7 +385,7 @@ fn tokenize(allocator: std.mem.Allocator, input: []const u8) ![]QueryParser.Toke
             },
             '!' => {
                 if (i + 1 < input.len and input[i + 1] == '=') {
-                    try tokens.append(.{ .kind = .ne, .text = input[i .. i + 2] });
+                    try tokens.append(allocator, .{ .kind = .ne, .text = input[i .. i + 2] });
                     i += 2;
                 } else {
                     i += 1; // Skip single !
@@ -407,7 +405,7 @@ fn tokenize(allocator: std.mem.Allocator, input: []const u8) ![]QueryParser.Toke
             if (i < input.len) {
                 i += 1; // Skip closing quote
             }
-            try tokens.append(.{ .kind = .string_literal, .text = input[start..i] });
+            try tokens.append(allocator, .{ .kind = .string_literal, .text = input[start..i] });
             continue;
         }
 
@@ -417,7 +415,7 @@ fn tokenize(allocator: std.mem.Allocator, input: []const u8) ![]QueryParser.Toke
             while (i < input.len and std.ascii.isDigit(input[i])) {
                 i += 1;
             }
-            try tokens.append(.{ .kind = .number, .text = input[start..i] });
+            try tokens.append(allocator, .{ .kind = .number, .text = input[start..i] });
             continue;
         }
 
@@ -430,7 +428,7 @@ fn tokenize(allocator: std.mem.Allocator, input: []const u8) ![]QueryParser.Toke
 
             const text = input[start..i];
             const kind = getKeywordType(text);
-            try tokens.append(.{ .kind = kind, .text = text });
+            try tokens.append(allocator, .{ .kind = kind, .text = text });
             continue;
         }
 
@@ -439,31 +437,40 @@ fn tokenize(allocator: std.mem.Allocator, input: []const u8) ![]QueryParser.Toke
     }
 
     // Add EOF token
-    try tokens.append(.{ .kind = .eof, .text = "" });
+    try tokens.append(allocator, .{ .kind = .eof, .text = "" });
 
-    return tokens.toOwnedSlice();
+    return tokens.toOwnedSlice(allocator);
 }
 
 fn getKeywordType(text: []const u8) QueryParser.Token.TokenType {
-    const keywords = std.ComptimeStringMap(QueryParser.Token.TokenType, .{
-        .{ "func", .kw_func },
-        .{ "var", .kw_var },
-        .{ "const", .kw_const },
-        .{ "struct", .kw_struct },
-        .{ "enum", .kw_enum },
-        .{ "where", .kw_where },
-        .{ "and", .kw_and },
-        .{ "or", .kw_or },
-        .{ "not", .kw_not },
-        .{ "has", .kw_has },
-        .{ "contains", .kw_contains },
-        .{ "requires", .kw_requires },
-        .{ "effects", .kw_effects },
-        .{ "capabilities", .kw_capabilities },
-        .{ "profile", .kw_profile },
-    });
+    // Use inline switch for keyword matching (Zig 0.15+ compatible)
+    const hash = blk: {
+        var h: u32 = 0;
+        for (text) |c| {
+            h = h *% 31 +% c;
+        }
+        break :blk h;
+    };
+    _ = hash; // Used for potential optimization
 
-    return keywords.get(text) orelse .identifier;
+    // Simple sequential matching (safe fallback)
+    if (std.mem.eql(u8, text, "func")) return .kw_func;
+    if (std.mem.eql(u8, text, "var")) return .kw_var;
+    if (std.mem.eql(u8, text, "const")) return .kw_const;
+    if (std.mem.eql(u8, text, "struct")) return .kw_struct;
+    if (std.mem.eql(u8, text, "enum")) return .kw_enum;
+    if (std.mem.eql(u8, text, "where")) return .kw_where;
+    if (std.mem.eql(u8, text, "and")) return .kw_and;
+    if (std.mem.eql(u8, text, "or")) return .kw_or;
+    if (std.mem.eql(u8, text, "not")) return .kw_not;
+    if (std.mem.eql(u8, text, "has")) return .kw_has;
+    if (std.mem.eql(u8, text, "contains")) return .kw_contains;
+    if (std.mem.eql(u8, text, "requires")) return .kw_requires;
+    if (std.mem.eql(u8, text, "effects")) return .kw_effects;
+    if (std.mem.eql(u8, text, "capabilities")) return .kw_capabilities;
+    if (std.mem.eql(u8, text, "profile")) return .kw_profile;
+
+    return .identifier;
 }
 
 test "QueryParser basic parsing" {
