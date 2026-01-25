@@ -213,3 +213,75 @@ test "Epic 6.5: Array with conditional access" {
 
     std.debug.print("\n=== ARRAY CONDITIONAL ACCESS PASSED ===\n", .{});
 }
+
+test "Epic 6.6: Array element assignment" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    let arr = [1, 2, 3]
+        \\    print_int(arr[1])
+        \\    arr[1] = 99
+        \\    print_int(arr[1])
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "array_assign");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    try testing.expectEqualStrings("2\n99\n", output);
+
+    std.debug.print("\n=== ARRAY ELEMENT ASSIGNMENT PASSED ===\n", .{});
+}
+
+test "Epic 6.7: Array assignment in loop" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    let arr = [0, 0, 0]
+        \\    for i in 0..<3 do
+        \\        arr[i] = i + 1
+        \\    end
+        \\    print_int(arr[0])
+        \\    print_int(arr[1])
+        \\    print_int(arr[2])
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "array_assign_loop");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    try testing.expectEqualStrings("1\n2\n3\n", output);
+
+    std.debug.print("\n=== ARRAY ASSIGNMENT IN LOOP PASSED ===\n", .{});
+}
+
+test "Epic 6.8: Array swap elements" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    let arr = [10, 20, 30]
+        \\    let tmp = arr[0]
+        \\    arr[0] = arr[2]
+        \\    arr[2] = tmp
+        \\    print_int(arr[0])
+        \\    print_int(arr[1])
+        \\    print_int(arr[2])
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "array_swap");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    try testing.expectEqualStrings("30\n20\n10\n", output);
+
+    std.debug.print("\n=== ARRAY SWAP ELEMENTS PASSED ===\n", .{});
+}
