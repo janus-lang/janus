@@ -6,6 +6,32 @@
 
 ## Resolved Issues
 
+### User-Defined Function Calls End-to-End (RESOLVED 2026-01-25)
+
+**Status**: ✅ Complete (5/5 E2E tests passing)
+**Date Resolved**: 2026-01-25
+**Component**: Function Call Compilation Pipeline
+
+**Milestone**: User-defined functions can now call other user-defined functions end-to-end.
+
+**Features Tested**:
+- Simple function with parameters: `func add(a: i32, b: i32) -> i32`
+- Chained function calls: `double(x)` then `add(a, b)`
+- Nested calls: One function calling another multiple times
+- Functions with loops: Parameter used in for loop
+- Functions with conditionals: If/else inside function body
+
+**Implementation**:
+- QTJIR Lowering: `lowerUserFunctionCall()` creates Call nodes with function name
+- LLVM Emitter: Generic call fallback uses `LLVMGetNamedFunction()` to resolve user functions
+- Functions emitted before callers, ensuring symbol availability
+
+**Files Changed**:
+- `tests/integration/function_call_e2e_test.zig` - New E2E test (5 tests)
+- `build.zig` - Added `test-function-call-e2e` step
+
+---
+
 ### While Loop End-to-End (RESOLVED 2026-01-25)
 
 **Status**: ✅ Complete (4/4 E2E tests passing)

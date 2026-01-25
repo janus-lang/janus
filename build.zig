@@ -1492,6 +1492,27 @@ pub fn build(b: *std.Build) void {
     test_while_loop_e2e_step.dependOn(&run_while_loop_e2e_tests.step);
     test_step.dependOn(&run_while_loop_e2e_tests.step);
 
+    // Function Call E2E Tests
+    const function_call_e2e_tests = b.addTest(.{
+        .name = "function_call_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/function_call_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    function_call_e2e_tests.linkLibC();
+    function_call_e2e_tests.linkSystemLibrary("LLVM-21");
+    function_call_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    function_call_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    function_call_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    function_call_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_function_call_e2e_tests = b.addRunArtifact(function_call_e2e_tests);
+
+    const test_function_call_e2e_step = b.step("test-function-call-e2e", "Run Function Call end-to-end integration test");
+    test_function_call_e2e_step.dependOn(&run_function_call_e2e_tests.step);
+    test_step.dependOn(&run_function_call_e2e_tests.step);
+
     if (enable_s0_extended) {
         const s0_neg = b.addTest(.{
             .name = "s0_negative_tests",
