@@ -179,3 +179,53 @@ test "Epic 2.3: Match with guard conditions" {
 
     std.debug.print("\n=== MATCH GUARD TEST PASSED ===\n", .{});
 }
+
+test "Epic 2.3: Match with negation pattern !0" {
+    const allocator = testing.allocator;
+
+    // Match with negation pattern: !0 matches any value != 0
+    const source =
+        \\func main() {
+        \\    let x = 5
+        \\    match x do
+        \\        0 => print_int(0)
+        \\        !0 => print_int(1)
+        \\    end
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "match_negation");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // x = 5 which is != 0, so matches !0 pattern
+    try testing.expectEqualStrings("1\n", output);
+
+    std.debug.print("\n=== MATCH NEGATION PATTERN TEST PASSED ===\n", .{});
+}
+
+test "Epic 2.3: Match negation with zero value" {
+    const allocator = testing.allocator;
+
+    // Negation pattern should NOT match when value equals the negated value
+    const source =
+        \\func main() {
+        \\    let x = 0
+        \\    match x do
+        \\        !0 => print_int(99)
+        \\        _ => print_int(42)
+        \\    end
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "match_negation_zero");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // x = 0, !0 means != 0, so it doesn't match, falls to wildcard
+    try testing.expectEqualStrings("42\n", output);
+
+    std.debug.print("\n=== MATCH NEGATION ZERO TEST PASSED ===\n", .{});
+}

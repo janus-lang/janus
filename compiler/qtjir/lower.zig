@@ -2325,6 +2325,35 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
         if (is_wildcard) {
             // Always matches
             pattern_matches_val = try ctx.builder.createConstant(.{ .boolean = true });
+        } else if (pattern_node.kind == .unary_expr) {
+            // Check for negation pattern: !value means scrutinee != value
+            const pattern_token = ctx.snapshot.getToken(pattern_node.first_token) orelse return error.InvalidToken;
+            const is_negation = pattern_token.kind == .exclamation or
+                pattern_token.kind == .logical_not or
+                pattern_token.kind == .not_;
+
+            if (is_negation) {
+                // Negation pattern: !value -> scrutinee != value
+                const pattern_children = ctx.snapshot.getChildren(pattern_id);
+                if (pattern_children.len != 1) return error.InvalidNode;
+                const inner_pattern_id = pattern_children[0];
+                const inner_pattern_node = ctx.snapshot.getNode(inner_pattern_id) orelse return error.InvalidNode;
+                const inner_val = try lowerExpression(ctx, inner_pattern_id, inner_pattern_node);
+
+                const neq_node_id = try ctx.builder.createNode(.NotEqual);
+                var neq_node = &ctx.builder.graph.nodes.items[neq_node_id];
+                try neq_node.inputs.append(ctx.allocator, scrutinee_val);
+                try neq_node.inputs.append(ctx.allocator, inner_val);
+                pattern_matches_val = neq_node_id;
+            } else {
+                // Other unary expr - evaluate and compare
+                const pattern_val = try lowerExpression(ctx, pattern_id, pattern_node);
+                const eq_node_id = try ctx.builder.createNode(.Equal);
+                var eq_node = &ctx.builder.graph.nodes.items[eq_node_id];
+                try eq_node.inputs.append(ctx.allocator, scrutinee_val);
+                try eq_node.inputs.append(ctx.allocator, pattern_val);
+                pattern_matches_val = eq_node_id;
+            }
         } else {
             // Equality check: scrutinee == pattern_val
             const pattern_val = try lowerExpression(ctx, pattern_id, pattern_node);

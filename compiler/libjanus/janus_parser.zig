@@ -529,6 +529,9 @@ fn convertTokenType(janus_type: tokenizer.TokenType) TokenKind {
         // Character literal
         .char_literal => .char_literal,
 
+        // Logical/unary operators
+        .exclaim => .exclamation, // Logical NOT / negation pattern
+
         .underscore => .identifier, // Treat underscore as identifier for now
 
         // Punctuation
