@@ -249,9 +249,9 @@ pub const Parser = struct {
             // Convert token type from old tokenizer to ASTDB format
             const astdb_token_kind = convertTokenType(old_token.type);
 
-            // Intern string if it's an identifier or literal
+            // Intern string if it's an identifier, literal, or underscore (wildcard pattern)
             var str_id: ?astdb_core.StrId = null;
-            if (old_token.type == .identifier or old_token.type == .number or old_token.type == .string_literal) {
+            if (old_token.type == .identifier or old_token.type == .number or old_token.type == .string_literal or old_token.type == .underscore) {
                 str_id = try astdb_system.str_interner.intern(old_token.lexeme);
             }
 
@@ -368,10 +368,10 @@ pub fn tokenizeIntoSnapshot(astdb_system: *AstDB, source: []const u8) !Tokenizat
             // Convert token type from Janus to ASTDB format
             const astdb_token_kind = convertTokenType(janus_token.type);
 
-            // Intern string if it's an identifier
+            // Intern string if it's an identifier, literal, or underscore (wildcard pattern)
             var str_id: ?StrId = null;
             switch (janus_token.type) {
-                .identifier, .string_literal, .number, .true, .false => {
+                .identifier, .string_literal, .number, .true, .false, .underscore => {
                     str_id = try astdb_system.str_interner.intern(janus_token.lexeme);
                 },
                 else => {},
@@ -3266,18 +3266,23 @@ fn parseMatchStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.As
 
         // Parse match arm
         const arm_start = parser.current;
-        const arm_child_lo = @as(u32, @intCast(nodes.items.len));
+        var arm_edges = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 3);
+        defer arm_edges.deinit(parser.allocator);
 
         // Parse pattern (for now, just an expression or identifier)
         // TODO: Implement full pattern parsing
         const pattern = try parseExpression(parser, nodes, .none);
+        const pattern_idx = @as(u32, @intCast(nodes.items.len));
         try nodes.append(parser.allocator, pattern);
+        try arm_edges.append(parser.allocator, @enumFromInt(pattern_idx));
 
         // Optional guard: when expr
         if (parser.match(.when)) {
             _ = parser.advance();
             const guard = try parseExpression(parser, nodes, .none);
+            const guard_idx = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, guard);
+            try arm_edges.append(parser.allocator, @enumFromInt(guard_idx));
         } else {
             // Placeholder for no guard (using null literal for now to keep child count consistent)
             const null_node = astdb_core.AstNode{
@@ -3287,7 +3292,9 @@ fn parseMatchStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.As
                 .child_lo = 0,
                 .child_hi = 0,
             };
+            const null_idx = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, null_node);
+            try arm_edges.append(parser.allocator, @enumFromInt(null_idx));
         }
 
         _ = try parser.consume(.arrow); // => (converted from match_arrow)
@@ -3297,30 +3304,40 @@ fn parseMatchStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.As
             const block_start_token = parser.current;
             _ = try parser.consume(.left_brace);
 
-            const stmts_start = @as(u32, @intCast(nodes.items.len));
-            var dummy_stmts = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 0);
-            defer dummy_stmts.deinit(parser.allocator);
-            try parseBlockStatements(parser, nodes, &dummy_stmts);
-            const stmts_end = @as(u32, @intCast(nodes.items.len));
+            var body_stmts = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 0);
+            defer body_stmts.deinit(parser.allocator);
+            try parseBlockStatements(parser, nodes, &body_stmts);
 
             _ = try parser.consume(.right_brace);
+
+            const block_lo = @as(u32, @intCast(parser.edges.items.len));
+            try parser.edges.appendSlice(parser.allocator, body_stmts.items);
+            const block_hi = @as(u32, @intCast(parser.edges.items.len));
 
             const block_node = astdb_core.AstNode{
                 .kind = .block_stmt,
                 .first_token = @enumFromInt(block_start_token),
                 .last_token = @enumFromInt(parser.current - 1),
-                .child_lo = stmts_start,
-                .child_hi = stmts_end,
+                .child_lo = block_lo,
+                .child_hi = block_hi,
             };
+            const block_idx = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, block_node);
+            try arm_edges.append(parser.allocator, @enumFromInt(block_idx));
         } else {
             const body_expr = try parseExpression(parser, nodes, .none);
+            const body_idx = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, body_expr);
+            try arm_edges.append(parser.allocator, @enumFromInt(body_idx));
             // Optional comma
             if (parser.match(.comma)) _ = parser.advance();
         }
 
-        const arm_child_hi = @as(u32, @intCast(nodes.items.len));
+        // Create arm node with edges for pattern, guard, body
+        const arm_child_lo = @as(u32, @intCast(parser.edges.items.len));
+        try parser.edges.appendSlice(parser.allocator, arm_edges.items);
+        const arm_child_hi = @as(u32, @intCast(parser.edges.items.len));
+
         const arm_end = parser.current - 1;
         const arm_node = astdb_core.AstNode{
             .kind = .match_arm,

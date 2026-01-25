@@ -58,6 +58,11 @@ pub fn disposeBuilder(builder: Builder) void {
     c.LLVMDisposeBuilder(builder);
 }
 
+/// Get i1 type (boolean)
+pub fn int1TypeInContext(ctx: Context) Type {
+    return c.LLVMInt1TypeInContext(ctx);
+}
+
 /// Get i32 type
 pub fn int32TypeInContext(ctx: Context) Type {
     return c.LLVMInt32TypeInContext(ctx);
@@ -126,6 +131,16 @@ pub fn buildMul(builder: Builder, lhs: Value, rhs: Value, name: [*:0]const u8) V
 /// Build sdiv
 pub fn buildSDiv(builder: Builder, lhs: Value, rhs: Value, name: [*:0]const u8) Value {
     return c.LLVMBuildSDiv(builder, lhs, rhs, name);
+}
+
+/// Build bitwise AND
+pub fn buildAnd(builder: Builder, lhs: Value, rhs: Value, name: [*:0]const u8) Value {
+    return c.LLVMBuildAnd(builder, lhs, rhs, name);
+}
+
+/// Build bitwise OR
+pub fn buildOr(builder: Builder, lhs: Value, rhs: Value, name: [*:0]const u8) Value {
+    return c.LLVMBuildOr(builder, lhs, rhs, name);
 }
 
 /// Build ICmp

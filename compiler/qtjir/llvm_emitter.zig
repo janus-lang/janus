@@ -191,6 +191,8 @@ pub const LLVMEmitter = struct {
             .Sub => try self.emitBinaryOp(node, llvm.buildSub),
             .Mul => try self.emitBinaryOp(node, llvm.buildMul),
             .Div => try self.emitBinaryOp(node, llvm.buildSDiv),
+            .BitAnd => try self.emitBinaryOp(node, llvm.buildAnd),
+            .BitOr => try self.emitBinaryOp(node, llvm.buildOr),
             .Equal => try self.emitCmpOp(node, llvm.c.LLVMIntEQ),
             .NotEqual => try self.emitCmpOp(node, llvm.c.LLVMIntNE),
             .Less => try self.emitCmpOp(node, llvm.c.LLVMIntSLT),
@@ -364,6 +366,10 @@ pub const LLVMEmitter = struct {
                 const f64_type = llvm.doubleTypeInContext(self.context);
                 break :blk llvm.constReal(f64_type, float_val);
             },
+            .boolean => |bool_val| blk: {
+                const i1_type = llvm.int1TypeInContext(self.context);
+                break :blk llvm.constInt(i1_type, if (bool_val) 1 else 0, false);
+            },
             .string => |str_val| blk: {
                 // Create global string constant
                 const str_const = llvm.c.LLVMConstStringInContext(
@@ -402,7 +408,6 @@ pub const LLVMEmitter = struct {
                     2,
                 );
             },
-            else => return error.UnsupportedConstantType,
         };
 
         try self.values.put(node.id, value);

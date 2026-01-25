@@ -1576,10 +1576,10 @@ fn lowerIdentifier(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
     const name = if (token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
 
     if (ctx.scope.get(name)) |target_id| {
-        // Check if target is an Alloca (needs Load) or a Value (Direct)
         const target_node = &ctx.builder.graph.nodes.items[target_id];
         if (target_node.op == .Alloca) {
-            return try ctx.builder.buildLoad(ctx.allocator, target_id, name);
+            const load_id = try ctx.builder.buildLoad(ctx.allocator, target_id, name);
+            return load_id;
         } else {
             return target_id;
         }
@@ -2087,7 +2087,7 @@ fn lowerContinueStatement(ctx: *LoweringContext, node_id: NodeId, node: *const A
 fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
     _ = node;
     const children = ctx.snapshot.getChildren(node_id);
-    if (children.len < 2) return error.InvalidNode; // Needs scrutinee and at least one arm (or handling empty match which is no-op)
+    if (children.len < 2) return error.InvalidNode;
 
     const scrutinee_id = children[0];
     const scrutinee_node = ctx.snapshot.getNode(scrutinee_id) orelse return error.InvalidNode;
@@ -2111,14 +2111,12 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
         if (arm_node.kind != .match_arm) continue;
 
         const arm_children = ctx.snapshot.getChildren(arm_id);
-        // Arm structure: pattern -> guard -> body
         if (arm_children.len < 3) continue;
 
         const pattern_id = arm_children[0];
         const guard_id = arm_children[1];
         const body_id = arm_children[arm_children.len - 1];
 
-        // 1. Lower Pattern Check
         const pattern_node = ctx.snapshot.getNode(pattern_id) orelse continue;
         var pattern_matches_val: u32 = 0;
 
@@ -2138,7 +2136,6 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
         } else {
             // Equality check: scrutinee == pattern_val
             const pattern_val = try lowerExpression(ctx, pattern_id, pattern_node);
-
             const eq_node_id = try ctx.builder.createNode(.Equal);
             var eq_node = &ctx.builder.graph.nodes.items[eq_node_id];
             try eq_node.inputs.append(ctx.allocator, scrutinee_val);
@@ -2151,7 +2148,6 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
         const guard_node = ctx.snapshot.getNode(guard_id);
 
         if (guard_node != null and guard_node.?.kind != .null_literal) {
-            // Guard exists
             const guard_val = try lowerExpression(ctx, guard_id, guard_node.?);
             const and_node_id = try ctx.builder.createNode(.BitAnd);
             var and_node = &ctx.builder.graph.nodes.items[and_node_id];
@@ -2175,8 +2171,11 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
         const body = ctx.snapshot.getNode(body_id) orelse continue;
         if (body.kind == .block_stmt) {
             try lowerBlock(ctx, body_id, body);
-        } else {
+        } else if (body.kind == .expr_stmt) {
             try lowerStatement(ctx, body_id, body);
+        } else {
+            // Body is an expression, lower it directly
+            _ = try lowerExpression(ctx, body_id, body);
         }
 
         // Jump to End (ID TBD)
