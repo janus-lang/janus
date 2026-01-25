@@ -81,6 +81,63 @@ QTJIR performs **Hard Fusion** before lowering to device kernels:
 2.  Fuse compatible ops (e.g., `Add` -> `Relu` -> `FusedAddRelu`).
 3.  Emit as a single Kernel Launch (CUDA/Metal/WebGPU).
 
+### 4.3 Parallel Loop Construct (CPU_Parallel Data Parallelism)
+**Profile:** `:compute`, `:science`  
+**Motivation:** Bridge the gap between serial `:min` code and full `:npu` tensor operations for CPU-bound scientific computing.
+
+#### 4.3.1 Syntax
+The parallel range iterator uses the `||` operator:
+
+```janus
+// Parallel iteration (CPU_Parallel tenancy)
+for i in 0 || N do
+    a[i] = compute(i)  // Each iteration is independent
+end
+```
+
+**Semantics:**
+- The loop body is executed in parallel across worker threads.
+- The compiler enforces **independence**: the body must be pure (no shared mutable state).
+- If the body contains IO or other effects, a compile-time error is issued in `:compute` profile.
+
+#### 4.3.2 QTJIR Lowering
+The parallel loop is lowered to a **structured parallel region** in QTJIR:
+
+```
+ParallelRegion [CPU_Parallel]
+├─ RangeIterator(0, N)
+├─ LoopBody [CPU_Parallel]
+│  ├─ Load(a, i)
+│  ├─ Call(compute, i)
+│  └─ Store(a, i, result)
+└─ Barrier [CPU_Parallel → CPU_Serial]
+```
+
+**Optimizations:**
+1. **SIMD Fusion:** If the body is vectorizable math, fuse into SIMD instructions.
+2. **Work Stealing:** Runtime uses a work-stealing scheduler for load balancing.
+3. **Prophetic JIT:** Analyze the body at comptime; if it's pure math with known types, emit optimized machine code directly.
+
+#### 4.3.3 Constraints (Safety)
+[QTJIR:4.3.3.1] **No Shared Mutable State:** The compiler MUST reject loops where the body writes to variables outside the loop iteration scope.
+
+[QTJIR:4.3.3.2] **Deterministic Execution:** The parallel loop MUST produce the same result as the serial version. Race conditions are compile-time errors.
+
+[QTJIR:4.3.3.3] **Effect Tracking:** In `:compute` profile, the body MUST NOT contain `io`, `net`, or other non-deterministic effects.
+
+#### 4.3.4 Comparison to Actor-Based Parallelism
+| Feature | Parallel Loop (`||`) | Actors (`:full` nurseries) |
+|:--------|:---------------------|:---------------------------|
+| **Use Case** | Data parallelism (SIMD/CPU) | Task parallelism (concurrency) |
+| **Overhead** | Minimal (work-stealing) | Higher (message passing) |
+| **Determinism** | Guaranteed (pure body) | Not guaranteed (async) |
+| **Profile** | `:compute`, `:science` | `:full`, `:service` |
+
+**Strategic Value:**  
+This construct allows scientists and engineers to write parallel CPU code without understanding the Actor model, while maintaining Janus's doctrine of **Explicit Costs**.
+
+---
+
 ## 5. Lowering Strategy
 QTJIR lowers to multiple backends simultaneously:
 

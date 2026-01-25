@@ -188,6 +188,9 @@ pub fn build(b: *std.Build) void {
     qtjir_mod.addImport("janus_parser", libjanus_parser_mod);
     qtjir_mod.addOptions("compiler_options", compiler_options);
 
+    // Add qtjir to libjanus for core_profile_codegen
+    lib_mod.addImport("qtjir", qtjir_mod);
+
     // Inspector - Introspection Oracle (Epic 3.4)
     const inspect_mod = b.addModule("inspect", .{
         .root_source_file = b.path("compiler/inspect.zig"),
@@ -1930,4 +1933,22 @@ pub fn build(b: *std.Build) void {
     const test_grafting_step = b.step("test-grafting", "Run grafting features (pipeline, UFCS) tests");
     test_grafting_step.dependOn(&run_grafting_tests.step);
     test_step.dependOn(&run_grafting_tests.step);
+
+    // Core Profile CodeGen Tests
+    const core_codegen_tests = b.addTest(.{
+        .name = "core_codegen_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("compiler/libjanus/tests/core_codegen_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    core_codegen_tests.root_module.addImport("libjanus", lib_mod);
+    core_codegen_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    core_codegen_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_core_codegen_tests = b.addRunArtifact(core_codegen_tests);
+
+    const test_core_codegen_step = b.step("test-core-codegen", "Run core profile code generator tests");
+    test_core_codegen_step.dependOn(&run_core_codegen_tests.step);
+    test_step.dependOn(&run_core_codegen_tests.step);
 }

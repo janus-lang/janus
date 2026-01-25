@@ -50,7 +50,8 @@ A Profile is a **Normative Constraint Set** applied to the compiler.
 *   [PROF:2.2.1] **Definition:** Fluid subset for prototyping, REPL, and data science.
 *   [PROF:2.2.2] **Feature:** Implicit Allocation is PERMITTED (Auto-managed heaps).
 *   [PROF:2.2.3] **Feature:** Dynamic Typing (Any) is PERMITTED (via `switch` or `match` type guards).
-*   [PROF:2.2.4] **Constraint:** `:script` code MUST NOT be published as a library package. It MUST be lowered to `:core` or `:service` for distribution.
+*   [PROF:2.2.4] **Feature:** "Juicy Main" Injection is ACTIVE. `args`, `env`, and `allocator` are implicitly provided.
+*   [PROF:2.2.5] **Constraint:** `:script` code MUST NOT be published as a library package. It MUST be lowered to `:core` or `:service` for distribution.
 
 ### 2.3 `:service` (The Backend)
 *   [PROF:2.3.1] **Definition:** Balanced subset for application engineering (Web/API/CLI).

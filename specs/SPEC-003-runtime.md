@@ -60,6 +60,26 @@ All definitions in this document SHALL follow the normative language defined in 
 | Accelerator Pipes | ∅ No | ∅ No | ∅ No | ∅ No | ⊢ Yes | ⊢ Yes |
 | Full Capability Check | ⊢ Yes | ⊢ Yes | ⊢ Yes | ⊢ Yes | ⊢ Yes | ⊢ Yes |
 
+
+## 6. Entry Point & Bootstrap ☍
+
+[RUN:6.1.1] **The Stoic Main (Profile: `:core`, `:service`, `:sovereign`):**
+In strict profiles, the entry point MUST be explicit. The user is responsible for the entire initialization chain.
+- Signature: `func main(args: []String, allocator: Allocator) -> Result`
+- No implicit global state injection.
+- The Runtime passes only the raw command-line arguments and the root allocator.
+- **Why:** Systems programming requires total control over memory provenance.
+
+[RUN:6.1.2] **The Juicy Main (Profile: `:script`):**
+In fluid profiles, the runtime handles boilerplate. The entry point acts as a script body.
+- Signature: `func main()` (or top-level code).
+- **Injection:** The following are available implicitly in the script scope:
+  - `args`: Parsed arguments map.
+  - `env`: Environment variable map.
+  - `fs`: File system capability (cwd).
+  - Implicit Heap: All allocations use a managed default allocator.
+- **Mechanism:** The compiler wraps the user's code in a `std.process.Init` equivalent during Lowering.
+
 ---
 
 **Ratified:** 2026-01-06  

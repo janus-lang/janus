@@ -38,6 +38,10 @@ pub const parser = @import("janus_parser");
 // Semantic Analysis
 pub const semantic = @import("libjanus_semantic.zig");
 
+// Code Generation - :core profile
+pub const core_codegen = @import("core_profile_codegen.zig");
+pub const CoreProfileCodeGen = core_codegen.CoreProfileCodeGen;
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // CANONICAL IR SYSTEM: QTJIR
 // ═══════════════════════════════════════════════════════════════════════════════

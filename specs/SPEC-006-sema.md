@@ -46,6 +46,54 @@ The Semantic Analyzer is composed of sovereign sub-modules:
 [SEMA-ARCH:2.4.1] **Responsibility:** Reachability analysis and resource lifetime tracking (Affine Types).
 [SEMA-ARCH:2.4.2] **Traceability:** Implements [SPEC-001:SEMA:7.1] (Safety Tiers) + [SPEC-011:PAN:2.1.3] (No Panic).
 
+### 2.5 Generic Constraint Verification (`sema/generic.zig`)
+[SEMA-ARCH:2.5.1] **Responsibility:** Static verification of generic type constraints at definition site.
+
+[SEMA-ARCH:2.5.2] **Traceability:** Implements the **Static Generic Checking Doctrine** — constraints are proven before instantiation.
+
+[SEMA-ARCH:2.5.3] **The Problem with Lazy Checking:**  
+Traditional monomorphization (C++, Nim classic) checks generic constraints only at instantiation time. This creates:
+- **Late Error Discovery:** User code fails to compile deep in library internals.
+- **Combinatorial Explosion:** Each instantiation must be checked separately.
+- **Poor IDE Experience:** No autocomplete or error highlighting until concrete types are used.
+
+[SEMA-ARCH:2.5.4] **The Janus Solution: ASTDB-Powered Constraint Solver:**  
+Generic functions/types are validated **at definition time** using the ASTDB query engine:
+
+```janus
+// Definition site (checked immediately)
+func sort<T>(arr: []T) where T: Comparable do
+    // The compiler PROVES that T.compare() exists
+    // WITHOUT needing a concrete T
+end
+```
+
+**Verification Process:**
+1. **Parse Where Clause:** Extract trait bounds (e.g., `T: Comparable`).
+2. **Query ASTDB:** Fetch the trait definition's required methods.
+3. **Prove Constraint:** Ensure the generic body ONLY calls methods guaranteed by the trait.
+4. **Store Proof:** Cache the verification in the ASTDB (avoids re-checking on each instantiation).
+
+[SEMA-ARCH:2.5.5] **Implementation Strategy:**  
+- **Constraint Table:** `GenericId -> [TraitBound]` stored in ASTDB.
+- **Method Resolution:** When the body references `T.method()`, the resolver checks the trait, NOT a concrete type.
+- **Error Precision:** If the body calls `T.undefined_method()`, the error points to the **definition site**, with context: "Type parameter `T` does not guarantee `undefined_method` (required trait: `Comparable`)."
+
+[SEMA-ARCH:2.5.6] **Strategic Advantage Over Competitors:**
+| Language | Generic Checking | Error Site | IDE Support |
+|:---------|:----------------|:-----------|:------------|
+| **C++** | Instantiation (SFINAE) | Call site (deep stack) | Poor (no traits) |
+| **Rust** | Definition (trait bounds) | Definition site | Excellent |
+| **Nim (classic)** | Instantiation (concepts) | Call site | Fair |
+| **Swift** | Definition (protocols) | Definition site | Excellent |
+| **Janus** | **Definition (ASTDB-proven)** | **Definition site** | **Queryable (ASTDB)** |
+
+**Key Differentiator:**  
+Janus doesn't just check traits — it **queries the semantic graph**. This enables:
+- **Incremental Compilation:** Changes to a generic's body are re-verified without re-instantiating all call sites.
+- **AI-Assisted Refactoring:** Tools can query "What constraints does this generic require?" from the ASTDB.
+- **Forensic Debugging:** When a constraint fails, the trace shows the exact trait method that's missing.
+
 ---
 
 ## 3. ⊢ Data Structures (The Ledger)
