@@ -1639,6 +1639,27 @@ pub fn build(b: *std.Build) void {
     test_array_e2e_step.dependOn(&run_array_e2e_tests.step);
     test_step.dependOn(&run_array_e2e_tests.step);
 
+    // Unary Operators E2E Tests
+    const unary_e2e_tests = b.addTest(.{
+        .name = "unary_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/unary_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    unary_e2e_tests.linkLibC();
+    unary_e2e_tests.linkSystemLibrary("LLVM-21");
+    unary_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    unary_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    unary_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    unary_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_unary_e2e_tests = b.addRunArtifact(unary_e2e_tests);
+
+    const test_unary_e2e_step = b.step("test-unary-e2e", "Run Unary Operators end-to-end integration test");
+    test_unary_e2e_step.dependOn(&run_unary_e2e_tests.step);
+    test_step.dependOn(&run_unary_e2e_tests.step);
+
     if (enable_s0_extended) {
         const s0_neg = b.addTest(.{
             .name = "s0_negative_tests",

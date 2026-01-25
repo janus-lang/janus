@@ -1850,8 +1850,8 @@ fn lowerUnaryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) 
             try sub_node.inputs.append(ctx.allocator, operand_val);
             return sub;
         },
-        .exclamation, .logical_not => {
-            // Logical Not: x == false
+        .exclamation, .logical_not, .not_ => {
+            // Logical Not: x == false (x XOR true for booleans)
             const false_val = try ctx.builder.createConstant(.{ .boolean = false });
 
             const eq = try ctx.builder.createNode(.Equal);
