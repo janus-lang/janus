@@ -54,6 +54,7 @@ pub const OpCode = enum {
     Mul,
     Div,
     Mod, // Modulo/remainder
+    Pow, // Exponentiation
 
     // --- Comparison ---
     Equal,

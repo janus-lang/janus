@@ -125,6 +125,7 @@ pub const Token = struct {
         plus, // +
         minus, // -
         star, // *
+        star_star, // ** (power)
         slash, // /
         percent, // %
 
