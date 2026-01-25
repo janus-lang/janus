@@ -2668,8 +2668,10 @@ fn parseExpression(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNod
         // Handle pipeline operator (|>) - Desugar to call_expr
         if (token.kind == .pipeline) {
             _ = parser.advance(); // consume |>
-            // Parse RHS with .none precedence to allow all expressions including calls
-            const rhs = try parseExpression(parser, nodes, .none);
+            // Parse RHS with .call precedence for left-associativity
+            // This ensures chained pipelines are handled iteratively, not recursively
+            // e.g., 1 |> inc() |> print() -> (1 |> inc()) |> print()
+            const rhs = try parseExpression(parser, nodes, .call);
 
             // Desugar logic: LHS |> RHS -> RHS(LHS, ...)
             const child_lo = @as(u32, @intCast(parser.edges.items.len));
