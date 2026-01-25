@@ -441,8 +441,17 @@ pub const Tokenizer = struct {
                 }
             },
 
-            // String literals
-            '"' => try self.string(start_pos),
+            // String literals (check for multiline """ first)
+            '"' => {
+                if (self.peek() == '"' and self.peekNext() == '"') {
+                    // Consume the second and third quotes
+                    _ = self.advance();
+                    _ = self.advance();
+                    try self.multilineString(start_pos);
+                } else {
+                    try self.string(start_pos);
+                }
+            },
 
             // Character literals
             '\'' => try self.character(start_pos),
@@ -546,6 +555,46 @@ pub const Tokenizer = struct {
         const end_pos = self.currentPos();
         const lexeme = self.source[start_pos.byte_offset..self.current];
         try self.addToken(.string_literal, lexeme, SourceSpan.init(start_pos, end_pos));
+    }
+
+    fn multilineString(self: *Self, start_pos: SourcePos) !void {
+        // Multiline string: """ ... """
+        // We've already consumed the opening """
+        while (!self.isAtEnd()) {
+            // Check for closing """
+            if (self.peek() == '"' and self.peekNext() == '"') {
+                // Need to check third quote
+                const saved = self.current;
+                _ = self.advance(); // first "
+                if (self.peek() == '"') {
+                    _ = self.advance(); // second "
+                    if (self.peek() == '"') {
+                        _ = self.advance(); // third "
+                        // Found closing """
+                        const end_pos = self.currentPos();
+                        const lexeme = self.source[start_pos.byte_offset..self.current];
+                        try self.addToken(.string_literal, lexeme, SourceSpan.init(start_pos, end_pos));
+                        return;
+                    }
+                }
+                // Not a closing """, restore and continue
+                self.current = saved;
+            }
+
+            if (self.peek() == '\n') {
+                self.line += 1;
+                self.column = 1;
+            } else {
+                self.column += 1;
+            }
+            _ = self.advance();
+        }
+
+        // Unterminated multiline string
+        const lexeme = self.source[start_pos.byte_offset..self.current];
+        const span = SourceSpan.init(start_pos, self.currentPos());
+        try self.addToken(.invalid, lexeme, span);
+        self.reportError(.unterminated_string, span, "unterminated multiline string literal");
     }
 
     fn character(self: *Self, start_pos: SourcePos) !void {

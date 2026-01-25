@@ -899,6 +899,7 @@ fn lowerExpression(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
     const result_id = switch (node.kind) {
         .string_literal => try lowerStringLiteral(ctx, node),
         .char_literal => try lowerCharLiteral(ctx, node),
+        .null_literal => try lowerNullLiteral(ctx),
         .integer_literal => try lowerIntegerLiteral(ctx, node_id, node),
         .float_literal => try lowerFloatLiteral(ctx, node_id, node),
         .bool_literal => try lowerBoolLiteral(ctx, node_id, node),
@@ -949,15 +950,47 @@ fn lowerStringLiteral(ctx: *LoweringContext, node: *const AstNode) error{ Invali
     const token = ctx.snapshot.getToken(node.first_token) orelse return error.InvalidToken;
     const str = if (token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
 
-    // Remove quotes if present
+    // Remove quotes if present (handle both regular "" and multiline """)
     var content = str;
-    if (content.len >= 2 and content[0] == '"' and content[content.len - 1] == '"') {
+    if (content.len >= 6 and std.mem.startsWith(u8, content, "\"\"\"") and std.mem.endsWith(u8, content, "\"\"\"")) {
+        content = content[3 .. content.len - 3];
+    } else if (content.len >= 2 and content[0] == '"' and content[content.len - 1] == '"') {
         content = content[1 .. content.len - 1];
     }
 
+    // Process escape sequences
+    var processed = std.ArrayListUnmanaged(u8){};
+    defer processed.deinit(ctx.allocator);
+
+    var i: usize = 0;
+    while (i < content.len) {
+        if (content[i] == '\\' and i + 1 < content.len) {
+            const escaped_char: u8 = switch (content[i + 1]) {
+                'n' => '\n',
+                't' => '\t',
+                'r' => '\r',
+                '0' => 0,
+                '\\' => '\\',
+                '"' => '"',
+                '\'' => '\'',
+                else => content[i + 1],
+            };
+            try processed.append(ctx.allocator, escaped_char);
+            i += 2;
+        } else {
+            try processed.append(ctx.allocator, content[i]);
+            i += 1;
+        }
+    }
+
     // Ensure we own the string for graph hygiene
-    const owned_content = try ctx.dupeForGraph(content);
+    const owned_content = try ctx.dupeForGraph(processed.items);
     return try ctx.builder.createConstant(.{ .string = owned_content });
+}
+
+fn lowerNullLiteral(ctx: *LoweringContext) error{OutOfMemory}!u32 {
+    // Null is represented as integer 0 (null pointer)
+    return try ctx.builder.createConstant(.{ .integer = 0 });
 }
 
 fn lowerCharLiteral(ctx: *LoweringContext, node: *const AstNode) error{ InvalidToken, OutOfMemory }!u32 {
