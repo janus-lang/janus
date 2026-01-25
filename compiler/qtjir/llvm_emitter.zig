@@ -232,6 +232,7 @@ pub const LLVMEmitter = struct {
             .Phi => try self.emitPhi(node),
             .Array_Construct => try self.emitArrayConstruct(node),
             .Index => try self.emitIndex(node),
+            .Slice => try self.emitSlice(node),
             .Struct_Construct => try self.emitStructConstruct(node),
             .Struct_Alloca => try self.emitStructAlloca(node),
             .Field_Access => try self.emitFieldAccess(node),
@@ -1121,6 +1122,41 @@ pub const LLVMEmitter = struct {
         var indices = [_]llvm.Value{index_val};
         const elem_ptr = llvm.buildInBoundsGEP2(self.builder, elem_type, array_ptr, &indices, 1, "elem_ptr");
         try self.values.put(node.id, elem_ptr);
+    }
+
+    /// Emit array slice: arr[start..end] or arr[start..<end]
+    /// Calls runtime function to allocate and copy slice
+    fn emitSlice(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 3) return error.MissingOperand;
+        const array_ptr = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+        const start_val = self.values.get(node.inputs.items[1]) orelse return error.MissingOperand;
+        const end_val = self.values.get(node.inputs.items[2]) orelse return error.MissingOperand;
+
+        // Get inclusivity from node data (1 = inclusive, 0 = exclusive)
+        const is_inclusive = switch (node.data) {
+            .integer => |i| i == 1,
+            else => false,
+        };
+
+        // Select the appropriate runtime function
+        const func_name: [:0]const u8 = if (is_inclusive) "janus_array_slice_inclusive_i32" else "janus_array_slice_i32";
+
+        // Get or declare the slice function
+        const i32_type = llvm.int32TypeInContext(self.context);
+        const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+        const ptr_type = llvm.c.LLVMPointerType(i8_type, 0);
+        var param_types = [_]llvm.Type{ ptr_type, i32_type, i32_type };
+        const func_type = llvm.functionType(ptr_type, &param_types, 3, false);
+
+        var func = llvm.c.LLVMGetNamedFunction(self.module, func_name.ptr);
+        if (func == null) {
+            func = llvm.addFunction(self.module, func_name, func_type);
+        }
+
+        // Call the slice function
+        var args = [_]llvm.Value{ array_ptr, start_val, end_val };
+        const result = llvm.c.LLVMBuildCall2(self.builder, func_type, func, &args, 3, "slice_result");
+        try self.values.put(node.id, result);
     }
 
     /// Emit struct literal: Point { x: 10, y: 20 }

@@ -868,9 +868,6 @@ fn lowerForStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNod
 fn lowerArrayAccess(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable }!u32 {
     _ = node;
     const children = ctx.snapshot.getChildren(node_id);
-    if (children.len < 1) return error.InvalidNode; // Access needs at least array (and index is usually child 1)
-
-    // In Janus AST for index_expr, child 0 is array, child 1 is index
     if (children.len < 2) return error.InvalidNode;
 
     const array_id = children[0];
@@ -880,16 +877,47 @@ fn lowerArrayAccess(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode
     const index_node = ctx.snapshot.getNode(index_id) orelse return error.InvalidNode;
 
     const array_val = try lowerExpression(ctx, array_id, array_node);
-
     const index_val = try lowerExpression(ctx, index_id, index_node);
 
-    // Create Index node
+    // Create Index node for single element access
     const idx_node_id = try ctx.builder.createNode(.Index);
     var idx_node = &ctx.builder.graph.nodes.items[idx_node_id];
     try idx_node.inputs.append(ctx.allocator, array_val);
     try idx_node.inputs.append(ctx.allocator, index_val);
 
     return idx_node_id;
+}
+
+/// Lower slice expression: arr[start..end] or arr[start..<end]
+fn lowerSliceExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode, is_inclusive: bool) LowerError!u32 {
+    _ = node;
+    const children = ctx.snapshot.getChildren(node_id);
+    // Format: array, start, end (3 children)
+    if (children.len < 3) return error.InvalidNode;
+
+    const array_id = children[0];
+    const start_id = children[1];
+    const end_id = children[2];
+
+    const array_node = ctx.snapshot.getNode(array_id) orelse return error.InvalidNode;
+    const start_node = ctx.snapshot.getNode(start_id) orelse return error.InvalidNode;
+    const end_node = ctx.snapshot.getNode(end_id) orelse return error.InvalidNode;
+
+    const array_val = try lowerExpression(ctx, array_id, array_node);
+    const start_val = try lowerExpression(ctx, start_id, start_node);
+    const end_val = try lowerExpression(ctx, end_id, end_node);
+
+    // Create Slice node with inputs: [array, start, end]
+    const slice_node_id = try ctx.builder.createNode(.Slice);
+    var slice_node = &ctx.builder.graph.nodes.items[slice_node_id];
+    try slice_node.inputs.append(ctx.allocator, array_val);
+    try slice_node.inputs.append(ctx.allocator, start_val);
+    try slice_node.inputs.append(ctx.allocator, end_val);
+
+    // Store inclusivity in data field (1 = inclusive, 0 = exclusive)
+    slice_node.data = .{ .integer = if (is_inclusive) 1 else 0 };
+
+    return slice_node_id;
 }
 
 fn lowerExpression(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable }!u32 {
@@ -913,6 +941,8 @@ fn lowerExpression(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
             const ptr_id = try lowerArrayAccess(ctx, node_id, node);
             break :blk try ctx.builder.buildLoad(ctx.allocator, ptr_id, "idx_load");
         },
+        .slice_inclusive_expr => try lowerSliceExpr(ctx, node_id, node, true),
+        .slice_exclusive_expr => try lowerSliceExpr(ctx, node_id, node, false),
         .field_expr => try lowerFieldExpr(ctx, node_id),
         .struct_literal => try lowerStructLiteral(ctx, node_id),
         .range_inclusive_expr => try lowerRangeExpr(ctx, node_id, node, true),

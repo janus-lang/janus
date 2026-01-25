@@ -35,6 +35,7 @@ pub const OpCode = enum {
     Array_Construct, // Array construction [e1, e2, ...]
     Index, // Array/Slice access: arr[i]
     Index_Store, // Array element store: arr[i] = v
+    Slice, // Array slice: arr[start..end] - returns new array
     Range, // Range construction: start .. end
     Struct_Construct, // Struct literal { f1: v1, f2: v2 }
     Struct_Alloca, // Struct allocation (mutable struct variable)

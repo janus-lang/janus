@@ -281,6 +281,8 @@ pub const AstNode = struct {
         unary_expr,
         call_expr,
         index_expr,
+        slice_inclusive_expr, // Slice: arr[start..end] (inclusive)
+        slice_exclusive_expr, // Slice: arr[start..<end] (exclusive)
         field_expr,
         cast_expr,
         paren_expr,

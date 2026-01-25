@@ -2544,46 +2544,88 @@ fn parseExpression(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNod
                 }
 
                 if (is_range or is_slice_colon) {
-                    // Parse range expression: start..end or start.. or ..end
-                    const range_start = @as(u32, @intCast(nodes.items.len));
-                    try nodes.append(parser.allocator, left);
-
-                    // Parse optional start expression (e.g., 0 in 0..3)
-                    // Use a higher precedence to avoid consuming the range operator
+                    // Parse slice expression: arr[start..end] or arr[start..<end]
+                    // Parse start expression (e.g., 1 in arr[1..3])
                     var start_expr: ?astdb_core.AstNode = null;
                     if (parser.peek() != null and
-                        !parser.match(.right_bracket))
+                        !parser.match(.right_bracket) and
+                        !parser.match(.range_inclusive) and
+                        !parser.match(.range_exclusive) and
+                        !parser.match(.colon))
                     {
                         start_expr = try parseExpression(parser, nodes, .range);
-                        try nodes.append(parser.allocator, start_expr.?);
                     }
 
-                    // Parse range operator - '..' or ':' slice
+                    // Parse range operator - '..' or ':' or '..<'
                     const current_token = parser.peek() orelse return error.UnexpectedToken;
-                    if (current_token.kind == .range_inclusive or current_token.kind == .range_exclusive) {
-                        _ = parser.advance(); // consume '..' or '..<'
+                    var is_inclusive = true;
+                    if (current_token.kind == .range_inclusive) {
+                        _ = parser.advance(); // consume '..'
+                        is_inclusive = true;
+                    } else if (current_token.kind == .range_exclusive) {
+                        _ = parser.advance(); // consume '..<'
+                        is_inclusive = false;
                     } else if (current_token.kind == .colon) {
-                        _ = parser.advance(); // consume ':' slice delimiter
+                        _ = parser.advance(); // consume ':' slice delimiter (treat as exclusive)
+                        is_inclusive = false;
                     } else {
                         return error.UnexpectedToken;
                     }
 
-                    // Parse optional end expression (e.g., 3 in 0..3)
+                    // Parse end expression (e.g., 3 in arr[1..3])
                     var end_expr: ?astdb_core.AstNode = null;
                     if (!parser.match(.right_bracket)) {
                         end_expr = try parseExpression(parser, nodes, .none);
-                        try nodes.append(parser.allocator, end_expr.?);
                     }
 
                     _ = try parser.consume(.right_bracket);
 
-                    const range_end = @as(u32, @intCast(nodes.items.len));
+                    // Append child nodes to nodes array and get their indices
+                    const left_idx = @as(u32, @intCast(parser.nodes.items.len));
+                    try parser.nodes.append(parser.allocator, left);
+
+                    const start_idx = @as(u32, @intCast(parser.nodes.items.len));
+                    if (start_expr) |se| {
+                        try parser.nodes.append(parser.allocator, se);
+                    } else {
+                        // Default start = 0
+                        try parser.nodes.append(parser.allocator, astdb_core.AstNode{
+                            .kind = .integer_literal,
+                            .first_token = @enumFromInt(0),
+                            .last_token = @enumFromInt(0),
+                            .child_lo = 0,
+                            .child_hi = 0,
+                        });
+                    }
+
+                    const end_idx = @as(u32, @intCast(parser.nodes.items.len));
+                    if (end_expr) |ee| {
+                        try parser.nodes.append(parser.allocator, ee);
+                    } else {
+                        // Default end - needs to be array length, for now use a placeholder
+                        try parser.nodes.append(parser.allocator, astdb_core.AstNode{
+                            .kind = .integer_literal,
+                            .first_token = @enumFromInt(0),
+                            .last_token = @enumFromInt(0),
+                            .child_lo = 0,
+                            .child_hi = 0,
+                        });
+                    }
+
+                    // Append NodeIds to edges array (child_lo/child_hi reference edges, not nodes!)
+                    const child_lo = @as(u32, @intCast(parser.edges.items.len));
+                    try parser.edges.append(parser.allocator, @enumFromInt(left_idx));
+                    try parser.edges.append(parser.allocator, @enumFromInt(start_idx));
+                    try parser.edges.append(parser.allocator, @enumFromInt(end_idx));
+                    const child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+                    const slice_kind: astdb_core.AstNode.NodeKind = if (is_inclusive) .slice_inclusive_expr else .slice_exclusive_expr;
                     return astdb_core.AstNode{
-                        .kind = .index_expr, // Use index_expr for slice operations
+                        .kind = slice_kind,
                         .first_token = @enumFromInt(parser.current - 1),
                         .last_token = @enumFromInt(parser.current - 1),
-                        .child_lo = range_start,
-                        .child_hi = range_end,
+                        .child_lo = child_lo,
+                        .child_hi = child_hi,
                     };
                 } else {
                     // Regular indexing: left[expr]
