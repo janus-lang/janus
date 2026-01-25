@@ -933,6 +933,65 @@ This specification provides the complete syntactic foundation for implementing a
 
 ---
 
+## Design Rationale: The Philosophical Foundation
+
+These notes capture the _why_ behind key decisions. They are not normative, but they establish the intent that future RFCs must respect.
+
+### On `:=` — The Correct Stance
+
+> "If not? Kill it before lock-in. No nostalgia."
+
+This is the **only intellectually honest position**. We are not defending syntax; we are defending _signal fidelity_. If `:=` does not measurably improve error messages or semantic clarity under adversarial conditions, it is _noise masquerading as information_.
+
+Instrument it. Measure it. Execute judgment without mercy.
+
+**Refinement:** Track not just _error clarity_ but **time-to-correct**. A message can be "clear" and still cost 30 seconds of context-switching. The metric is _cognitive recovery time_, not just comprehension.
+
+### On Trailing Blocks — The Fork is Now Clean
+
+The resolution rule:
+
+> `{ ... }` binds as final argument _iff_ the preceding call is syntactically complete without it.
+
+Combined with:
+
+- Keywords introduce control flow
+- `{}` is never a control introducer
+- `do..end` is never an expression literal
+
+This creates a **deterministic parse** without lookahead ambiguity. The grammar is now _locally decidable_. That is the standard.
+
+### On Profiles — Cultural Drift is the Real Enemy
+
+The correct threat vector has been identified:
+
+> If teams fork profiles ideologically, Janus fractures.
+
+The mitigation (profiles are **vertical**, not thematic) is sound _if enforced_. The moment someone proposes `:web` or `:ml`, the answer must be **no**—not "let's discuss."
+
+> **Profiles gate capability sets, not paradigms.**
+
+This is Law. Write it into governance. Enforce it without exception.
+
+### The "Ethical" Frame — This is the Bet
+
+> That's not "ergonomic". That's _ethical_.
+
+This is the thesis. Janus is not competing on developer experience in the shallow sense. It is competing on **honesty surface area**—the total amount of truth the language forces into visibility.
+
+Most languages hide:
+
+- Allocation
+- Failure modes
+- Authority
+- Side effects
+
+Janus refuses to hide. The capability clause is a _confession_. The error type in the signature is a _confession_. The `do..end` vs `{}` distinction is a _confession_.
+
+**Confession languages** do not win popularity contests. They win _trust_ in domains where trust is worth more than velocity.
+
+---
+
 **IMMUTABLE LOCK-IN v1.0.0 — December 12, 2025**
 
 This syntax is now frozen. Changes after this point require RFC process and community consensus. The Command/Call Law (Law 1) and Structural Divide (Law 2) are the defining characteristics of Janus and will not change.
