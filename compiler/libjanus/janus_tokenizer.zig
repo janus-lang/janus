@@ -21,6 +21,7 @@ pub const TokenType = enum {
     number,
     float_literal,
     string_literal,
+    char_literal,
     identifier,
 
     // Keywords (:min profile only)
@@ -99,6 +100,18 @@ pub const TokenType = enum {
     bitwise_not, // ~
     left_shift, // <<
     right_shift, // >>
+
+    // Compound assignment
+    plus_equal, // +=
+    minus_equal, // -=
+    star_equal, // *=
+    slash_equal, // /=
+    percent_equal, // %=
+    ampersand_equal, // &=
+    pipe_equal, // |=
+    xor_equal, // ^=
+    left_shift_equal, // <<=
+    right_shift_equal, // >>=
 
     // Delimiters
     left_paren, // (
@@ -308,8 +321,22 @@ pub const Tokenizer = struct {
                     try self.addToken(.colon, ":", SourceSpan.single(start_pos));
                 }
             },
-            '+' => try self.addToken(.plus, "+", SourceSpan.single(start_pos)),
-            '*' => try self.addToken(.star, "*", SourceSpan.single(start_pos)),
+            '+' => {
+                if (self.match('=')) {
+                    const end_pos = self.currentPos();
+                    try self.addToken(.plus_equal, "+=", SourceSpan.init(start_pos, end_pos));
+                } else {
+                    try self.addToken(.plus, "+", SourceSpan.single(start_pos));
+                }
+            },
+            '*' => {
+                if (self.match('=')) {
+                    const end_pos = self.currentPos();
+                    try self.addToken(.star_equal, "*=", SourceSpan.init(start_pos, end_pos));
+                } else {
+                    try self.addToken(.star, "*", SourceSpan.single(start_pos));
+                }
+            },
             '/' => {
                 if (self.match('/')) {
                     // Line comment: // ... to end of line (do not emit tokens)
@@ -332,11 +359,21 @@ pub const Tokenizer = struct {
                         }
                         _ = self.advance();
                     }
+                } else if (self.match('=')) {
+                    const end_pos = self.currentPos();
+                    try self.addToken(.slash_equal, "/=", SourceSpan.init(start_pos, end_pos));
                 } else {
                     try self.addToken(.slash, "/", SourceSpan.single(start_pos));
                 }
             },
-            '%' => try self.addToken(.percent, "%", SourceSpan.single(start_pos)),
+            '%' => {
+                if (self.match('=')) {
+                    const end_pos = self.currentPos();
+                    try self.addToken(.percent_equal, "%=", SourceSpan.init(start_pos, end_pos));
+                } else {
+                    try self.addToken(.percent, "%", SourceSpan.single(start_pos));
+                }
+            },
 
             // Two-character tokens
             '=' => {
@@ -363,8 +400,14 @@ pub const Tokenizer = struct {
                     const end_pos = self.currentPos();
                     try self.addToken(.less_equal, "<=", SourceSpan.init(start_pos, end_pos));
                 } else if (self.match('<')) {
-                    const end_pos = self.currentPos();
-                    try self.addToken(.left_shift, "<<", SourceSpan.init(start_pos, end_pos));
+                    // Could be << or <<=
+                    if (self.match('=')) {
+                        const end_pos = self.currentPos();
+                        try self.addToken(.left_shift_equal, "<<=", SourceSpan.init(start_pos, end_pos));
+                    } else {
+                        const end_pos = self.currentPos();
+                        try self.addToken(.left_shift, "<<", SourceSpan.init(start_pos, end_pos));
+                    }
                 } else {
                     try self.addToken(.less, "<", SourceSpan.single(start_pos));
                 }
@@ -374,8 +417,14 @@ pub const Tokenizer = struct {
                     const end_pos = self.currentPos();
                     try self.addToken(.greater_equal, ">=", SourceSpan.init(start_pos, end_pos));
                 } else if (self.match('>')) {
-                    const end_pos = self.currentPos();
-                    try self.addToken(.right_shift, ">>", SourceSpan.init(start_pos, end_pos));
+                    // Could be >> or >>=
+                    if (self.match('=')) {
+                        const end_pos = self.currentPos();
+                        try self.addToken(.right_shift_equal, ">>=", SourceSpan.init(start_pos, end_pos));
+                    } else {
+                        const end_pos = self.currentPos();
+                        try self.addToken(.right_shift, ">>", SourceSpan.init(start_pos, end_pos));
+                    }
                 } else {
                     try self.addToken(.greater, ">", SourceSpan.single(start_pos));
                 }
@@ -384,6 +433,9 @@ pub const Tokenizer = struct {
                 if (self.match('>')) {
                     const end_pos = self.currentPos();
                     try self.addToken(.arrow, "->", SourceSpan.init(start_pos, end_pos));
+                } else if (self.match('=')) {
+                    const end_pos = self.currentPos();
+                    try self.addToken(.minus_equal, "-=", SourceSpan.init(start_pos, end_pos));
                 } else {
                     try self.addToken(.minus, "-", SourceSpan.single(start_pos));
                 }
@@ -391,6 +443,9 @@ pub const Tokenizer = struct {
 
             // String literals
             '"' => try self.string(start_pos),
+
+            // Character literals
+            '\'' => try self.character(start_pos),
 
             // Numbers
             '0'...'9' => try self.number(start_pos),
@@ -400,6 +455,9 @@ pub const Tokenizer = struct {
                 if (self.match('>')) {
                     const end_pos = self.currentPos();
                     try self.addToken(.pipeline, "|>", SourceSpan.init(start_pos, end_pos));
+                } else if (self.match('=')) {
+                    const end_pos = self.currentPos();
+                    try self.addToken(.pipe_equal, "|=", SourceSpan.init(start_pos, end_pos));
                 } else {
                     try self.addToken(.pipe, "|", SourceSpan.single(start_pos));
                 }
@@ -419,10 +477,24 @@ pub const Tokenizer = struct {
             'a'...'z', 'A'...'Z' => try self.identifier(start_pos),
 
             // Address-of operator
-            '&' => try self.addToken(.ampersand, "&", SourceSpan.single(start_pos)),
+            '&' => {
+                if (self.match('=')) {
+                    const end_pos = self.currentPos();
+                    try self.addToken(.ampersand_equal, "&=", SourceSpan.init(start_pos, end_pos));
+                } else {
+                    try self.addToken(.ampersand, "&", SourceSpan.single(start_pos));
+                }
+            },
 
             // Xor
-            '^' => try self.addToken(.bitwise_xor, "^", SourceSpan.single(start_pos)),
+            '^' => {
+                if (self.match('=')) {
+                    const end_pos = self.currentPos();
+                    try self.addToken(.xor_equal, "^=", SourceSpan.init(start_pos, end_pos));
+                } else {
+                    try self.addToken(.bitwise_xor, "^", SourceSpan.single(start_pos));
+                }
+            },
 
             // Bitwise Not
             '~' => try self.addToken(.bitwise_not, "~", SourceSpan.single(start_pos)),
@@ -443,13 +515,20 @@ pub const Tokenizer = struct {
 
     fn string(self: *Self, start_pos: SourcePos) !void {
         while (self.peek() != '"' and !self.isAtEnd()) {
-            if (self.peek() == '\n') {
+            if (self.peek() == '\\') {
+                // Escape sequence - skip the backslash and the next character
+                _ = self.advance();
+                if (!self.isAtEnd()) {
+                    _ = self.advance();
+                }
+            } else if (self.peek() == '\n') {
                 self.line += 1;
                 self.column = 1;
+                _ = self.advance();
             } else {
                 self.column += 1;
+                _ = self.advance();
             }
-            _ = self.advance();
         }
 
         if (self.isAtEnd()) {
@@ -467,6 +546,41 @@ pub const Tokenizer = struct {
         const end_pos = self.currentPos();
         const lexeme = self.source[start_pos.byte_offset..self.current];
         try self.addToken(.string_literal, lexeme, SourceSpan.init(start_pos, end_pos));
+    }
+
+    fn character(self: *Self, start_pos: SourcePos) !void {
+        // Character literal: 'x' or '\n' etc.
+        if (self.isAtEnd()) {
+            const span = SourceSpan.single(start_pos);
+            try self.addToken(.invalid, "'", span);
+            self.reportError(.unterminated_string, span, "unterminated character literal");
+            return;
+        }
+
+        if (self.peek() == '\\') {
+            // Escape sequence
+            _ = self.advance(); // consume '\'
+            if (!self.isAtEnd()) {
+                _ = self.advance(); // consume escaped char
+            }
+        } else {
+            _ = self.advance(); // consume the character
+        }
+
+        if (self.isAtEnd() or self.peek() != '\'') {
+            const lexeme = self.source[start_pos.byte_offset..self.current];
+            const span = SourceSpan.init(start_pos, self.currentPos());
+            try self.addToken(.invalid, lexeme, span);
+            self.reportError(.unterminated_string, span, "unterminated character literal");
+            return;
+        }
+
+        // Consume closing '
+        _ = self.advance();
+
+        const end_pos = self.currentPos();
+        const lexeme = self.source[start_pos.byte_offset..self.current];
+        try self.addToken(.char_literal, lexeme, SourceSpan.init(start_pos, end_pos));
     }
 
     fn number(self: *Self, start_pos: SourcePos) !void {

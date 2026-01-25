@@ -248,6 +248,10 @@ pub const RegionLexer = struct {
             },
             '%' => blk: {
                 self.advance();
+                if (self.pos < self.source.len and self.source[self.pos] == '=') {
+                    self.advance();
+                    break :blk .percent_assign;
+                }
                 break :blk .percent;
             },
 
@@ -277,6 +281,11 @@ pub const RegionLexer = struct {
                         },
                         '<' => {
                             self.advance();
+                            // Check for <<=
+                            if (self.pos < self.source.len and self.source[self.pos] == '=') {
+                                self.advance();
+                                break :blk .left_shift_assign;
+                            }
                             break :blk .left_shift;
                         },
                         else => {},
@@ -294,6 +303,11 @@ pub const RegionLexer = struct {
                         },
                         '>' => {
                             self.advance();
+                            // Check for >>=
+                            if (self.pos < self.source.len and self.source[self.pos] == '=') {
+                                self.advance();
+                                break :blk .right_shift_assign;
+                            }
                             break :blk .right_shift;
                         },
                         else => {},
@@ -304,22 +318,36 @@ pub const RegionLexer = struct {
 
             '&' => blk: {
                 self.advance();
-                if (self.pos < self.source.len and self.source[self.pos] == '&') {
-                    self.advance();
-                    break :blk .logical_and;
+                if (self.pos < self.source.len) {
+                    if (self.source[self.pos] == '&') {
+                        self.advance();
+                        break :blk .logical_and;
+                    } else if (self.source[self.pos] == '=') {
+                        self.advance();
+                        break :blk .ampersand_assign;
+                    }
                 }
                 break :blk .bitwise_and;
             },
             '|' => blk: {
                 self.advance();
-                if (self.pos < self.source.len and self.source[self.pos] == '|') {
-                    self.advance();
-                    break :blk .logical_or;
+                if (self.pos < self.source.len) {
+                    if (self.source[self.pos] == '|') {
+                        self.advance();
+                        break :blk .logical_or;
+                    } else if (self.source[self.pos] == '=') {
+                        self.advance();
+                        break :blk .pipe_assign;
+                    }
                 }
                 break :blk .bitwise_or;
             },
             '^' => blk: {
                 self.advance();
+                if (self.pos < self.source.len and self.source[self.pos] == '=') {
+                    self.advance();
+                    break :blk .xor_assign;
+                }
                 break :blk .bitwise_xor;
             },
             '~' => blk: {

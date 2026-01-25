@@ -512,6 +512,21 @@ fn convertTokenType(janus_type: tokenizer.TokenType) TokenKind {
         .left_shift => .left_shift,
         .right_shift => .right_shift,
 
+        // Compound assignment
+        .plus_equal => .plus_assign,
+        .minus_equal => .minus_assign,
+        .star_equal => .star_assign,
+        .slash_equal => .slash_assign,
+        .percent_equal => .percent_assign,
+        .ampersand_equal => .ampersand_assign,
+        .pipe_equal => .pipe_assign,
+        .xor_equal => .xor_assign,
+        .left_shift_equal => .left_shift_assign,
+        .right_shift_equal => .right_shift_assign,
+
+        // Character literal
+        .char_literal => .char_literal,
+
         .underscore => .identifier, // Treat underscore as identifier for now
 
         // Punctuation
@@ -623,7 +638,7 @@ fn validateS0Tokens(unit: *astdb_core.CompilationUnit) !void {
 
 fn isTokenAllowedInS0(kind: TokenKind) bool {
     return switch (kind) {
-        .func, .return_, .identifier, .integer_literal, .float_literal, .string_literal, .true_, .false_, .left_paren, .right_paren, .left_brace, .right_brace, .semicolon, .comma, .newline, .eof, .left_bracket, .right_bracket, .let, .var_, .plus, .minus, .star, .slash, .equal, .assign, .equal_equal, .not_equal, .less, .less_equal, .greater, .greater_equal, .colon, .if_, .else_, .arrow, .arrow_fat, .while_, .for_, .in_, .match, .when, .break_, .continue_, .defer_, .do_, .end, .struct_, .dot, .test_, .question, .optional_chain, .null_coalesce, .null_, .type_, .logical_and, .logical_or, .logical_not, .exclamation, .tilde, .bitwise_and, .bitwise_or, .bitwise_xor, .bitwise_not, .left_shift, .right_shift, .ampersand, .pipe, .caret, .range_inclusive, .range_exclusive, .walrus_assign, .percent, .and_, .or_, .not_, .pipeline => true,
+        .func, .return_, .identifier, .integer_literal, .float_literal, .string_literal, .true_, .false_, .left_paren, .right_paren, .left_brace, .right_brace, .semicolon, .comma, .newline, .eof, .left_bracket, .right_bracket, .let, .var_, .plus, .minus, .star, .slash, .equal, .assign, .equal_equal, .not_equal, .less, .less_equal, .greater, .greater_equal, .colon, .if_, .else_, .arrow, .arrow_fat, .while_, .for_, .in_, .match, .when, .break_, .continue_, .defer_, .do_, .end, .struct_, .dot, .test_, .question, .optional_chain, .null_coalesce, .null_, .type_, .logical_and, .logical_or, .logical_not, .exclamation, .tilde, .bitwise_and, .bitwise_or, .bitwise_xor, .bitwise_not, .left_shift, .right_shift, .ampersand, .pipe, .caret, .range_inclusive, .range_exclusive, .walrus_assign, .percent, .and_, .or_, .not_, .pipeline, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign, .ampersand_assign, .pipe_assign, .xor_assign, .left_shift_assign, .right_shift_assign, .char_literal => true,
 
         else => false,
     };
@@ -2333,7 +2348,7 @@ const Precedence = enum(u8) {
 /// Get precedence for a token kind
 fn getTokenPrecedence(kind: TokenKind) Precedence {
     const prec: Precedence = switch (kind) {
-        .assign, .equal, .plus_assign, .minus_assign, .star_assign, .slash_assign => .assignment,
+        .assign, .equal, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign, .ampersand_assign, .pipe_assign, .xor_assign, .left_shift_assign, .right_shift_assign => .assignment,
         .or_, .logical_or => .logical_or,
         .null_coalesce => .null_coalesce,
         .and_, .logical_and => .logical_and,
@@ -2878,6 +2893,16 @@ fn parsePrimary(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode))
                 _ = parser.advance();
                 return astdb_core.AstNode{
                     .kind = .string_literal,
+                    .first_token = @enumFromInt(parser.current - 1),
+                    .last_token = @enumFromInt(parser.current - 1),
+                    .child_lo = 0,
+                    .child_hi = 0,
+                };
+            },
+            .char_literal => {
+                _ = parser.advance();
+                return astdb_core.AstNode{
+                    .kind = .char_literal,
                     .first_token = @enumFromInt(parser.current - 1),
                     .last_token = @enumFromInt(parser.current - 1),
                     .child_lo = 0,

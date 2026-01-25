@@ -898,6 +898,7 @@ fn lowerExpression(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
 
     const result_id = switch (node.kind) {
         .string_literal => try lowerStringLiteral(ctx, node),
+        .char_literal => try lowerCharLiteral(ctx, node),
         .integer_literal => try lowerIntegerLiteral(ctx, node_id, node),
         .float_literal => try lowerFloatLiteral(ctx, node_id, node),
         .bool_literal => try lowerBoolLiteral(ctx, node_id, node),
@@ -957,6 +958,39 @@ fn lowerStringLiteral(ctx: *LoweringContext, node: *const AstNode) error{ Invali
     // Ensure we own the string for graph hygiene
     const owned_content = try ctx.dupeForGraph(content);
     return try ctx.builder.createConstant(.{ .string = owned_content });
+}
+
+fn lowerCharLiteral(ctx: *LoweringContext, node: *const AstNode) error{ InvalidToken, OutOfMemory }!u32 {
+    const token = ctx.snapshot.getToken(node.first_token) orelse return error.InvalidToken;
+    const unit = ctx.snapshot.astdb.getUnitConst(ctx.unit_id) orelse return error.InvalidToken;
+    const lexeme = unit.source[token.span.start..token.span.end];
+
+    // Parse character value from lexeme (e.g., 'a' or '\n')
+    // Remove quotes
+    if (lexeme.len < 3) return error.InvalidToken;
+    const content = lexeme[1 .. lexeme.len - 1]; // Strip 'quotes'
+
+    const char_value: i64 = if (content.len == 1) blk: {
+        // Simple character: 'a'
+        break :blk @intCast(content[0]);
+    } else if (content.len >= 2 and content[0] == '\\') blk: {
+        // Escape sequence: '\n', '\t', etc.
+        break :blk switch (content[1]) {
+            'n' => '\n',
+            't' => '\t',
+            'r' => '\r',
+            '0' => 0,
+            '\\' => '\\',
+            '\'' => '\'',
+            '"' => '"',
+            else => @intCast(content[1]),
+        };
+    } else blk: {
+        // Fallback
+        break :blk if (content.len > 0) @intCast(content[0]) else 0;
+    };
+
+    return try ctx.builder.createConstant(.{ .integer = char_value });
 }
 
 fn lowerIntegerLiteral(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, OutOfMemory }!u32 {
@@ -1761,6 +1795,45 @@ fn lowerBinaryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
 
         // Assignment evaluates to RHS value
         return rhs_val;
+    }
+
+    // Handle Compound Assignment (+=, -=, *=, /=, %=, &=, |=, ^=, <<=, >>=)
+    // Desugaring: x op= y  =>  x = x op y
+    const compound_op: ?OpCode = switch (op_token_kind) {
+        .plus_assign => .Add,
+        .minus_assign => .Sub,
+        .star_assign => .Mul,
+        .slash_assign => .Div,
+        .percent_assign => .Mod,
+        .ampersand_assign => .BitAnd,
+        .pipe_assign => .BitOr,
+        .xor_assign => .Xor,
+        .left_shift_assign => .Shl,
+        .right_shift_assign => .Shr,
+        else => null,
+    };
+
+    if (compound_op) |op| {
+        // LHS must be L-Value (Address)
+        const lhs_addr = try lowerLValue(ctx, lhs_id, lhs);
+
+        // Load current value from LHS
+        const lhs_val = try ctx.builder.buildLoad(ctx.allocator, lhs_addr, "compound_lhs");
+
+        // Evaluate RHS
+        const rhs_val = try lowerExpression(ctx, rhs_id, rhs);
+
+        // Perform the operation
+        const op_node = try ctx.builder.createNode(op);
+        var ir_node = &ctx.builder.graph.nodes.items[op_node];
+        try ir_node.inputs.append(ctx.allocator, lhs_val);
+        try ir_node.inputs.append(ctx.allocator, rhs_val);
+
+        // Store result back to LHS
+        _ = try ctx.builder.buildStore(ctx.allocator, op_node, lhs_addr);
+
+        // Compound assignment evaluates to the new value
+        return op_node;
     }
 
     // Handle Logical Operators (Short-circuiting)
