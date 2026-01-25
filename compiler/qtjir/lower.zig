@@ -54,8 +54,19 @@ pub const LoweringContext = struct {
     // Defer Stack
     defer_stack: std.ArrayListUnmanaged(ScopeLayer),
 
-    // Loop Exit Stack (for break)
-    loop_exit_stack: std.ArrayListUnmanaged(u32),
+    // Loop depth counter (for break/continue patching)
+    loop_depth: usize = 0,
+
+    // Pending Break Jumps - holds (jump_node_id, loop_depth) pairs for patching
+    pending_breaks: std.ArrayListUnmanaged(PendingJump),
+
+    // Pending Continue Jumps - holds (jump_node_id, loop_depth) pairs for patching
+    pending_continues: std.ArrayListUnmanaged(PendingJump),
+
+    const PendingJump = struct {
+        jump_id: u32,
+        loop_depth: usize,
+    };
 
     pub const ScopeTracker = struct {
         map: std.StringHashMap(u32),
@@ -99,7 +110,9 @@ pub const LoweringContext = struct {
             .node_map = std.AutoHashMap(NodeId, u32).init(allocator),
             .scope = ScopeTracker.init(allocator),
             .defer_stack = .{},
-            .loop_exit_stack = .{},
+            .loop_depth = 0,
+            .pending_breaks = .{},
+            .pending_continues = .{},
         };
     }
 
@@ -163,7 +176,8 @@ pub const LoweringContext = struct {
             layer.actions.deinit(self.allocator);
         }
         self.defer_stack.deinit(self.allocator);
-        self.loop_exit_stack.deinit(self.allocator);
+        self.pending_breaks.deinit(self.allocator);
+        self.pending_continues.deinit(self.allocator);
     }
 
     /// Clone a string using the Graph's allocator for sovereign ownership.
@@ -486,6 +500,9 @@ fn lowerStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) 
         .break_stmt => {
             try lowerBreakStatement(ctx, node_id, node);
         },
+        .continue_stmt => {
+            try lowerContinueStatement(ctx, node_id, node);
+        },
         .let_stmt, .var_stmt => {
             _ = try lowerVarDecl(ctx, node_id, node);
         },
@@ -507,6 +524,13 @@ fn lowerStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) 
         },
         else => {},
     }
+}
+
+/// Helper: Check if the last emitted node is a terminator (Jump, Return, Branch)
+fn lastNodeIsTerminator(ctx: *LoweringContext) bool {
+    if (ctx.builder.graph.nodes.items.len == 0) return false;
+    const last_op = ctx.builder.graph.nodes.items[ctx.builder.graph.nodes.items.len - 1].op;
+    return last_op == .Jump or last_op == .Return or last_op == .Branch;
 }
 
 fn lowerIf(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
@@ -546,10 +570,13 @@ fn lowerIf(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerEr
         }
     }
 
-    // Jump to merge (placeholder)
-    const jump_from_true = try ctx.builder.createNode(.Jump);
-    var jump_true_inputs = &ctx.builder.graph.nodes.items[jump_from_true].inputs;
-    try jump_true_inputs.append(ctx.allocator, 0); // Placeholder merge
+    // Only emit jump to merge if the body didn't already terminate (break/continue/return)
+    var jump_from_true: ?u32 = null;
+    if (!lastNodeIsTerminator(ctx)) {
+        jump_from_true = try ctx.builder.createNode(.Jump);
+        var jump_true_inputs = &ctx.builder.graph.nodes.items[jump_from_true.?].inputs;
+        try jump_true_inputs.append(ctx.allocator, 0); // Placeholder merge
+    }
 
     // 4. Emit Else Block (if exists) or just Fallthrough
     const false_label_id = try ctx.builder.createNode(.Label);
@@ -567,24 +594,24 @@ fn lowerIf(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerEr
         }
     }
 
-    // Jump to merge (from false/else block) - technically if else block falls through
-    // But optimal IR might skip this if else is empty.
-    // To match CFG structure:
-    //   If Else exists: FalseLabel -> ElseCode -> Jump(Merge)
-    //   MergeLabel
-    // If Else missing: FalseLabel IS MergeLabel.
-
-    // Simplified Uniform Approach: Always jump to merge
-    const jump_from_false = try ctx.builder.createNode(.Jump);
-    var jump_false_inputs = &ctx.builder.graph.nodes.items[jump_from_false].inputs;
-    try jump_false_inputs.append(ctx.allocator, 0); // Placeholder merge
+    // Only emit jump to merge if else body didn't already terminate
+    var jump_from_false: ?u32 = null;
+    if (!lastNodeIsTerminator(ctx)) {
+        jump_from_false = try ctx.builder.createNode(.Jump);
+        var jump_false_inputs = &ctx.builder.graph.nodes.items[jump_from_false.?].inputs;
+        try jump_false_inputs.append(ctx.allocator, 0); // Placeholder merge
+    }
 
     // 5. Emit Merge Label
     const merge_label_id = try ctx.builder.createNode(.Label);
 
-    // Backpatch jumps
-    ctx.builder.graph.nodes.items[jump_from_true].inputs.items[0] = merge_label_id;
-    ctx.builder.graph.nodes.items[jump_from_false].inputs.items[0] = merge_label_id;
+    // Backpatch jumps (only if they were created)
+    if (jump_from_true) |jft| {
+        ctx.builder.graph.nodes.items[jft].inputs.items[0] = merge_label_id;
+    }
+    if (jump_from_false) |jff| {
+        ctx.builder.graph.nodes.items[jff].inputs.items[0] = merge_label_id;
+    }
 }
 
 fn lowerWhile(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
@@ -595,8 +622,11 @@ fn lowerWhile(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
     const cond_id = children[0];
     const body_id = children[1];
 
-    // 1. Jump to Header (to enter loop)
-    // Actually, usually we fall through to header, but we need a label for the back-edge.
+    // Track loop depth for break/continue patching
+    const loop_depth = ctx.loop_depth;
+    ctx.loop_depth += 1;
+
+    // 1. Header Label (for back-edge and continue)
     const header_label_id = try ctx.builder.createNode(.Label);
 
     // 2. Evaluate Condition
@@ -618,10 +648,9 @@ fn lowerWhile(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
 
     if (ctx.snapshot.getNode(body_id)) |body_node| {
         if (body_node.kind == .block_stmt) {
-            // Simplest: Wrap body in .Loop scope
             try ctx.pushScope(.Loop);
-            try lowerBlock(ctx, body_id, body_node); // This pushes ANOTHER .Block scope.
-            var LoopActions = try ctx.popScope(); // Pop .Loop
+            try lowerBlock(ctx, body_id, body_node);
+            var LoopActions = try ctx.popScope();
             try ctx.emitDefersForScope(&LoopActions);
         } else {
             try lowerStatement(ctx, body_id, body_node);
@@ -633,15 +662,38 @@ fn lowerWhile(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
     var jump_back_inputs = &ctx.builder.graph.nodes.items[jump_back].inputs;
     try jump_back_inputs.append(ctx.allocator, header_label_id);
 
-    // 5. Exit Label
+    // 5. Exit Label (created AFTER body so it's in correct IR position)
     const exit_label_id = try ctx.builder.createNode(.Label);
 
-    // Push exit label for break
-    try ctx.loop_exit_stack.append(ctx.allocator, exit_label_id);
-    defer _ = ctx.loop_exit_stack.pop().?;
-
-    // Backpatch false target
+    // Backpatch false target to exit
     ctx.builder.graph.nodes.items[branch_node_id].inputs.items[2] = exit_label_id;
+
+    // Restore loop depth
+    ctx.loop_depth -= 1;
+
+    // Patch all pending breaks at this loop depth
+    var i: usize = 0;
+    while (i < ctx.pending_breaks.items.len) {
+        const pb = ctx.pending_breaks.items[i];
+        if (pb.loop_depth == loop_depth) {
+            ctx.builder.graph.nodes.items[pb.jump_id].inputs.items[0] = exit_label_id;
+            _ = ctx.pending_breaks.swapRemove(i);
+        } else {
+            i += 1;
+        }
+    }
+
+    // Patch all pending continues at this loop depth (for while: jump to header)
+    i = 0;
+    while (i < ctx.pending_continues.items.len) {
+        const pc = ctx.pending_continues.items[i];
+        if (pc.loop_depth == loop_depth) {
+            ctx.builder.graph.nodes.items[pc.jump_id].inputs.items[0] = header_label_id;
+            _ = ctx.pending_continues.swapRemove(i);
+        } else {
+            i += 1;
+        }
+    }
 }
 
 fn lowerForStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
@@ -735,6 +787,10 @@ fn lowerForStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNod
     try cmp_node.inputs.append(ctx.allocator, phi_id);
     try cmp_node.inputs.append(ctx.allocator, end_val);
 
+    // Track loop depth for break/continue patching
+    const loop_depth = ctx.loop_depth;
+    ctx.loop_depth += 1;
+
     // 7. Branch
     const branch_id = try ctx.builder.createNode(.Branch);
     var branch_node = &ctx.builder.graph.nodes.items[branch_id];
@@ -749,15 +805,15 @@ fn lowerForStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNod
     // Emit Body
     const body_node = ctx.snapshot.getNode(body_id) orelse return error.InvalidNode;
     if (body_node.kind == .block_stmt) {
-        // Inner block scope handled by lowerBlock
         try lowerBlock(ctx, body_id, body_node);
     } else {
         try lowerStatement(ctx, body_id, body_node);
     }
 
     // 9. Latch Block (Increment & Jump)
-    // Ideally this is a separate block, but if body falls through, we are here.
-    // Calculate NextIter = Phi + 1
+    // For continue: we need to jump HERE, after the body, before increment
+    const latch_label_id = try ctx.builder.createNode(.Label);
+
     const one_const = try ctx.builder.createConstant(.{ .integer = 1 });
     const add_id = try ctx.builder.createNode(.Add);
     var add_node = &ctx.builder.graph.nodes.items[add_id];
@@ -771,15 +827,38 @@ fn lowerForStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNod
     const jump_node_id = try ctx.builder.createNode(.Jump);
     try ctx.builder.graph.nodes.items[jump_node_id].inputs.append(ctx.allocator, header_label_id);
 
-    // 10. Exit Block
+    // 10. Exit Label (created AFTER latch so it's in correct IR position)
     const exit_label_id = try ctx.builder.createNode(.Label);
-    ctx.builder.graph.nodes.items[branch_id].inputs.items[2] = exit_label_id; // Patch False
 
-    // Exit Handling
-    // If we had breaks in the loop, we'd patch them to jump here.
-    // (Break support needs the Loop Exit Stack)
-    // NOTE: We should have pushed `exit_label_id` to `loop_exit_stack` before emitting body.
-    // Let's defer that improvement.
+    // Backpatch branch false target to exit
+    ctx.builder.graph.nodes.items[branch_id].inputs.items[2] = exit_label_id;
+
+    // Restore loop depth
+    ctx.loop_depth -= 1;
+
+    // Patch all pending breaks at this loop depth
+    var i: usize = 0;
+    while (i < ctx.pending_breaks.items.len) {
+        const pb = ctx.pending_breaks.items[i];
+        if (pb.loop_depth == loop_depth) {
+            ctx.builder.graph.nodes.items[pb.jump_id].inputs.items[0] = exit_label_id;
+            _ = ctx.pending_breaks.swapRemove(i);
+        } else {
+            i += 1;
+        }
+    }
+
+    // Patch all pending continues at this loop depth (for for-loop: jump to latch)
+    i = 0;
+    while (i < ctx.pending_continues.items.len) {
+        const pc = ctx.pending_continues.items[i];
+        if (pc.loop_depth == loop_depth) {
+            ctx.builder.graph.nodes.items[pc.jump_id].inputs.items[0] = latch_label_id;
+            _ = ctx.pending_continues.swapRemove(i);
+        } else {
+            i += 1;
+        }
+    }
 
     // Pop Loop Scope
     var actions = try ctx.popScope();
@@ -1919,11 +1998,11 @@ fn lowerBreakStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstN
     _ = node_id;
     _ = node;
 
-    if (ctx.loop_exit_stack.items.len == 0) {
+    if (ctx.loop_depth == 0) {
         return error.InvalidNode; // Break outside loop
     }
 
-    const target_label = ctx.loop_exit_stack.items[ctx.loop_exit_stack.items.len - 1];
+    const target_depth = ctx.loop_depth - 1;
 
     // Emit Defers up to nearest Loop scope
     var i = ctx.defer_stack.items.len;
@@ -1932,17 +2011,14 @@ fn lowerBreakStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstN
         const layer = &ctx.defer_stack.items[i];
 
         if (layer.type == .Loop) {
-            // Found the loop boundary. Stop here.
             break;
         }
 
-        // Emit actions for this layer
         var j = layer.actions.items.len;
         while (j > 0) {
             j -= 1;
             const action = layer.actions.items[j];
 
-            // Emit Call Copy
             const call_id = try ctx.builder.createNode(.Call);
             var node_def = &ctx.builder.graph.nodes.items[call_id];
             node_def.data = .{ .string = try ctx.dupeForGraph(action.builtin_name) };
@@ -1952,9 +2028,60 @@ fn lowerBreakStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstN
         }
     }
 
-    // Emit Jump
+    // Emit Jump with placeholder target (will be patched when loop ends)
     const jump_id = try ctx.builder.createNode(.Jump);
-    try ctx.builder.graph.nodes.items[jump_id].inputs.append(ctx.allocator, target_label);
+    try ctx.builder.graph.nodes.items[jump_id].inputs.append(ctx.allocator, 0); // Placeholder
+
+    // Register for patching
+    try ctx.pending_breaks.append(ctx.allocator, .{
+        .jump_id = jump_id,
+        .loop_depth = target_depth,
+    });
+}
+
+fn lowerContinueStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
+    _ = node_id;
+    _ = node;
+
+    if (ctx.loop_depth == 0) {
+        return error.InvalidNode; // Continue outside loop
+    }
+
+    const target_depth = ctx.loop_depth - 1;
+
+    // Emit Defers up to nearest Loop scope (same as break)
+    var i = ctx.defer_stack.items.len;
+    while (i > 0) {
+        i -= 1;
+        const layer = &ctx.defer_stack.items[i];
+
+        if (layer.type == .Loop) {
+            break;
+        }
+
+        var j = layer.actions.items.len;
+        while (j > 0) {
+            j -= 1;
+            const action = layer.actions.items[j];
+
+            const call_id = try ctx.builder.createNode(.Call);
+            var node_def = &ctx.builder.graph.nodes.items[call_id];
+            node_def.data = .{ .string = try ctx.dupeForGraph(action.builtin_name) };
+            for (action.args.items) |arg| {
+                try node_def.inputs.append(ctx.allocator, arg);
+            }
+        }
+    }
+
+    // Emit Jump with placeholder target (will be patched when loop ends)
+    const jump_id = try ctx.builder.createNode(.Jump);
+    try ctx.builder.graph.nodes.items[jump_id].inputs.append(ctx.allocator, 0); // Placeholder
+
+    // Register for patching
+    try ctx.pending_continues.append(ctx.allocator, .{
+        .jump_id = jump_id,
+        .loop_depth = target_depth,
+    });
 }
 
 fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {

@@ -1513,6 +1513,27 @@ pub fn build(b: *std.Build) void {
     test_function_call_e2e_step.dependOn(&run_function_call_e2e_tests.step);
     test_step.dependOn(&run_function_call_e2e_tests.step);
 
+    // Continue Statement E2E Tests
+    const continue_e2e_tests = b.addTest(.{
+        .name = "continue_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/continue_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    continue_e2e_tests.linkLibC();
+    continue_e2e_tests.linkSystemLibrary("LLVM-21");
+    continue_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    continue_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    continue_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    continue_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_continue_e2e_tests = b.addRunArtifact(continue_e2e_tests);
+
+    const test_continue_e2e_step = b.step("test-continue-e2e", "Run Continue Statement end-to-end integration test");
+    test_continue_e2e_step.dependOn(&run_continue_e2e_tests.step);
+    test_step.dependOn(&run_continue_e2e_tests.step);
+
     if (enable_s0_extended) {
         const s0_neg = b.addTest(.{
             .name = "s0_negative_tests",

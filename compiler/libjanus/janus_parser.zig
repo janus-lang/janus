@@ -1408,6 +1408,34 @@ fn parseBlockStatements(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
             const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
             try parser.nodes.append(parser.allocator, match_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
+        } else if (parser.match(.break_)) {
+            // Handle break statement
+            const break_token: astdb_core.TokenId = @enumFromInt(parser.current);
+            _ = parser.advance(); // consume 'break'
+            const break_stmt = astdb_core.AstNode{
+                .kind = .break_stmt,
+                .first_token = break_token,
+                .last_token = @enumFromInt(parser.current -| 1),
+                .child_lo = 0,
+                .child_hi = 0,
+            };
+            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
+            try parser.nodes.append(parser.allocator, break_stmt);
+            try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
+        } else if (parser.match(.continue_)) {
+            // Handle continue statement
+            const continue_token: astdb_core.TokenId = @enumFromInt(parser.current);
+            _ = parser.advance(); // consume 'continue'
+            const continue_stmt = astdb_core.AstNode{
+                .kind = .continue_stmt,
+                .first_token = continue_token,
+                .last_token = @enumFromInt(parser.current -| 1),
+                .child_lo = 0,
+                .child_hi = 0,
+            };
+            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
+            try parser.nodes.append(parser.allocator, continue_stmt);
+            try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
         } else {
             // Skip unknown tokens for now
             _ = parser.advance();

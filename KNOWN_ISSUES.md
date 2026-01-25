@@ -6,6 +6,37 @@
 
 ## Resolved Issues
 
+### Continue/Break Statements End-to-End (RESOLVED 2026-01-25)
+
+**Status**: ✅ Complete (3/3 E2E tests passing)
+**Date Resolved**: 2026-01-25
+**Component**: Control Flow Statements
+
+**Milestone**: Continue and break statements now work in for and while loops.
+
+**Syntax**: `continue` and `break` within loop bodies
+
+**Features**:
+- Continue in for loop: skips to next iteration (jumps to latch/increment)
+- Continue in while loop: skips to next iteration (jumps to header/condition)
+- Break exits the loop immediately
+- Works with nested conditions (if inside loop)
+
+**Implementation**:
+- Parser: Added `break_stmt` and `continue_stmt` parsing to `parseBlockStatements()`
+- QTJIR Lowering: Deferred patching system with `pending_breaks` and `pending_continues`
+- lowerIf: Skip merge jumps when body ends with terminator (break/continue/return)
+- For loops: continue jumps to latch (before increment)
+- While loops: continue jumps to header (condition re-evaluation)
+
+**Files Changed**:
+- `compiler/libjanus/janus_parser.zig` - Added break/continue parsing
+- `compiler/qtjir/lower.zig` - Added `lastNodeIsTerminator()`, modified `lowerIf()`, deferred patching
+- `tests/integration/continue_e2e_test.zig` - New E2E test (3 tests)
+- `build.zig` - Added `test-continue-e2e` step
+
+---
+
 ### User-Defined Function Calls End-to-End (RESOLVED 2026-01-25)
 
 **Status**: ✅ Complete (5/5 E2E tests passing)
