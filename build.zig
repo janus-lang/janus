@@ -1450,6 +1450,27 @@ pub fn build(b: *std.Build) void {
     test_for_loop_e2e_step.dependOn(&run_for_loop_e2e_tests.step);
     test_step.dependOn(&run_for_loop_e2e_tests.step);
 
+    // Add If/Else End-to-End Integration Test (Epic 1.6)
+    const if_else_e2e_tests = b.addTest(.{
+        .name = "if_else_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/if_else_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    if_else_e2e_tests.linkLibC();
+    if_else_e2e_tests.linkSystemLibrary("LLVM-21");
+    if_else_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    if_else_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    if_else_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    if_else_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_if_else_e2e_tests = b.addRunArtifact(if_else_e2e_tests);
+
+    const test_if_else_e2e_step = b.step("test-if-else-e2e", "Run If/Else end-to-end integration test");
+    test_if_else_e2e_step.dependOn(&run_if_else_e2e_tests.step);
+    test_step.dependOn(&run_if_else_e2e_tests.step);
+
     if (enable_s0_extended) {
         const s0_neg = b.addTest(.{
             .name = "s0_negative_tests",

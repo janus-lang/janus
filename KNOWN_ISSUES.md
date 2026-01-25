@@ -6,6 +6,29 @@
 
 ## Resolved Issues
 
+### If/Else Conditionals End-to-End (RESOLVED 2026-01-25)
+
+**Status**: ✅ Complete (3/3 E2E tests passing)
+**Date Resolved**: 2026-01-25
+**Component**: Conditional Compilation Pipeline
+
+**Milestone**: If/else conditionals now compile and execute end-to-end.
+
+**Syntax Supported**:
+- If with else: `if condition do ... else do ... end`
+- If without else: `if condition do ... end`
+- All comparison operators: `> < >= <= == !=`
+
+**Features**:
+- Constant folding: `if 5 > 3` optimizes to direct branch
+- Proper control flow: Branch → TrueBlock → Merge, FalseBlock → Merge
+
+**Files Changed**:
+- `tests/integration/if_else_e2e_test.zig` - New E2E test
+- `build.zig` - Added `test-if-else-e2e` step
+
+---
+
 ### For Loop End-to-End Compilation (RESOLVED 2026-01-25)
 
 **Status**: ✅ Complete (2/2 E2E tests passing)
