@@ -458,6 +458,7 @@ fn convertTokenType(janus_type: tokenizer.TokenType) TokenKind {
         .use => .use_,
         .import_ => .import_,
         .extern_ => .extern_,
+        .zig_ => .zig_,
         .graft => .use_,
         .using => .using,
 
@@ -645,7 +646,7 @@ fn validateS0Tokens(unit: *astdb_core.CompilationUnit) !void {
 
 fn isTokenAllowedInS0(kind: TokenKind) bool {
     return switch (kind) {
-        .func, .return_, .identifier, .integer_literal, .float_literal, .string_literal, .true_, .false_, .left_paren, .right_paren, .left_brace, .right_brace, .semicolon, .comma, .newline, .eof, .left_bracket, .right_bracket, .let, .var_, .plus, .minus, .star, .star_star, .slash, .equal, .assign, .equal_equal, .not_equal, .less, .less_equal, .greater, .greater_equal, .colon, .if_, .else_, .arrow, .arrow_fat, .while_, .for_, .in_, .match, .when, .break_, .continue_, .defer_, .do_, .end, .struct_, .dot, .test_, .question, .optional_chain, .null_coalesce, .null_, .type_, .logical_and, .logical_or, .logical_not, .exclamation, .tilde, .bitwise_and, .bitwise_or, .bitwise_xor, .bitwise_not, .left_shift, .right_shift, .ampersand, .pipe, .caret, .range_inclusive, .range_exclusive, .walrus_assign, .percent, .and_, .or_, .not_, .pipeline, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign, .ampersand_assign, .pipe_assign, .xor_assign, .left_shift_assign, .right_shift_assign, .char_literal, .import_, .use_, .extern_ => true,
+        .func, .return_, .identifier, .integer_literal, .float_literal, .string_literal, .true_, .false_, .left_paren, .right_paren, .left_brace, .right_brace, .semicolon, .comma, .newline, .eof, .left_bracket, .right_bracket, .let, .var_, .plus, .minus, .star, .star_star, .slash, .equal, .assign, .equal_equal, .not_equal, .less, .less_equal, .greater, .greater_equal, .colon, .if_, .else_, .arrow, .arrow_fat, .while_, .for_, .in_, .match, .when, .break_, .continue_, .defer_, .do_, .end, .struct_, .dot, .test_, .question, .optional_chain, .null_coalesce, .null_, .type_, .logical_and, .logical_or, .logical_not, .exclamation, .tilde, .bitwise_and, .bitwise_or, .bitwise_xor, .bitwise_not, .left_shift, .right_shift, .ampersand, .pipe, .caret, .range_inclusive, .range_exclusive, .walrus_assign, .percent, .and_, .or_, .not_, .pipeline, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign, .ampersand_assign, .pipe_assign, .xor_assign, .left_shift_assign, .right_shift_assign, .char_literal, .import_, .use_, .extern_, .zig_ => true,
 
         else => false,
     };
@@ -979,7 +980,7 @@ fn parseUsingStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.As
     };
 }
 
-/// Parse use statement: use module.path OR graft alias = origin "module"
+/// Parse use statement: use module.path OR use zig "path.zig" OR graft alias = origin "module"
 fn parseUseStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) !astdb_core.AstNode {
     const start_token = parser.current;
 
@@ -993,6 +994,35 @@ fn parseUseStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstN
     }
 
     const children_start = @as(u32, @intCast(nodes.items.len));
+
+    // NEW: Branch 0: use zig "path.zig" - Native Zig module import
+    if (parser.match(.zig_)) {
+        _ = parser.advance(); // consume 'zig'
+
+        // Expect string literal for path
+        _ = try parser.consume(.string_literal);
+        const path_node = astdb_core.AstNode{
+            .kind = .string_literal,
+            .first_token = @enumFromInt(parser.current - 1),
+            .last_token = @enumFromInt(parser.current - 1),
+            .child_lo = 0,
+            .child_hi = 0,
+        };
+        try nodes.append(parser.allocator, path_node);
+
+        // Optional semicolon
+        if (parser.match(.semicolon)) {
+            _ = parser.advance();
+        }
+
+        return astdb_core.AstNode{
+            .kind = .use_zig,
+            .first_token = @enumFromInt(start_token),
+            .last_token = @enumFromInt(parser.current - 1),
+            .child_lo = children_start,
+            .child_hi = @as(u32, @intCast(nodes.items.len)),
+        };
+    }
 
     // Branch 1: graft form — alias = origin "module" [;]
     if (parser.peek()) |t1| {

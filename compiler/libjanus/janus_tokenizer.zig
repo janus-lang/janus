@@ -42,6 +42,7 @@ pub const TokenType = enum {
     use,
     import_, // import keyword for modules
     extern_, // extern keyword for external function declarations
+    zig_, // zig keyword for native Zig module imports
     graft, // First-class graft keyword
     foreign, // First-class foreign keyword
     using, // Added for parser logic support
@@ -751,6 +752,7 @@ pub const Tokenizer = struct {
             .{ "use", .use },
             .{ "import", .import_ },
             .{ "extern", .extern_ },
+            .{ "zig", .zig_ },
             .{ "graft", .graft },
             .{ "true", .true },
             .{ "false", .false },

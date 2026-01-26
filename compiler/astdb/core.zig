@@ -113,6 +113,7 @@ pub const Token = struct {
         as_,
         use_,
         extern_,
+        zig_,
         graft,
         in_,
         and_,
@@ -253,6 +254,7 @@ pub const AstNode = struct {
         using_decl,
         use_stmt,
         use_selective, // use module.{item1, item2} selective imports
+        use_zig, // use zig "path.zig" - native Zig module import
         import_stmt,
         test_decl, // PROBATIO: Integrated verification
 
