@@ -475,6 +475,11 @@ fn convertTokenType(janus_type: tokenizer.TokenType) TokenKind {
         .invariant => .invariant,
         .ghost => .ghost,
 
+        // :core profile - Error handling
+        .error_ => .error_,
+        .fail_ => .fail_,
+        .catch_ => .catch_,
+
         // Literals
         .identifier => .identifier,
         .number => .integer_literal,
@@ -646,7 +651,7 @@ fn validateS0Tokens(unit: *astdb_core.CompilationUnit) !void {
 
 fn isTokenAllowedInS0(kind: TokenKind) bool {
     return switch (kind) {
-        .func, .return_, .identifier, .integer_literal, .float_literal, .string_literal, .true_, .false_, .left_paren, .right_paren, .left_brace, .right_brace, .semicolon, .comma, .newline, .eof, .left_bracket, .right_bracket, .let, .var_, .plus, .minus, .star, .star_star, .slash, .equal, .assign, .equal_equal, .not_equal, .less, .less_equal, .greater, .greater_equal, .colon, .if_, .else_, .arrow, .arrow_fat, .while_, .for_, .in_, .match, .when, .break_, .continue_, .defer_, .do_, .end, .struct_, .dot, .test_, .question, .optional_chain, .null_coalesce, .null_, .type_, .logical_and, .logical_or, .logical_not, .exclamation, .tilde, .bitwise_and, .bitwise_or, .bitwise_xor, .bitwise_not, .left_shift, .right_shift, .ampersand, .pipe, .caret, .range_inclusive, .range_exclusive, .walrus_assign, .percent, .and_, .or_, .not_, .pipeline, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign, .ampersand_assign, .pipe_assign, .xor_assign, .left_shift_assign, .right_shift_assign, .char_literal, .import_, .use_, .extern_, .zig_ => true,
+        .func, .return_, .identifier, .integer_literal, .float_literal, .string_literal, .true_, .false_, .left_paren, .right_paren, .left_brace, .right_brace, .semicolon, .comma, .newline, .eof, .left_bracket, .right_bracket, .let, .var_, .plus, .minus, .star, .star_star, .slash, .equal, .assign, .equal_equal, .not_equal, .less, .less_equal, .greater, .greater_equal, .colon, .if_, .else_, .arrow, .arrow_fat, .while_, .for_, .in_, .match, .when, .break_, .continue_, .defer_, .do_, .end, .struct_, .dot, .test_, .question, .optional_chain, .null_coalesce, .null_, .type_, .logical_and, .logical_or, .logical_not, .exclamation, .tilde, .bitwise_and, .bitwise_or, .bitwise_xor, .bitwise_not, .left_shift, .right_shift, .ampersand, .pipe, .caret, .range_inclusive, .range_exclusive, .walrus_assign, .percent, .and_, .or_, .not_, .pipeline, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign, .ampersand_assign, .pipe_assign, .xor_assign, .left_shift_assign, .right_shift_assign, .char_literal, .import_, .use_, .extern_, .zig_, .error_, .fail_, .catch_ => true,
 
         else => false,
     };
@@ -708,6 +713,11 @@ fn parseCompilationUnit(parser: *ParserState) !void {
             const struct_index = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, struct_node);
             try top_level_declarations.append(parser.allocator, struct_index);
+        } else if (parser.match(.error_)) {
+            const error_node = try parseErrorDeclaration(parser, nodes);
+            const error_index = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, error_node);
+            try top_level_declarations.append(parser.allocator, error_index);
         } else if (parser.match(.extern_)) {
             const extern_node = try parseExternFuncDeclaration(parser, nodes);
             const extern_index = @as(u32, @intCast(nodes.items.len));
@@ -878,6 +888,91 @@ fn parseStructDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_core
     };
 
     return struct_node;
+}
+
+/// Parse error declaration: error ErrorType { Variant1, Variant2, ... }
+fn parseErrorDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) !astdb_core.AstNode {
+    const error_start_token = parser.current;
+
+    // Consume 'error' keyword
+    _ = try parser.consume(.error_);
+
+    // Parse error type name (required)
+    const name_token = parser.current;
+    _ = try parser.consume(.identifier);
+    const name_node = astdb_core.AstNode{
+        .kind = .identifier,
+        .first_token = @enumFromInt(name_token),
+        .last_token = @enumFromInt(name_token),
+        .child_lo = 0,
+        .child_hi = 0,
+    };
+    const name_idx = @as(u32, @intCast(nodes.items.len));
+    try nodes.append(parser.allocator, name_node);
+
+    // Consume '{'
+    _ = try parser.consume(.left_brace);
+
+    // Parse variants: Variant1, Variant2, ...
+    const variants_start = @as(u32, @intCast(nodes.items.len));
+    while (!parser.match(.right_brace) and parser.peek() != null) {
+        // Skip newlines
+        while (parser.match(.newline)) {
+            _ = parser.advance();
+        }
+
+        // Check for closing brace after newlines
+        if (parser.match(.right_brace)) break;
+
+        // Parse variant name
+        if (parser.match(.identifier)) {
+            const variant_token = parser.current;
+            _ = parser.advance();
+            const variant_node = astdb_core.AstNode{
+                .kind = .variant,
+                .first_token = @enumFromInt(variant_token),
+                .last_token = @enumFromInt(variant_token),
+                .child_lo = 0,
+                .child_hi = 0,
+            };
+            try nodes.append(parser.allocator, variant_node);
+
+            // Optional comma
+            if (parser.match(.comma)) {
+                _ = parser.advance();
+            }
+
+            // Skip newlines after comma
+            while (parser.match(.newline)) {
+                _ = parser.advance();
+            }
+        } else {
+            // Skip unexpected tokens
+            _ = parser.advance();
+        }
+    }
+
+    // Consume '}'
+    _ = try parser.consume(.right_brace);
+
+    // Build edges: name + variants
+    const child_lo = @as(u32, @intCast(parser.edges.items.len));
+    try parser.edges.append(parser.allocator, @enumFromInt(name_idx));
+    for (variants_start..@as(u32, @intCast(nodes.items.len))) |i| {
+        try parser.edges.append(parser.allocator, @enumFromInt(i));
+    }
+    const child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+    // Create error declaration node
+    const error_node = astdb_core.AstNode{
+        .kind = .error_decl,
+        .first_token = @enumFromInt(error_start_token),
+        .last_token = @enumFromInt(parser.current - 1),
+        .child_lo = child_lo,
+        .child_hi = child_hi,
+    };
+
+    return error_node;
 }
 
 /// Parse import statement: import module.path;
@@ -1248,7 +1343,7 @@ fn parseType(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) er
     const base_type = try parseTypePrimary(parser, nodes);
 
     // Check for error union: T ! E
-    if (parser.match(.exclaim)) {
+    if (parser.match(.exclamation)) {
         _ = parser.advance();
 
         // Append base type to nodes
@@ -2277,8 +2372,8 @@ fn parseReturnStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
     var return_edges = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 1);
     defer return_edges.deinit(parser.allocator);
 
-    // Parse expression if present (not semicolon or block end)
-    if (!parser.match(.semicolon) and !parser.match(.right_brace) and !parser.match(.end) and !parser.match(.eof)) {
+    // Parse expression if present (not semicolon, newline, or block end)
+    if (!parser.match(.semicolon) and !parser.match(.newline) and !parser.match(.right_brace) and !parser.match(.end) and !parser.match(.eof)) {
         const expr = try parseExpression(parser, nodes, .none);
         const expr_idx = @as(u32, @intCast(nodes.items.len));
         try nodes.append(parser.allocator, expr);
@@ -2454,18 +2549,13 @@ fn parseFunctionDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_co
     // Consume ')'
     _ = try parser.consume(.right_paren);
 
-    // Skip return type annotation if present (-> type)
+    // Parse return type annotation if present (-> type)
+    var return_type_node: ?astdb_core.AstNode = null;
     if (parser.current < parser.tokens.len and
         parser.tokens[parser.current].kind == .arrow)
     {
-        parser.current += 1; // skip ->
-        // Skip the return type
-        while (parser.current < parser.tokens.len and
-            parser.tokens[parser.current].kind != .do_ and
-            parser.tokens[parser.current].kind != .left_brace)
-        {
-            parser.current += 1;
-        }
+        _ = parser.advance(); // consume ->
+        return_type_node = try parseType(parser, nodes);
     }
 
     // Calculate child indices - start with name and parameters
@@ -2489,6 +2579,13 @@ fn parseFunctionDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_co
     for (parameters.items) |param_node| {
         const idx = @as(u32, @intCast(parser.nodes.items.len));
         try parser.nodes.append(parser.allocator, param_node);
+        try func_edges.append(parser.allocator, @enumFromInt(idx));
+    }
+
+    // Add return type node if present
+    if (return_type_node) |ret_type| {
+        const idx = @as(u32, @intCast(parser.nodes.items.len));
+        try parser.nodes.append(parser.allocator, ret_type);
         try func_edges.append(parser.allocator, @enumFromInt(idx));
     }
 
@@ -2991,15 +3088,9 @@ fn parseExpression(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNod
                 const expr_idx = @as(u32, @intCast(parser.nodes.items.len));
                 try parser.nodes.append(parser.allocator, left);
 
-                // Optional error variable binding: catch |err|
-                var has_binding = false;
-                if (parser.match(.pipe)) {
-                    _ = parser.advance(); // consume '|'
-                    has_binding = true;
-                    // Error variable identifier (we'll store it for semantic analysis)
-                    _ = try parser.consume(.identifier);
-                    _ = try parser.consume(.pipe);
-                }
+                // Error variable binding: catch err { ... }
+                // The identifier is required (not optional)
+                _ = try parser.consume(.identifier);
 
                 // Parse catch block
                 _ = try parser.consume(.left_brace);

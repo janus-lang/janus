@@ -861,6 +861,24 @@ pub fn build(b: *std.Build) void {
     test_while_stmt_step.dependOn(&run_while_stmt_tests.step);
     test_step.dependOn(&run_while_stmt_tests.step);
 
+    // Error Handling Syntax Tests (:core profile)
+    const error_syntax_tests = b.addTest(.{
+        .name = "error_syntax_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/specs/test_error_syntax.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    error_syntax_tests.root_module.addIncludePath(b.path("."));
+    error_syntax_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    error_syntax_tests.root_module.addImport("astdb_core", astdb_core_mod);
+
+    const run_error_syntax_tests = b.addRunArtifact(error_syntax_tests);
+    const test_error_syntax_step = b.step("test-error-syntax", "Run Error Handling Syntax tests");
+    test_error_syntax_step.dependOn(&run_error_syntax_tests.step);
+    test_step.dependOn(&run_error_syntax_tests.step);
+
     // Full Stack Verification
     const verify_tests = b.addTest(.{
         .name = "full_stack_verify",
@@ -1481,6 +1499,47 @@ pub fn build(b: *std.Build) void {
     const test_hello_world_e2e_step = b.step("test-hello-world-e2e", "Run Hello World end-to-end integration test");
     test_hello_world_e2e_step.dependOn(&run_hello_world_e2e_tests.step);
     test_step.dependOn(&run_hello_world_e2e_tests.step);
+
+    // Error Handling End-to-End Integration Test (:core profile)
+    const error_handling_e2e_tests = b.addTest(.{
+        .name = "error_handling_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/error_handling_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    error_handling_e2e_tests.linkLibC();
+    error_handling_e2e_tests.linkSystemLibrary("LLVM-21");
+    error_handling_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    error_handling_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    error_handling_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    error_handling_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_error_handling_e2e_tests = b.addRunArtifact(error_handling_e2e_tests);
+
+    const test_error_handling_e2e_step = b.step("test-error-handling-e2e", "Run Error Handling end-to-end integration test");
+    test_error_handling_e2e_step.dependOn(&run_error_handling_e2e_tests.step);
+    test_step.dependOn(&run_error_handling_e2e_tests.step);
+
+    // Add jfind End-to-End Integration Test (Native Zig Grafting)
+    const jfind_e2e_tests = b.addTest(.{
+        .name = "jfind_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/jfind_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    jfind_e2e_tests.linkLibC();
+    jfind_e2e_tests.linkSystemLibrary("LLVM-21");
+    jfind_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    jfind_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    jfind_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    jfind_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_jfind_e2e_tests = b.addRunArtifact(jfind_e2e_tests);
+
+    const test_jfind_e2e_step = b.step("test-jfind-e2e", "Run jfind end-to-end integration test");
+    test_jfind_e2e_step.dependOn(&run_jfind_e2e_tests.step);
 
     // Add For Loop End-to-End Integration Test (Epic 1.5)
     const for_loop_e2e_tests = b.addTest(.{

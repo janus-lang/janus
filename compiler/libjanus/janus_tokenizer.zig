@@ -75,6 +75,7 @@ pub const TokenType = enum {
     test_, // PROBATIO test keyword
 
     // Error handling keywords (:core profile)
+    error_, // error ErrorType { Variant } - error type declaration
     fail_, // fail ErrorType.Variant
     catch_, // expr catch err { ... }
 
@@ -789,6 +790,7 @@ pub const Tokenizer = struct {
             .{ "test", .test_ },
 
             // Error handling (:core profile)
+            .{ "error", .error_ },
             .{ "fail", .fail_ },
             .{ "catch", .catch_ },
         });
