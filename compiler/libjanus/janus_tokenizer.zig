@@ -41,6 +41,7 @@ pub const TokenType = enum {
     @"return",
     use,
     import_, // import keyword for modules
+    extern_, // extern keyword for external function declarations
     graft, // First-class graft keyword
     foreign, // First-class foreign keyword
     using, // Added for parser logic support
@@ -749,6 +750,7 @@ pub const Tokenizer = struct {
             .{ "return", .@"return" },
             .{ "use", .use },
             .{ "import", .import_ },
+            .{ "extern", .extern_ },
             .{ "graft", .graft },
             .{ "true", .true },
             .{ "false", .false },

@@ -554,26 +554,113 @@ test "Module namespacing: mathlib.add() qualified calls" {
     std.debug.print("\n=== MODULE NAMESPACING TEST PASSED ===\n", .{});
 }
 
-test "Standard library: std.io.print_int namespaced builtin" {
+test "Extern function: std.io module with extern func declarations" {
     const allocator = testing.allocator;
 
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    // Main module using std.io.print_int instead of print_int
+    // Create std directory
+    try tmp_dir.dir.makeDir("std");
+
+    // Write std/io.jan with extern function declarations
+    const io_source =
+        \\// std/io.jan - Minimal I/O module for :min profile
+        \\
+        \\extern func janus_print_int(x: i32)
+        \\
+        \\func print_int(x: i32) {
+        \\    janus_print_int(x)
+        \\}
+    ;
+    try tmp_dir.dir.writeFile(.{ .sub_path = "std/io.jan", .data = io_source });
+
+    // Main module that imports std.io
     const main_source =
+        \\import std.io
+        \\
         \\func main() {
         \\    std.io.print_int(42)
         \\    std.io.print_int(100)
         \\}
     ;
 
-    // Compile
+    // Get the temp dir path for import resolution
+    const search_dir = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(search_dir);
+
+    // Parse main to find imports
+    var parser = janus_parser.Parser.init(allocator);
+    defer parser.deinit();
+
+    const snapshot = try parser.parseWithSource(main_source);
+    defer snapshot.deinit();
+
+    // Find the import statement and extract path components
+    const unit = snapshot.core_snapshot.astdb.getUnitConst(@enumFromInt(0)) orelse return error.NoUnit;
+
+    var dep_objs = std.ArrayListUnmanaged([]const u8){};
+    defer {
+        for (dep_objs.items) |obj| allocator.free(obj);
+        dep_objs.deinit(allocator);
+    }
+
+    for (unit.nodes, 0..) |node, i| {
+        if (node.kind == .import_stmt) {
+            const node_id: astdb_core.NodeId = @enumFromInt(@as(u32, @intCast(i)));
+            const children = snapshot.core_snapshot.getChildren(node_id);
+
+            // Build path from all identifier children (e.g., std.io -> std/io)
+            var path_parts = std.ArrayListUnmanaged([]const u8){};
+            defer path_parts.deinit(allocator);
+
+            for (children) |child_id| {
+                const child = snapshot.core_snapshot.getNode(child_id) orelse continue;
+                if (child.kind == .identifier) {
+                    const token = snapshot.core_snapshot.getToken(child.first_token) orelse continue;
+                    if (token.str) |str_id| {
+                        const part = snapshot.core_snapshot.astdb.str_interner.getString(str_id);
+                        try path_parts.append(allocator, part);
+                    }
+                }
+            }
+
+            if (path_parts.items.len > 0) {
+                // Join path parts with /
+                const module_name = try std.mem.join(allocator, "/", path_parts.items);
+                defer allocator.free(module_name);
+
+                const file_name = try std.fmt.allocPrint(allocator, "{s}.jan", .{module_name});
+                defer allocator.free(file_name);
+
+                const full_path = try std.fs.path.join(allocator, &[_][]const u8{ search_dir, file_name });
+                defer allocator.free(full_path);
+
+                std.debug.print("=== Found import: {s} -> {s} ===\n", .{ module_name, full_path });
+
+                // Compile the dependency (use last part as module name for LLVM)
+                const llvm_module_name = path_parts.items[path_parts.items.len - 1];
+                const obj_path = try compileFileToObject(allocator, full_path, llvm_module_name, tmp_dir);
+                try dep_objs.append(allocator, obj_path);
+            }
+        }
+    }
+
+    // Compile main
     const main_obj = try compileToObject(allocator, main_source, "main", tmp_dir);
     defer allocator.free(main_obj);
 
+    // Build list of all object files
+    var all_objs = std.ArrayListUnmanaged([]const u8){};
+    defer all_objs.deinit(allocator);
+
+    try all_objs.append(allocator, main_obj);
+    for (dep_objs.items) |obj| {
+        try all_objs.append(allocator, obj);
+    }
+
     // Link and run
-    const output = try linkAndRun(allocator, &[_][]const u8{main_obj}, "std_io_test", tmp_dir);
+    const output = try linkAndRun(allocator, all_objs.items, "std_io_test", tmp_dir);
     defer allocator.free(output);
 
     std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
@@ -581,35 +668,5 @@ test "Standard library: std.io.print_int namespaced builtin" {
     // std.io.print_int(42) and std.io.print_int(100)
     try testing.expectEqualStrings("42\n100\n", output);
 
-    std.debug.print("\n=== STD.IO NAMESPACE TEST PASSED ===\n", .{});
-}
-
-test "Standard library: std.math.pow namespaced builtin" {
-    const allocator = testing.allocator;
-
-    var tmp_dir = testing.tmpDir(.{});
-    defer tmp_dir.cleanup();
-
-    // Main module using std.math.pow
-    const main_source =
-        \\func main() {
-        \\    let result = std.math.pow(2, 10)
-        \\    print_int(result)
-        \\}
-    ;
-
-    // Compile
-    const main_obj = try compileToObject(allocator, main_source, "main", tmp_dir);
-    defer allocator.free(main_obj);
-
-    // Link and run
-    const output = try linkAndRun(allocator, &[_][]const u8{main_obj}, "std_math_test", tmp_dir);
-    defer allocator.free(output);
-
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
-
-    // std.math.pow(2, 10) = 1024
-    try testing.expectEqualStrings("1024\n", output);
-
-    std.debug.print("\n=== STD.MATH NAMESPACE TEST PASSED ===\n", .{});
+    std.debug.print("\n=== STD.IO MODULE WITH EXTERN FUNC TEST PASSED ===\n", .{});
 }

@@ -112,6 +112,7 @@ pub const Token = struct {
         import_,
         as_,
         use_,
+        extern_,
         graft,
         in_,
         and_,
@@ -243,6 +244,7 @@ pub const AstNode = struct {
         // Top-level items
         source_file,
         func_decl,
+        extern_func, // External function declaration (no body)
         struct_decl,
         union_decl,
         enum_decl,

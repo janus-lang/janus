@@ -457,6 +457,7 @@ fn convertTokenType(janus_type: tokenizer.TokenType) TokenKind {
         .not => .not_,
         .use => .use_,
         .import_ => .import_,
+        .extern_ => .extern_,
         .graft => .use_,
         .using => .using,
 
@@ -644,7 +645,7 @@ fn validateS0Tokens(unit: *astdb_core.CompilationUnit) !void {
 
 fn isTokenAllowedInS0(kind: TokenKind) bool {
     return switch (kind) {
-        .func, .return_, .identifier, .integer_literal, .float_literal, .string_literal, .true_, .false_, .left_paren, .right_paren, .left_brace, .right_brace, .semicolon, .comma, .newline, .eof, .left_bracket, .right_bracket, .let, .var_, .plus, .minus, .star, .star_star, .slash, .equal, .assign, .equal_equal, .not_equal, .less, .less_equal, .greater, .greater_equal, .colon, .if_, .else_, .arrow, .arrow_fat, .while_, .for_, .in_, .match, .when, .break_, .continue_, .defer_, .do_, .end, .struct_, .dot, .test_, .question, .optional_chain, .null_coalesce, .null_, .type_, .logical_and, .logical_or, .logical_not, .exclamation, .tilde, .bitwise_and, .bitwise_or, .bitwise_xor, .bitwise_not, .left_shift, .right_shift, .ampersand, .pipe, .caret, .range_inclusive, .range_exclusive, .walrus_assign, .percent, .and_, .or_, .not_, .pipeline, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign, .ampersand_assign, .pipe_assign, .xor_assign, .left_shift_assign, .right_shift_assign, .char_literal, .import_, .use_ => true,
+        .func, .return_, .identifier, .integer_literal, .float_literal, .string_literal, .true_, .false_, .left_paren, .right_paren, .left_brace, .right_brace, .semicolon, .comma, .newline, .eof, .left_bracket, .right_bracket, .let, .var_, .plus, .minus, .star, .star_star, .slash, .equal, .assign, .equal_equal, .not_equal, .less, .less_equal, .greater, .greater_equal, .colon, .if_, .else_, .arrow, .arrow_fat, .while_, .for_, .in_, .match, .when, .break_, .continue_, .defer_, .do_, .end, .struct_, .dot, .test_, .question, .optional_chain, .null_coalesce, .null_, .type_, .logical_and, .logical_or, .logical_not, .exclamation, .tilde, .bitwise_and, .bitwise_or, .bitwise_xor, .bitwise_not, .left_shift, .right_shift, .ampersand, .pipe, .caret, .range_inclusive, .range_exclusive, .walrus_assign, .percent, .and_, .or_, .not_, .pipeline, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign, .ampersand_assign, .pipe_assign, .xor_assign, .left_shift_assign, .right_shift_assign, .char_literal, .import_, .use_, .extern_ => true,
 
         else => false,
     };
@@ -706,6 +707,11 @@ fn parseCompilationUnit(parser: *ParserState) !void {
             const struct_index = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, struct_node);
             try top_level_declarations.append(parser.allocator, struct_index);
+        } else if (parser.match(.extern_)) {
+            const extern_node = try parseExternFuncDeclaration(parser, nodes);
+            const extern_index = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, extern_node);
+            try top_level_declarations.append(parser.allocator, extern_index);
         } else if (parser.match(.func)) {
             const func_node = try parseFunctionDeclaration(parser, nodes);
             const func_index = @as(u32, @intCast(nodes.items.len));
@@ -2396,6 +2402,137 @@ fn parseFunctionDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_co
     };
 
     return func_node;
+}
+
+/// Parse extern function declaration: extern func name(params) -> type
+fn parseExternFuncDeclaration(parser: *ParserState, _: *std.ArrayList(astdb_core.AstNode)) !astdb_core.AstNode {
+    const start_token = parser.current;
+
+    // Consume 'extern' keyword
+    _ = try parser.consume(.extern_);
+
+    // Consume 'func' keyword
+    _ = try parser.consume(.func);
+
+    // Function name (required for extern)
+    _ = try parser.consume(.identifier);
+    const name_token_index = parser.current - 1;
+
+    // Consume '('
+    _ = try parser.consume(.left_paren);
+
+    // Parse parameters
+    var parameters = try std.ArrayList(astdb_core.AstNode).initCapacity(parser.allocator, 0);
+    defer parameters.deinit(parser.allocator);
+
+    while (parser.current < parser.tokens.len and
+        parser.tokens[parser.current].kind != .right_paren)
+    {
+        if (parser.tokens[parser.current].kind == .identifier) {
+            const param_node = astdb_core.AstNode{
+                .kind = .parameter,
+                .first_token = @enumFromInt(parser.current),
+                .last_token = @enumFromInt(parser.current),
+                .child_lo = 0,
+                .child_hi = 0,
+            };
+            try parameters.append(parser.allocator, param_node);
+
+            _ = parser.advance();
+
+            // Consume ':' and type if present
+            if (parser.current < parser.tokens.len and
+                parser.tokens[parser.current].kind == .colon)
+            {
+                _ = parser.advance();
+                // Skip type tokens until comma or right paren
+                while (parser.current < parser.tokens.len and
+                    parser.tokens[parser.current].kind != .comma and
+                    parser.tokens[parser.current].kind != .right_paren)
+                {
+                    _ = parser.advance();
+                }
+            }
+
+            // Consume comma if present
+            if (parser.current < parser.tokens.len and
+                parser.tokens[parser.current].kind == .comma)
+            {
+                _ = parser.advance();
+            }
+        } else {
+            _ = parser.advance();
+        }
+    }
+
+    // Consume ')'
+    _ = try parser.consume(.right_paren);
+
+    // Skip return type annotation if present (-> type)
+    if (parser.current < parser.tokens.len and
+        parser.tokens[parser.current].kind == .arrow)
+    {
+        parser.current += 1; // skip ->
+        // Skip the return type until newline or semicolon
+        while (parser.current < parser.tokens.len and
+            parser.tokens[parser.current].kind != .semicolon and
+            parser.tokens[parser.current].kind != .func and
+            parser.tokens[parser.current].kind != .extern_ and
+            parser.tokens[parser.current].kind != .let and
+            parser.tokens[parser.current].kind != .const_ and
+            parser.tokens[parser.current].kind != .eof)
+        {
+            // Stop at tokens that indicate next declaration
+            const kind = parser.tokens[parser.current].kind;
+            if (kind == .identifier) {
+                // Check if this is the start of a new declaration by peeking
+                // If next token after identifier is '(' or ':', it's still part of type
+                if (parser.current + 1 < parser.tokens.len) {
+                    const next = parser.tokens[parser.current + 1].kind;
+                    if (next != .left_paren and next != .colon and next != .left_bracket and next != .dot) {
+                        break;
+                    }
+                }
+            }
+            parser.current += 1;
+        }
+    }
+
+    // Build edges for function name and parameters
+    var func_edges = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 0);
+    defer func_edges.deinit(parser.allocator);
+
+    // Add name node
+    const func_name_node = astdb_core.AstNode{
+        .kind = .identifier,
+        .first_token = @enumFromInt(name_token_index),
+        .last_token = @enumFromInt(name_token_index),
+        .child_lo = 0,
+        .child_hi = 0,
+    };
+    const name_idx = @as(u32, @intCast(parser.nodes.items.len));
+    try parser.nodes.append(parser.allocator, func_name_node);
+    try func_edges.append(parser.allocator, @enumFromInt(name_idx));
+
+    // Add parameter nodes
+    for (parameters.items) |param_node| {
+        const idx = @as(u32, @intCast(parser.nodes.items.len));
+        try parser.nodes.append(parser.allocator, param_node);
+        try func_edges.append(parser.allocator, @enumFromInt(idx));
+    }
+
+    const child_lo = @as(u32, @intCast(parser.edges.items.len));
+    try parser.edges.appendSlice(parser.allocator, func_edges.items);
+    const child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+    // No body for extern functions
+    return astdb_core.AstNode{
+        .kind = .extern_func,
+        .first_token = @enumFromInt(start_token),
+        .last_token = @enumFromInt(parser.current - 1),
+        .child_lo = child_lo,
+        .child_hi = child_hi,
+    };
 }
 
 /// Operator precedence levels for Pratt parser
