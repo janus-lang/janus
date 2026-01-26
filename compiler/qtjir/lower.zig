@@ -8,6 +8,7 @@ const astdb = @import("astdb_core"); // Using the same name as in tests for now
 const graph = @import("graph.zig");
 const builtin_calls = @import("builtin_calls.zig");
 const trace = @import("trace.zig");
+const extern_registry = @import("extern_registry.zig");
 
 // Defer System Types
 const DeferredAction = struct {
@@ -188,6 +189,55 @@ pub const LoweringContext = struct {
     }
 };
 
+/// Result of lowering with external function registry
+/// For native Zig integration during bootstrap phase
+pub const LoweringResult = struct {
+    graphs: std.ArrayListUnmanaged(QTJIRGraph),
+    extern_registry: extern_registry.ExternRegistry,
+
+    pub fn deinit(self: *LoweringResult, allocator: std.mem.Allocator) void {
+        for (self.graphs.items) |*g| g.deinit();
+        self.graphs.deinit(allocator);
+        self.extern_registry.deinit();
+    }
+};
+
+/// Lower a compilation unit to QTJIR with external function tracking
+/// Returns graphs and an extern registry populated from `use zig` imports
+pub fn lowerUnitWithExterns(allocator: std.mem.Allocator, snapshot: *const Snapshot, unit_id: UnitId, source_dir: ?[]const u8) !LoweringResult {
+    var result = LoweringResult{
+        .graphs = .{},
+        .extern_registry = extern_registry.ExternRegistry.init(allocator),
+    };
+    errdefer result.deinit(allocator);
+
+    const unit = snapshot.astdb.getUnitConst(unit_id) orelse return error.InvalidUnitId;
+
+    // First pass: Process use_zig nodes to populate extern registry
+    for (unit.nodes) |node| {
+        if (node.kind == .use_zig) {
+            try processUseZig(allocator, snapshot, &node, &result.extern_registry, source_dir);
+        }
+    }
+
+    // Second pass: Lower function declarations
+    for (unit.nodes, 0..) |node, i| {
+        const node_id: NodeId = @enumFromInt(@as(u32, @intCast(i)));
+
+        if (node.kind == .func_decl) {
+            if (try lowerFunctionToGraph(allocator, snapshot, unit_id, node_id, &node)) |ir_graph| {
+                try result.graphs.append(allocator, ir_graph);
+            }
+        } else if (node.kind == .test_decl) {
+            if (try lowerTestToGraph(allocator, snapshot, unit_id, node_id, &node)) |ir_graph| {
+                try result.graphs.append(allocator, ir_graph);
+            }
+        }
+    }
+
+    return result;
+}
+
 /// Lower a compilation unit to QTJIR
 /// For now, this assumes a single main function and returns its graph
 pub fn lowerUnit(allocator: std.mem.Allocator, snapshot: *const Snapshot, unit_id: UnitId) !std.ArrayListUnmanaged(QTJIRGraph) {
@@ -272,6 +322,154 @@ pub fn lowerUnit(allocator: std.mem.Allocator, snapshot: *const Snapshot, unit_i
     }
 
     return graphs;
+}
+
+/// Process a `use zig "path.zig"` node and populate the extern registry
+fn processUseZig(
+    allocator: std.mem.Allocator,
+    snapshot: *const Snapshot,
+    node: *const AstNode,
+    registry: *extern_registry.ExternRegistry,
+    source_dir: ?[]const u8,
+) !void {
+    // Get the path string from the use_zig node's children
+    // use_zig node has: [origin identifier "zig", string literal "path.zig"]
+    const child_lo = node.child_lo;
+    const child_hi = node.child_hi;
+
+    // Find the string literal child (path to Zig file)
+    var path_str: ?[]const u8 = null;
+    var i: u32 = child_lo;
+    while (i < child_hi) : (i += 1) {
+        const child_id: NodeId = @enumFromInt(i);
+        const child = snapshot.getNode(child_id) orelse continue;
+        if (child.kind == .string_literal) {
+            const token = snapshot.getToken(child.first_token) orelse continue;
+            if (token.str) |str_id| {
+                path_str = snapshot.astdb.str_interner.getString(str_id);
+                break;
+            }
+        }
+    }
+
+    const raw_path = path_str orelse return;
+
+    // Strip quotes from the path if present (string literals include quotes)
+    const zig_path = if (raw_path.len >= 2 and raw_path[0] == '"' and raw_path[raw_path.len - 1] == '"')
+        raw_path[1 .. raw_path.len - 1]
+    else
+        raw_path;
+
+    // Resolve full path relative to source directory
+    const relative_path = if (source_dir) |dir|
+        try std.fs.path.join(allocator, &[_][]const u8{ dir, zig_path })
+    else
+        try allocator.dupe(u8, zig_path);
+    defer allocator.free(relative_path);
+
+    // Convert to absolute path for registry (so it works from any directory)
+    const full_path = std.fs.cwd().realpathAlloc(allocator, relative_path) catch |err| {
+        std.debug.print("Warning: Could not resolve Zig module path '{s}': {s}\n", .{ relative_path, @errorName(err) });
+        return;
+    };
+    defer allocator.free(full_path);
+
+    // Read the Zig file
+    const zig_source = std.fs.cwd().readFileAlloc(
+        allocator,
+        full_path,
+        10 * 1024 * 1024, // 10MB max
+    ) catch |err| {
+        std.debug.print("Warning: Could not read Zig module '{s}': {s}\n", .{ full_path, @errorName(err) });
+        return;
+    };
+    defer allocator.free(zig_source);
+
+    // Register functions from the Zig source
+    const count = registry.registerZigSource(full_path, zig_source) catch |err| {
+        std.debug.print("Warning: Could not parse Zig module '{s}': {s}\n", .{ full_path, @errorName(err) });
+        return;
+    };
+
+    if (count > 0) {
+        std.debug.print("Registered {d} functions from Zig module '{s}'\n", .{ count, zig_path });
+    }
+}
+
+/// Lower a function declaration to a QTJIR graph
+fn lowerFunctionToGraph(
+    allocator: std.mem.Allocator,
+    snapshot: *const Snapshot,
+    unit_id: UnitId,
+    node_id: NodeId,
+    node: *const AstNode,
+) !?QTJIRGraph {
+    const children = snapshot.getChildren(node_id);
+    if (children.len == 0) return null;
+
+    const name_node = snapshot.getNode(children[0]) orelse return null;
+    if (name_node.kind != .identifier) return null;
+
+    const token = snapshot.getToken(name_node.first_token) orelse return null;
+    const name = if (token.str) |str_id| snapshot.astdb.str_interner.getString(str_id) else return null;
+
+    var ir_graph = QTJIRGraph.initWithName(allocator, name);
+    var ctx = LoweringContext.init(allocator, snapshot, unit_id, &ir_graph);
+    defer ctx.deinit();
+
+    try ctx.pushScope(.Function);
+    defer {
+        if (ctx.defer_stack.items.len > 0) {
+            var actions = ctx.defer_stack.pop().?.actions;
+            for (actions.items) |*a| {
+                a.args.deinit(ctx.allocator);
+                ctx.allocator.free(a.builtin_name);
+            }
+            actions.deinit(ctx.allocator);
+        }
+    }
+
+    try lowerFuncDecl(&ctx, node_id, node);
+    return ir_graph;
+}
+
+/// Lower a test declaration to a QTJIR graph
+fn lowerTestToGraph(
+    allocator: std.mem.Allocator,
+    snapshot: *const Snapshot,
+    unit_id: UnitId,
+    node_id: NodeId,
+    node: *const AstNode,
+) !?QTJIRGraph {
+    const children = snapshot.getChildren(node_id);
+    if (children.len == 0) return null;
+
+    const name_node = snapshot.getNode(children[0]) orelse return null;
+    if (name_node.kind != .string_literal) return null;
+
+    const token = snapshot.getToken(name_node.first_token) orelse return null;
+    const raw_name = if (token.str) |str_id| snapshot.astdb.str_interner.getString(str_id) else return null;
+
+    const name = try std.fmt.allocPrint(allocator, "test:{s}", .{raw_name});
+
+    var ir_graph = QTJIRGraph.initWithName(allocator, name);
+    var ctx = LoweringContext.init(allocator, snapshot, unit_id, &ir_graph);
+    defer ctx.deinit();
+
+    try ctx.pushScope(.Function);
+    defer {
+        if (ctx.defer_stack.items.len > 0) {
+            var actions = ctx.defer_stack.pop().?.actions;
+            for (actions.items) |*a| {
+                a.args.deinit(ctx.allocator);
+                ctx.allocator.free(a.builtin_name);
+            }
+            actions.deinit(ctx.allocator);
+        }
+    }
+
+    try lowerTestDecl(&ctx, node_id, node);
+    return ir_graph;
 }
 
 // Lower a test declaration

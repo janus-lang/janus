@@ -22,7 +22,9 @@ const astdb_core = @import("astdb_core");
 
 /// Embedded Zig runtime source - Maximum Sovereignty
 /// The compiler is self-contained and carries its own pure Zig runtime.
-const RUNTIME_SOURCE_ZIG = @embedFile("janus_rt.zig");
+/// Imported from runtime/ directory via build.zig anonymous import.
+const janus_runtime_embed = @import("janus_runtime_embed");
+const RUNTIME_SOURCE_ZIG = janus_runtime_embed.source;
 
 /// Compilation result
 pub const CompilationResult = struct {
@@ -113,17 +115,17 @@ pub const Pipeline = struct {
             std.debug.print("Lowering to QTJIR...\n", .{});
         }
 
+        // Get source directory for resolving `use zig` relative paths
+        const source_dir = std.fs.path.dirname(self.options.source_path);
+
         const unit_id: astdb_core.UnitId = @enumFromInt(0);
-        var ir_graphs = qtjir.lower.lowerUnit(allocator, &snapshot.core_snapshot, unit_id) catch |err| {
+        var lowering_result = qtjir.lowerUnitWithExterns(allocator, &snapshot.core_snapshot, unit_id, source_dir) catch |err| {
             std.debug.print("Lowering error: {s}\n", .{@errorName(err)});
             return CompileError.LoweringFailed;
         };
-        defer {
-            for (ir_graphs.items) |*g| g.deinit();
-            ir_graphs.deinit(allocator);
-        }
+        defer lowering_result.deinit(allocator);
 
-        if (ir_graphs.items.len == 0) {
+        if (lowering_result.graphs.items.len == 0) {
             std.debug.print("Error: No functions generated\n", .{});
             return CompileError.LoweringFailed;
         }
@@ -139,7 +141,10 @@ pub const Pipeline = struct {
         };
         defer emitter.deinit();
 
-        emitter.emit(ir_graphs.items) catch |err| {
+        // Set extern registry for native Zig function resolution
+        emitter.setExternRegistry(&lowering_result.extern_registry);
+
+        emitter.emit(lowering_result.graphs.items) catch |err| {
             std.debug.print("LLVM emit error: {s}\n", .{@errorName(err)});
             return CompileError.EmitFailed;
         };
@@ -240,6 +245,65 @@ pub const Pipeline = struct {
             else => return CompileError.LinkFailed,
         }
 
+        // ========== STAGE 6b: COMPILE ZIG MODULES FROM `use zig` ==========
+        var zig_module_objs = std.ArrayListUnmanaged([]const u8){};
+        defer {
+            for (zig_module_objs.items) |path| allocator.free(path);
+            zig_module_objs.deinit(allocator);
+        }
+
+        // Get registered Zig module paths from extern registry
+        if (self.options.verbose) {
+            std.debug.print("Registered Zig paths: {d}\n", .{lowering_result.extern_registry.registered_paths.count()});
+        }
+        var path_it = lowering_result.extern_registry.registered_paths.keyIterator();
+        while (path_it.next()) |zig_path| {
+            if (self.options.verbose) {
+                std.debug.print("Compiling Zig module: {s}\n", .{zig_path.*});
+            }
+
+            // Create unique object file name
+            const basename = std.fs.path.basename(zig_path.*);
+            const name_without_ext = if (std.mem.lastIndexOf(u8, basename, ".")) |idx|
+                basename[0..idx]
+            else
+                basename;
+            const module_obj_name = try std.fmt.allocPrint(allocator, "{s}.o", .{name_without_ext});
+            defer allocator.free(module_obj_name);
+
+            const module_obj_path = try std.fs.path.join(allocator, &[_][]const u8{ tmp_path, module_obj_name });
+            try zig_module_objs.append(allocator, module_obj_path);
+
+            const module_emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{module_obj_path});
+            defer allocator.free(module_emit_arg);
+
+            const module_compile_result = try std.process.Child.run(.{
+                .allocator = allocator,
+                .argv = &[_][]const u8{
+                    "zig",
+                    "build-obj",
+                    zig_path.*,
+                    "-O",
+                    "ReleaseSafe",
+                    "-fno-stack-check",
+                    "-lc",
+                    module_emit_arg,
+                },
+            });
+            defer allocator.free(module_compile_result.stdout);
+            defer allocator.free(module_compile_result.stderr);
+
+            switch (module_compile_result.term) {
+                .Exited => |code| {
+                    if (code != 0) {
+                        std.debug.print("Zig module compilation failed ({s}):\n{s}\n", .{ zig_path.*, module_compile_result.stderr });
+                        return CompileError.LinkFailed;
+                    }
+                },
+                else => return CompileError.LinkFailed,
+            }
+        }
+
         // ========== STAGE 7: LINK OBJECT FILES → EXECUTABLE ==========
         if (self.options.verbose) {
             std.debug.print("Linking executable...\n", .{});
@@ -258,16 +322,22 @@ pub const Pipeline = struct {
             break :blk try allocator.dupe(u8, name_without_ext);
         };
 
+        // Build link arguments: main object + runtime + all zig modules
+        var link_argv = std.ArrayListUnmanaged([]const u8){};
+        defer link_argv.deinit(allocator);
+        try link_argv.append(allocator, "cc");
+        try link_argv.append(allocator, obj_file_path);
+        try link_argv.append(allocator, runtime_obj_path);
+        for (zig_module_objs.items) |mod_obj| {
+            try link_argv.append(allocator, mod_obj);
+        }
+        try link_argv.append(allocator, "-o");
+        try link_argv.append(allocator, output_path);
+
         // Link with cc (still needed for startup code)
         const link_result = try std.process.Child.run(.{
             .allocator = allocator,
-            .argv = &[_][]const u8{
-                "cc",
-                obj_file_path,
-                runtime_obj_path,
-                "-o",
-                output_path,
-            },
+            .argv = link_argv.items,
         });
         defer allocator.free(link_result.stdout);
         defer allocator.free(link_result.stderr);
