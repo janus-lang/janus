@@ -1692,6 +1692,27 @@ pub fn build(b: *std.Build) void {
     test_array_e2e_step.dependOn(&run_array_e2e_tests.step);
     test_step.dependOn(&run_array_e2e_tests.step);
 
+    // Import/Module E2E Tests
+    const import_e2e_tests = b.addTest(.{
+        .name = "import_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/import_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    import_e2e_tests.linkLibC();
+    import_e2e_tests.linkSystemLibrary("LLVM-21");
+    import_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    import_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    import_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    import_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_import_e2e_tests = b.addRunArtifact(import_e2e_tests);
+
+    const test_import_e2e_step = b.step("test-import-e2e", "Run Import/Module end-to-end integration test");
+    test_import_e2e_step.dependOn(&run_import_e2e_tests.step);
+    test_step.dependOn(&run_import_e2e_tests.step);
+
     // Unary Operators E2E Tests
     const unary_e2e_tests = b.addTest(.{
         .name = "unary_e2e_tests",

@@ -43,6 +43,68 @@ pub const ErrorCategory = enum {
     style,
 };
 
+/// Inference context - describes WHERE the type mismatch occurred
+pub const InferenceContext = enum {
+    /// Variable/let declaration with type annotation
+    assignment,
+    /// Function call argument
+    argument,
+    /// Return statement vs function signature
+    return_value,
+    /// Binary operator operands
+    binary_op,
+    /// Unary operator operand
+    unary_op,
+    /// Array/slice indexing
+    index_access,
+    /// Struct field access
+    field_access,
+    /// Condition in if/while/match
+    condition,
+    /// Array literal element type mismatch
+    array_element,
+    /// Match arm result type
+    match_arm,
+    /// Generic constraint violation
+    generic_constraint,
+    /// Unknown/general context
+    unknown,
+
+    pub fn toString(self: InferenceContext) []const u8 {
+        return switch (self) {
+            .assignment => "variable assignment",
+            .argument => "function argument",
+            .return_value => "return statement",
+            .binary_op => "binary operation",
+            .unary_op => "unary operation",
+            .index_access => "index access",
+            .field_access => "field access",
+            .condition => "condition expression",
+            .array_element => "array element",
+            .match_arm => "match arm",
+            .generic_constraint => "generic constraint",
+            .unknown => "expression",
+        };
+    }
+
+    pub fn getErrorCode(self: InferenceContext) []const u8 {
+        return switch (self) {
+            .assignment => "E3001",
+            .argument => "E3002",
+            .return_value => "E3003",
+            .binary_op => "E3004",
+            .unary_op => "E3005",
+            .index_access => "E3006",
+            .field_access => "E3007",
+            .condition => "E3008",
+            .array_element => "E3009",
+            .match_arm => "E3010",
+            .generic_constraint => "E3011",
+            .unknown => "E3000",
+        };
+    }
+};
+
 /// Diagnostic suggestion with confidence level
 pub const DiagnosticSuggestion = struct {
     message: []const u8,
@@ -197,17 +259,129 @@ pub const ErrorManager = struct {
         actual_type: []const u8,
         span: SourceSpan,
     ) !bool {
+        // Delegate to context-aware version with unknown context
+        return self.reportTypeMismatchWithContext(
+            expected_type,
+            actual_type,
+            span,
+            null,
+            .unknown,
+            null,
+        );
+    }
+
+    /// Report type mismatch with full context information
+    /// - context: WHERE the mismatch occurred (assignment, argument, return, etc.)
+    /// - declaration_span: Optional span pointing to WHY the expected type was required
+    /// - extra_note: Optional additional note (e.g., "argument 2 of function `foo`")
+    pub fn reportTypeMismatchWithContext(
+        self: *ErrorManager,
+        expected_type: []const u8,
+        actual_type: []const u8,
+        primary_span: SourceSpan,
+        declaration_span: ?SourceSpan,
+        context: InferenceContext,
+        extra_note: ?[]const u8,
+    ) !bool {
+        var secondary_spans = ArrayList(SourceSpan).init(self.allocator);
+        defer secondary_spans.deinit();
+
+        var notes = ArrayList([]const u8).init(self.allocator);
+        defer notes.deinit();
+
+        var suggestions = ArrayList(DiagnosticSuggestion).init(self.allocator);
+        defer suggestions.deinit();
+
+        // Add declaration span if provided
+        if (declaration_span) |decl_span| {
+            try secondary_spans.append(decl_span);
+        }
+
+        // Build context-aware message
+        const message = try std.fmt.allocPrint(
+            self.allocator,
+            "Type mismatch in {s}: expected `{s}`, found `{s}`",
+            .{ context.toString(), expected_type, actual_type },
+        );
+
+        // Add extra note if provided
+        if (extra_note) |note| {
+            try notes.append(try self.allocator.dupe(u8, note));
+        }
+
+        // Generate cast suggestions based on types
+        if (try self.generateCastSuggestion(expected_type, actual_type)) |suggestion| {
+            try suggestions.append(suggestion);
+        }
+
         const diagnostic = Diagnostic{
             .severity = .@"error",
             .category = .type_system,
-            .code = try self.allocator.dupe(u8, "E002"),
-            .message = try std.fmt.allocPrint(self.allocator, "Type mismatch: expected '{s}', found '{s}'", .{ expected_type, actual_type }),
-            .primary_span = span,
-            .secondary_spans = &.{},
-            .suggestions = &.{},
-            .notes = &.{},
+            .code = try self.allocator.dupe(u8, context.getErrorCode()),
+            .message = message,
+            .primary_span = primary_span,
+            .secondary_spans = try secondary_spans.toOwnedSlice(),
+            .suggestions = try suggestions.toOwnedSlice(),
+            .notes = try notes.toOwnedSlice(),
         };
         return self.addDiagnostic(diagnostic);
+    }
+
+    /// Generate cast suggestion based on type pair
+    fn generateCastSuggestion(
+        self: *ErrorManager,
+        expected_type: []const u8,
+        actual_type: []const u8,
+    ) !?DiagnosticSuggestion {
+        // Integer widening: i32 -> i64
+        if (isIntegerType(actual_type) and isIntegerType(expected_type)) {
+            if (getIntegerWidth(actual_type) < getIntegerWidth(expected_type)) {
+                return DiagnosticSuggestion{
+                    .message = try std.fmt.allocPrint(
+                        self.allocator,
+                        "Consider widening with `as {s}` or `@intCast(value)`",
+                        .{expected_type},
+                    ),
+                    .replacement_span = null,
+                    .replacement_text = null,
+                    .confidence = 0.9,
+                };
+            } else {
+                // Narrowing - warn about potential truncation
+                return DiagnosticSuggestion{
+                    .message = try std.fmt.allocPrint(
+                        self.allocator,
+                        "Narrowing from `{s}` to `{s}` may truncate. Use `@truncate(value)` if intentional.",
+                        .{ actual_type, expected_type },
+                    ),
+                    .replacement_span = null,
+                    .replacement_text = null,
+                    .confidence = 0.7,
+                };
+            }
+        }
+
+        // Float to int
+        if (isFloatType(actual_type) and isIntegerType(expected_type)) {
+            return DiagnosticSuggestion{
+                .message = try self.allocator.dupe(u8, "Use `@floatToInt(value)` to convert. Note: this will truncate the fractional part."),
+                .replacement_span = null,
+                .replacement_text = null,
+                .confidence = 0.8,
+            };
+        }
+
+        // Int to float
+        if (isIntegerType(actual_type) and isFloatType(expected_type)) {
+            return DiagnosticSuggestion{
+                .message = try self.allocator.dupe(u8, "Use `@intToFloat(value)` to convert."),
+                .replacement_span = null,
+                .replacement_text = null,
+                .confidence = 0.9,
+            };
+        }
+
+        return null;
     }
 
     pub fn reportInitializationError(
@@ -414,6 +588,34 @@ fn levenshteinDistance(a: []const u8, b: []const u8) usize {
     return prev_row[b.len];
 }
 
+// Type classification helpers for cast suggestions
+fn isIntegerType(type_name: []const u8) bool {
+    const integer_types = [_][]const u8{
+        "i8",    "i16",   "i32", "i64", "i128",
+        "u8",    "u16",   "u32", "u64", "u128",
+        "isize", "usize",
+    };
+    for (integer_types) |int_type| {
+        if (std.mem.eql(u8, type_name, int_type)) return true;
+    }
+    return false;
+}
+
+fn isFloatType(type_name: []const u8) bool {
+    return std.mem.eql(u8, type_name, "f32") or
+        std.mem.eql(u8, type_name, "f64") or
+        std.mem.eql(u8, type_name, "f16") or
+        std.mem.eql(u8, type_name, "f128");
+}
+
+fn getIntegerWidth(type_name: []const u8) u16 {
+    if (type_name.len < 2) return 0;
+    // Skip 'i' or 'u' prefix
+    const width_str = type_name[1..];
+    if (std.mem.eql(u8, width_str, "size")) return 64; // Assume 64-bit platform
+    return std.fmt.parseInt(u16, width_str, 10) catch 0;
+}
+
 // ============================================================================
 // TESTS
 // ============================================================================
@@ -454,7 +656,7 @@ test "type mismatch error generation" {
         .file_path = "test.jan",
     };
 
-    // Test type mismatch reporting
+    // Test type mismatch reporting (legacy API, delegates to context-aware)
     const reported = try error_manager.reportTypeMismatch("i64", "i32", test_span);
     try std.testing.expect(reported);
 
@@ -463,6 +665,75 @@ test "type mismatch error generation" {
 
     const diagnostic = &error_manager.diagnostics.items[0];
     try std.testing.expect(diagnostic.category == .type_system);
-    try std.testing.expect(std.mem.indexOf(u8, diagnostic.message, "expected 'i64'") != null);
-    try std.testing.expect(std.mem.indexOf(u8, diagnostic.message, "found 'i32'") != null);
+    // New format uses backticks
+    try std.testing.expect(std.mem.indexOf(u8, diagnostic.message, "expected `i64`") != null);
+    try std.testing.expect(std.mem.indexOf(u8, diagnostic.message, "found `i32`") != null);
+}
+
+test "context-aware type mismatch with suggestions" {
+    const allocator = std.testing.allocator;
+
+    var error_manager = ErrorManager.init(allocator);
+    defer error_manager.deinit();
+
+    const primary_span = SourceSpan{
+        .start = source_span_utils.SourcePosition{ .line = 5, .column = 18, .offset = 100 },
+        .end = source_span_utils.SourcePosition{ .line = 5, .column = 28, .offset = 110 },
+        .file_path = "test.jan",
+    };
+
+    const declaration_span = SourceSpan{
+        .start = source_span_utils.SourcePosition{ .line = 5, .column = 10, .offset = 92 },
+        .end = source_span_utils.SourcePosition{ .line = 5, .column = 13, .offset = 95 },
+        .file_path = "test.jan",
+    };
+
+    // Test context-aware reporting with assignment context
+    const reported = try error_manager.reportTypeMismatchWithContext(
+        "i64",
+        "i32",
+        primary_span,
+        declaration_span,
+        .assignment,
+        "in variable `count`",
+    );
+    try std.testing.expect(reported);
+
+    const diagnostic = &error_manager.diagnostics.items[0];
+
+    // Check error code matches context
+    try std.testing.expectEqualStrings("E3001", diagnostic.code);
+
+    // Check message includes context
+    try std.testing.expect(std.mem.indexOf(u8, diagnostic.message, "variable assignment") != null);
+
+    // Check secondary span was added
+    try std.testing.expect(diagnostic.secondary_spans.len == 1);
+
+    // Check note was added
+    try std.testing.expect(diagnostic.notes.len == 1);
+    try std.testing.expect(std.mem.indexOf(u8, diagnostic.notes[0], "count") != null);
+
+    // Check suggestion was generated (integer widening)
+    try std.testing.expect(diagnostic.suggestions.len == 1);
+    try std.testing.expect(std.mem.indexOf(u8, diagnostic.suggestions[0].message, "widening") != null);
+}
+
+test "type helper functions" {
+    // Test integer type detection
+    try std.testing.expect(isIntegerType("i32"));
+    try std.testing.expect(isIntegerType("u64"));
+    try std.testing.expect(isIntegerType("isize"));
+    try std.testing.expect(!isIntegerType("f32"));
+    try std.testing.expect(!isIntegerType("String"));
+
+    // Test float type detection
+    try std.testing.expect(isFloatType("f32"));
+    try std.testing.expect(isFloatType("f64"));
+    try std.testing.expect(!isFloatType("i32"));
+
+    // Test integer width extraction
+    try std.testing.expectEqual(@as(u16, 32), getIntegerWidth("i32"));
+    try std.testing.expectEqual(@as(u16, 64), getIntegerWidth("u64"));
+    try std.testing.expectEqual(@as(u16, 64), getIntegerWidth("isize"));
 }

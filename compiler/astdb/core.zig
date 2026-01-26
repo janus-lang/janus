@@ -112,6 +112,8 @@ pub const Token = struct {
         import_,
         as_,
         use_,
+        extern_,
+        zig_,
         graft,
         in_,
         and_,
@@ -243,6 +245,7 @@ pub const AstNode = struct {
         // Top-level items
         source_file,
         func_decl,
+        extern_func, // External function declaration (no body)
         struct_decl,
         union_decl,
         enum_decl,
@@ -250,6 +253,8 @@ pub const AstNode = struct {
         impl_decl,
         using_decl,
         use_stmt,
+        use_selective, // use module.{item1, item2} selective imports
+        use_zig, // use zig "path.zig" - native Zig module import
         import_stmt,
         test_decl, // PROBATIO: Integrated verification
 
@@ -281,6 +286,8 @@ pub const AstNode = struct {
         unary_expr,
         call_expr,
         index_expr,
+        slice_inclusive_expr, // Slice: arr[start..end] (inclusive)
+        slice_exclusive_expr, // Slice: arr[start..<end] (exclusive)
         field_expr,
         cast_expr,
         paren_expr,

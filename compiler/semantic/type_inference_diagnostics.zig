@@ -26,7 +26,7 @@ pub const TypeInferenceDiagnostics = struct {
     type_system: *TypeSystem,
     astdb: *astdb.AstDB,
     unit_id: UnitId,
-    
+
     pub fn init(
         error_manager: *ErrorManager,
         type_system: *TypeSystem,
@@ -40,29 +40,49 @@ pub const TypeInferenceDiagnostics = struct {
             .unit_id = unit_id,
         };
     }
-    
-    /// Report type mismatch error
+
+    /// Report type mismatch error (legacy - uses unknown context)
     pub fn reportTypeMismatch(
         self: *TypeInferenceDiagnostics,
         expected: TypeId,
         actual: TypeId,
         node_id: NodeId,
     ) !void {
+        try self.reportTypeMismatchWithContext(expected, actual, node_id, null, .unknown, null);
+    }
+
+    /// Report type mismatch with context information
+    /// - context: WHERE the mismatch occurred (assignment, argument, return, etc.)
+    /// - declaration_node_id: Optional node pointing to WHY the expected type was required
+    /// - extra_note: Optional additional note (e.g., "argument 2 of function `foo`")
+    pub fn reportTypeMismatchWithContext(
+        self: *TypeInferenceDiagnostics,
+        expected: TypeId,
+        actual: TypeId,
+        node_id: NodeId,
+        declaration_node_id: ?NodeId,
+        context: ErrorManager.InferenceContext,
+        extra_note: ?[]const u8,
+    ) !void {
         const expected_name = try self.getTypeName(expected);
         defer self.error_manager.allocator.free(expected_name);
-        
+
         const actual_name = try self.getTypeName(actual);
         defer self.error_manager.allocator.free(actual_name);
-        
-        const span = self.getNodeSpan(node_id);
-        
-        _ = try self.error_manager.reportTypeMismatch(
+
+        const primary_span = self.getNodeSpan(node_id);
+        const declaration_span = if (declaration_node_id) |decl_id| self.getNodeSpan(decl_id) else null;
+
+        _ = try self.error_manager.reportTypeMismatchWithContext(
             expected_name,
             actual_name,
-            span,
+            primary_span,
+            declaration_span,
+            context,
+            extra_note,
         );
     }
-    
+
     /// Report invalid operator error
     pub fn reportInvalidOperator(
         self: *TypeInferenceDiagnostics,
@@ -73,18 +93,18 @@ pub const TypeInferenceDiagnostics = struct {
     ) !void {
         const left_name = try self.getTypeName(left_type);
         defer self.error_manager.allocator.free(left_name);
-        
+
         const right_name = try self.getTypeName(right_type);
         defer self.error_manager.allocator.free(right_name);
-        
+
         const message = try std.fmt.allocPrint(
             self.error_manager.allocator,
             "Invalid operator '{s}' for types '{s}' and '{s}'",
             .{ operator, left_name, right_name },
         );
-        
+
         const span = self.getNodeSpan(node_id);
-        
+
         _ = try self.error_manager.reportError(
             .type_system,
             "E004",
@@ -92,8 +112,8 @@ pub const TypeInferenceDiagnostics = struct {
             span,
         );
     }
-    
-    /// Report array type mismatch
+
+    /// Report array type mismatch using context-aware reporting
     pub fn reportArrayTypeMismatch(
         self: *TypeInferenceDiagnostics,
         expected: TypeId,
@@ -101,29 +121,24 @@ pub const TypeInferenceDiagnostics = struct {
         element_index: usize,
         node_id: NodeId,
     ) !void {
-        const expected_name = try self.getTypeName(expected);
-        defer self.error_manager.allocator.free(expected_name);
-        
-        const actual_name = try self.getTypeName(actual);
-        defer self.error_manager.allocator.free(actual_name);
-        
-        const message = try std.fmt.allocPrint(
+        const note = try std.fmt.allocPrint(
             self.error_manager.allocator,
-            "Array element {} has type '{s}', but expected '{s}'",
-            .{ element_index, actual_name, expected_name },
+            "element at index {} of array literal",
+            .{element_index},
         );
-        
-        const span = self.getNodeSpan(node_id);
-        
-        _ = try self.error_manager.reportError(
-            .type_system,
-            "E005",
-            message,
-            span,
+        defer self.error_manager.allocator.free(note);
+
+        try self.reportTypeMismatchWithContext(
+            expected,
+            actual,
+            node_id,
+            null,
+            .array_element,
+            note,
         );
     }
-    
-    /// Report match arm type mismatch
+
+    /// Report match arm type mismatch using context-aware reporting
     pub fn reportMatchArmMismatch(
         self: *TypeInferenceDiagnostics,
         expected: TypeId,
@@ -131,28 +146,23 @@ pub const TypeInferenceDiagnostics = struct {
         arm_index: usize,
         node_id: NodeId,
     ) !void {
-        const expected_name = try self.getTypeName(expected);
-        defer self.error_manager.allocator.free(expected_name);
-        
-        const actual_name = try self.getTypeName(actual);
-        defer self.error_manager.allocator.free(actual_name);
-        
-        const message = try std.fmt.allocPrint(
+        const note = try std.fmt.allocPrint(
             self.error_manager.allocator,
-            "Match arm {} returns '{s}', but expected '{s}'",
-            .{ arm_index, actual_name, expected_name },
+            "arm {} of match expression",
+            .{arm_index},
         );
-        
-        const span = self.getNodeSpan(node_id);
-        
-        _ = try self.error_manager.reportError(
-            .type_system,
-            "E006",
-            message,
-            span,
+        defer self.error_manager.allocator.free(note);
+
+        try self.reportTypeMismatchWithContext(
+            expected,
+            actual,
+            node_id,
+            null,
+            .match_arm,
+            note,
         );
     }
-    
+
     /// Report non-boolean condition error
     pub fn reportNonBooleanCondition(
         self: *TypeInferenceDiagnostics,
@@ -162,15 +172,15 @@ pub const TypeInferenceDiagnostics = struct {
     ) !void {
         const actual_name = try self.getTypeName(actual);
         defer self.error_manager.allocator.free(actual_name);
-        
+
         const message = try std.fmt.allocPrint(
             self.error_manager.allocator,
             "{s} condition must be boolean, found '{s}'",
             .{ context, actual_name },
         );
-        
+
         const span = self.getNodeSpan(node_id);
-        
+
         _ = try self.error_manager.reportError(
             .type_system,
             "E007",
@@ -178,11 +188,11 @@ pub const TypeInferenceDiagnostics = struct {
             span,
         );
     }
-    
+
     /// Get type name for display
     fn getTypeName(self: *TypeInferenceDiagnostics, type_id: TypeId) ![]const u8 {
         const type_info = self.type_system.getTypeInfo(type_id);
-        
+
         return switch (type_info.kind) {
             .primitive => |prim| try std.fmt.allocPrint(
                 self.error_manager.allocator,
@@ -192,7 +202,7 @@ pub const TypeInferenceDiagnostics = struct {
             .array => |arr| blk: {
                 const elem_name = try self.getTypeName(arr.element_type);
                 defer self.error_manager.allocator.free(elem_name);
-                
+
                 break :blk try std.fmt.allocPrint(
                     self.error_manager.allocator,
                     "[{s}; {}]",
@@ -202,7 +212,7 @@ pub const TypeInferenceDiagnostics = struct {
             .slice => |slice| blk: {
                 const elem_name = try self.getTypeName(slice.element_type);
                 defer self.error_manager.allocator.free(elem_name);
-                
+
                 break :blk try std.fmt.allocPrint(
                     self.error_manager.allocator,
                     "[{s}]",
@@ -212,7 +222,7 @@ pub const TypeInferenceDiagnostics = struct {
             .range => |range| blk: {
                 const elem_name = try self.getTypeName(range.element_type);
                 defer self.error_manager.allocator.free(elem_name);
-                
+
                 const op = if (range.is_inclusive) ".." else "..<";
                 break :blk try std.fmt.allocPrint(
                     self.error_manager.allocator,
@@ -232,7 +242,7 @@ pub const TypeInferenceDiagnostics = struct {
             ),
         };
     }
-    
+
     /// Get source span for a node
     fn getNodeSpan(self: *TypeInferenceDiagnostics, node_id: NodeId) SourceSpan {
         const node = self.astdb.getNode(self.unit_id, node_id) orelse {
@@ -242,7 +252,7 @@ pub const TypeInferenceDiagnostics = struct {
                 .file_path = "<unknown>",
             };
         };
-        
+
         // Get token information
         const first_token = self.astdb.getToken(self.unit_id, node.first_token) orelse {
             return SourceSpan{
@@ -251,9 +261,9 @@ pub const TypeInferenceDiagnostics = struct {
                 .file_path = "<unknown>",
             };
         };
-        
+
         const last_token = self.astdb.getToken(self.unit_id, node.last_token) orelse first_token;
-        
+
         return SourceSpan{
             .start = SourcePosition{
                 .line = first_token.span.line,

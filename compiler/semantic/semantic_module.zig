@@ -40,6 +40,7 @@ pub const ValidationMode = @import("validation_engine_arena_integration.zig").Va
 
 // Error management
 pub const ErrorManager = @import("error_manager.zig").ErrorManager;
+pub const InferenceContext = @import("error_manager.zig").InferenceContext;
 pub const ControlFlowValidator = @import("control_flow_validator.zig").ControlFlowValidator;
 pub const ControlFlowAnalyzer = @import("control_flow.zig").ControlFlowAnalyzer;
 pub const ControlFlowResult = @import("control_flow.zig").ControlFlowResult;

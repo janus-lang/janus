@@ -165,6 +165,37 @@ export fn janus_array_set_i32(array: [*]i32, index: usize, value: i32) callconv(
     array[index] = value;
 }
 
+/// Create a slice of an i32 array from start to end (exclusive)
+/// Returns a newly allocated array containing copied elements
+export fn janus_array_slice_i32(array: [*]const i32, start: i32, end: i32) callconv(.c) ?[*]i32 {
+    if (start < 0 or end < start) return null;
+
+    const start_idx: usize = @intCast(start);
+    const end_idx: usize = @intCast(end);
+    const count = end_idx - start_idx;
+
+    if (count == 0) {
+        // Return empty array (still needs valid pointer for safety)
+        const result = std.c.malloc(@sizeOf(i32)) orelse return null;
+        return @ptrCast(@alignCast(result));
+    }
+
+    const result = std.c.malloc(count * @sizeOf(i32)) orelse return null;
+    const result_slice: [*]i32 = @ptrCast(@alignCast(result));
+
+    // Copy elements
+    for (0..count) |i| {
+        result_slice[i] = array[start_idx + i];
+    }
+
+    return result_slice;
+}
+
+/// Create an inclusive slice of an i32 array from start to end (inclusive)
+export fn janus_array_slice_inclusive_i32(array: [*]const i32, start: i32, end: i32) callconv(.c) ?[*]i32 {
+    return janus_array_slice_i32(array, start, end + 1);
+}
+
 // ============================================================================
 // File I/O API - Using Zig std.fs
 // ============================================================================

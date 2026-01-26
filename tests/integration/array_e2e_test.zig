@@ -336,3 +336,51 @@ test "Epic 6.10: Array accumulator pattern" {
 
     std.debug.print("\n=== ARRAY ACCUMULATOR PATTERN PASSED ===\n", .{});
 }
+
+test "Epic 6.11: Array slicing exclusive - arr[1..<4]" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    let arr = [10, 20, 30, 40, 50]
+        \\    let slice = arr[1..<4]
+        \\    print_int(slice[0])
+        \\    print_int(slice[1])
+        \\    print_int(slice[2])
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "array_slice_exclusive");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // slice[0]=20, slice[1]=30, slice[2]=40
+    try testing.expectEqualStrings("20\n30\n40\n", output);
+
+    std.debug.print("\n=== ARRAY SLICING EXCLUSIVE PASSED ===\n", .{});
+}
+
+test "Epic 6.12: Array slicing inclusive - arr[1..3]" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() {
+        \\    let arr = [100, 200, 300, 400, 500]
+        \\    let slice = arr[1..3]
+        \\    print_int(slice[0])
+        \\    print_int(slice[1])
+        \\    print_int(slice[2])
+        \\}
+    ;
+
+    const output = try compileAndRun(allocator, source, "array_slice_inclusive");
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // slice[0]=200, slice[1]=300, slice[2]=400 (inclusive includes index 3)
+    try testing.expectEqualStrings("200\n300\n400\n", output);
+
+    std.debug.print("\n=== ARRAY SLICING INCLUSIVE PASSED ===\n", .{});
+}
