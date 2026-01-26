@@ -43,6 +43,13 @@ pub const errors = @import("compiler_errors");
 pub const Diagnostic = errors.Diagnostic;
 pub const DiagnosticCollector = errors.DiagnosticCollector;
 
+// Import Resolution
+pub const import_resolver = @import("import_resolver.zig");
+pub const ImportResolver = import_resolver.ImportResolver;
+pub const ImportInfo = import_resolver.ImportInfo;
+
+// Note: zig_parser is available as a separate module "zig_parser" for native Zig integration
+
 // Code Generation - :core profile
 pub const core_codegen = @import("core_profile_codegen.zig");
 pub const CoreProfileCodeGen = core_codegen.CoreProfileCodeGen;
