@@ -1239,7 +1239,41 @@ fn parseUseStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstN
 
 /// Parse a type expression
 /// Types: identifier, [N]T, []T, *T, ?T
+/// Parse a type expression, including error union types (T ! E)
 fn parseType(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) error{ UnexpectedToken, OutOfMemory }!astdb_core.AstNode {
+    const start_token = parser.current;
+
+    // Parse the primary type (payload type)
+    const base_type_idx = @as(u32, @intCast(nodes.items.len));
+    const base_type = try parseTypePrimary(parser, nodes);
+
+    // Check for error union: T ! E
+    if (parser.match(.exclaim)) {
+        _ = parser.advance();
+
+        // Append base type to nodes
+        try nodes.append(parser.allocator, base_type);
+
+        // Parse error type
+        const error_type = try parseTypePrimary(parser, nodes);
+        try nodes.append(parser.allocator, error_type);
+
+        const children_end = @as(u32, @intCast(nodes.items.len));
+
+        return astdb_core.AstNode{
+            .kind = .error_union_type,
+            .first_token = @enumFromInt(start_token),
+            .last_token = @enumFromInt(parser.current - 1),
+            .child_lo = base_type_idx,
+            .child_hi = children_end,
+        };
+    }
+
+    return base_type;
+}
+
+/// Parse a primary type (without error union handling)
+fn parseTypePrimary(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) error{ UnexpectedToken, OutOfMemory }!astdb_core.AstNode {
     const start_token = parser.current;
 
     // Array/Slice Type: [N]T or []T
@@ -1261,7 +1295,7 @@ fn parseType(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) er
         _ = try parser.consume(.right_bracket);
 
         // Parse element type
-        const elem_type = try parseType(parser, nodes);
+        const elem_type = try parseTypePrimary(parser, nodes);
         try nodes.append(parser.allocator, elem_type);
 
         const children_end = @as(u32, @intCast(nodes.items.len));
@@ -1279,7 +1313,7 @@ fn parseType(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) er
     if (parser.match(.star)) {
         _ = parser.advance();
         const children_start = @as(u32, @intCast(nodes.items.len));
-        const inner_type = try parseType(parser, nodes);
+        const inner_type = try parseTypePrimary(parser, nodes);
         try nodes.append(parser.allocator, inner_type);
         const children_end = @as(u32, @intCast(nodes.items.len));
 
@@ -1296,7 +1330,7 @@ fn parseType(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) er
     if (parser.match(.question)) {
         _ = parser.advance();
         const children_start = @as(u32, @intCast(nodes.items.len));
-        const inner_type = try parseType(parser, nodes);
+        const inner_type = try parseTypePrimary(parser, nodes);
         try nodes.append(parser.allocator, inner_type);
         const children_end = @as(u32, @intCast(nodes.items.len));
 
@@ -1484,6 +1518,12 @@ fn parseBlockStatements(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
             const return_stmt = try parseReturnStatement(parser, nodes);
             const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
             try parser.nodes.append(parser.allocator, return_stmt);
+            try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
+            supports_postfix_when = true;
+        } else if (parser.match(.fail_)) {
+            const fail_stmt = try parseFailStatement(parser, nodes);
+            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
+            try parser.nodes.append(parser.allocator, fail_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
             supports_postfix_when = true;
         } else if (parser.match(.requires)) {
@@ -2263,6 +2303,34 @@ fn parseReturnStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
     };
 }
 
+/// Parse fail statement: fail ErrorType.Variant
+fn parseFailStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) !astdb_core.AstNode {
+    const start_token = parser.current;
+    _ = try parser.consume(.fail_);
+
+    // Parse error value expression (e.g., ErrorType.Variant)
+    const error_expr = try parseExpression(parser, nodes, .none);
+    const error_idx = @as(u32, @intCast(nodes.items.len));
+    try nodes.append(parser.allocator, error_expr);
+
+    // Optional semicolon
+    if (parser.match(.semicolon)) {
+        _ = parser.advance();
+    }
+
+    const child_lo = @as(u32, @intCast(parser.edges.items.len));
+    try parser.edges.append(parser.allocator, @enumFromInt(error_idx));
+    const child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+    return astdb_core.AstNode{
+        .kind = .fail_stmt,
+        .first_token = @enumFromInt(start_token),
+        .last_token = @enumFromInt(parser.current - 1),
+        .child_lo = child_lo,
+        .child_hi = child_hi,
+    };
+}
+
 /// PROBATIO: Parse test declaration - test "name" do ... end
 fn parseTestDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) !astdb_core.AstNode {
     const start_token = parser.current;
@@ -2915,6 +2983,64 @@ fn parseExpression(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNod
                         .child_hi = child_hi,
                     };
                 }
+            },
+            .catch_ => {
+                // Parse catch expression: expr catch err { block }
+                _ = parser.advance(); // consume 'catch'
+
+                const expr_idx = @as(u32, @intCast(parser.nodes.items.len));
+                try parser.nodes.append(parser.allocator, left);
+
+                // Optional error variable binding: catch |err|
+                var has_binding = false;
+                if (parser.match(.pipe)) {
+                    _ = parser.advance(); // consume '|'
+                    has_binding = true;
+                    // Error variable identifier (we'll store it for semantic analysis)
+                    _ = try parser.consume(.identifier);
+                    _ = try parser.consume(.pipe);
+                }
+
+                // Parse catch block
+                _ = try parser.consume(.left_brace);
+                var catch_stmts = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 4);
+                defer catch_stmts.deinit(parser.allocator);
+
+                try parseBlockStatements(parser, nodes, &catch_stmts);
+                _ = try parser.consume(.right_brace);
+
+                // Build catch node
+                const child_lo = @as(u32, @intCast(parser.edges.items.len));
+                try parser.edges.append(parser.allocator, @enumFromInt(expr_idx));
+                try parser.edges.appendSlice(parser.allocator, catch_stmts.items);
+                const child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+                left = astdb_core.AstNode{
+                    .kind = .catch_expr,
+                    .first_token = left.first_token,
+                    .last_token = @enumFromInt(parser.current - 1),
+                    .child_lo = child_lo,
+                    .child_hi = child_hi,
+                };
+            },
+            .question => {
+                // Parse try operator: expr?
+                _ = parser.advance(); // consume '?'
+
+                const expr_idx = @as(u32, @intCast(parser.nodes.items.len));
+                try parser.nodes.append(parser.allocator, left);
+
+                const child_lo = @as(u32, @intCast(parser.edges.items.len));
+                try parser.edges.append(parser.allocator, @enumFromInt(expr_idx));
+                const child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+                left = astdb_core.AstNode{
+                    .kind = .try_expr,
+                    .first_token = left.first_token,
+                    .last_token = @enumFromInt(parser.current - 1),
+                    .child_lo = child_lo,
+                    .child_hi = child_hi,
+                };
             },
             else => break,
         }

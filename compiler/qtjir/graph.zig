@@ -37,6 +37,7 @@ pub const OpCode = enum {
     Index_Store, // Array element store: arr[i] = v
     Slice, // Array slice: arr[start..end] - returns slice struct
     SliceIndex, // Slice element access: slice[i] - calls runtime
+    SliceLen, // Get slice length: slice.len - extract from fat pointer
     Range, // Range construction: start .. end
     Struct_Construct, // Struct literal { f1: v1, f2: v2 }
     Struct_Alloca, // Struct allocation (mutable struct variable)
@@ -48,6 +49,13 @@ pub const OpCode = enum {
     Optional_Some, // Wrap value in optional: { tag: 1, value: v }
     Optional_Unwrap, // Unwrap optional (returns value, panics if none)
     Optional_Is_Some, // Check if optional has value: tag == 1
+
+    // --- Error Unions (Error Handling) ---
+    Error_Union_Construct, // Create error union from payload: { ok: value, is_error: 0 }
+    Error_Fail_Construct, // Create error union from error: { err: error, is_error: 1 }
+    Error_Union_Is_Error, // Check if error union is error: is_error == 1
+    Error_Union_Unwrap, // Unwrap payload (asserts not error, panics if error)
+    Error_Union_Get_Error, // Extract error value (asserts is_error)
 
     // --- Control Flow ---
     Call, // Function call

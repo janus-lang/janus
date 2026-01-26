@@ -74,6 +74,10 @@ pub const TokenType = enum {
     pub_, // Added pub keyword
     test_, // PROBATIO test keyword
 
+    // Error handling keywords (:core profile)
+    fail_, // fail ErrorType.Variant
+    catch_, // expr catch err { ... }
+
     // Operators
     plus, // +
     minus, // -
@@ -783,6 +787,10 @@ pub const Tokenizer = struct {
             .{ "where", .kw_where },
             .{ "pub", .pub_ },
             .{ "test", .test_ },
+
+            // Error handling (:core profile)
+            .{ "fail", .fail_ },
+            .{ "catch", .catch_ },
         });
 
         return keywords.get(text) orelse .identifier;

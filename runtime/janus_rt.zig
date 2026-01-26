@@ -74,6 +74,31 @@ export fn janus_panic(msg: [*:0]const u8) callconv(.c) noreturn {
     std.c.exit(1);
 }
 
+// ============================================================================
+// Error Handling API - :core profile
+// ============================================================================
+
+/// Print error name to stderr
+export fn janus_rt_print_error(error_name: [*:0]const u8) callconv(.c) void {
+    if (@intFromPtr(error_name) != 0) {
+        const name = std.mem.span(error_name);
+        std.debug.print("Error: {s}\n", .{name});
+    }
+}
+
+/// Panic on uncaught error with location information
+export fn janus_rt_panic_uncaught_error(
+    error_name: [*:0]const u8,
+    file: [*:0]const u8,
+    line: u32,
+) callconv(.c) noreturn {
+    const err_name = if (@intFromPtr(error_name) != 0) std.mem.span(error_name) else "(unknown)";
+    const file_name = if (@intFromPtr(file) != 0) std.mem.span(file) else "(unknown)";
+
+    std.debug.print("Uncaught error '{s}' at {s}:{d}\n", .{ err_name, file_name, line });
+    std.c.exit(1);
+}
+
 export fn janus_pow(base: i32, exp: i32) callconv(.c) i32 {
     if (exp < 0) return 0; // Integer power with negative exponent returns 0
     if (exp == 0) return 1;
