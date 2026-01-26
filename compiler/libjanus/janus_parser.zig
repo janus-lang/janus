@@ -644,7 +644,7 @@ fn validateS0Tokens(unit: *astdb_core.CompilationUnit) !void {
 
 fn isTokenAllowedInS0(kind: TokenKind) bool {
     return switch (kind) {
-        .func, .return_, .identifier, .integer_literal, .float_literal, .string_literal, .true_, .false_, .left_paren, .right_paren, .left_brace, .right_brace, .semicolon, .comma, .newline, .eof, .left_bracket, .right_bracket, .let, .var_, .plus, .minus, .star, .star_star, .slash, .equal, .assign, .equal_equal, .not_equal, .less, .less_equal, .greater, .greater_equal, .colon, .if_, .else_, .arrow, .arrow_fat, .while_, .for_, .in_, .match, .when, .break_, .continue_, .defer_, .do_, .end, .struct_, .dot, .test_, .question, .optional_chain, .null_coalesce, .null_, .type_, .logical_and, .logical_or, .logical_not, .exclamation, .tilde, .bitwise_and, .bitwise_or, .bitwise_xor, .bitwise_not, .left_shift, .right_shift, .ampersand, .pipe, .caret, .range_inclusive, .range_exclusive, .walrus_assign, .percent, .and_, .or_, .not_, .pipeline, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign, .ampersand_assign, .pipe_assign, .xor_assign, .left_shift_assign, .right_shift_assign, .char_literal, .import_ => true,
+        .func, .return_, .identifier, .integer_literal, .float_literal, .string_literal, .true_, .false_, .left_paren, .right_paren, .left_brace, .right_brace, .semicolon, .comma, .newline, .eof, .left_bracket, .right_bracket, .let, .var_, .plus, .minus, .star, .star_star, .slash, .equal, .assign, .equal_equal, .not_equal, .less, .less_equal, .greater, .greater_equal, .colon, .if_, .else_, .arrow, .arrow_fat, .while_, .for_, .in_, .match, .when, .break_, .continue_, .defer_, .do_, .end, .struct_, .dot, .test_, .question, .optional_chain, .null_coalesce, .null_, .type_, .logical_and, .logical_or, .logical_not, .exclamation, .tilde, .bitwise_and, .bitwise_or, .bitwise_xor, .bitwise_not, .left_shift, .right_shift, .ampersand, .pipe, .caret, .range_inclusive, .range_exclusive, .walrus_assign, .percent, .and_, .or_, .not_, .pipeline, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign, .ampersand_assign, .pipe_assign, .xor_assign, .left_shift_assign, .right_shift_assign, .char_literal, .import_, .use_ => true,
 
         else => false,
     };
@@ -1046,21 +1046,26 @@ fn parseUseStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstN
     }
 
     // Branch 2: use origin "module" [;] (also applies to graft without alias)
+    // Only match this if identifier is followed by string_literal, NOT by dot (path form)
     if (parser.peek()) |t2| {
         if (t2.kind == .identifier) {
-            // origin identifier (e.g., zig, c, python)
-            _ = try parser.consume(.identifier);
-            const origin_node = astdb_core.AstNode{
-                .kind = .identifier,
-                .first_token = @enumFromInt(parser.current - 1),
-                .last_token = @enumFromInt(parser.current - 1),
-                .child_lo = 0,
-                .child_hi = 0,
-            };
-            try nodes.append(parser.allocator, origin_node);
+            // Lookahead: if next token after identifier is dot, this is path form, not FFI
+            if (parser.tokens.len > parser.current + 1 and parser.tokens[parser.current + 1].kind == .dot) {
+                // Skip Branch 2, fall through to path form
+            } else {
+                // origin identifier (e.g., zig, c, python)
+                _ = try parser.consume(.identifier);
+                const origin_node = astdb_core.AstNode{
+                    .kind = .identifier,
+                    .first_token = @enumFromInt(parser.current - 1),
+                    .last_token = @enumFromInt(parser.current - 1),
+                    .child_lo = 0,
+                    .child_hi = 0,
+                };
+                try nodes.append(parser.allocator, origin_node);
 
-            // module string literal
-            if (parser.match(.string_literal)) {
+                // module string literal
+                if (parser.match(.string_literal)) {
                 _ = parser.advance();
                 const mod_node = astdb_core.AstNode{
                     .kind = .string_literal,
@@ -1083,14 +1088,16 @@ fn parseUseStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstN
                     .child_lo = children_start,
                     .child_hi = @as(u32, @intCast(nodes.items.len)),
                 };
+                }
             }
         }
     }
 
-    // Fallback: original path form: identifier ( . identifier )*
-    var path_nodes = try std.ArrayList(astdb_core.AstNode).initCapacity(parser.allocator, 0);
-    defer path_nodes.deinit(parser.allocator);
+    // Fallback: path form with optional selective imports
+    // use module.path OR use module.{item1, item2}
+    const edges_start = @as(u32, @intCast(parser.edges.items.len));
 
+    // Parse first identifier (module name)
     if (parser.peek()) |token| {
         if (token.kind == .identifier) {
             const id_node = astdb_core.AstNode{
@@ -1100,40 +1107,97 @@ fn parseUseStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstN
                 .child_lo = 0,
                 .child_hi = 0,
             };
-            try path_nodes.append(parser.allocator, id_node);
+            const id_idx = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, id_node);
+            try parser.edges.append(parser.allocator, @enumFromInt(id_idx));
             _ = parser.advance();
         }
     }
 
-    while (parser.peek()) |token| {
-        if (token.kind == .dot) {
-            _ = parser.advance();
-            if (parser.peek()) |next_token| {
-                if (next_token.kind == .identifier) {
-                    const id_node = astdb_core.AstNode{
+    // Parse remaining path components until we see .{ for selective imports
+    while (parser.match(.dot)) {
+        _ = parser.advance(); // consume dot
+
+        // Check for selective import syntax: .{item1, item2}
+        if (parser.match(.left_brace)) {
+            _ = parser.advance(); // consume {
+
+            // Parse list of selected identifiers
+            while (true) {
+                // Skip any newlines inside braces
+                while (parser.match(.newline)) {
+                    _ = parser.advance();
+                }
+
+                if (parser.match(.right_brace)) {
+                    _ = parser.advance(); // consume }
+                    break;
+                }
+
+                // Parse identifier
+                if (parser.match(.identifier)) {
+                    const item_node = astdb_core.AstNode{
                         .kind = .identifier,
                         .first_token = @enumFromInt(parser.current),
                         .last_token = @enumFromInt(parser.current),
                         .child_lo = 0,
                         .child_hi = 0,
                     };
-                    try path_nodes.append(parser.allocator, id_node);
-                    try nodes.append(parser.allocator, id_node);
+                    const item_idx = @as(u32, @intCast(nodes.items.len));
+                    try nodes.append(parser.allocator, item_node);
+                    try parser.edges.append(parser.allocator, @enumFromInt(item_idx));
                     _ = parser.advance();
                 }
-                break;
+
+                // Skip comma between items
+                if (parser.match(.comma)) {
+                    _ = parser.advance();
+                }
             }
+
+            // Optional semicolon
+            if (parser.match(.semicolon)) {
+                _ = parser.advance();
+            }
+
+            return astdb_core.AstNode{
+                .kind = .use_selective,
+                .first_token = @enumFromInt(start_token),
+                .last_token = @enumFromInt(parser.current - 1),
+                .child_lo = edges_start,
+                .child_hi = @as(u32, @intCast(parser.edges.items.len)),
+            };
         }
-        break;
+
+        // Regular path component
+        if (parser.match(.identifier)) {
+            const id_node = astdb_core.AstNode{
+                .kind = .identifier,
+                .first_token = @enumFromInt(parser.current),
+                .last_token = @enumFromInt(parser.current),
+                .child_lo = 0,
+                .child_hi = 0,
+            };
+            const id_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, id_node);
+            try parser.edges.append(parser.allocator, @enumFromInt(id_idx));
+            _ = parser.advance();
+        } else {
+            break;
+        }
+    }
+
+    // Optional semicolon
+    if (parser.match(.semicolon)) {
+        _ = parser.advance();
     }
 
     return astdb_core.AstNode{
         .kind = .use_stmt,
         .first_token = @enumFromInt(start_token),
         .last_token = @enumFromInt(parser.current - 1),
-        .child_lo = @intCast(nodes.items.len - path_nodes.items.len),
-        .child_hi = @as(u32, @intCast(nodes.items.len)),
+        .child_lo = edges_start,
+        .child_hi = @as(u32, @intCast(parser.edges.items.len)),
     };
 }
 

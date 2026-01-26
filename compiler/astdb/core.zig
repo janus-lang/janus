@@ -250,6 +250,7 @@ pub const AstNode = struct {
         impl_decl,
         using_decl,
         use_stmt,
+        use_selective, // use module.{item1, item2} selective imports
         import_stmt,
         test_decl, // PROBATIO: Integrated verification
 
