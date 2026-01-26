@@ -1,0 +1,10 @@
+// Example: Native Zig Integration
+// This demonstrates calling Zig functions from Janus
+
+use zig "mathlib.zig"
+
+func main() do
+    // Call Zig functions directly
+    let result = add(5, 3)
+    print(result)
+end

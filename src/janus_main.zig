@@ -554,12 +554,17 @@ pub fn main() !void {
         var verify_only = false;
         var verify_flag = false;
         var print_graph_cid = false;
+        var verbose_flag = false;
         var cache_root_opt: ?[]const u8 = null;
         var cache_flavor: []const u8 = "npu-O2";
         var src_idx_opt: ?usize = null;
         var output_path_opt: ?[]const u8 = null;
         var i: usize = 2;
         while (i < args.len) : (i += 1) {
+            if (std.mem.eql(u8, args[i], "--verbose") or std.mem.eql(u8, args[i], "-v")) {
+                verbose_flag = true;
+                continue;
+            }
             if (std.mem.eql(u8, args[i], "--emit=llvm")) {
                 emit_llvm = true;
                 continue;
@@ -661,12 +666,14 @@ pub fn main() !void {
             // Use new pipeline for :min profile (0.2.0 "Weihnachtsmann")
             // Fall back to old buildCommand for other profiles
             if (profile == .min) {
-                std.debug.print("Compiling {s}...\n", .{source_path});
+                if (!verbose_flag) {
+                    std.debug.print("Compiling {s}...\n", .{source_path});
+                }
                 var compiler = pipeline.Pipeline.init(allocator, .{
                     .source_path = source_path,
                     .output_path = output_path,
                     .emit_llvm_ir = emit_llvm,
-                    .verbose = false,
+                    .verbose = verbose_flag,
                 });
 
                 var result = compiler.compile() catch |err| {
