@@ -33,14 +33,21 @@ pub const OpCode = enum {
     Store,
     Phi, // SSA phi node (merge point)
     Array_Construct, // Array construction [e1, e2, ...]
-    Index, // Array/Slice access: arr[i]
+    Index, // Array access: arr[i] (returns pointer for GEP)
     Index_Store, // Array element store: arr[i] = v
-    Slice, // Array slice: arr[start..end] - returns new array
+    Slice, // Array slice: arr[start..end] - returns slice struct
+    SliceIndex, // Slice element access: slice[i] - calls runtime
     Range, // Range construction: start .. end
     Struct_Construct, // Struct literal { f1: v1, f2: v2 }
     Struct_Alloca, // Struct allocation (mutable struct variable)
     Field_Access, // Struct field read: s.field
     Field_Store, // Struct field write: s.field = v
+
+    // --- Optional Types ---
+    Optional_None, // Create null/none optional: { tag: 0, value: undef }
+    Optional_Some, // Wrap value in optional: { tag: 1, value: v }
+    Optional_Unwrap, // Unwrap optional (returns value, panics if none)
+    Optional_Is_Some, // Check if optional has value: tag == 1
 
     // --- Control Flow ---
     Call, // Function call

@@ -1246,41 +1246,67 @@ fn parseType(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) er
     if (parser.match(.left_bracket)) {
         _ = parser.advance();
 
+        const children_start = @as(u32, @intCast(nodes.items.len));
+        var is_slice = false;
+
         // Check for size or empty (slice)
-        var size_expr: ?astdb_core.AstNode = null;
-        if (!parser.match(.right_bracket)) {
-            size_expr = try parsePrimary(parser, nodes); // Use simple expression for size
+        if (parser.match(.right_bracket)) {
+            // []T - Slice type (no size expression)
+            is_slice = true;
+        } else {
+            // [N]T - Array type with size
+            const size_expr = try parsePrimary(parser, nodes);
+            try nodes.append(parser.allocator, size_expr);
         }
         _ = try parser.consume(.right_bracket);
 
+        // Parse element type
         const elem_type = try parseType(parser, nodes);
+        try nodes.append(parser.allocator, elem_type);
 
-        // Append children (size? + elem)
-        // Note: For now we return a single node representing the type,
-        // effectively flattening complex types in AST for this MVP step.
-        // A full implementation would structure type nodes hierarchically.
-        _ = &size_expr;
-        _ = &elem_type;
+        const children_end = @as(u32, @intCast(nodes.items.len));
 
         return astdb_core.AstNode{
-            .kind = .identifier, // Placeholder for array type
+            .kind = if (is_slice) .slice_type else .array_type,
             .first_token = @enumFromInt(start_token),
             .last_token = @enumFromInt(parser.current - 1),
-            .child_lo = 0,
-            .child_hi = 0,
+            .child_lo = children_start,
+            .child_hi = children_end,
         };
     }
 
     // Pointer Type: *T
     if (parser.match(.star)) {
         _ = parser.advance();
-        return try parseType(parser, nodes);
+        const children_start = @as(u32, @intCast(nodes.items.len));
+        const inner_type = try parseType(parser, nodes);
+        try nodes.append(parser.allocator, inner_type);
+        const children_end = @as(u32, @intCast(nodes.items.len));
+
+        return astdb_core.AstNode{
+            .kind = .pointer_type,
+            .first_token = @enumFromInt(start_token),
+            .last_token = @enumFromInt(parser.current - 1),
+            .child_lo = children_start,
+            .child_hi = children_end,
+        };
     }
 
     // Optional Type: ?T
     if (parser.match(.question)) {
         _ = parser.advance();
-        return try parseType(parser, nodes);
+        const children_start = @as(u32, @intCast(nodes.items.len));
+        const inner_type = try parseType(parser, nodes);
+        try nodes.append(parser.allocator, inner_type);
+        const children_end = @as(u32, @intCast(nodes.items.len));
+
+        return astdb_core.AstNode{
+            .kind = .optional_type,
+            .first_token = @enumFromInt(start_token),
+            .last_token = @enumFromInt(parser.current - 1),
+            .child_lo = children_start,
+            .child_hi = children_end,
+        };
     }
 
     // Base Type: identifier

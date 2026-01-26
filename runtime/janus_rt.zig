@@ -197,6 +197,94 @@ export fn janus_array_slice_inclusive_i32(array: [*]const i32, start: i32, end: 
 }
 
 // ============================================================================
+// Slice Types - Fat Pointer Representation
+// ============================================================================
+// Slices are represented as { ptr, len } structs - NO data copying!
+// This matches Zig's slice representation for interoperability.
+
+/// Slice of i32 - fat pointer representation
+pub const JanusSliceI32 = extern struct {
+    ptr: [*]const i32,
+    len: usize,
+};
+
+/// Create slice from array pointer and length (no copy)
+export fn janus_slice_from_array_i32(array: [*]const i32, len: usize) callconv(.c) JanusSliceI32 {
+    return JanusSliceI32{ .ptr = array, .len = len };
+}
+
+/// Create slice directly from array pointer + start + end (exclusive)
+/// This is the primary function called by the LLVM emitter for arr[start..end]
+export fn janus_make_slice_i32(array_ptr: [*]const i32, start: i32, end: i32) callconv(.c) JanusSliceI32 {
+    const start_u: usize = if (start < 0) 0 else @intCast(start);
+    const end_u: usize = if (end < start) start_u else @intCast(end);
+    return JanusSliceI32{
+        .ptr = array_ptr + start_u,
+        .len = end_u - start_u,
+    };
+}
+
+/// Create slice directly from array pointer + start + end (inclusive)
+export fn janus_make_slice_inclusive_i32(array_ptr: [*]const i32, start: i32, end: i32) callconv(.c) JanusSliceI32 {
+    return janus_make_slice_i32(array_ptr, start, end + 1);
+}
+
+/// Create subslice from slice (no copy) - exclusive end
+export fn janus_slice_subslice_i32(slice: JanusSliceI32, start: usize, end: usize) callconv(.c) JanusSliceI32 {
+    if (start > end or end > slice.len) {
+        return JanusSliceI32{ .ptr = slice.ptr, .len = 0 };
+    }
+    return JanusSliceI32{
+        .ptr = slice.ptr + start,
+        .len = end - start,
+    };
+}
+
+/// Create subslice - inclusive end
+export fn janus_slice_subslice_inclusive_i32(slice: JanusSliceI32, start: usize, end: usize) callconv(.c) JanusSliceI32 {
+    return janus_slice_subslice_i32(slice, start, end + 1);
+}
+
+/// Get slice length
+export fn janus_slice_len_i32(slice: JanusSliceI32) callconv(.c) usize {
+    return slice.len;
+}
+
+/// Get element from slice (bounds checked)
+export fn janus_slice_get_i32(slice: JanusSliceI32, index: usize) callconv(.c) i32 {
+    if (index >= slice.len) {
+        janus_panic("slice index out of bounds");
+        return 0;
+    }
+    return slice.ptr[index];
+}
+
+/// Generic slice for u8 (byte slices / strings)
+pub const JanusSliceU8 = extern struct {
+    ptr: [*]const u8,
+    len: usize,
+};
+
+/// Create byte slice from pointer and length
+export fn janus_slice_from_array_u8(array: [*]const u8, len: usize) callconv(.c) JanusSliceU8 {
+    return JanusSliceU8{ .ptr = array, .len = len };
+}
+
+/// Get byte slice length
+export fn janus_slice_len_u8(slice: JanusSliceU8) callconv(.c) usize {
+    return slice.len;
+}
+
+/// Get byte from slice
+export fn janus_slice_get_u8(slice: JanusSliceU8, index: usize) callconv(.c) u8 {
+    if (index >= slice.len) {
+        janus_panic("slice index out of bounds");
+        return 0;
+    }
+    return slice.ptr[index];
+}
+
+// ============================================================================
 // File I/O API - Using Zig std.fs
 // ============================================================================
 

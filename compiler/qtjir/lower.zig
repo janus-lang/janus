@@ -64,6 +64,12 @@ pub const LoweringContext = struct {
     // Pending Continue Jumps - holds (jump_node_id, loop_depth) pairs for patching
     pending_continues: std.ArrayListUnmanaged(PendingJump),
 
+    // Track which QTJIR nodes produce slice values (for proper slice indexing)
+    slice_nodes: std.AutoHashMapUnmanaged(u32, void),
+
+    // Track which QTJIR nodes produce optional values
+    optional_nodes: std.AutoHashMapUnmanaged(u32, void),
+
     const PendingJump = struct {
         jump_id: u32,
         loop_depth: usize,
@@ -114,6 +120,8 @@ pub const LoweringContext = struct {
             .loop_depth = 0,
             .pending_breaks = .{},
             .pending_continues = .{},
+            .slice_nodes = .{},
+            .optional_nodes = .{},
         };
     }
 
@@ -179,6 +187,8 @@ pub const LoweringContext = struct {
         self.defer_stack.deinit(self.allocator);
         self.pending_breaks.deinit(self.allocator);
         self.pending_continues.deinit(self.allocator);
+        self.slice_nodes.deinit(self.allocator);
+        self.optional_nodes.deinit(self.allocator);
     }
 
     /// Clone a string using the Graph's allocator for sovereign ownership.
@@ -1077,7 +1087,17 @@ fn lowerArrayAccess(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode
     const array_val = try lowerExpression(ctx, array_id, array_node);
     const index_val = try lowerExpression(ctx, index_id, index_node);
 
-    // Create Index node for single element access
+    // Check if the base is a slice (not an array)
+    if (ctx.slice_nodes.contains(array_val)) {
+        // Slice indexing: emit SliceIndex opcode (calls runtime function)
+        const slice_idx_node_id = try ctx.builder.createNode(.SliceIndex);
+        var slice_idx_node = &ctx.builder.graph.nodes.items[slice_idx_node_id];
+        try slice_idx_node.inputs.append(ctx.allocator, array_val);
+        try slice_idx_node.inputs.append(ctx.allocator, index_val);
+        return slice_idx_node_id;
+    }
+
+    // Array indexing: Create Index node for single element access (GEP)
     const idx_node_id = try ctx.builder.createNode(.Index);
     var idx_node = &ctx.builder.graph.nodes.items[idx_node_id];
     try idx_node.inputs.append(ctx.allocator, array_val);
@@ -1115,6 +1135,9 @@ fn lowerSliceExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode, 
     // Store inclusivity in data field (1 = inclusive, 0 = exclusive)
     slice_node.data = .{ .integer = if (is_inclusive) 1 else 0 };
 
+    // Mark this node as producing a slice value
+    try ctx.slice_nodes.put(ctx.allocator, slice_node_id, {});
+
     return slice_node_id;
 }
 
@@ -1135,9 +1158,16 @@ fn lowerExpression(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
         .identifier => try lowerIdentifier(ctx, node_id, node),
         .array_lit, .array_literal => try lowerArrayLiteral(ctx, node_id, node),
         .index_expr => blk: {
-            // Array access returns a pointer (GEP), we must Load it for R-Value usage
-            const ptr_id = try lowerArrayAccess(ctx, node_id, node);
-            break :blk try ctx.builder.buildLoad(ctx.allocator, ptr_id, "idx_load");
+            const result = try lowerArrayAccess(ctx, node_id, node);
+            // Check if this is a SliceIndex (returns value directly) or Index (returns pointer)
+            const result_node = &ctx.builder.graph.nodes.items[result];
+            if (result_node.op == .SliceIndex) {
+                // SliceIndex calls runtime and returns value directly
+                break :blk result;
+            } else {
+                // Array Index returns a pointer (GEP), we must Load it for R-Value usage
+                break :blk try ctx.builder.buildLoad(ctx.allocator, result, "idx_load");
+            }
         },
         .slice_inclusive_expr => try lowerSliceExpr(ctx, node_id, node, true),
         .slice_exclusive_expr => try lowerSliceExpr(ctx, node_id, node, false),
@@ -1217,7 +1247,8 @@ fn lowerStringLiteral(ctx: *LoweringContext, node: *const AstNode) error{ Invali
 }
 
 fn lowerNullLiteral(ctx: *LoweringContext) error{OutOfMemory}!u32 {
-    // Null is represented as integer 0 (null pointer)
+    // Null is represented as integer 0 (null pointer) by default
+    // When assigned to optional type, it gets converted to Optional_None in lowerVarDecl
     return try ctx.builder.createConstant(.{ .integer = 0 });
 }
 
@@ -1873,14 +1904,40 @@ fn lowerVarDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lo
     const token = ctx.snapshot.getToken(name_node.first_token) orelse return error.InvalidToken;
     const name = if (token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
 
-    // Determine initializer index
+    // Determine initializer index and check for optional type
     // If 3 children: [Name, Type, Init]
     // If 2 children: [Name, Init]
-    const init_id = if (children.len == 3) children[2] else children[1];
+    var is_optional_type = false;
+    const init_id = if (children.len == 3) blk: {
+        // Check if type annotation is optional
+        const type_id = children[1];
+        const type_node = ctx.snapshot.getNode(type_id);
+        if (type_node != null and type_node.?.kind == .optional_type) {
+            is_optional_type = true;
+        }
+        break :blk children[2];
+    } else children[1];
 
     // Lower initializer
     const init_node = ctx.snapshot.getNode(init_id) orelse return error.InvalidNode;
-    const init_val = try lowerExpression(ctx, init_id, init_node);
+    var init_val = try lowerExpression(ctx, init_id, init_node);
+
+    // If assigning to optional type, handle wrapping
+    if (is_optional_type) {
+        // Check if init is null literal - convert to Optional_None
+        if (init_node.kind == .null_literal) {
+            const none_id = try ctx.builder.createNode(.Optional_None);
+            try ctx.optional_nodes.put(ctx.allocator, none_id, {});
+            init_val = none_id;
+        } else if (!ctx.optional_nodes.contains(init_val)) {
+            // Wrap non-optional value in Optional_Some
+            const some_id = try ctx.builder.createNode(.Optional_Some);
+            var some_node = &ctx.builder.graph.nodes.items[some_id];
+            try some_node.inputs.append(ctx.allocator, init_val);
+            try ctx.optional_nodes.put(ctx.allocator, some_id, {});
+            init_val = some_id;
+        }
+    }
 
     // Create alloca ONLY if mutable (var_stmt)
     if (node.kind == .var_stmt) {

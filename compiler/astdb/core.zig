@@ -310,6 +310,7 @@ pub const AstNode = struct {
         pointer_type,
         array_type,
         slice_type,
+        optional_type,
         function_type,
         named_type,
 
