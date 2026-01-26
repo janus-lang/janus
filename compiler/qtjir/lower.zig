@@ -1345,8 +1345,15 @@ fn lowerFieldCall(
             return tensor_node_id;
         }
 
-        // Generic field call (treat as function name)
-        return try lowerUserFunctionCall(ctx, full_path, children);
+        // Generic field call - extract just the function name (last component)
+        // For module-qualified calls like mathlib.add, use just "add" since
+        // at LLVM level there are no namespaces - functions are global symbols
+        const func_name = if (std.mem.lastIndexOfScalar(u8, full_path, '.')) |dot_idx|
+            full_path[dot_idx + 1 ..]
+        else
+            full_path;
+        trace.dumpContext("lowerFieldCall", "Using function name: '{s}'", .{func_name});
+        return try lowerUserFunctionCall(ctx, func_name, children);
     }
 
     return error.UnsupportedCall;

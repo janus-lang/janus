@@ -490,3 +490,66 @@ fn extractUseSelectiveAndCompile(
 
     return .{ .main_obj = main_obj, .dep_objs = dep_objs };
 }
+
+test "Module namespacing: mathlib.add() qualified calls" {
+    const allocator = testing.allocator;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    // Write mathlib.jan with functions
+    const mathlib_source =
+        \\func add(a: i32, b: i32) -> i32 {
+        \\    return a + b
+        \\}
+        \\
+        \\func sub(a: i32, b: i32) -> i32 {
+        \\    return a - b
+        \\}
+    ;
+    try tmp_dir.dir.writeFile(.{ .sub_path = "mathlib.jan", .data = mathlib_source });
+
+    // Main module with qualified calls (mathlib.add instead of just add)
+    const main_source =
+        \\import mathlib
+        \\
+        \\func main() {
+        \\    let sum = mathlib.add(8, 2)
+        \\    print_int(sum)
+        \\    let diff = mathlib.sub(8, 2)
+        \\    print_int(diff)
+        \\}
+    ;
+
+    // Get the temp dir path for import resolution
+    const search_dir = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(search_dir);
+
+    // Extract imports and compile all modules
+    var result = try extractImportsAndCompile(allocator, main_source, search_dir, tmp_dir);
+    defer {
+        allocator.free(result.main_obj);
+        for (result.dep_objs.items) |obj| allocator.free(obj);
+        result.dep_objs.deinit(allocator);
+    }
+
+    // Build list of all object files
+    var all_objs = std.ArrayListUnmanaged([]const u8){};
+    defer all_objs.deinit(allocator);
+
+    try all_objs.append(allocator, result.main_obj);
+    for (result.dep_objs.items) |obj| {
+        try all_objs.append(allocator, obj);
+    }
+
+    // Link and run
+    const output = try linkAndRun(allocator, all_objs.items, "namespace_test", tmp_dir);
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // mathlib.add(8, 2) = 10, mathlib.sub(8, 2) = 6
+    try testing.expectEqualStrings("10\n6\n", output);
+
+    std.debug.print("\n=== MODULE NAMESPACING TEST PASSED ===\n", .{});
+}
