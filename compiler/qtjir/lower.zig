@@ -70,6 +70,9 @@ pub const LoweringContext = struct {
     // Track which QTJIR nodes produce optional values
     optional_nodes: std.AutoHashMapUnmanaged(u32, void),
 
+    // Track which QTJIR nodes produce error union values
+    error_union_nodes: std.AutoHashMapUnmanaged(u32, void),
+
     const PendingJump = struct {
         jump_id: u32,
         loop_depth: usize,
@@ -122,6 +125,7 @@ pub const LoweringContext = struct {
             .pending_continues = .{},
             .slice_nodes = .{},
             .optional_nodes = .{},
+            .error_union_nodes = .{},
         };
     }
 
@@ -189,6 +193,7 @@ pub const LoweringContext = struct {
         self.pending_continues.deinit(self.allocator);
         self.slice_nodes.deinit(self.allocator);
         self.optional_nodes.deinit(self.allocator);
+        self.error_union_nodes.deinit(self.allocator);
     }
 
     /// Clone a string using the Graph's allocator for sovereign ownership.
@@ -662,6 +667,9 @@ fn lowerStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) 
         .block_stmt => {
             try lowerBlock(ctx, node_id, node);
         },
+        .fail_stmt => {
+            try lowerFailStatement(ctx, node_id, node);
+        },
         .return_stmt => {
             const children = ctx.snapshot.getChildren(node_id);
             var ret_val: u32 = 0;
@@ -944,11 +952,18 @@ fn lowerForStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNod
         end_val = try lowerExpression(ctx, range_children[1], end_node);
         is_inclusive = (iterable_node.kind == .range_inclusive_expr);
     } else {
-        // Generic iterator support would go here (e.g., arrays)
-        // For now, we only support ranges in this specific optimization pass.
-        // Fallback: Evaluating expression and checking if it's a runtime range?
-        // Let's assume range for now as per instructions.
-        return error.UnsupportedCall; // "Only range loops supported in this phase"
+        // Try to lower as a slice/array iteration
+        // For slice: iterate from 0 to len-1, using SliceIndex for access
+        const iterable_val = try lowerExpression(ctx, iterable_id, iterable_node);
+
+        // Check if this is a slice
+        if (ctx.slice_nodes.contains(iterable_val)) {
+            // Slice iteration: for x in slice
+            return lowerSliceForStatement(ctx, var_name, iterable_val, body_id);
+        }
+
+        // Not a supported iterable type
+        return error.UnsupportedCall;
     }
 
     // 3. Create Loop Scope (for iterator variable)
@@ -1073,6 +1088,131 @@ fn lowerForStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNod
     try ctx.emitDefersForScope(&actions);
 }
 
+/// Lower a for-in loop over a slice
+/// for x in slice { ... } compiles to:
+///   len = SliceLen(slice)
+///   i = 0
+///   while i < len:
+///     x = SliceIndex(slice, i)
+///     body
+///     i = i + 1
+fn lowerSliceForStatement(ctx: *LoweringContext, var_name: []const u8, slice_val: u32, body_id: NodeId) LowerError!void {
+    // 1. Get slice length
+    const len_id = try ctx.builder.createNode(.SliceLen);
+    var len_node = &ctx.builder.graph.nodes.items[len_id];
+    try len_node.inputs.append(ctx.allocator, slice_val);
+
+    // 2. Create loop scope
+    try ctx.pushScope(.Loop);
+
+    // 3. Header Label (Loop Start)
+    const header_label_id = try ctx.builder.createNode(.Label);
+
+    // 4. Phi Node for Index (starts at 0)
+    const zero_const = try ctx.builder.createConstant(.{ .integer = 0 });
+    const phi_id = try ctx.builder.createNode(.Phi);
+    var phi_node = &ctx.builder.graph.nodes.items[phi_id];
+    try phi_node.inputs.append(ctx.allocator, zero_const);
+    // Second input (incremented value) added later
+
+    // 5. Allocate loop variable for element
+    const alloca_id = try ctx.builder.createNode(.Alloca);
+    ctx.builder.graph.nodes.items[alloca_id].data = .{ .string = try ctx.dupeForGraph(var_name) };
+    try ctx.scope.put(var_name, alloca_id);
+
+    // 6. Get element at current index: SliceIndex(slice, i)
+    const elem_id = try ctx.builder.createNode(.SliceIndex);
+    var elem_node = &ctx.builder.graph.nodes.items[elem_id];
+    try elem_node.inputs.append(ctx.allocator, slice_val);
+    try elem_node.inputs.append(ctx.allocator, phi_id);
+
+    // Store element in loop variable
+    const store_id = try ctx.builder.createNode(.Store);
+    var store_node = &ctx.builder.graph.nodes.items[store_id];
+    try store_node.inputs.append(ctx.allocator, alloca_id);
+    try store_node.inputs.append(ctx.allocator, elem_id);
+
+    // 7. Loop Condition: i < len
+    const cmp_id = try ctx.builder.createNode(.Less);
+    var cmp_node = &ctx.builder.graph.nodes.items[cmp_id];
+    try cmp_node.inputs.append(ctx.allocator, phi_id);
+    try cmp_node.inputs.append(ctx.allocator, len_id);
+
+    // Track loop depth for break/continue
+    const loop_depth = ctx.loop_depth;
+    ctx.loop_depth += 1;
+
+    // 8. Branch
+    const branch_id = try ctx.builder.createNode(.Branch);
+    var branch_node = &ctx.builder.graph.nodes.items[branch_id];
+    try branch_node.inputs.append(ctx.allocator, cmp_id);
+    try branch_node.inputs.append(ctx.allocator, 0); // Placeholder Body (True)
+    try branch_node.inputs.append(ctx.allocator, 0); // Placeholder Exit (False)
+
+    // 9. Body Block
+    const body_label_id = try ctx.builder.createNode(.Label);
+    ctx.builder.graph.nodes.items[branch_id].inputs.items[1] = body_label_id;
+
+    // Emit Body
+    const body_node = ctx.snapshot.getNode(body_id) orelse return error.InvalidNode;
+    if (body_node.kind == .block_stmt) {
+        try lowerBlock(ctx, body_id, body_node);
+    } else {
+        try lowerStatement(ctx, body_id, body_node);
+    }
+
+    // 10. Latch Block (Increment & Jump)
+    const latch_label_id = try ctx.builder.createNode(.Label);
+
+    const one_const = try ctx.builder.createConstant(.{ .integer = 1 });
+    const add_id = try ctx.builder.createNode(.Add);
+    var add_node = &ctx.builder.graph.nodes.items[add_id];
+    try add_node.inputs.append(ctx.allocator, phi_id);
+    try add_node.inputs.append(ctx.allocator, one_const);
+
+    // Patch the Phi node's second input (Back-edge value)
+    try ctx.builder.graph.nodes.items[phi_id].inputs.append(ctx.allocator, add_id);
+
+    // Jump back to Header
+    const jump_node_id = try ctx.builder.createNode(.Jump);
+    try ctx.builder.graph.nodes.items[jump_node_id].inputs.append(ctx.allocator, header_label_id);
+
+    // 11. Exit Label
+    const exit_label_id = try ctx.builder.createNode(.Label);
+    ctx.builder.graph.nodes.items[branch_id].inputs.items[2] = exit_label_id;
+
+    // Restore loop depth
+    ctx.loop_depth -= 1;
+
+    // Patch pending breaks
+    var i: usize = 0;
+    while (i < ctx.pending_breaks.items.len) {
+        const pb = ctx.pending_breaks.items[i];
+        if (pb.loop_depth == loop_depth) {
+            ctx.builder.graph.nodes.items[pb.jump_id].inputs.items[0] = exit_label_id;
+            _ = ctx.pending_breaks.swapRemove(i);
+        } else {
+            i += 1;
+        }
+    }
+
+    // Patch pending continues
+    i = 0;
+    while (i < ctx.pending_continues.items.len) {
+        const pc = ctx.pending_continues.items[i];
+        if (pc.loop_depth == loop_depth) {
+            ctx.builder.graph.nodes.items[pc.jump_id].inputs.items[0] = latch_label_id;
+            _ = ctx.pending_continues.swapRemove(i);
+        } else {
+            i += 1;
+        }
+    }
+
+    // Pop Loop Scope
+    var actions = try ctx.popScope();
+    try ctx.emitDefersForScope(&actions);
+}
+
 fn lowerArrayAccess(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable }!u32 {
     _ = node;
     const children = ctx.snapshot.getChildren(node_id);
@@ -1175,6 +1315,8 @@ fn lowerExpression(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
         .struct_literal => try lowerStructLiteral(ctx, node_id),
         .range_inclusive_expr => try lowerRangeExpr(ctx, node_id, node, true),
         .range_exclusive_expr => try lowerRangeExpr(ctx, node_id, node, false),
+        .catch_expr => try lowerCatchExpr(ctx, node_id, node),
+        .try_expr => try lowerTryExpr(ctx, node_id, node),
         else => {
             trace.traceError("lowerExpression", error.UnsupportedCall, "unsupported node kind");
             return error.UnsupportedCall;
@@ -2886,6 +3028,200 @@ fn lowerMatchCorrected(ctx: *LoweringContext, node_id: NodeId, node: *const AstN
     for (end_jumps.items) |jump_id| {
         ctx.builder.graph.nodes.items[jump_id].inputs.items[0] = end_label_id;
     }
+}
+
+// ============================================================================
+// Error Handling Lowering (:core profile)
+// ============================================================================
+
+/// Lower fail statement: fail ErrorType.Variant
+/// Creates an error union value and returns it (propagates error up)
+fn lowerFailStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
+    _ = node;
+    const children = ctx.snapshot.getChildren(node_id);
+    if (children.len == 0) return error.InvalidNode;
+
+    // 1. Lower error value expression (e.g., ErrorType.Variant)
+    const error_expr_id = children[0];
+    const error_expr_node = ctx.snapshot.getNode(error_expr_id) orelse return error.InvalidNode;
+    const error_val = try lowerExpression(ctx, error_expr_id, error_expr_node);
+
+    // 2. Create error union from error value
+    // Error_Fail_Construct: { err: error_val, is_error: 1 }
+    const error_union_id = try ctx.builder.createNode(.Error_Fail_Construct);
+    var error_union_node = &ctx.builder.graph.nodes.items[error_union_id];
+    try error_union_node.inputs.append(ctx.allocator, error_val);
+
+    // Track this as an error union value
+    try ctx.error_union_nodes.put(ctx.allocator, error_union_id, {});
+
+    // 3. Emit all defers up to function root (same as return statement)
+    var i = ctx.defer_stack.items.len;
+    while (i > 0) {
+        i -= 1;
+        const layer = &ctx.defer_stack.items[i];
+        var j = layer.actions.items.len;
+        while (j > 0) {
+            j -= 1;
+            const action = layer.actions.items[j];
+            const call_id = try ctx.builder.createNode(.Call);
+            var node_def = &ctx.builder.graph.nodes.items[call_id];
+            node_def.data = .{ .string = try ctx.dupeForGraph(action.builtin_name) };
+            for (action.args.items) |arg| {
+                try node_def.inputs.append(ctx.allocator, arg);
+            }
+        }
+    }
+
+    // 4. Return the error union
+    _ = try ctx.builder.createReturn(error_union_id);
+}
+
+/// Lower catch expression: expr catch err { block }
+/// Branches based on error flag, executes block if error, unwraps if ok
+fn lowerCatchExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!u32 {
+    _ = node;
+    const children = ctx.snapshot.getChildren(node_id);
+    if (children.len < 1) return error.InvalidNode;
+
+    // children[0] = expression that returns error union
+    // children[1..] = catch block statements
+
+    // 1. Lower the expression
+    const expr_id = children[0];
+    const expr_node = ctx.snapshot.getNode(expr_id) orelse return error.InvalidNode;
+    const expr_val = try lowerExpression(ctx, expr_id, expr_node);
+
+    // 2. Check if error: Error_Union_Is_Error
+    const is_error_id = try ctx.builder.createNode(.Error_Union_Is_Error);
+    var is_error_node = &ctx.builder.graph.nodes.items[is_error_id];
+    try is_error_node.inputs.append(ctx.allocator, expr_val);
+
+    // 3. Create branch: if is_error { catch_block } else { unwrap }
+    const branch_id = try ctx.builder.createNode(.Branch);
+    var branch_node = &ctx.builder.graph.nodes.items[branch_id];
+    try branch_node.inputs.append(ctx.allocator, is_error_id);
+    try branch_node.inputs.append(ctx.allocator, 0); // Placeholder for error path
+    try branch_node.inputs.append(ctx.allocator, 0); // Placeholder for ok path
+
+    // 4. Error path: execute catch block
+    const error_label_id = try ctx.builder.createNode(.Label);
+    ctx.builder.graph.nodes.items[branch_id].inputs.items[1] = error_label_id;
+
+    // TODO: Bind error variable if provided (catch |err|)
+    // For now, just execute the block statements
+
+    // Execute catch block statements
+    if (children.len > 1) {
+        for (children[1..]) |stmt_id| {
+            const stmt_node = ctx.snapshot.getNode(stmt_id) orelse continue;
+            try lowerStatement(ctx, stmt_id, stmt_node);
+        }
+    }
+
+    // Default value for error path (0 or some sentinel)
+    const error_result_val = try ctx.builder.createConstant(.{ .integer = 0 });
+
+    var jump_from_error: ?u32 = null;
+    if (!lastNodeIsTerminator(ctx)) {
+        jump_from_error = try ctx.builder.createNode(.Jump);
+        var jump_error_inputs = &ctx.builder.graph.nodes.items[jump_from_error.?].inputs;
+        try jump_error_inputs.append(ctx.allocator, 0); // Placeholder merge
+    }
+
+    // 5. Ok path: unwrap payload
+    const ok_label_id = try ctx.builder.createNode(.Label);
+    ctx.builder.graph.nodes.items[branch_id].inputs.items[2] = ok_label_id;
+
+    const unwrap_id = try ctx.builder.createNode(.Error_Union_Unwrap);
+    var unwrap_node = &ctx.builder.graph.nodes.items[unwrap_id];
+    try unwrap_node.inputs.append(ctx.allocator, expr_val);
+
+    var jump_from_ok: ?u32 = null;
+    if (!lastNodeIsTerminator(ctx)) {
+        jump_from_ok = try ctx.builder.createNode(.Jump);
+        var jump_ok_inputs = &ctx.builder.graph.nodes.items[jump_from_ok.?].inputs;
+        try jump_ok_inputs.append(ctx.allocator, 0); // Placeholder merge
+    }
+
+    // 6. Merge point: Phi node to select result
+    const merge_label_id = try ctx.builder.createNode(.Label);
+
+    // Backpatch jumps
+    if (jump_from_error) |jump_id| {
+        ctx.builder.graph.nodes.items[jump_id].inputs.items[0] = merge_label_id;
+    }
+    if (jump_from_ok) |jump_id| {
+        ctx.builder.graph.nodes.items[jump_id].inputs.items[0] = merge_label_id;
+    }
+
+    // Phi node: selects between error_result_val and unwrap_id
+    const phi_id = try ctx.builder.createNode(.Phi);
+    var phi_node = &ctx.builder.graph.nodes.items[phi_id];
+    try phi_node.inputs.append(ctx.allocator, error_result_val);
+    try phi_node.inputs.append(ctx.allocator, unwrap_id);
+
+    return phi_id;
+}
+
+/// Lower try operator: expr?
+/// Checks for error, propagates if error, unwraps if ok
+fn lowerTryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!u32 {
+    _ = node;
+    const children = ctx.snapshot.getChildren(node_id);
+    if (children.len == 0) return error.InvalidNode;
+
+    // 1. Lower the expression
+    const expr_id = children[0];
+    const expr_node = ctx.snapshot.getNode(expr_id) orelse return error.InvalidNode;
+    const expr_val = try lowerExpression(ctx, expr_id, expr_node);
+
+    // 2. Check if error: Error_Union_Is_Error
+    const is_error_id = try ctx.builder.createNode(.Error_Union_Is_Error);
+    var is_error_node = &ctx.builder.graph.nodes.items[is_error_id];
+    try is_error_node.inputs.append(ctx.allocator, expr_val);
+
+    // 3. Create branch: if is_error { return expr_val } else { unwrap }
+    const branch_id = try ctx.builder.createNode(.Branch);
+    var branch_node = &ctx.builder.graph.nodes.items[branch_id];
+    try branch_node.inputs.append(ctx.allocator, is_error_id);
+    try branch_node.inputs.append(ctx.allocator, 0); // Placeholder for error path
+    try branch_node.inputs.append(ctx.allocator, 0); // Placeholder for ok path
+
+    // 4. Error path: propagate error (return it)
+    const error_label_id = try ctx.builder.createNode(.Label);
+    ctx.builder.graph.nodes.items[branch_id].inputs.items[1] = error_label_id;
+
+    // Emit defers before returning
+    var i = ctx.defer_stack.items.len;
+    while (i > 0) {
+        i -= 1;
+        const layer = &ctx.defer_stack.items[i];
+        var j = layer.actions.items.len;
+        while (j > 0) {
+            j -= 1;
+            const action = layer.actions.items[j];
+            const call_id = try ctx.builder.createNode(.Call);
+            var node_def = &ctx.builder.graph.nodes.items[call_id];
+            node_def.data = .{ .string = try ctx.dupeForGraph(action.builtin_name) };
+            for (action.args.items) |arg| {
+                try node_def.inputs.append(ctx.allocator, arg);
+            }
+        }
+    }
+
+    // Return the error union (propagate)
+    _ = try ctx.builder.createReturn(expr_val);
+
+    // 5. Ok path: unwrap payload and continue
+    const ok_label_id = try ctx.builder.createNode(.Label);
+    ctx.builder.graph.nodes.items[branch_id].inputs.items[2] = ok_label_id;
+
+    const unwrap_id = try ctx.builder.createNode(.Error_Union_Unwrap);
+    var unwrap_node = &ctx.builder.graph.nodes.items[unwrap_id];
+    try unwrap_node.inputs.append(ctx.allocator, expr_val);
+
+    return unwrap_id;
 }
 
 // Helper wrapper to avoid generic method call issue in tricky contexts if any

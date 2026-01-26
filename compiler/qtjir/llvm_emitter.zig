@@ -244,6 +244,7 @@ pub const LLVMEmitter = struct {
             .Index => try self.emitIndex(node),
             .Slice => try self.emitSlice(node),
             .SliceIndex => try self.emitSliceIndex(node),
+            .SliceLen => try self.emitSliceLen(node),
             .Struct_Construct => try self.emitStructConstruct(node),
             .Struct_Alloca => try self.emitStructAlloca(node),
             .Field_Access => try self.emitFieldAccess(node),
@@ -253,6 +254,12 @@ pub const LLVMEmitter = struct {
             .Optional_Some => try self.emitOptionalSome(node),
             .Optional_Unwrap => try self.emitOptionalUnwrap(node),
             .Optional_Is_Some => try self.emitOptionalIsSome(node),
+            // Error unions (:core profile)
+            .Error_Union_Construct => try self.emitErrorUnionConstruct(node),
+            .Error_Fail_Construct => try self.emitErrorFailConstruct(node),
+            .Error_Union_Is_Error => try self.emitErrorUnionIsError(node),
+            .Error_Union_Unwrap => try self.emitErrorUnionUnwrap(node),
+            .Error_Union_Get_Error => try self.emitErrorUnionGetError(node),
             // Tensor / Quantum (Placeholder)
             .Tensor_Contract => {
                 std.debug.print("Warning: Unimplemented Tensor_Contract\n", .{});
@@ -1045,11 +1052,34 @@ pub const LLVMEmitter = struct {
         defer args.deinit(self.allocator);
 
         for (sig.param_types, 0..) |type_str, i| {
-            const llvm_type = self.llvmTypeFromStr(type_str);
-            try param_types.append(self.allocator, llvm_type);
+            const expected_type = self.llvmTypeFromStr(type_str);
+            try param_types.append(self.allocator, expected_type);
 
             if (i < node.inputs.items.len) {
-                const val = self.values.get(node.inputs.items[i]) orelse return error.MissingOperand;
+                var val = self.values.get(node.inputs.items[i]) orelse return error.MissingOperand;
+
+                // Type conversion: extend or truncate if needed
+                const val_type = llvm.c.LLVMTypeOf(val);
+                if (val_type != expected_type) {
+                    const val_kind = llvm.c.LLVMGetTypeKind(val_type);
+                    const exp_kind = llvm.c.LLVMGetTypeKind(expected_type);
+
+                    // Integer type conversions
+                    if (val_kind == llvm.c.LLVMIntegerTypeKind and exp_kind == llvm.c.LLVMIntegerTypeKind) {
+                        const val_width = llvm.c.LLVMGetIntTypeWidth(val_type);
+                        const exp_width = llvm.c.LLVMGetIntTypeWidth(expected_type);
+
+                        if (val_width < exp_width) {
+                            // Sign-extend smaller int to larger
+                            val = llvm.c.LLVMBuildSExt(self.builder, val, expected_type, "sext");
+                        } else if (val_width > exp_width) {
+                            // Truncate larger int to smaller
+                            val = llvm.c.LLVMBuildTrunc(self.builder, val, expected_type, "trunc");
+                        }
+                    }
+                    // Pointer to pointer is ok (opaque pointers)
+                }
+
                 try args.append(self.allocator, val);
             }
         }
@@ -1283,6 +1313,17 @@ pub const LLVMEmitter = struct {
         var args = [_]llvm.Value{ slice_val, index_i64 };
         const result = llvm.c.LLVMBuildCall2(self.builder, func_type, func, &args, 2, "slice_elem");
         try self.values.put(node.id, result);
+    }
+
+    /// Emit slice length extraction: slice.len
+    /// Extracts the length (index 1) from the slice fat pointer struct
+    fn emitSliceLen(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+        const slice_val = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        // Extract the length field (index 1) from slice struct { ptr, len }
+        const len_val = llvm.c.LLVMBuildExtractValue(self.builder, slice_val, 1, "slice_len");
+        try self.values.put(node.id, len_val);
     }
 
     // =========================================================================
@@ -1566,5 +1607,125 @@ pub const LLVMEmitter = struct {
         // Create GEP to get field pointer
         const field_ptr = llvm.buildStructGEP2(self.builder, info.llvm_type, struct_ptr, field_idx, "field_ptr");
         try self.values.put(node.id, field_ptr);
+    }
+
+    // ========================================================================
+    // Error Union Emission (:core profile)
+    // ========================================================================
+    // Error unions are represented as { i8 is_error, i64 value }
+    // Similar to optionals but semantics are error handling, not nullability
+
+    /// Get error union struct type: { i8 is_error, i64 value }
+    fn getErrorUnionType(self: *LLVMEmitter) llvm.Type {
+        const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+        const i64_type = llvm.c.LLVMInt64TypeInContext(self.context);
+        var member_types = [_]llvm.Type{ i8_type, i64_type };
+        return llvm.structTypeInContext(self.context, &member_types, 2, false);
+    }
+
+    /// Emit Error_Union_Construct: creates { 0, value } (ok case)
+    fn emitErrorUnionConstruct(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+        const payload_val = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        const eu_type = self.getErrorUnionType();
+        const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+        const i64_type = llvm.c.LLVMInt64TypeInContext(self.context);
+
+        // Convert payload to i64 if needed
+        const payload_type = llvm.c.LLVMTypeOf(payload_val);
+        const value = if (payload_type == i64_type)
+            payload_val
+        else if (llvm.c.LLVMGetTypeKind(payload_type) == llvm.c.LLVMIntegerTypeKind)
+            llvm.c.LLVMBuildZExt(self.builder, payload_val, i64_type, "eu_payload")
+        else
+            llvm.c.LLVMBuildPtrToInt(self.builder, payload_val, i64_type, "eu_payload_ptr");
+
+        // Create struct with is_error=0, value=payload
+        var eu_val = llvm.getUndef(eu_type);
+        const zero = llvm.c.LLVMConstInt(i8_type, 0, 0);
+        eu_val = llvm.c.LLVMBuildInsertValue(self.builder, eu_val, zero, 0, "eu_ok_tag");
+        eu_val = llvm.c.LLVMBuildInsertValue(self.builder, eu_val, value, 1, "eu_ok");
+
+        try self.values.put(node.id, eu_val);
+    }
+
+    /// Emit Error_Fail_Construct: creates { 1, error_val } (error case)
+    fn emitErrorFailConstruct(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+        const error_val = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        const eu_type = self.getErrorUnionType();
+        const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+        const i64_type = llvm.c.LLVMInt64TypeInContext(self.context);
+
+        // Convert error to i64 if needed
+        const error_type = llvm.c.LLVMTypeOf(error_val);
+        const value = if (error_type == i64_type)
+            error_val
+        else if (llvm.c.LLVMGetTypeKind(error_type) == llvm.c.LLVMIntegerTypeKind)
+            llvm.c.LLVMBuildZExt(self.builder, error_val, i64_type, "eu_error")
+        else
+            llvm.c.LLVMBuildPtrToInt(self.builder, error_val, i64_type, "eu_error_ptr");
+
+        // Create struct with is_error=1, value=error
+        var eu_val = llvm.getUndef(eu_type);
+        const one = llvm.c.LLVMConstInt(i8_type, 1, 0);
+        eu_val = llvm.c.LLVMBuildInsertValue(self.builder, eu_val, one, 0, "eu_fail_tag");
+        eu_val = llvm.c.LLVMBuildInsertValue(self.builder, eu_val, value, 1, "eu_fail");
+
+        try self.values.put(node.id, eu_val);
+    }
+
+    /// Emit Error_Union_Is_Error: returns is_error == 1
+    fn emitErrorUnionIsError(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+        const eu_val = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+
+        // Extract is_error tag
+        const tag = llvm.c.LLVMBuildExtractValue(self.builder, eu_val, 0, "eu_tag");
+
+        // Compare tag == 1
+        const one = llvm.c.LLVMConstInt(i8_type, 1, 0);
+        const is_error = llvm.c.LLVMBuildICmp(self.builder, llvm.c.LLVMIntEQ, tag, one, "is_error");
+
+        try self.values.put(node.id, is_error);
+    }
+
+    /// Emit Error_Union_Unwrap: extract payload (assumes not error)
+    fn emitErrorUnionUnwrap(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+        const eu_val = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        const i32_type = llvm.int32TypeInContext(self.context);
+
+        // Extract tag and check if it's 0 (ok)
+        const tag = llvm.c.LLVMBuildExtractValue(self.builder, eu_val, 0, "eu_tag");
+
+        // TODO: Add panic if tag == 1 (error) - requires control flow
+        // For now, just extract the value without checking
+        _ = tag;
+
+        // Extract payload and truncate to i32 (assuming i32 for now)
+        const payload = llvm.c.LLVMBuildExtractValue(self.builder, eu_val, 1, "eu_payload");
+        const result = llvm.c.LLVMBuildTrunc(self.builder, payload, i32_type, "unwrap");
+
+        try self.values.put(node.id, result);
+    }
+
+    /// Emit Error_Union_Get_Error: extract error value (assumes is error)
+    fn emitErrorUnionGetError(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+        const eu_val = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        const i32_type = llvm.int32TypeInContext(self.context);
+
+        // Extract error value
+        const error_val = llvm.c.LLVMBuildExtractValue(self.builder, eu_val, 1, "eu_error");
+        const result = llvm.c.LLVMBuildTrunc(self.builder, error_val, i32_type, "error");
+
+        try self.values.put(node.id, result);
     }
 };
