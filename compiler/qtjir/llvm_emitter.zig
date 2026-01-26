@@ -6,6 +6,7 @@
 const std = @import("std");
 const llvm = @import("llvm_bindings.zig");
 const graph = @import("graph.zig");
+const extern_reg = @import("extern_registry.zig");
 
 const QTJIRGraph = graph.QTJIRGraph;
 const IRNode = graph.IRNode;
@@ -26,6 +27,27 @@ pub const LLVMEmitter = struct {
 
     // Current function being emitted
     current_function: llvm.Value,
+
+    // Struct metadata: maps struct node_id -> (llvm_type, field_names)
+    struct_info: std.AutoHashMap(u32, StructInfo),
+
+    // Track which nodes are allocas (for pointer-based field access)
+    alloca_types: std.AutoHashMap(u32, void),
+
+    // Optional external function registry for native Zig integration
+    extern_registry: ?*const extern_reg.ExternRegistry = null,
+
+    const DeferredPhi = struct {
+        phi_value: llvm.Value,
+        input_ids: []const u32,
+    };
+
+    const DeferredPhiList = std.ArrayList(DeferredPhi);
+
+    const StructInfo = struct {
+        llvm_type: llvm.Type,
+        field_names: []const u8, // Comma-separated field names
+    };
 
     pub fn init(allocator: std.mem.Allocator, module_name: []const u8) !LLVMEmitter {
         llvm.initializeNativeTarget();
@@ -48,6 +70,12 @@ pub const LLVMEmitter = struct {
             .label_blocks = std.AutoHashMap(u32, llvm.BasicBlock).init(allocator),
             .current_function = undefined,
         };
+    }
+
+    /// Set the extern registry for native Zig function resolution
+    /// This enables looking up function signatures from `use zig` imports
+    pub fn setExternRegistry(self: *LLVMEmitter, registry: *const extern_reg.ExternRegistry) void {
+        self.extern_registry = registry;
     }
 
     pub fn deinit(self: *LLVMEmitter) void {
@@ -843,6 +871,13 @@ pub const LLVMEmitter = struct {
             const result = llvm.c.LLVMBuildCall2(self.builder, func_type, func_fn, &args, 2, "concat_cstr");
             try self.values.put(node.id, result);
         } else {
+            // Check extern registry for native Zig function signatures
+            if (self.extern_registry) |registry| {
+                if (registry.lookup(func_name)) |sig| {
+                    return try self.emitExternCall(node, func_name, sig);
+                }
+            }
+
             // Generic Call Fallback: Assume i32 return, i32 args
             // This allows us to call other functions even if signatures are imperfect
             const i32_type = llvm.int32TypeInContext(self.context);
@@ -869,6 +904,66 @@ pub const LLVMEmitter = struct {
 
             const result = llvm.c.LLVMBuildCall2(self.builder, func_type, func_fn, args.items.ptr, @intCast(args.items.len), "");
             try self.values.put(node.id, result);
+        }
+    }
+
+    /// Emit a call to an external function with known signature from extern registry
+    fn emitExternCall(self: *LLVMEmitter, node: *const IRNode, func_name: []const u8, sig: *const extern_reg.ExternFnSig) !void {
+        // Convert LLVM type strings to actual LLVM types
+        var param_types = std.ArrayListUnmanaged(llvm.Type){};
+        defer param_types.deinit(self.allocator);
+        var args = std.ArrayListUnmanaged(llvm.Value){};
+        defer args.deinit(self.allocator);
+
+        for (sig.param_types, 0..) |type_str, i| {
+            const llvm_type = self.llvmTypeFromStr(type_str);
+            try param_types.append(self.allocator, llvm_type);
+
+            if (i < node.inputs.items.len) {
+                const val = self.values.get(node.inputs.items[i]) orelse return error.MissingOperand;
+                try args.append(self.allocator, val);
+            }
+        }
+
+        const return_type = self.llvmTypeFromStr(sig.return_type);
+        const func_type = llvm.functionType(return_type, param_types.items.ptr, @intCast(param_types.items.len), false);
+
+        const name_z = try self.allocator.dupeZ(u8, func_name);
+        defer self.allocator.free(name_z);
+
+        var func_fn = llvm.c.LLVMGetNamedFunction(self.module, name_z.ptr);
+        if (func_fn == null) {
+            func_fn = llvm.addFunction(self.module, name_z.ptr, func_type);
+        }
+
+        const is_void = std.mem.eql(u8, sig.return_type, "void");
+        const result = llvm.c.LLVMBuildCall2(self.builder, func_type, func_fn, args.items.ptr, @intCast(args.items.len), if (is_void) "" else "extern_result");
+
+        if (!is_void) {
+            try self.values.put(node.id, result);
+        }
+    }
+
+    /// Convert LLVM type string to actual LLVM type
+    fn llvmTypeFromStr(self: *LLVMEmitter, type_str: []const u8) llvm.Type {
+        if (std.mem.eql(u8, type_str, "i32")) {
+            return llvm.int32TypeInContext(self.context);
+        } else if (std.mem.eql(u8, type_str, "i64")) {
+            return llvm.c.LLVMInt64TypeInContext(self.context);
+        } else if (std.mem.eql(u8, type_str, "float")) {
+            return llvm.c.LLVMFloatTypeInContext(self.context);
+        } else if (std.mem.eql(u8, type_str, "double")) {
+            return llvm.doubleTypeInContext(self.context);
+        } else if (std.mem.eql(u8, type_str, "i1")) {
+            return llvm.c.LLVMInt1TypeInContext(self.context);
+        } else if (std.mem.eql(u8, type_str, "void")) {
+            return llvm.voidTypeInContext(self.context);
+        } else if (std.mem.eql(u8, type_str, "ptr")) {
+            const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+            return llvm.c.LLVMPointerType(i8_type, 0);
+        } else {
+            // Default to i32 for unknown types
+            return llvm.int32TypeInContext(self.context);
         }
     }
 

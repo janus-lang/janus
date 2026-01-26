@@ -178,6 +178,13 @@ pub fn build(b: *std.Build) void {
     semantic_analyzer_mod.addImport("janus_parser", libjanus_parser_mod);
     semantic_analyzer_mod.addImport("capabilities", capabilities_mod);
 
+    // Zig Parser - For native Zig integration
+    const zig_parser_mod = b.addModule("zig_parser", .{
+        .root_source_file = b.path("compiler/libjanus/zig_parser.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     // QTJIR - The Revolutionary Multi-Level IR
     const qtjir_mod = b.addModule("qtjir", .{
         .root_source_file = b.path("compiler/qtjir.zig"), // Updated to Sovereign Index
@@ -186,6 +193,7 @@ pub fn build(b: *std.Build) void {
     });
     qtjir_mod.addImport("astdb_core", astdb_core_mod);
     qtjir_mod.addImport("janus_parser", libjanus_parser_mod);
+    qtjir_mod.addImport("zig_parser", zig_parser_mod);
     qtjir_mod.addOptions("compiler_options", compiler_options);
 
     // Inspector - Introspection Oracle (Epic 3.4)
@@ -214,6 +222,9 @@ pub fn build(b: *std.Build) void {
     pipeline_mod.addImport("janus_lib", lib_mod);
     pipeline_mod.addImport("qtjir", qtjir_mod);
     pipeline_mod.addImport("astdb_core", astdb_core_mod);
+    pipeline_mod.addAnonymousImport("janus_runtime_embed", .{
+        .root_source_file = b.path("runtime/runtime_embed.zig"),
+    });
 
     // Context Module (for capability system)
     const janus_context_mod = b.addModule("janus_context", .{
@@ -349,6 +360,39 @@ pub fn build(b: *std.Build) void {
     }
     b.installArtifact(libjanus);
 
+    // ============================================================================
+    // Janus Runtime - Native Zig runtime for compiled Janus programs
+    // This is the foundation of :core/:min profile - provides all std functions
+    // ============================================================================
+    const janus_runtime = b.addLibrary(.{
+        .name = "janus_runtime",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("runtime/janus_rt.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+        .linkage = .static,
+    });
+    janus_runtime.linkLibC();
+    b.installArtifact(janus_runtime);
+
+    // Also create an object file for direct linking (used by integration tests)
+    const janus_runtime_obj = b.addObject(.{
+        .name = "janus_rt",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("runtime/janus_rt.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    janus_runtime_obj.linkLibC();
+
+    // Install the object file to zig-out/obj/ for easy access
+    const install_rt_obj = b.addInstallArtifact(janus_runtime_obj, .{
+        .dest_dir = .{ .override = .{ .custom = "obj" } },
+    });
+    b.getInstallStep().dependOn(&install_rt_obj.step);
+
     // janus CLI - Apply consistent options
     const janus_cli = b.addExecutable(.{
         .name = "janus",
@@ -375,6 +419,10 @@ pub fn build(b: *std.Build) void {
     janus_cli.root_module.addImport("inspect", inspect_mod); // For janus inspect
     janus_cli.root_module.addImport("jit_forge", jit_forge_mod);
     janus_cli.root_module.addImport("janus_context", janus_context_mod);
+    // Runtime source embed module - enables pipeline.zig to embed runtime from runtime/ directory
+    janus_cli.root_module.addAnonymousImport("janus_runtime_embed", .{
+        .root_source_file = b.path("runtime/runtime_embed.zig"),
+    });
     janus_cli.linkLibrary(blake3_lib);
     janus_cli.linkSystemLibrary("LLVM-21"); // For pipeline LLVM emitter
     janus_cli.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" }); // For LLVM headers
@@ -812,6 +860,7 @@ pub fn build(b: *std.Build) void {
     });
     qtjir_lower_extended_tests.root_module.addImport("astdb_core", astdb_core_mod);
     qtjir_lower_extended_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    qtjir_lower_extended_tests.root_module.addImport("zig_parser", zig_parser_mod);
 
     const run_qtjir_lower_extended_tests = b.addRunArtifact(qtjir_lower_extended_tests);
     const test_lower_extended_step = b.step("test-lower-extended", "Run QTJIR extended lowering tests");
@@ -829,6 +878,7 @@ pub fn build(b: *std.Build) void {
     });
     range_lower_tests.root_module.addImport("astdb_core", astdb_core_mod);
     range_lower_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    range_lower_tests.root_module.addImport("zig_parser", zig_parser_mod);
 
     const run_range_lower_tests = b.addRunArtifact(range_lower_tests);
     const test_range_lower_step = b.step("test-range-lower", "Run Range Lowering tests");
@@ -865,6 +915,7 @@ pub fn build(b: *std.Build) void {
     for_lower_tests.root_module.addImport("astdb_core", astdb_core_mod);
     for_lower_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     for_lower_tests.root_module.addImport("qtjir", qtjir_mod);
+    for_lower_tests.root_module.addImport("zig_parser", zig_parser_mod);
 
     const run_for_lower_tests = b.addRunArtifact(for_lower_tests);
     const test_for_lower_step = b.step("test-for-lower", "Run For Loop Lowering tests");
@@ -883,6 +934,7 @@ pub fn build(b: *std.Build) void {
     array_lower_tests.root_module.addImport("astdb_core", astdb_core_mod);
     array_lower_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     array_lower_tests.root_module.addImport("qtjir", qtjir_mod);
+    array_lower_tests.root_module.addImport("zig_parser", zig_parser_mod);
 
     const run_array_lower_tests = b.addRunArtifact(array_lower_tests);
     const test_array_lower_step = b.step("test-array-lower", "Run Array Literal Lowering tests");
@@ -1106,6 +1158,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     qtjir_quantum_lowering_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    qtjir_quantum_lowering_tests.root_module.addImport("zig_parser", zig_parser_mod);
     const run_qtjir_quantum_lowering_tests = b.addRunArtifact(qtjir_quantum_lowering_tests);
 
     const test_quantum_lowering_step = b.step("test-quantum-lowering", "Run QTJIR quantum lowering tests");

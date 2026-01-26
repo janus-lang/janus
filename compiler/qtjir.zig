@@ -19,4 +19,11 @@ pub const Level = idx.Level;
 pub const ConstantValue = idx.ConstantValue;
 
 pub const lowerUnit = idx.lowerUnit;
+pub const lowerUnitWithExterns = idx.lowerUnitWithExterns;
+pub const LoweringResult = idx.LoweringResult;
 pub const LLVMEmitter = idx.LLVMEmitter;
+
+// External function registry for native Zig integration
+pub const extern_registry = idx.extern_registry;
+pub const ExternRegistry = idx.ExternRegistry;
+pub const ExternFnSig = idx.ExternFnSig;
