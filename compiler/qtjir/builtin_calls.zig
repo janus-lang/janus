@@ -37,6 +37,33 @@ pub const builtins = [_]BuiltinCall{
     .{ .janus_name = "readFile", .runtime_name = "janus_readFile", .min_args = 2, .max_args = 2, .return_type = .ptr },
     .{ .janus_name = "writeFile", .runtime_name = "janus_writeFile", .min_args = 3, .max_args = 3, .return_type = .i32 },
 
+    // === Standard Library: std.io ===
+    .{ .janus_name = "std.io.print", .runtime_name = "janus_print", .min_args = 1, .max_args = null, .return_type = .void },
+    .{ .janus_name = "std.io.println", .runtime_name = "janus_println", .min_args = 1, .max_args = null, .return_type = .void },
+    .{ .janus_name = "std.io.print_int", .runtime_name = "janus_print_int", .min_args = 1, .max_args = 1, .return_type = .void },
+    .{ .janus_name = "std.io.print_float", .runtime_name = "janus_print_float", .min_args = 1, .max_args = 1, .return_type = .void },
+    .{ .janus_name = "std.io.print_bool", .runtime_name = "janus_print_bool", .min_args = 1, .max_args = 1, .return_type = .void },
+    .{ .janus_name = "std.io.read_file", .runtime_name = "janus_readFile", .min_args = 1, .max_args = 1, .return_type = .ptr },
+    .{ .janus_name = "std.io.write_file", .runtime_name = "janus_writeFile", .min_args = 2, .max_args = 2, .return_type = .i32 },
+
+    // === Standard Library: std.string ===
+    .{ .janus_name = "std.string.len", .runtime_name = "janus_string_len", .min_args = 1, .max_args = 1, .return_type = .i32 },
+    .{ .janus_name = "std.string.concat", .runtime_name = "janus_string_concat_cstr", .min_args = 2, .max_args = 2, .return_type = .ptr },
+    .{ .janus_name = "std.string.create", .runtime_name = "janus_string_create", .min_args = 3, .max_args = 3, .return_type = .ptr },
+    .{ .janus_name = "std.string.eq", .runtime_name = "janus_string_eq", .min_args = 2, .max_args = 2, .return_type = .bool },
+    .{ .janus_name = "std.string.print", .runtime_name = "janus_string_print", .min_args = 1, .max_args = 1, .return_type = .void },
+    .{ .janus_name = "std.string.free", .runtime_name = "janus_string_free", .min_args = 2, .max_args = 2, .return_type = .void },
+
+    // === Standard Library: std.math ===
+    .{ .janus_name = "std.math.pow", .runtime_name = "janus_pow", .min_args = 2, .max_args = 2, .return_type = .i32 },
+    .{ .janus_name = "std.math.abs_i32", .runtime_name = "janus_abs_i32", .min_args = 1, .max_args = 1, .return_type = .i32 },
+    .{ .janus_name = "std.math.abs_f64", .runtime_name = "janus_abs_f64", .min_args = 1, .max_args = 1, .return_type = .f64 },
+
+    // === Standard Library: std.mem ===
+    .{ .janus_name = "std.mem.alloc", .runtime_name = "janus_alloc", .min_args = 1, .max_args = 1, .return_type = .ptr },
+    .{ .janus_name = "std.mem.free", .runtime_name = "janus_free", .min_args = 1, .max_args = 1, .return_type = .void },
+    .{ .janus_name = "std.mem.realloc", .runtime_name = "janus_realloc", .min_args = 2, .max_args = 2, .return_type = .ptr },
+
     // === Error Handling ===
     .{ .janus_name = "panic", .runtime_name = "janus_panic", .min_args = 1, .max_args = 1, .return_type = .void },
 
@@ -88,6 +115,14 @@ pub const builtins = [_]BuiltinCall{
     .{ .janus_name = "vector_set", .runtime_name = "janus_vector_set", .min_args = 3, .max_args = 3, .return_type = .i32 },
     .{ .janus_name = "vector_len", .runtime_name = "janus_vector_len", .min_args = 1, .max_args = 1, .return_type = .i64 },
     .{ .janus_name = "vector_free", .runtime_name = "janus_vector_free", .min_args = 1, .max_args = 1, .return_type = .void },
+
+    // === Standard Library: std.vector ===
+    .{ .janus_name = "std.vector.create", .runtime_name = "janus_vector_create", .min_args = 1, .max_args = 1, .return_type = .ptr },
+    .{ .janus_name = "std.vector.push", .runtime_name = "janus_vector_push", .min_args = 2, .max_args = 2, .return_type = .i32 },
+    .{ .janus_name = "std.vector.get", .runtime_name = "janus_vector_get", .min_args = 2, .max_args = 2, .return_type = .f64 },
+    .{ .janus_name = "std.vector.set", .runtime_name = "janus_vector_set", .min_args = 3, .max_args = 3, .return_type = .i32 },
+    .{ .janus_name = "std.vector.len", .runtime_name = "janus_vector_len", .min_args = 1, .max_args = 1, .return_type = .i64 },
+    .{ .janus_name = "std.vector.free", .runtime_name = "janus_vector_free", .min_args = 1, .max_args = 1, .return_type = .void },
 
     // === Type Conversion (Explicit Casting) ===
     .{ .janus_name = "i32_to_i64", .runtime_name = "janus_cast_i32_to_i64", .min_args = 1, .max_args = 1, .return_type = .i64 },

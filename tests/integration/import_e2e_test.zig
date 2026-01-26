@@ -553,3 +553,63 @@ test "Module namespacing: mathlib.add() qualified calls" {
 
     std.debug.print("\n=== MODULE NAMESPACING TEST PASSED ===\n", .{});
 }
+
+test "Standard library: std.io.print_int namespaced builtin" {
+    const allocator = testing.allocator;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    // Main module using std.io.print_int instead of print_int
+    const main_source =
+        \\func main() {
+        \\    std.io.print_int(42)
+        \\    std.io.print_int(100)
+        \\}
+    ;
+
+    // Compile
+    const main_obj = try compileToObject(allocator, main_source, "main", tmp_dir);
+    defer allocator.free(main_obj);
+
+    // Link and run
+    const output = try linkAndRun(allocator, &[_][]const u8{main_obj}, "std_io_test", tmp_dir);
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // std.io.print_int(42) and std.io.print_int(100)
+    try testing.expectEqualStrings("42\n100\n", output);
+
+    std.debug.print("\n=== STD.IO NAMESPACE TEST PASSED ===\n", .{});
+}
+
+test "Standard library: std.math.pow namespaced builtin" {
+    const allocator = testing.allocator;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    // Main module using std.math.pow
+    const main_source =
+        \\func main() {
+        \\    let result = std.math.pow(2, 10)
+        \\    print_int(result)
+        \\}
+    ;
+
+    // Compile
+    const main_obj = try compileToObject(allocator, main_source, "main", tmp_dir);
+    defer allocator.free(main_obj);
+
+    // Link and run
+    const output = try linkAndRun(allocator, &[_][]const u8{main_obj}, "std_math_test", tmp_dir);
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // std.math.pow(2, 10) = 1024
+    try testing.expectEqualStrings("1024\n", output);
+
+    std.debug.print("\n=== STD.MATH NAMESPACE TEST PASSED ===\n", .{});
+}
