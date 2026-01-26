@@ -74,6 +74,23 @@ export fn janus_panic(msg: [*:0]const u8) callconv(.c) noreturn {
     std.c.exit(1);
 }
 
+export fn janus_pow(base: i32, exp: i32) callconv(.c) i32 {
+    if (exp < 0) return 0; // Integer power with negative exponent returns 0
+    if (exp == 0) return 1;
+    var result: i32 = 1;
+    var b = base;
+    var e: u32 = @intCast(exp);
+    // Fast exponentiation by squaring
+    while (e > 0) {
+        if (e & 1 == 1) {
+            result *%= b;
+        }
+        b *%= b;
+        e >>= 1;
+    }
+    return result;
+}
+
 // ============================================================================
 // Math API (TODO: Requires -lm linkage in build.zig)
 // ============================================================================
@@ -146,6 +163,37 @@ export fn janus_array_get_i32(array: [*]const i32, index: usize) callconv(.c) i3
 
 export fn janus_array_set_i32(array: [*]i32, index: usize, value: i32) callconv(.c) void {
     array[index] = value;
+}
+
+/// Create a slice of an i32 array from start to end (exclusive)
+/// Returns a newly allocated array containing copied elements
+export fn janus_array_slice_i32(array: [*]const i32, start: i32, end: i32) callconv(.c) ?[*]i32 {
+    if (start < 0 or end < start) return null;
+
+    const start_idx: usize = @intCast(start);
+    const end_idx: usize = @intCast(end);
+    const count = end_idx - start_idx;
+
+    if (count == 0) {
+        // Return empty array (still needs valid pointer for safety)
+        const result = std.c.malloc(@sizeOf(i32)) orelse return null;
+        return @ptrCast(@alignCast(result));
+    }
+
+    const result = std.c.malloc(count * @sizeOf(i32)) orelse return null;
+    const result_slice: [*]i32 = @ptrCast(@alignCast(result));
+
+    // Copy elements
+    for (0..count) |i| {
+        result_slice[i] = array[start_idx + i];
+    }
+
+    return result_slice;
+}
+
+/// Create an inclusive slice of an i32 array from start to end (inclusive)
+export fn janus_array_slice_inclusive_i32(array: [*]const i32, start: i32, end: i32) callconv(.c) ?[*]i32 {
+    return janus_array_slice_i32(array, start, end + 1);
 }
 
 // ============================================================================

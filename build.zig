@@ -111,11 +111,19 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Unified Compiler Errors Module
+    const compiler_errors_mod = b.addModule("compiler_errors", .{
+        .root_source_file = b.path("compiler/libjanus/compiler_errors.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const tokenizer_mod = b.addModule("janus_tokenizer", .{
         .root_source_file = b.path("compiler/libjanus/janus_tokenizer.zig"),
         .target = target,
         .optimize = optimize,
     });
+    tokenizer_mod.addImport("compiler_errors", compiler_errors_mod);
 
     const libjanus_parser_mod = b.addModule("janus_parser", .{
         .root_source_file = b.path("compiler/libjanus/janus_parser.zig"),
@@ -158,6 +166,7 @@ pub fn build(b: *std.Build) void {
     lib_mod.addImport("bootstrap_s0", bootstrap_s0_mod);
     lib_mod.addImport("janus_tokenizer", tokenizer_mod);
     lib_mod.addImport("janus_parser", libjanus_parser_mod);
+    lib_mod.addImport("compiler_errors", compiler_errors_mod);
 
     // Semantic Analysis Module - The Soul of the Compiler
     const semantic_mod = b.addModule("semantic", .{
@@ -195,6 +204,9 @@ pub fn build(b: *std.Build) void {
     qtjir_mod.addImport("janus_parser", libjanus_parser_mod);
     qtjir_mod.addImport("zig_parser", zig_parser_mod);
     qtjir_mod.addOptions("compiler_options", compiler_options);
+
+    // Add qtjir to libjanus for core_profile_codegen
+    lib_mod.addImport("qtjir", qtjir_mod);
 
     // Inspector - Introspection Oracle (Epic 3.4)
     const inspect_mod = b.addModule("inspect", .{
@@ -793,6 +805,61 @@ pub fn build(b: *std.Build) void {
     const test_type_calls_step = b.step("test-type-calls", "Run Type Checking calls tests");
     test_type_calls_step.dependOn(&run_type_checking_calls_tests.step);
     test_step.dependOn(&run_type_checking_calls_tests.step);
+
+    const var_decl_tests = b.addTest(.{
+        .name = "var_decl_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/specs/test_var_decl.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    var_decl_tests.root_module.addIncludePath(b.path("."));
+    var_decl_tests.root_module.addImport("semantic_analyzer_only", semantic_analyzer_mod);
+    var_decl_tests.root_module.addImport("astdb", astdb_core_mod);
+    var_decl_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+
+    const run_var_decl_tests = b.addRunArtifact(var_decl_tests);
+    const test_var_decl_step = b.step("test-var-decl", "Run Variable Declaration tests");
+    test_var_decl_step.dependOn(&run_var_decl_tests.step);
+    test_step.dependOn(&run_var_decl_tests.step);
+
+    const if_stmt_tests = b.addTest(.{
+        .name = "if_stmt_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/specs/test_if_stmt.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    if_stmt_tests.root_module.addIncludePath(b.path("."));
+    if_stmt_tests.root_module.addImport("semantic_analyzer_only", semantic_analyzer_mod);
+    if_stmt_tests.root_module.addImport("astdb", astdb_core_mod);
+    if_stmt_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+
+    const run_if_stmt_tests = b.addRunArtifact(if_stmt_tests);
+    const test_if_stmt_step = b.step("test-if-stmt", "Run If Statement tests");
+    test_if_stmt_step.dependOn(&run_if_stmt_tests.step);
+
+    test_step.dependOn(&run_if_stmt_tests.step);
+
+    const while_stmt_tests = b.addTest(.{
+        .name = "while_stmt_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/specs/test_while_stmt.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    while_stmt_tests.root_module.addIncludePath(b.path("."));
+    while_stmt_tests.root_module.addImport("semantic_analyzer_only", semantic_analyzer_mod);
+    while_stmt_tests.root_module.addImport("astdb", astdb_core_mod);
+    while_stmt_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+
+    const run_while_stmt_tests = b.addRunArtifact(while_stmt_tests);
+    const test_while_stmt_step = b.step("test-while-stmt", "Run While Statement tests");
+    test_while_stmt_step.dependOn(&run_while_stmt_tests.step);
+    test_step.dependOn(&run_while_stmt_tests.step);
 
     // Full Stack Verification
     const verify_tests = b.addTest(.{
@@ -1415,6 +1482,363 @@ pub fn build(b: *std.Build) void {
     test_hello_world_e2e_step.dependOn(&run_hello_world_e2e_tests.step);
     test_step.dependOn(&run_hello_world_e2e_tests.step);
 
+    // Add For Loop End-to-End Integration Test (Epic 1.5)
+    const for_loop_e2e_tests = b.addTest(.{
+        .name = "for_loop_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/for_loop_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    for_loop_e2e_tests.linkLibC();
+    for_loop_e2e_tests.linkSystemLibrary("LLVM-21");
+    for_loop_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    for_loop_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    for_loop_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    for_loop_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_for_loop_e2e_tests = b.addRunArtifact(for_loop_e2e_tests);
+
+    const test_for_loop_e2e_step = b.step("test-for-loop-e2e", "Run For Loop end-to-end integration test");
+    test_for_loop_e2e_step.dependOn(&run_for_loop_e2e_tests.step);
+    test_step.dependOn(&run_for_loop_e2e_tests.step);
+
+    // Add If/Else End-to-End Integration Test (Epic 1.6)
+    const if_else_e2e_tests = b.addTest(.{
+        .name = "if_else_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/if_else_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    if_else_e2e_tests.linkLibC();
+    if_else_e2e_tests.linkSystemLibrary("LLVM-21");
+    if_else_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    if_else_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    if_else_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    if_else_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_if_else_e2e_tests = b.addRunArtifact(if_else_e2e_tests);
+
+    const test_if_else_e2e_step = b.step("test-if-else-e2e", "Run If/Else end-to-end integration test");
+    test_if_else_e2e_step.dependOn(&run_if_else_e2e_tests.step);
+    test_step.dependOn(&run_if_else_e2e_tests.step);
+
+    // Add While Loop End-to-End Integration Test (Epic 1.7)
+    const while_loop_e2e_tests = b.addTest(.{
+        .name = "while_loop_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/while_loop_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    while_loop_e2e_tests.linkLibC();
+    while_loop_e2e_tests.linkSystemLibrary("LLVM-21");
+    while_loop_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    while_loop_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    while_loop_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    while_loop_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_while_loop_e2e_tests = b.addRunArtifact(while_loop_e2e_tests);
+
+    const test_while_loop_e2e_step = b.step("test-while-loop-e2e", "Run While Loop end-to-end integration test");
+    test_while_loop_e2e_step.dependOn(&run_while_loop_e2e_tests.step);
+    test_step.dependOn(&run_while_loop_e2e_tests.step);
+
+    // Function Call E2E Tests
+    const function_call_e2e_tests = b.addTest(.{
+        .name = "function_call_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/function_call_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    function_call_e2e_tests.linkLibC();
+    function_call_e2e_tests.linkSystemLibrary("LLVM-21");
+    function_call_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    function_call_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    function_call_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    function_call_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_function_call_e2e_tests = b.addRunArtifact(function_call_e2e_tests);
+
+    const test_function_call_e2e_step = b.step("test-function-call-e2e", "Run Function Call end-to-end integration test");
+    test_function_call_e2e_step.dependOn(&run_function_call_e2e_tests.step);
+    test_step.dependOn(&run_function_call_e2e_tests.step);
+
+    // Continue Statement E2E Tests
+    const continue_e2e_tests = b.addTest(.{
+        .name = "continue_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/continue_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    continue_e2e_tests.linkLibC();
+    continue_e2e_tests.linkSystemLibrary("LLVM-21");
+    continue_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    continue_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    continue_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    continue_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_continue_e2e_tests = b.addRunArtifact(continue_e2e_tests);
+
+    const test_continue_e2e_step = b.step("test-continue-e2e", "Run Continue Statement end-to-end integration test");
+    test_continue_e2e_step.dependOn(&run_continue_e2e_tests.step);
+    test_step.dependOn(&run_continue_e2e_tests.step);
+
+    // Match Statement E2E Tests
+    const match_e2e_tests = b.addTest(.{
+        .name = "match_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/match_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    match_e2e_tests.linkLibC();
+    match_e2e_tests.linkSystemLibrary("LLVM-21");
+    match_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    match_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    match_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    match_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_match_e2e_tests = b.addRunArtifact(match_e2e_tests);
+
+    const test_match_e2e_step = b.step("test-match-e2e", "Run Match Statement end-to-end integration test");
+    test_match_e2e_step.dependOn(&run_match_e2e_tests.step);
+    test_step.dependOn(&run_match_e2e_tests.step);
+
+    // Struct Types E2E Tests
+    const struct_e2e_tests = b.addTest(.{
+        .name = "struct_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/struct_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    struct_e2e_tests.linkLibC();
+    struct_e2e_tests.linkSystemLibrary("LLVM-21");
+    struct_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    struct_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    struct_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    struct_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_struct_e2e_tests = b.addRunArtifact(struct_e2e_tests);
+
+    const test_struct_e2e_step = b.step("test-struct-e2e", "Run Struct Types end-to-end integration test");
+    test_struct_e2e_step.dependOn(&run_struct_e2e_tests.step);
+    test_step.dependOn(&run_struct_e2e_tests.step);
+
+    // String Literals E2E Tests
+    const string_e2e_tests = b.addTest(.{
+        .name = "string_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/string_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    string_e2e_tests.linkLibC();
+    string_e2e_tests.linkSystemLibrary("LLVM-21");
+    string_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    string_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    string_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    string_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_string_e2e_tests = b.addRunArtifact(string_e2e_tests);
+
+    const test_string_e2e_step = b.step("test-string-e2e", "Run String Literals end-to-end integration test");
+    test_string_e2e_step.dependOn(&run_string_e2e_tests.step);
+    test_step.dependOn(&run_string_e2e_tests.step);
+
+    // Type Annotation E2E Tests
+    const type_annotation_e2e_tests = b.addTest(.{
+        .name = "type_annotation_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/type_annotation_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    type_annotation_e2e_tests.linkLibC();
+    type_annotation_e2e_tests.linkSystemLibrary("LLVM-21");
+    type_annotation_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    type_annotation_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    type_annotation_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    type_annotation_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_type_annotation_e2e_tests = b.addRunArtifact(type_annotation_e2e_tests);
+
+    const test_type_annotation_e2e_step = b.step("test-type-annotation-e2e", "Run Type Annotation end-to-end integration test");
+    test_type_annotation_e2e_step.dependOn(&run_type_annotation_e2e_tests.step);
+    test_step.dependOn(&run_type_annotation_e2e_tests.step);
+
+    // Array E2E Tests
+    const array_e2e_tests = b.addTest(.{
+        .name = "array_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/array_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    array_e2e_tests.linkLibC();
+    array_e2e_tests.linkSystemLibrary("LLVM-21");
+    array_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    array_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    array_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    array_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_array_e2e_tests = b.addRunArtifact(array_e2e_tests);
+
+    const test_array_e2e_step = b.step("test-array-e2e", "Run Array end-to-end integration test");
+    test_array_e2e_step.dependOn(&run_array_e2e_tests.step);
+    test_step.dependOn(&run_array_e2e_tests.step);
+
+    // Import/Module E2E Tests
+    const import_e2e_tests = b.addTest(.{
+        .name = "import_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/import_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    import_e2e_tests.linkLibC();
+    import_e2e_tests.linkSystemLibrary("LLVM-21");
+    import_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    import_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    import_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    import_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_import_e2e_tests = b.addRunArtifact(import_e2e_tests);
+
+    const test_import_e2e_step = b.step("test-import-e2e", "Run Import/Module end-to-end integration test");
+    test_import_e2e_step.dependOn(&run_import_e2e_tests.step);
+    test_step.dependOn(&run_import_e2e_tests.step);
+
+    // Unary Operators E2E Tests
+    const unary_e2e_tests = b.addTest(.{
+        .name = "unary_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/unary_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    unary_e2e_tests.linkLibC();
+    unary_e2e_tests.linkSystemLibrary("LLVM-21");
+    unary_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    unary_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    unary_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    unary_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_unary_e2e_tests = b.addRunArtifact(unary_e2e_tests);
+
+    const test_unary_e2e_step = b.step("test-unary-e2e", "Run Unary Operators end-to-end integration test");
+    test_unary_e2e_step.dependOn(&run_unary_e2e_tests.step);
+    test_step.dependOn(&run_unary_e2e_tests.step);
+
+    // Logical Operators E2E Tests
+    const logical_e2e_tests = b.addTest(.{
+        .name = "logical_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/logical_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    logical_e2e_tests.linkLibC();
+    logical_e2e_tests.linkSystemLibrary("LLVM-21");
+    logical_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    logical_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    logical_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    logical_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_logical_e2e_tests = b.addRunArtifact(logical_e2e_tests);
+
+    const test_logical_e2e_step = b.step("test-logical-e2e", "Run Logical Operators end-to-end integration test");
+    test_logical_e2e_step.dependOn(&run_logical_e2e_tests.step);
+    test_step.dependOn(&run_logical_e2e_tests.step);
+
+    // Modulo Operator E2E Tests
+    const modulo_e2e_tests = b.addTest(.{
+        .name = "modulo_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/modulo_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    modulo_e2e_tests.linkLibC();
+    modulo_e2e_tests.linkSystemLibrary("LLVM-21");
+    modulo_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    modulo_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    modulo_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    modulo_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_modulo_e2e_tests = b.addRunArtifact(modulo_e2e_tests);
+
+    const test_modulo_e2e_step = b.step("test-modulo-e2e", "Run Modulo Operator end-to-end integration test");
+    test_modulo_e2e_step.dependOn(&run_modulo_e2e_tests.step);
+    test_step.dependOn(&run_modulo_e2e_tests.step);
+
+    // Bitwise Operators E2E Tests
+    const bitwise_e2e_tests = b.addTest(.{
+        .name = "bitwise_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/bitwise_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    bitwise_e2e_tests.linkLibC();
+    bitwise_e2e_tests.linkSystemLibrary("LLVM-21");
+    bitwise_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    bitwise_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    bitwise_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    bitwise_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_bitwise_e2e_tests = b.addRunArtifact(bitwise_e2e_tests);
+
+    const test_bitwise_e2e_step = b.step("test-bitwise-e2e", "Run Bitwise Operators end-to-end integration test");
+    test_bitwise_e2e_step.dependOn(&run_bitwise_e2e_tests.step);
+    test_step.dependOn(&run_bitwise_e2e_tests.step);
+
+    // Numeric Literals E2E Tests
+    const numeric_literals_e2e_tests = b.addTest(.{
+        .name = "numeric_literals_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/numeric_literals_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    numeric_literals_e2e_tests.linkLibC();
+    numeric_literals_e2e_tests.linkSystemLibrary("LLVM-21");
+    numeric_literals_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    numeric_literals_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    numeric_literals_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    numeric_literals_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_numeric_literals_e2e_tests = b.addRunArtifact(numeric_literals_e2e_tests);
+
+    const test_numeric_literals_e2e_step = b.step("test-numeric-literals-e2e", "Run Numeric Literals end-to-end integration test");
+    test_numeric_literals_e2e_step.dependOn(&run_numeric_literals_e2e_tests.step);
+    test_step.dependOn(&run_numeric_literals_e2e_tests.step);
+
+    // Compound Assignment E2E Tests
+    const compound_assignment_e2e_tests = b.addTest(.{
+        .name = "compound_assignment_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/compound_assignment_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    compound_assignment_e2e_tests.linkLibC();
+    compound_assignment_e2e_tests.linkSystemLibrary("LLVM-21");
+    compound_assignment_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    compound_assignment_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    compound_assignment_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    compound_assignment_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_compound_assignment_e2e_tests = b.addRunArtifact(compound_assignment_e2e_tests);
+
+    const test_compound_assignment_e2e_step = b.step("test-compound-assignment-e2e", "Run Compound Assignment end-to-end integration test");
+    test_compound_assignment_e2e_step.dependOn(&run_compound_assignment_e2e_tests.step);
+    test_step.dependOn(&run_compound_assignment_e2e_tests.step);
+
     if (enable_s0_extended) {
         const s0_neg = b.addTest(.{
             .name = "s0_negative_tests",
@@ -1857,4 +2281,110 @@ pub fn build(b: *std.Build) void {
     const test_postfix_guards_parser_step = b.step("test-postfix-parser", "Run postfix guard parser unit tests");
     test_postfix_guards_parser_step.dependOn(&run_postfix_guards_parser_tests.step);
     test_step.dependOn(&run_postfix_guards_parser_tests.step);
+
+    // Semantic Pipeline Integration Tests
+    // TODO: This test file needs updating to match current API (TypeInference.init signature, etc.)
+    // For now, use test-e2e-semantic which covers the essential semantic pipeline functionality
+    // const semantic_pipeline_tests = b.addTest(.{
+    //     .name = "semantic_pipeline_integration_tests",
+    //     .root_module = b.createModule(.{
+    //         .root_source_file = b.path("tests/integration/semantic/test_semantic_pipeline_integration.zig"),
+    //         .target = target,
+    //         .optimize = optimize,
+    //     }),
+    // });
+    // semantic_pipeline_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    // semantic_pipeline_tests.root_module.addImport("astdb", lib_mod);
+    // semantic_pipeline_tests.root_module.addImport("semantic", semantic_mod);
+    // const run_semantic_pipeline_tests = b.addRunArtifact(semantic_pipeline_tests);
+    //
+    // const test_semantic_pipeline_step = b.step("test-semantic-pipeline", "Run semantic pipeline integration tests");
+    // test_semantic_pipeline_step.dependOn(&run_semantic_pipeline_tests.step);
+    // test_step.dependOn(&run_semantic_pipeline_tests.step);
+
+    // End-to-End Semantic Pipeline Tests
+    const e2e_semantic_tests = b.addTest(.{
+        .name = "e2e_semantic_pipeline_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/semantic/test_end_to_end_semantic_pipeline.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    e2e_semantic_tests.root_module.addImport("astdb", astdb_core_mod);
+    e2e_semantic_tests.root_module.addImport("semantic", semantic_mod);
+    const run_e2e_semantic_tests = b.addRunArtifact(e2e_semantic_tests);
+
+    const test_e2e_semantic_step = b.step("test-e2e-semantic", "Run end-to-end semantic pipeline tests");
+    test_e2e_semantic_step.dependOn(&run_e2e_semantic_tests.step);
+    test_step.dependOn(&run_e2e_semantic_tests.step);
+
+    // Match Expression Parser Tests
+    const match_expression_tests = b.addTest(.{
+        .name = "match_expression_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/semantic/test_match_expression.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    match_expression_tests.root_module.addImport("libjanus", lib_mod);
+    match_expression_tests.root_module.addImport("astdb", astdb_core_mod);
+    const run_match_expression_tests = b.addRunArtifact(match_expression_tests);
+
+    const test_match_step = b.step("test-match", "Run match expression integration tests");
+    test_match_step.dependOn(&run_match_expression_tests.step);
+    test_step.dependOn(&run_match_expression_tests.step);
+
+    // Grafting Features (Pipeline + UFCS)
+    const grafting_tests = b.addTest(.{
+        .name = "grafting_features_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("compiler/libjanus/tests/pipeline_desugar_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    grafting_tests.root_module.addImport("libjanus", lib_mod);
+    grafting_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    const run_grafting_tests = b.addRunArtifact(grafting_tests);
+
+    const test_grafting_step = b.step("test-grafting", "Run grafting features (pipeline, UFCS) tests");
+    test_grafting_step.dependOn(&run_grafting_tests.step);
+    test_step.dependOn(&run_grafting_tests.step);
+
+    // Core Profile CodeGen Tests
+    const core_codegen_tests = b.addTest(.{
+        .name = "core_codegen_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("compiler/libjanus/tests/core_codegen_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    core_codegen_tests.root_module.addImport("libjanus", lib_mod);
+    core_codegen_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    core_codegen_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_core_codegen_tests = b.addRunArtifact(core_codegen_tests);
+
+    const test_core_codegen_step = b.step("test-core-codegen", "Run core profile code generator tests");
+    test_core_codegen_step.dependOn(&run_core_codegen_tests.step);
+    test_step.dependOn(&run_core_codegen_tests.step);
+
+    // Error Framework Tests
+    const error_framework_tests = b.addTest(.{
+        .name = "error_framework_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("compiler/libjanus/tests/error_framework_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    error_framework_tests.root_module.addImport("compiler_errors", compiler_errors_mod);
+    error_framework_tests.root_module.addImport("janus_tokenizer", tokenizer_mod);
+    const run_error_framework_tests = b.addRunArtifact(error_framework_tests);
+
+    const test_error_framework_step = b.step("test-errors", "Run error framework tests");
+    test_error_framework_step.dependOn(&run_error_framework_tests.step);
+    test_step.dependOn(&run_error_framework_tests.step);
 }

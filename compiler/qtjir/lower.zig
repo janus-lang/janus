@@ -55,8 +55,19 @@ pub const LoweringContext = struct {
     // Defer Stack
     defer_stack: std.ArrayListUnmanaged(ScopeLayer),
 
-    // Loop Exit Stack (for break)
-    loop_exit_stack: std.ArrayListUnmanaged(u32),
+    // Loop depth counter (for break/continue patching)
+    loop_depth: usize = 0,
+
+    // Pending Break Jumps - holds (jump_node_id, loop_depth) pairs for patching
+    pending_breaks: std.ArrayListUnmanaged(PendingJump),
+
+    // Pending Continue Jumps - holds (jump_node_id, loop_depth) pairs for patching
+    pending_continues: std.ArrayListUnmanaged(PendingJump),
+
+    const PendingJump = struct {
+        jump_id: u32,
+        loop_depth: usize,
+    };
 
     pub const ScopeTracker = struct {
         map: std.StringHashMap(u32),
@@ -100,7 +111,9 @@ pub const LoweringContext = struct {
             .node_map = std.AutoHashMap(NodeId, u32).init(allocator),
             .scope = ScopeTracker.init(allocator),
             .defer_stack = .{},
-            .loop_exit_stack = .{},
+            .loop_depth = 0,
+            .pending_breaks = .{},
+            .pending_continues = .{},
         };
     }
 
@@ -164,7 +177,8 @@ pub const LoweringContext = struct {
             layer.actions.deinit(self.allocator);
         }
         self.defer_stack.deinit(self.allocator);
-        self.loop_exit_stack.deinit(self.allocator);
+        self.pending_breaks.deinit(self.allocator);
+        self.pending_continues.deinit(self.allocator);
     }
 
     /// Clone a string using the Graph's allocator for sovereign ownership.
@@ -684,6 +698,9 @@ fn lowerStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) 
         .break_stmt => {
             try lowerBreakStatement(ctx, node_id, node);
         },
+        .continue_stmt => {
+            try lowerContinueStatement(ctx, node_id, node);
+        },
         .let_stmt, .var_stmt => {
             _ = try lowerVarDecl(ctx, node_id, node);
         },
@@ -705,6 +722,13 @@ fn lowerStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) 
         },
         else => {},
     }
+}
+
+/// Helper: Check if the last emitted node is a terminator (Jump, Return, Branch)
+fn lastNodeIsTerminator(ctx: *LoweringContext) bool {
+    if (ctx.builder.graph.nodes.items.len == 0) return false;
+    const last_op = ctx.builder.graph.nodes.items[ctx.builder.graph.nodes.items.len - 1].op;
+    return last_op == .Jump or last_op == .Return or last_op == .Branch;
 }
 
 fn lowerIf(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
@@ -744,10 +768,13 @@ fn lowerIf(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerEr
         }
     }
 
-    // Jump to merge (placeholder)
-    const jump_from_true = try ctx.builder.createNode(.Jump);
-    var jump_true_inputs = &ctx.builder.graph.nodes.items[jump_from_true].inputs;
-    try jump_true_inputs.append(ctx.allocator, 0); // Placeholder merge
+    // Only emit jump to merge if the body didn't already terminate (break/continue/return)
+    var jump_from_true: ?u32 = null;
+    if (!lastNodeIsTerminator(ctx)) {
+        jump_from_true = try ctx.builder.createNode(.Jump);
+        var jump_true_inputs = &ctx.builder.graph.nodes.items[jump_from_true.?].inputs;
+        try jump_true_inputs.append(ctx.allocator, 0); // Placeholder merge
+    }
 
     // 4. Emit Else Block (if exists) or just Fallthrough
     const false_label_id = try ctx.builder.createNode(.Label);
@@ -765,24 +792,24 @@ fn lowerIf(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerEr
         }
     }
 
-    // Jump to merge (from false/else block) - technically if else block falls through
-    // But optimal IR might skip this if else is empty.
-    // To match CFG structure:
-    //   If Else exists: FalseLabel -> ElseCode -> Jump(Merge)
-    //   MergeLabel
-    // If Else missing: FalseLabel IS MergeLabel.
-
-    // Simplified Uniform Approach: Always jump to merge
-    const jump_from_false = try ctx.builder.createNode(.Jump);
-    var jump_false_inputs = &ctx.builder.graph.nodes.items[jump_from_false].inputs;
-    try jump_false_inputs.append(ctx.allocator, 0); // Placeholder merge
+    // Only emit jump to merge if else body didn't already terminate
+    var jump_from_false: ?u32 = null;
+    if (!lastNodeIsTerminator(ctx)) {
+        jump_from_false = try ctx.builder.createNode(.Jump);
+        var jump_false_inputs = &ctx.builder.graph.nodes.items[jump_from_false.?].inputs;
+        try jump_false_inputs.append(ctx.allocator, 0); // Placeholder merge
+    }
 
     // 5. Emit Merge Label
     const merge_label_id = try ctx.builder.createNode(.Label);
 
-    // Backpatch jumps
-    ctx.builder.graph.nodes.items[jump_from_true].inputs.items[0] = merge_label_id;
-    ctx.builder.graph.nodes.items[jump_from_false].inputs.items[0] = merge_label_id;
+    // Backpatch jumps (only if they were created)
+    if (jump_from_true) |jft| {
+        ctx.builder.graph.nodes.items[jft].inputs.items[0] = merge_label_id;
+    }
+    if (jump_from_false) |jff| {
+        ctx.builder.graph.nodes.items[jff].inputs.items[0] = merge_label_id;
+    }
 }
 
 fn lowerWhile(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
@@ -793,8 +820,11 @@ fn lowerWhile(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
     const cond_id = children[0];
     const body_id = children[1];
 
-    // 1. Jump to Header (to enter loop)
-    // Actually, usually we fall through to header, but we need a label for the back-edge.
+    // Track loop depth for break/continue patching
+    const loop_depth = ctx.loop_depth;
+    ctx.loop_depth += 1;
+
+    // 1. Header Label (for back-edge and continue)
     const header_label_id = try ctx.builder.createNode(.Label);
 
     // 2. Evaluate Condition
@@ -816,10 +846,9 @@ fn lowerWhile(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
 
     if (ctx.snapshot.getNode(body_id)) |body_node| {
         if (body_node.kind == .block_stmt) {
-            // Simplest: Wrap body in .Loop scope
             try ctx.pushScope(.Loop);
-            try lowerBlock(ctx, body_id, body_node); // This pushes ANOTHER .Block scope.
-            var LoopActions = try ctx.popScope(); // Pop .Loop
+            try lowerBlock(ctx, body_id, body_node);
+            var LoopActions = try ctx.popScope();
             try ctx.emitDefersForScope(&LoopActions);
         } else {
             try lowerStatement(ctx, body_id, body_node);
@@ -831,15 +860,38 @@ fn lowerWhile(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
     var jump_back_inputs = &ctx.builder.graph.nodes.items[jump_back].inputs;
     try jump_back_inputs.append(ctx.allocator, header_label_id);
 
-    // 5. Exit Label
+    // 5. Exit Label (created AFTER body so it's in correct IR position)
     const exit_label_id = try ctx.builder.createNode(.Label);
 
-    // Push exit label for break
-    try ctx.loop_exit_stack.append(ctx.allocator, exit_label_id);
-    defer _ = ctx.loop_exit_stack.pop().?;
-
-    // Backpatch false target
+    // Backpatch false target to exit
     ctx.builder.graph.nodes.items[branch_node_id].inputs.items[2] = exit_label_id;
+
+    // Restore loop depth
+    ctx.loop_depth -= 1;
+
+    // Patch all pending breaks at this loop depth
+    var i: usize = 0;
+    while (i < ctx.pending_breaks.items.len) {
+        const pb = ctx.pending_breaks.items[i];
+        if (pb.loop_depth == loop_depth) {
+            ctx.builder.graph.nodes.items[pb.jump_id].inputs.items[0] = exit_label_id;
+            _ = ctx.pending_breaks.swapRemove(i);
+        } else {
+            i += 1;
+        }
+    }
+
+    // Patch all pending continues at this loop depth (for while: jump to header)
+    i = 0;
+    while (i < ctx.pending_continues.items.len) {
+        const pc = ctx.pending_continues.items[i];
+        if (pc.loop_depth == loop_depth) {
+            ctx.builder.graph.nodes.items[pc.jump_id].inputs.items[0] = header_label_id;
+            _ = ctx.pending_continues.swapRemove(i);
+        } else {
+            i += 1;
+        }
+    }
 }
 
 fn lowerForStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
@@ -933,6 +985,10 @@ fn lowerForStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNod
     try cmp_node.inputs.append(ctx.allocator, phi_id);
     try cmp_node.inputs.append(ctx.allocator, end_val);
 
+    // Track loop depth for break/continue patching
+    const loop_depth = ctx.loop_depth;
+    ctx.loop_depth += 1;
+
     // 7. Branch
     const branch_id = try ctx.builder.createNode(.Branch);
     var branch_node = &ctx.builder.graph.nodes.items[branch_id];
@@ -947,15 +1003,15 @@ fn lowerForStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNod
     // Emit Body
     const body_node = ctx.snapshot.getNode(body_id) orelse return error.InvalidNode;
     if (body_node.kind == .block_stmt) {
-        // Inner block scope handled by lowerBlock
         try lowerBlock(ctx, body_id, body_node);
     } else {
         try lowerStatement(ctx, body_id, body_node);
     }
 
     // 9. Latch Block (Increment & Jump)
-    // Ideally this is a separate block, but if body falls through, we are here.
-    // Calculate NextIter = Phi + 1
+    // For continue: we need to jump HERE, after the body, before increment
+    const latch_label_id = try ctx.builder.createNode(.Label);
+
     const one_const = try ctx.builder.createConstant(.{ .integer = 1 });
     const add_id = try ctx.builder.createNode(.Add);
     var add_node = &ctx.builder.graph.nodes.items[add_id];
@@ -969,15 +1025,38 @@ fn lowerForStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNod
     const jump_node_id = try ctx.builder.createNode(.Jump);
     try ctx.builder.graph.nodes.items[jump_node_id].inputs.append(ctx.allocator, header_label_id);
 
-    // 10. Exit Block
+    // 10. Exit Label (created AFTER latch so it's in correct IR position)
     const exit_label_id = try ctx.builder.createNode(.Label);
-    ctx.builder.graph.nodes.items[branch_id].inputs.items[2] = exit_label_id; // Patch False
 
-    // Exit Handling
-    // If we had breaks in the loop, we'd patch them to jump here.
-    // (Break support needs the Loop Exit Stack)
-    // NOTE: We should have pushed `exit_label_id` to `loop_exit_stack` before emitting body.
-    // Let's defer that improvement.
+    // Backpatch branch false target to exit
+    ctx.builder.graph.nodes.items[branch_id].inputs.items[2] = exit_label_id;
+
+    // Restore loop depth
+    ctx.loop_depth -= 1;
+
+    // Patch all pending breaks at this loop depth
+    var i: usize = 0;
+    while (i < ctx.pending_breaks.items.len) {
+        const pb = ctx.pending_breaks.items[i];
+        if (pb.loop_depth == loop_depth) {
+            ctx.builder.graph.nodes.items[pb.jump_id].inputs.items[0] = exit_label_id;
+            _ = ctx.pending_breaks.swapRemove(i);
+        } else {
+            i += 1;
+        }
+    }
+
+    // Patch all pending continues at this loop depth (for for-loop: jump to latch)
+    i = 0;
+    while (i < ctx.pending_continues.items.len) {
+        const pc = ctx.pending_continues.items[i];
+        if (pc.loop_depth == loop_depth) {
+            ctx.builder.graph.nodes.items[pc.jump_id].inputs.items[0] = latch_label_id;
+            _ = ctx.pending_continues.swapRemove(i);
+        } else {
+            i += 1;
+        }
+    }
 
     // Pop Loop Scope
     var actions = try ctx.popScope();
@@ -987,9 +1066,6 @@ fn lowerForStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNod
 fn lowerArrayAccess(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable }!u32 {
     _ = node;
     const children = ctx.snapshot.getChildren(node_id);
-    if (children.len < 1) return error.InvalidNode; // Access needs at least array (and index is usually child 1)
-
-    // In Janus AST for index_expr, child 0 is array, child 1 is index
     if (children.len < 2) return error.InvalidNode;
 
     const array_id = children[0];
@@ -999,10 +1075,9 @@ fn lowerArrayAccess(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode
     const index_node = ctx.snapshot.getNode(index_id) orelse return error.InvalidNode;
 
     const array_val = try lowerExpression(ctx, array_id, array_node);
-
     const index_val = try lowerExpression(ctx, index_id, index_node);
 
-    // Create Index node
+    // Create Index node for single element access
     const idx_node_id = try ctx.builder.createNode(.Index);
     var idx_node = &ctx.builder.graph.nodes.items[idx_node_id];
     try idx_node.inputs.append(ctx.allocator, array_val);
@@ -1011,12 +1086,46 @@ fn lowerArrayAccess(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode
     return idx_node_id;
 }
 
+/// Lower slice expression: arr[start..end] or arr[start..<end]
+fn lowerSliceExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode, is_inclusive: bool) LowerError!u32 {
+    _ = node;
+    const children = ctx.snapshot.getChildren(node_id);
+    // Format: array, start, end (3 children)
+    if (children.len < 3) return error.InvalidNode;
+
+    const array_id = children[0];
+    const start_id = children[1];
+    const end_id = children[2];
+
+    const array_node = ctx.snapshot.getNode(array_id) orelse return error.InvalidNode;
+    const start_node = ctx.snapshot.getNode(start_id) orelse return error.InvalidNode;
+    const end_node = ctx.snapshot.getNode(end_id) orelse return error.InvalidNode;
+
+    const array_val = try lowerExpression(ctx, array_id, array_node);
+    const start_val = try lowerExpression(ctx, start_id, start_node);
+    const end_val = try lowerExpression(ctx, end_id, end_node);
+
+    // Create Slice node with inputs: [array, start, end]
+    const slice_node_id = try ctx.builder.createNode(.Slice);
+    var slice_node = &ctx.builder.graph.nodes.items[slice_node_id];
+    try slice_node.inputs.append(ctx.allocator, array_val);
+    try slice_node.inputs.append(ctx.allocator, start_val);
+    try slice_node.inputs.append(ctx.allocator, end_val);
+
+    // Store inclusivity in data field (1 = inclusive, 0 = exclusive)
+    slice_node.data = .{ .integer = if (is_inclusive) 1 else 0 };
+
+    return slice_node_id;
+}
+
 fn lowerExpression(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable }!u32 {
     // Check cache
     if (ctx.node_map.get(node_id)) |id| return id;
 
     const result_id = switch (node.kind) {
         .string_literal => try lowerStringLiteral(ctx, node),
+        .char_literal => try lowerCharLiteral(ctx, node),
+        .null_literal => try lowerNullLiteral(ctx),
         .integer_literal => try lowerIntegerLiteral(ctx, node_id, node),
         .float_literal => try lowerFloatLiteral(ctx, node_id, node),
         .bool_literal => try lowerBoolLiteral(ctx, node_id, node),
@@ -1030,6 +1139,8 @@ fn lowerExpression(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
             const ptr_id = try lowerArrayAccess(ctx, node_id, node);
             break :blk try ctx.builder.buildLoad(ctx.allocator, ptr_id, "idx_load");
         },
+        .slice_inclusive_expr => try lowerSliceExpr(ctx, node_id, node, true),
+        .slice_exclusive_expr => try lowerSliceExpr(ctx, node_id, node, false),
         .field_expr => try lowerFieldExpr(ctx, node_id),
         .struct_literal => try lowerStructLiteral(ctx, node_id),
         .range_inclusive_expr => try lowerRangeExpr(ctx, node_id, node, true),
@@ -1067,15 +1178,80 @@ fn lowerStringLiteral(ctx: *LoweringContext, node: *const AstNode) error{ Invali
     const token = ctx.snapshot.getToken(node.first_token) orelse return error.InvalidToken;
     const str = if (token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
 
-    // Remove quotes if present
+    // Remove quotes if present (handle both regular "" and multiline """)
     var content = str;
-    if (content.len >= 2 and content[0] == '"' and content[content.len - 1] == '"') {
+    if (content.len >= 6 and std.mem.startsWith(u8, content, "\"\"\"") and std.mem.endsWith(u8, content, "\"\"\"")) {
+        content = content[3 .. content.len - 3];
+    } else if (content.len >= 2 and content[0] == '"' and content[content.len - 1] == '"') {
         content = content[1 .. content.len - 1];
     }
 
+    // Process escape sequences
+    var processed = std.ArrayListUnmanaged(u8){};
+    defer processed.deinit(ctx.allocator);
+
+    var i: usize = 0;
+    while (i < content.len) {
+        if (content[i] == '\\' and i + 1 < content.len) {
+            const escaped_char: u8 = switch (content[i + 1]) {
+                'n' => '\n',
+                't' => '\t',
+                'r' => '\r',
+                '0' => 0,
+                '\\' => '\\',
+                '"' => '"',
+                '\'' => '\'',
+                else => content[i + 1],
+            };
+            try processed.append(ctx.allocator, escaped_char);
+            i += 2;
+        } else {
+            try processed.append(ctx.allocator, content[i]);
+            i += 1;
+        }
+    }
+
     // Ensure we own the string for graph hygiene
-    const owned_content = try ctx.dupeForGraph(content);
+    const owned_content = try ctx.dupeForGraph(processed.items);
     return try ctx.builder.createConstant(.{ .string = owned_content });
+}
+
+fn lowerNullLiteral(ctx: *LoweringContext) error{OutOfMemory}!u32 {
+    // Null is represented as integer 0 (null pointer)
+    return try ctx.builder.createConstant(.{ .integer = 0 });
+}
+
+fn lowerCharLiteral(ctx: *LoweringContext, node: *const AstNode) error{ InvalidToken, OutOfMemory }!u32 {
+    const token = ctx.snapshot.getToken(node.first_token) orelse return error.InvalidToken;
+    const unit = ctx.snapshot.astdb.getUnitConst(ctx.unit_id) orelse return error.InvalidToken;
+    const lexeme = unit.source[token.span.start..token.span.end];
+
+    // Parse character value from lexeme (e.g., 'a' or '\n')
+    // Remove quotes
+    if (lexeme.len < 3) return error.InvalidToken;
+    const content = lexeme[1 .. lexeme.len - 1]; // Strip 'quotes'
+
+    const char_value: i64 = if (content.len == 1) blk: {
+        // Simple character: 'a'
+        break :blk @intCast(content[0]);
+    } else if (content.len >= 2 and content[0] == '\\') blk: {
+        // Escape sequence: '\n', '\t', etc.
+        break :blk switch (content[1]) {
+            'n' => '\n',
+            't' => '\t',
+            'r' => '\r',
+            '0' => 0,
+            '\\' => '\\',
+            '\'' => '\'',
+            '"' => '"',
+            else => @intCast(content[1]),
+        };
+    } else blk: {
+        // Fallback
+        break :blk if (content.len > 0) @intCast(content[0]) else 0;
+    };
+
+    return try ctx.builder.createConstant(.{ .integer = char_value });
 }
 
 fn lowerIntegerLiteral(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, OutOfMemory }!u32 {
@@ -1085,7 +1261,32 @@ fn lowerIntegerLiteral(ctx: *LoweringContext, node_id: NodeId, node: *const AstN
     const unit = ctx.snapshot.astdb.getUnitConst(ctx.unit_id) orelse return error.InvalidToken;
     const lexeme = unit.source[token.span.start..token.span.end];
 
-    const val = std.fmt.parseInt(i32, lexeme, 10) catch 0;
+    // Strip underscores from numeric literal (e.g., 1_000_000 -> 1000000)
+    var stripped: [64]u8 = undefined;
+    var stripped_len: usize = 0;
+    for (lexeme) |c| {
+        if (c != '_') {
+            if (stripped_len < stripped.len) {
+                stripped[stripped_len] = c;
+                stripped_len += 1;
+            }
+        }
+    }
+    const clean_lexeme = stripped[0..stripped_len];
+
+    // Detect base from prefix: 0x (hex), 0b (binary), 0o (octal)
+    const val: i32 = blk: {
+        if (clean_lexeme.len > 2) {
+            if (clean_lexeme[0] == '0' and (clean_lexeme[1] == 'x' or clean_lexeme[1] == 'X')) {
+                break :blk std.fmt.parseInt(i32, clean_lexeme[2..], 16) catch 0;
+            } else if (clean_lexeme[0] == '0' and (clean_lexeme[1] == 'b' or clean_lexeme[1] == 'B')) {
+                break :blk std.fmt.parseInt(i32, clean_lexeme[2..], 2) catch 0;
+            } else if (clean_lexeme[0] == '0' and (clean_lexeme[1] == 'o' or clean_lexeme[1] == 'O')) {
+                break :blk std.fmt.parseInt(i32, clean_lexeme[2..], 8) catch 0;
+            }
+        }
+        break :blk std.fmt.parseInt(i32, clean_lexeme, 10) catch 0;
+    };
     return try ctx.builder.createConstant(.{ .integer = val });
 }
 
@@ -1342,8 +1543,15 @@ fn lowerFieldCall(
             return tensor_node_id;
         }
 
-        // Generic field call (treat as function name)
-        return try lowerUserFunctionCall(ctx, full_path, children);
+        // Generic field call - extract just the function name (last component)
+        // For module-qualified calls like mathlib.add, use just "add" since
+        // at LLVM level there are no namespaces - functions are global symbols
+        const func_name = if (std.mem.lastIndexOfScalar(u8, full_path, '.')) |dot_idx|
+            full_path[dot_idx + 1 ..]
+        else
+            full_path;
+        trace.dumpContext("lowerFieldCall", "Using function name: '{s}'", .{func_name});
+        return try lowerUserFunctionCall(ctx, func_name, children);
     }
 
     return error.UnsupportedCall;
@@ -1676,12 +1884,36 @@ fn lowerVarDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lo
 
     // Create alloca ONLY if mutable (var_stmt)
     if (node.kind == .var_stmt) {
-        const alloca_inst = try ctx.builder.buildAlloca(ctx.allocator, .i32, name); // Default to i32 for now
-        // Store init value
-        _ = try ctx.builder.buildStore(ctx.allocator, init_val, alloca_inst);
-        // Register variable in scope
-        try ctx.scope.put(name, alloca_inst);
-        return alloca_inst; // Return the alloca for var_stmt
+        // Check if initializer is a struct (Struct_Construct node)
+        const init_ir_node = &ctx.builder.graph.nodes.items[init_val];
+        if (init_ir_node.op == .Struct_Construct) {
+            // Create Struct_Alloca with struct metadata
+            const struct_alloca = try ctx.builder.createNode(.Struct_Alloca);
+            var alloca_node = &ctx.builder.graph.nodes.items[struct_alloca];
+            // Duplicate field names string (can't share with Struct_Construct)
+            const field_names_str = switch (init_ir_node.data) {
+                .string => |s| try ctx.dupeForGraph(s),
+                else => try ctx.dupeForGraph(""),
+            };
+            alloca_node.data = .{ .string = field_names_str };
+            // Store struct value input for type inference
+            try alloca_node.inputs.appendSlice(ctx.allocator, init_ir_node.inputs.items);
+
+            // Create Store to put struct value into alloca
+            const store_id = try ctx.builder.createNode(.Store);
+            var store_node = &ctx.builder.graph.nodes.items[store_id];
+            try store_node.inputs.append(ctx.allocator, struct_alloca);
+            try store_node.inputs.append(ctx.allocator, init_val);
+
+            try ctx.scope.put(name, struct_alloca);
+            return struct_alloca;
+        } else {
+            // Regular scalar alloca
+            const alloca_inst = try ctx.builder.buildAlloca(ctx.allocator, .i32, name);
+            _ = try ctx.builder.buildStore(ctx.allocator, init_val, alloca_inst);
+            try ctx.scope.put(name, alloca_inst);
+            return alloca_inst;
+        }
     } else {
         // Immutable (let_stmt): Direct Alias / Register Promotion
         try ctx.scope.put(name, init_val);
@@ -1695,10 +1927,10 @@ fn lowerIdentifier(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
     const name = if (token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
 
     if (ctx.scope.get(name)) |target_id| {
-        // Check if target is an Alloca (needs Load) or a Value (Direct)
         const target_node = &ctx.builder.graph.nodes.items[target_id];
         if (target_node.op == .Alloca) {
-            return try ctx.builder.buildLoad(ctx.allocator, target_id, name);
+            const load_id = try ctx.builder.buildLoad(ctx.allocator, target_id, name);
+            return load_id;
         } else {
             return target_id;
         }
@@ -1716,7 +1948,7 @@ fn lowerLValue(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Low
 
             if (ctx.scope.get(name)) |target_id| {
                 const target_node = &ctx.builder.graph.nodes.items[target_id];
-                if (target_node.op == .Alloca) {
+                if (target_node.op == .Alloca or target_node.op == .Struct_Alloca) {
                     return target_id; // Return address
                 } else {
                     return error.InvalidCall; // Cannot assign to non-alloca
@@ -1728,6 +1960,33 @@ fn lowerLValue(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Low
         .index_expr => {
             // lowerArrayAccess returns the GEP node (Pointer)
             return try lowerArrayAccess(ctx, node_id, node);
+        },
+        .field_expr => {
+            // Field assignment: s.field = value
+            // Create Field_Store node that returns the field address
+            const children = ctx.snapshot.getChildren(node_id);
+            if (children.len < 2) return error.InvalidNode;
+
+            const struct_id = children[0];
+            const field_id = children[1];
+
+            const struct_node = ctx.snapshot.getNode(struct_id) orelse return error.InvalidNode;
+            const field_node = ctx.snapshot.getNode(field_id) orelse return error.InvalidNode;
+
+            // Get the struct alloca (must be mutable)
+            const struct_val = try lowerLValue(ctx, struct_id, struct_node);
+
+            // Get field name
+            const token = ctx.snapshot.getToken(field_node.first_token) orelse return error.InvalidToken;
+            const field_name = if (token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+            // Create Field_Store node (acts as field pointer for store)
+            const store_node = try ctx.builder.createNode(.Field_Store);
+            var ir_node = &ctx.builder.graph.nodes.items[store_node];
+            try ir_node.inputs.append(ctx.allocator, struct_val);
+            ir_node.data = .{ .string = try ctx.dupeForGraph(field_name) };
+
+            return store_node;
         },
         else => return error.InvalidBinaryExpr, // Not an L-Value
     }
@@ -1806,9 +2065,61 @@ fn lowerBinaryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
         return rhs_val;
     }
 
+    // Handle Compound Assignment (+=, -=, *=, /=, %=, &=, |=, ^=, <<=, >>=)
+    // Desugaring: x op= y  =>  x = x op y
+    const compound_op: ?OpCode = switch (op_token_kind) {
+        .plus_assign => .Add,
+        .minus_assign => .Sub,
+        .star_assign => .Mul,
+        .slash_assign => .Div,
+        .percent_assign => .Mod,
+        .ampersand_assign => .BitAnd,
+        .pipe_assign => .BitOr,
+        .xor_assign => .Xor,
+        .left_shift_assign => .Shl,
+        .right_shift_assign => .Shr,
+        else => null,
+    };
+
+    if (compound_op) |op| {
+        // LHS must be L-Value (Address)
+        const lhs_addr = try lowerLValue(ctx, lhs_id, lhs);
+
+        // Load current value from LHS
+        const lhs_val = try ctx.builder.buildLoad(ctx.allocator, lhs_addr, "compound_lhs");
+
+        // Evaluate RHS
+        const rhs_val = try lowerExpression(ctx, rhs_id, rhs);
+
+        // Perform the operation
+        const op_node = try ctx.builder.createNode(op);
+        var ir_node = &ctx.builder.graph.nodes.items[op_node];
+        try ir_node.inputs.append(ctx.allocator, lhs_val);
+        try ir_node.inputs.append(ctx.allocator, rhs_val);
+
+        // Store result back to LHS
+        _ = try ctx.builder.buildStore(ctx.allocator, op_node, lhs_addr);
+
+        // Compound assignment evaluates to the new value
+        return op_node;
+    }
+
     // Handle Logical Operators (Short-circuiting)
-    if (op_token_kind == .logical_and or op_token_kind == .logical_or) {
-        // LHS
+    // Note: .and_ and .or_ are the keyword tokens, .logical_and/.logical_or are alternative forms
+    if (op_token_kind == .logical_and or op_token_kind == .logical_or or
+        op_token_kind == .and_ or op_token_kind == .or_)
+    {
+        const is_and = (op_token_kind == .logical_and or op_token_kind == .and_);
+
+        // Create a result variable to store the final boolean value
+        // This avoids complex PHI node handling with proper block tracking
+        const result_alloca = try ctx.builder.buildAlloca(ctx.allocator, .i32, "logical_result");
+
+        // Store the short-circuit default value
+        const short_circuit_val = try ctx.builder.createConstant(.{ .integer = if (is_and) 0 else 1 });
+        _ = try ctx.builder.buildStore(ctx.allocator, short_circuit_val, result_alloca);
+
+        // LHS evaluation
         const lhs_val = try lowerExpression(ctx, lhs_id, lhs);
 
         // Branch Node: Branch(cond, true_label, false_label)
@@ -1824,10 +2135,15 @@ fn lowerBinaryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
         // RHS Evaluation
         const rhs_val = try lowerExpression(ctx, rhs_id, rhs);
 
+        // Convert RHS boolean to i32 (0 or 1) and store
+        // For AND: result = rhs (if we got here, lhs was true)
+        // For OR: result = rhs (if we got here, lhs was false)
+        _ = try ctx.builder.buildStore(ctx.allocator, rhs_val, result_alloca);
+
         // Jump to Merge (after RHS)
         const jump_node_id = try ctx.builder.createNode(.Jump);
-        var jump_node = &ctx.builder.graph.nodes.items[jump_node_id];
-        try jump_node.inputs.append(ctx.allocator, 0); // Placeholder Merge
+        ctx.builder.graph.nodes.items[jump_node_id].inputs = .{};
+        try ctx.builder.graph.nodes.items[jump_node_id].inputs.append(ctx.allocator, 0); // Placeholder Merge
 
         // Merge Label
         const merge_label_id = try ctx.builder.createNode(.Label);
@@ -1836,29 +2152,19 @@ fn lowerBinaryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
         ctx.builder.graph.nodes.items[jump_node_id].inputs.items[0] = merge_label_id;
 
         // Backpatch Branch
-        if (op_token_kind == .logical_and) {
-            // AND: True -> RHS, False -> Merge (Short circuit false)
+        if (is_and) {
+            // AND: True -> RHS (evaluate second operand), False -> Merge (short circuit with 0)
             ctx.builder.graph.nodes.items[branch_node_id].inputs.items[1] = rhs_label_id;
             ctx.builder.graph.nodes.items[branch_node_id].inputs.items[2] = merge_label_id;
         } else {
-            // OR: True -> Merge (Short circuit true), False -> RHS
+            // OR: True -> Merge (short circuit with 1), False -> RHS (evaluate second operand)
             ctx.builder.graph.nodes.items[branch_node_id].inputs.items[1] = merge_label_id;
             ctx.builder.graph.nodes.items[branch_node_id].inputs.items[2] = rhs_label_id;
         }
 
-        // Phi Node at Merge
-        const phi_node = try ctx.builder.createNode(.Phi);
-        var phi = &ctx.builder.graph.nodes.items[phi_node];
-
-        const short_circuit_val = try ctx.builder.createConstant(.{ .boolean = (op_token_kind == .logical_or) });
-
-        // Order assumptions for Phase 1 (Naive Phi):
-        // 1. Short Circuit Value (from Branch direct edge)
-        // 2. RHS Value (from RHS block via Jump)
-        try phi.inputs.append(ctx.allocator, short_circuit_val);
-        try phi.inputs.append(ctx.allocator, rhs_val);
-
-        return phi_node;
+        // Load and return the result
+        const result_load = try ctx.builder.buildLoad(ctx.allocator, result_alloca, "logical_result");
+        return result_load;
     }
 
     const lhs_val = try lowerExpression(ctx, lhs_id, lhs);
@@ -1868,7 +2174,9 @@ fn lowerBinaryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
         .plus => .Add,
         .minus => .Sub,
         .star => .Mul,
+        .star_star => .Pow,
         .slash => .Div,
+        .percent => .Mod,
         .equal_equal => .Equal,
         .not_equal => .NotEqual,
         .less => .Less,
@@ -1918,8 +2226,8 @@ fn lowerUnaryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) 
             try sub_node.inputs.append(ctx.allocator, operand_val);
             return sub;
         },
-        .exclamation, .logical_not => {
-            // Logical Not: x == false
+        .exclamation, .logical_not, .not_ => {
+            // Logical Not: x == false (x XOR true for booleans)
             const false_val = try ctx.builder.createConstant(.{ .boolean = false });
 
             const eq = try ctx.builder.createNode(.Equal);
@@ -2117,11 +2425,11 @@ fn lowerBreakStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstN
     _ = node_id;
     _ = node;
 
-    if (ctx.loop_exit_stack.items.len == 0) {
+    if (ctx.loop_depth == 0) {
         return error.InvalidNode; // Break outside loop
     }
 
-    const target_label = ctx.loop_exit_stack.items[ctx.loop_exit_stack.items.len - 1];
+    const target_depth = ctx.loop_depth - 1;
 
     // Emit Defers up to nearest Loop scope
     var i = ctx.defer_stack.items.len;
@@ -2130,17 +2438,14 @@ fn lowerBreakStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstN
         const layer = &ctx.defer_stack.items[i];
 
         if (layer.type == .Loop) {
-            // Found the loop boundary. Stop here.
             break;
         }
 
-        // Emit actions for this layer
         var j = layer.actions.items.len;
         while (j > 0) {
             j -= 1;
             const action = layer.actions.items[j];
 
-            // Emit Call Copy
             const call_id = try ctx.builder.createNode(.Call);
             var node_def = &ctx.builder.graph.nodes.items[call_id];
             node_def.data = .{ .string = try ctx.dupeForGraph(action.builtin_name) };
@@ -2150,15 +2455,66 @@ fn lowerBreakStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstN
         }
     }
 
-    // Emit Jump
+    // Emit Jump with placeholder target (will be patched when loop ends)
     const jump_id = try ctx.builder.createNode(.Jump);
-    try ctx.builder.graph.nodes.items[jump_id].inputs.append(ctx.allocator, target_label);
+    try ctx.builder.graph.nodes.items[jump_id].inputs.append(ctx.allocator, 0); // Placeholder
+
+    // Register for patching
+    try ctx.pending_breaks.append(ctx.allocator, .{
+        .jump_id = jump_id,
+        .loop_depth = target_depth,
+    });
+}
+
+fn lowerContinueStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
+    _ = node_id;
+    _ = node;
+
+    if (ctx.loop_depth == 0) {
+        return error.InvalidNode; // Continue outside loop
+    }
+
+    const target_depth = ctx.loop_depth - 1;
+
+    // Emit Defers up to nearest Loop scope (same as break)
+    var i = ctx.defer_stack.items.len;
+    while (i > 0) {
+        i -= 1;
+        const layer = &ctx.defer_stack.items[i];
+
+        if (layer.type == .Loop) {
+            break;
+        }
+
+        var j = layer.actions.items.len;
+        while (j > 0) {
+            j -= 1;
+            const action = layer.actions.items[j];
+
+            const call_id = try ctx.builder.createNode(.Call);
+            var node_def = &ctx.builder.graph.nodes.items[call_id];
+            node_def.data = .{ .string = try ctx.dupeForGraph(action.builtin_name) };
+            for (action.args.items) |arg| {
+                try node_def.inputs.append(ctx.allocator, arg);
+            }
+        }
+    }
+
+    // Emit Jump with placeholder target (will be patched when loop ends)
+    const jump_id = try ctx.builder.createNode(.Jump);
+    try ctx.builder.graph.nodes.items[jump_id].inputs.append(ctx.allocator, 0); // Placeholder
+
+    // Register for patching
+    try ctx.pending_continues.append(ctx.allocator, .{
+        .jump_id = jump_id,
+        .loop_depth = target_depth,
+    });
 }
 
 fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
     _ = node;
     const children = ctx.snapshot.getChildren(node_id);
-    if (children.len < 2) return error.InvalidNode; // Needs scrutinee and at least one arm (or handling empty match which is no-op)
+    if (children.len < 2) return error.InvalidNode;
 
     const scrutinee_id = children[0];
     const scrutinee_node = ctx.snapshot.getNode(scrutinee_id) orelse return error.InvalidNode;
@@ -2182,14 +2538,12 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
         if (arm_node.kind != .match_arm) continue;
 
         const arm_children = ctx.snapshot.getChildren(arm_id);
-        // Arm structure: pattern -> guard -> body
         if (arm_children.len < 3) continue;
 
         const pattern_id = arm_children[0];
         const guard_id = arm_children[1];
         const body_id = arm_children[arm_children.len - 1];
 
-        // 1. Lower Pattern Check
         const pattern_node = ctx.snapshot.getNode(pattern_id) orelse continue;
         var pattern_matches_val: u32 = 0;
 
@@ -2206,10 +2560,38 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
         if (is_wildcard) {
             // Always matches
             pattern_matches_val = try ctx.builder.createConstant(.{ .boolean = true });
+        } else if (pattern_node.kind == .unary_expr) {
+            // Check for negation pattern: !value means scrutinee != value
+            const pattern_token = ctx.snapshot.getToken(pattern_node.first_token) orelse return error.InvalidToken;
+            const is_negation = pattern_token.kind == .exclamation or
+                pattern_token.kind == .logical_not or
+                pattern_token.kind == .not_;
+
+            if (is_negation) {
+                // Negation pattern: !value -> scrutinee != value
+                const pattern_children = ctx.snapshot.getChildren(pattern_id);
+                if (pattern_children.len != 1) return error.InvalidNode;
+                const inner_pattern_id = pattern_children[0];
+                const inner_pattern_node = ctx.snapshot.getNode(inner_pattern_id) orelse return error.InvalidNode;
+                const inner_val = try lowerExpression(ctx, inner_pattern_id, inner_pattern_node);
+
+                const neq_node_id = try ctx.builder.createNode(.NotEqual);
+                var neq_node = &ctx.builder.graph.nodes.items[neq_node_id];
+                try neq_node.inputs.append(ctx.allocator, scrutinee_val);
+                try neq_node.inputs.append(ctx.allocator, inner_val);
+                pattern_matches_val = neq_node_id;
+            } else {
+                // Other unary expr - evaluate and compare
+                const pattern_val = try lowerExpression(ctx, pattern_id, pattern_node);
+                const eq_node_id = try ctx.builder.createNode(.Equal);
+                var eq_node = &ctx.builder.graph.nodes.items[eq_node_id];
+                try eq_node.inputs.append(ctx.allocator, scrutinee_val);
+                try eq_node.inputs.append(ctx.allocator, pattern_val);
+                pattern_matches_val = eq_node_id;
+            }
         } else {
             // Equality check: scrutinee == pattern_val
             const pattern_val = try lowerExpression(ctx, pattern_id, pattern_node);
-
             const eq_node_id = try ctx.builder.createNode(.Equal);
             var eq_node = &ctx.builder.graph.nodes.items[eq_node_id];
             try eq_node.inputs.append(ctx.allocator, scrutinee_val);
@@ -2222,7 +2604,6 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
         const guard_node = ctx.snapshot.getNode(guard_id);
 
         if (guard_node != null and guard_node.?.kind != .null_literal) {
-            // Guard exists
             const guard_val = try lowerExpression(ctx, guard_id, guard_node.?);
             const and_node_id = try ctx.builder.createNode(.BitAnd);
             var and_node = &ctx.builder.graph.nodes.items[and_node_id];
@@ -2246,8 +2627,11 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
         const body = ctx.snapshot.getNode(body_id) orelse continue;
         if (body.kind == .block_stmt) {
             try lowerBlock(ctx, body_id, body);
-        } else {
+        } else if (body.kind == .expr_stmt) {
             try lowerStatement(ctx, body_id, body);
+        } else {
+            // Body is an expression, lower it directly
+            _ = try lowerExpression(ctx, body_id, body);
         }
 
         // Jump to End (ID TBD)

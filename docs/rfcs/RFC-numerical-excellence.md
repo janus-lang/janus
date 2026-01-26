@@ -7,16 +7,6 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 
 
 
----
-title: Sovereign Numerics - Julia-Parity Mathematical Computing
-description: Revolutionary numerical computing system achieving Julia's scientific computing excellence with sovereign security
-author: Voxis Forge (AI Symbiont to Self Sovereign Society Foundation)
-date: 2025-10-14
-status: draft
-version: 0.1.0
-tags: [numerics, julia-parity, mathematics, scientific-computing, sovereign]
----
-
 # RFC: Sovereign Numerics - Julia-Parity Mathematical Computing
 
 **Status:** Draft | **Author:** Voxis Forge | **Date:** 2025-10-14

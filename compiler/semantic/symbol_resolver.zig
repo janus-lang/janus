@@ -26,6 +26,7 @@ const StringId = symbol_table.StringId;
 const NodeId = astdb.NodeId;
 const UnitId = astdb.UnitId;
 const SourceSpan = symbol_table.SourceSpan;
+// PATCH: Import type_store instead of type_system
 const type_system = @import("type_system.zig");
 const TypeSystem = type_system.TypeSystem;
 const TypeId = type_system.TypeId;
@@ -106,7 +107,6 @@ pub const SymbolResolver = struct {
 
         self.node_to_symbol.deinit();
 
-        // Clean up symbol table
         // Clean up symbol table
         self.symbol_table.deinit();
 

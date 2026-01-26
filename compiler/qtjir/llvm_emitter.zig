@@ -25,6 +25,12 @@ pub const LLVMEmitter = struct {
     // Label mapping: QTJIR Label Node ID → LLVM BasicBlock
     label_blocks: std.AutoHashMap(u32, llvm.BasicBlock),
 
+    // Track which basic block each node was defined in (for PHI incoming edges)
+    node_blocks: std.AutoHashMap(u32, llvm.BasicBlock),
+
+    // Deferred PHI nodes that need incoming edges resolved after all nodes are emitted
+    deferred_phis: DeferredPhiList,
+
     // Current function being emitted
     current_function: llvm.Value,
 
@@ -68,7 +74,11 @@ pub const LLVMEmitter = struct {
             .builder = builder,
             .values = std.AutoHashMap(u32, llvm.Value).init(allocator),
             .label_blocks = std.AutoHashMap(u32, llvm.BasicBlock).init(allocator),
+            .node_blocks = std.AutoHashMap(u32, llvm.BasicBlock).init(allocator),
+            .deferred_phis = .{},
             .current_function = undefined,
+            .struct_info = std.AutoHashMap(u32, StructInfo).init(allocator),
+            .alloca_types = std.AutoHashMap(u32, void).init(allocator),
         };
     }
 
@@ -81,6 +91,13 @@ pub const LLVMEmitter = struct {
     pub fn deinit(self: *LLVMEmitter) void {
         self.values.deinit();
         self.label_blocks.deinit();
+        self.node_blocks.deinit();
+        self.struct_info.deinit();
+        self.alloca_types.deinit();
+        for (self.deferred_phis.items) |phi| {
+            self.allocator.free(phi.input_ids);
+        }
+        self.deferred_phis.deinit(self.allocator);
         llvm.disposeBuilder(self.builder);
         llvm.disposeModule(self.module);
         llvm.contextDispose(self.context);
@@ -147,10 +164,27 @@ pub const LLVMEmitter = struct {
         // Scan for labels and create BasicBlocks
         try self.scanLabels(ir_graph, function);
 
-        // Emit all nodes
+        // Clear deferred phis for this function
+        for (self.deferred_phis.items) |phi| {
+            self.allocator.free(phi.input_ids);
+        }
+        self.deferred_phis.clearRetainingCapacity();
+        self.node_blocks.clearRetainingCapacity();
+
+        // Emit all nodes, tracking which block each is in
         for (ir_graph.nodes.items) |*node| {
             try self.emitNode(node, ir_graph);
+            // Track which block this node's value was defined in
+            if (self.values.contains(node.id)) {
+                const current_block = llvm.c.LLVMGetInsertBlock(self.builder);
+                if (current_block != null) {
+                    try self.node_blocks.put(node.id, current_block);
+                }
+            }
         }
+
+        // Resolve deferred PHI incoming edges
+        try self.resolveDeferredPhis();
 
         // Add return statement
         if (is_main) {
@@ -182,6 +216,14 @@ pub const LLVMEmitter = struct {
             .Sub => try self.emitBinaryOp(node, llvm.buildSub),
             .Mul => try self.emitBinaryOp(node, llvm.buildMul),
             .Div => try self.emitBinaryOp(node, llvm.buildSDiv),
+            .Mod => try self.emitBinaryOp(node, llvm.buildSRem),
+            .Pow => try self.emitPow(node),
+            .BitAnd => try self.emitBinaryOp(node, llvm.buildAnd),
+            .BitOr => try self.emitBinaryOp(node, llvm.buildOr),
+            .Xor => try self.emitBinaryOp(node, llvm.buildXor),
+            .Shl => try self.emitBinaryOp(node, llvm.buildShl),
+            .Shr => try self.emitBinaryOp(node, llvm.buildAShr),
+            .BitNot => try self.emitUnaryOp(node, llvm.buildNot),
             .Equal => try self.emitCmpOp(node, llvm.c.LLVMIntEQ),
             .NotEqual => try self.emitCmpOp(node, llvm.c.LLVMIntNE),
             .Less => try self.emitCmpOp(node, llvm.c.LLVMIntSLT),
@@ -197,8 +239,14 @@ pub const LLVMEmitter = struct {
             .Label => try self.emitLabel(node),
             .Jump => try self.emitJump(node),
             .Branch => try self.emitBranch(node),
+            .Phi => try self.emitPhi(node),
             .Array_Construct => try self.emitArrayConstruct(node),
             .Index => try self.emitIndex(node),
+            .Slice => try self.emitSlice(node),
+            .Struct_Construct => try self.emitStructConstruct(node),
+            .Struct_Alloca => try self.emitStructAlloca(node),
+            .Field_Access => try self.emitFieldAccess(node),
+            .Field_Store => try self.emitFieldStore(node),
             // Tensor / Quantum (Placeholder)
             .Tensor_Contract => {
                 std.debug.print("Warning: Unimplemented Tensor_Contract\n", .{});
@@ -301,6 +349,43 @@ pub const LLVMEmitter = struct {
         _ = llvm.buildCondBr(self.builder, cond_i1, true_bb, false_bb);
     }
 
+    fn emitPhi(self: *LLVMEmitter, node: *const IRNode) !void {
+        // Create a PHI node with i32 type (most common for loop counters)
+        const i32_type = llvm.int32TypeInContext(self.context);
+        const phi = llvm.c.LLVMBuildPhi(self.builder, i32_type, "phi");
+
+        // Register the value immediately so Store can use it
+        try self.values.put(node.id, phi);
+
+        // Defer incoming edge resolution - we don't know blocks yet
+        // Copy input_ids since node might be invalidated
+        const input_ids = try self.allocator.alloc(u32, node.inputs.items.len);
+        @memcpy(input_ids, node.inputs.items);
+
+        try self.deferred_phis.append(self.allocator, .{
+            .phi_value = phi,
+            .input_ids = input_ids,
+        });
+    }
+
+    fn resolveDeferredPhis(self: *LLVMEmitter) !void {
+        for (self.deferred_phis.items) |deferred| {
+            const phi = deferred.phi_value;
+            const input_ids = deferred.input_ids;
+
+            // For each input, find the value and the block it came from
+            for (input_ids) |input_id| {
+                const val = self.values.get(input_id) orelse continue;
+                const block = self.node_blocks.get(input_id) orelse continue;
+
+                // LLVM C API: LLVMAddIncoming(phi, values*, blocks*, count)
+                var values = [_]llvm.Value{val};
+                var blocks = [_]llvm.BasicBlock{block};
+                llvm.c.LLVMAddIncoming(phi, &values, &blocks, 1);
+            }
+        }
+    }
+
     fn emitArgument(self: *LLVMEmitter, node: *const IRNode) !void {
         const index = node.data.integer; // Stored as i64 in ConstantValue
         const param = llvm.c.LLVMGetParam(self.current_function, @intCast(index));
@@ -316,6 +401,10 @@ pub const LLVMEmitter = struct {
             .float => |float_val| blk: {
                 const f64_type = llvm.doubleTypeInContext(self.context);
                 break :blk llvm.constReal(f64_type, float_val);
+            },
+            .boolean => |bool_val| blk: {
+                const i1_type = llvm.int1TypeInContext(self.context);
+                break :blk llvm.constInt(i1_type, if (bool_val) 1 else 0, false);
             },
             .string => |str_val| blk: {
                 // Create global string constant
@@ -355,7 +444,6 @@ pub const LLVMEmitter = struct {
                     2,
                 );
             },
-            else => return error.UnsupportedConstantType,
         };
 
         try self.values.put(node.id, value);
@@ -372,6 +460,41 @@ pub const LLVMEmitter = struct {
         const rhs = self.values.get(node.inputs.items[1]) orelse return error.MissingOperand;
 
         const result = build_fn(self.builder, lhs, rhs, "");
+        try self.values.put(node.id, result);
+    }
+
+    fn emitUnaryOp(
+        self: *LLVMEmitter,
+        node: *const IRNode,
+        build_fn: fn (llvm.Builder, llvm.Value, [*:0]const u8) llvm.Value,
+    ) !void {
+        if (node.inputs.items.len < 1) return error.InvalidUnaryOp;
+
+        const operand = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        const result = build_fn(self.builder, operand, "");
+        try self.values.put(node.id, result);
+    }
+
+    fn emitPow(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 2) return error.InvalidBinaryOp;
+
+        const base = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+        const exp = self.values.get(node.inputs.items[1]) orelse return error.MissingOperand;
+
+        // Call janus_pow runtime function
+        const i32_type = llvm.int32TypeInContext(self.context);
+        var param_types = [_]llvm.Type{ i32_type, i32_type };
+        const func_type = llvm.functionType(i32_type, &param_types, 2, false);
+
+        var func = llvm.c.LLVMGetNamedFunction(self.module, "janus_pow");
+        if (func == null) {
+            func = llvm.addFunction(self.module, "janus_pow", func_type);
+        }
+
+        var args = [_]llvm.Value{ base, exp };
+        const result = llvm.c.LLVMBuildCall2(self.builder, func_type, func, &args, 2, "");
+
         try self.values.put(node.id, result);
     }
 
@@ -1076,5 +1199,227 @@ pub const LLVMEmitter = struct {
         var indices = [_]llvm.Value{index_val};
         const elem_ptr = llvm.buildInBoundsGEP2(self.builder, elem_type, array_ptr, &indices, 1, "elem_ptr");
         try self.values.put(node.id, elem_ptr);
+    }
+
+    /// Emit array slice: arr[start..end] or arr[start..<end]
+    /// Calls runtime function to allocate and copy slice
+    fn emitSlice(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 3) return error.MissingOperand;
+        const array_ptr = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+        const start_val = self.values.get(node.inputs.items[1]) orelse return error.MissingOperand;
+        const end_val = self.values.get(node.inputs.items[2]) orelse return error.MissingOperand;
+
+        // Get inclusivity from node data (1 = inclusive, 0 = exclusive)
+        const is_inclusive = switch (node.data) {
+            .integer => |i| i == 1,
+            else => false,
+        };
+
+        // Select the appropriate runtime function
+        const func_name: [:0]const u8 = if (is_inclusive) "janus_array_slice_inclusive_i32" else "janus_array_slice_i32";
+
+        // Get or declare the slice function
+        const i32_type = llvm.int32TypeInContext(self.context);
+        const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+        const ptr_type = llvm.c.LLVMPointerType(i8_type, 0);
+        var param_types = [_]llvm.Type{ ptr_type, i32_type, i32_type };
+        const func_type = llvm.functionType(ptr_type, &param_types, 3, false);
+
+        var func = llvm.c.LLVMGetNamedFunction(self.module, func_name.ptr);
+        if (func == null) {
+            func = llvm.addFunction(self.module, func_name, func_type);
+        }
+
+        // Call the slice function
+        var args = [_]llvm.Value{ array_ptr, start_val, end_val };
+        const result = llvm.c.LLVMBuildCall2(self.builder, func_type, func, &args, 3, "slice_result");
+        try self.values.put(node.id, result);
+    }
+
+    /// Emit struct literal: Point { x: 10, y: 20 }
+    /// Creates LLVM struct type from values, builds using insertvalue
+    fn emitStructConstruct(self: *LLVMEmitter, node: *const IRNode) !void {
+        const count = node.inputs.items.len;
+        if (count == 0) {
+            // Empty struct - create empty struct type
+            var empty_types: [0]llvm.Type = .{};
+            const struct_type = llvm.structTypeInContext(self.context, &empty_types, 0, false);
+            const undef_struct = llvm.getUndef(struct_type);
+            try self.values.put(node.id, undef_struct);
+
+            // Store struct info for field access
+            const field_names = switch (node.data) {
+                .string => |s| s,
+                else => "",
+            };
+            try self.struct_info.put(node.id, .{
+                .llvm_type = struct_type,
+                .field_names = field_names,
+            });
+            return;
+        }
+
+        // Collect LLVM types from input values
+        var elem_types = try self.allocator.alloc(llvm.Type, count);
+        defer self.allocator.free(elem_types);
+
+        for (node.inputs.items, 0..) |input_id, i| {
+            const val = self.values.get(input_id) orelse return error.MissingOperand;
+            elem_types[i] = llvm.typeof(val);
+        }
+
+        // Create anonymous struct type
+        const struct_type = llvm.structTypeInContext(self.context, elem_types.ptr, @intCast(count), false);
+
+        // Build struct using insertvalue chain
+        var struct_val = llvm.getUndef(struct_type);
+        for (node.inputs.items, 0..) |input_id, i| {
+            const val = self.values.get(input_id) orelse return error.MissingOperand;
+            struct_val = llvm.buildInsertValue(self.builder, struct_val, val, @intCast(i), "struct_field");
+        }
+
+        try self.values.put(node.id, struct_val);
+
+        // Store struct info for field access
+        const field_names = switch (node.data) {
+            .string => |s| s,
+            else => "",
+        };
+        try self.struct_info.put(node.id, .{
+            .llvm_type = struct_type,
+            .field_names = field_names,
+        });
+    }
+
+    /// Emit field access: s.field
+    /// Uses extractvalue for value-based structs, GEP+Load for alloca-based structs
+    fn emitFieldAccess(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+        const struct_node_id = node.inputs.items[0];
+
+        // Get field name from node data
+        const field_name = switch (node.data) {
+            .string => |s| s,
+            else => return error.InvalidNode,
+        };
+
+        // Find field index by looking up struct info
+        const info = self.struct_info.get(struct_node_id) orelse {
+            std.debug.print("Warning: Struct info not found for node {d}\n", .{struct_node_id});
+            return error.MissingOperand;
+        };
+
+        // Parse field names (comma-separated) and find index
+        var field_idx: u32 = 0;
+        var found = false;
+        var iter = std.mem.splitScalar(u8, info.field_names, ',');
+        while (iter.next()) |name| {
+            if (std.mem.eql(u8, name, field_name)) {
+                found = true;
+                break;
+            }
+            field_idx += 1;
+        }
+
+        if (!found) {
+            std.debug.print("Warning: Field '{s}' not found in struct\n", .{field_name});
+            return error.InvalidNode;
+        }
+
+        // Check if this is a pointer-based struct (Struct_Alloca)
+        const struct_val = self.values.get(struct_node_id) orelse return error.MissingOperand;
+        const is_alloca = self.alloca_types.contains(struct_node_id);
+
+        if (is_alloca) {
+            // Pointer-based: GEP + Load
+            const field_ptr = llvm.buildStructGEP2(self.builder, info.llvm_type, struct_val, field_idx, "field_ptr");
+
+            // Get element type for load
+            const elem_types = try self.allocator.alloc(llvm.Type, llvm.countStructElementTypes(info.llvm_type));
+            defer self.allocator.free(elem_types);
+            llvm.getStructElementTypes(info.llvm_type, elem_types.ptr);
+            const field_type = elem_types[field_idx];
+
+            const result = llvm.buildLoad2(self.builder, field_type, field_ptr, "field_val");
+            try self.values.put(node.id, result);
+        } else {
+            // Value-based: extractvalue
+            const result = llvm.buildExtractValue(self.builder, struct_val, field_idx, "field_val");
+            try self.values.put(node.id, result);
+        }
+    }
+
+    /// Emit struct alloca for mutable structs
+    fn emitStructAlloca(self: *LLVMEmitter, node: *const IRNode) !void {
+        const count = node.inputs.items.len;
+
+        // Infer types from input values (same as Struct_Construct)
+        var elem_types = try self.allocator.alloc(llvm.Type, count);
+        defer self.allocator.free(elem_types);
+
+        for (node.inputs.items, 0..) |input_id, i| {
+            const val = self.values.get(input_id) orelse return error.MissingOperand;
+            elem_types[i] = llvm.typeof(val);
+        }
+
+        // Create struct type
+        const struct_type = llvm.structTypeInContext(self.context, elem_types.ptr, @intCast(count), false);
+
+        // Alloca for the struct
+        const alloca_val = llvm.buildAlloca(self.builder, struct_type, "struct_var");
+        try self.values.put(node.id, alloca_val);
+
+        // Mark this as an alloca for field access handling
+        try self.alloca_types.put(node.id, {});
+
+        // Store struct info for field access
+        const field_names = switch (node.data) {
+            .string => |s| s,
+            else => "",
+        };
+        try self.struct_info.put(node.id, .{
+            .llvm_type = struct_type,
+            .field_names = field_names,
+        });
+    }
+
+    /// Emit field store: returns GEP pointer for storing to a field
+    fn emitFieldStore(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+        const struct_node_id = node.inputs.items[0];
+        const struct_ptr = self.values.get(struct_node_id) orelse return error.MissingOperand;
+
+        // Get field name from node data
+        const field_name = switch (node.data) {
+            .string => |s| s,
+            else => return error.InvalidNode,
+        };
+
+        // Find struct info
+        const info = self.struct_info.get(struct_node_id) orelse {
+            std.debug.print("Warning: Struct info not found for Field_Store\n", .{});
+            return error.MissingOperand;
+        };
+
+        // Parse field names and find index
+        var field_idx: u32 = 0;
+        var found = false;
+        var iter = std.mem.splitScalar(u8, info.field_names, ',');
+        while (iter.next()) |name| {
+            if (std.mem.eql(u8, name, field_name)) {
+                found = true;
+                break;
+            }
+            field_idx += 1;
+        }
+
+        if (!found) {
+            std.debug.print("Warning: Field '{s}' not found in struct for store\n", .{field_name});
+            return error.InvalidNode;
+        }
+
+        // Create GEP to get field pointer
+        const field_ptr = llvm.buildStructGEP2(self.builder, info.llvm_type, struct_ptr, field_idx, "field_ptr");
+        try self.values.put(node.id, field_ptr);
     }
 };

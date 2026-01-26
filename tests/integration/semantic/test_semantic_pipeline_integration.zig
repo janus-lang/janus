@@ -10,42 +10,63 @@ const std = @import("std");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
-const SymbolTable = @import("../../../compiler/semantic/symbol_table.zig").SymbolTable;
-const SymbolResolver = @import("../../../compiler/semantic/symbol_resolver.zig").SymbolResolver;
-const TypeSystem = @import("../../../compiler/semantic/type_system.zig").TypeSystem;
-const TypeInferenceEngine = @import("../../../compiler/semantic/type_inference.zig").TypeInferenceEngine;
-const source_span_utils = @import("../../../emantic/source_span_utils.zig");
-const module_visibility = @import("../../../compiler/semantic/module_visibility.zig");
+// Import from semantic module
+const semantic = @import("semantic");
+const SymbolTable = semantic.SymbolTable;
+const SymbolResolver = semantic.SymbolResolver;
+const TypeSystem = semantic.TypeSystem;
+const TypeInference = semantic.TypeInference;
+const source_span_utils = semantic.source_span_utils;
+const module_visibility = semantic.module_visibility;
+const PrimitiveType = semantic.PrimitiveType;
+
+// Import ASTDB
+const astdb = @import("astdb");
 
 /// Complete semantic context for integration testing
 const SemanticContext = struct {
     allocator: Allocator,
-    symbol_table: SymbolTable,
-    symbol_resolver: SymbolResolver,
-    type_system: TypeSystem,
-    type_inference: TypeInferenceEngine,
-    module_registry: module_visibility.ModuleRegistry,
+    astdb: *astdb.ASTDBSystem,
+    symbol_resolver: *SymbolResolver,
+    type_system: *TypeSystem,
+    type_inference: *TypeInference,
 
     pub fn init(allocator: Allocator) !SemanticContext {
-        var symbol_table = try SymbolTable.init(allocator);
-        var type_system = try TypeSystem.init(allocator);
+        // Create ASTDB instance first
+        const astdb_instance = try allocator.create(astdb.ASTDBSystem);
+        astdb_instance.* = astdb.ASTDBSystem.initWithMode(allocator, true);
+
+        // Create symbol resolver (which creates its own symbol table and type system)
+        const symbol_resolver = try SymbolResolver.init(allocator, astdb_instance);
+
+        // Create standalone type system for type inference
+        const type_system_instance = try allocator.create(TypeSystem);
+        type_system_instance.* = try TypeSystem.init(allocator);
+
+        // Create type inference engine
+        const type_inference_instance = try allocator.create(TypeInference);
+        type_inference_instance.* = try TypeInference.init(allocator, type_system_instance);
 
         return SemanticContext{
             .allocator = allocator,
-            .symbol_table = symbol_table,
-            .symbol_resolver = try SymbolResolver.init(allocator, &symbol_table),
-            .type_system = type_system,
-            .type_inference = try TypeInferenceEngine.init(allocator, &type_system),
-            .module_registry = module_visibility.ModuleRegistry.init(allocator),
+            .astdb = astdb_instance,
+            .symbol_resolver = symbol_resolver,
+            .type_system = type_system_instance,
+            .type_inference = type_inference_instance,
         };
     }
 
     pub fn deinit(self: *SemanticContext) void {
-        self.symbol_table.deinit();
-        self.symbol_resolver.deinit();
-        self.type_system.deinit();
         self.type_inference.deinit();
-        self.module_registry.deinit();
+        self.allocator.destroy(self.type_inference);
+
+        self.type_system.deinit();
+        self.allocator.destroy(self.type_system);
+
+        self.symbol_resolver.deinit();
+
+        self.astdb.deinit();
+        self.allocator.destroy(self.astdb);
     }
 };
 
@@ -111,7 +132,7 @@ test "type system compatibility rules comprehensive validation" {
     // Comprehensive type compatibility matrix testing
     // This confirms the logical soundness identified by Voxis
 
-    const primitive_types = [_]@import("../../../compiler/semantic/type_system.zig").PrimitiveType{ .i32, .i64, .f32, .f64, .bool, .string, .void, .never };
+    const primitive_types = [_]PrimitiveType{ .i32, .i64, .f32, .f64, .bool, .string, .void, .never };
 
     // Test primitive type compatibility matrix
     for (primitive_types) |source_prim| {

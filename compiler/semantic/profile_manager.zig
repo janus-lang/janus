@@ -105,9 +105,9 @@ pub const LanguageFeature = enum {
     pub fn getMinimumProfile(self: LanguageFeature) LanguageProfile {
         return switch (self.getCategory()) {
             .core => .core,
-            .go_style => .service,
-            .elixir_style => .cluster,
-            .full_featured => .sovereign,
+            .service_style => .service,
+            .cluster_style => .cluster,
+            .sovereign_featured => .sovereign,
         };
     }
 };
@@ -488,9 +488,9 @@ test "language profile feature validation" {
 test "language feature categorization" {
     // Test feature categories
     try std.testing.expect(LanguageFeature.basic_types.getCategory() == .core);
-    try std.testing.expect(LanguageFeature.error_handling.getCategory() == .go_style);
-    try std.testing.expect(LanguageFeature.pattern_matching.getCategory() == .elixir_style);
-    try std.testing.expect(LanguageFeature.effects_system.getCategory() == .full_featured);
+    try std.testing.expect(LanguageFeature.error_handling.getCategory() == .service_style);
+    try std.testing.expect(LanguageFeature.pattern_matching.getCategory() == .cluster_style);
+    try std.testing.expect(LanguageFeature.effects_system.getCategory() == .sovereign_featured);
 
     // Test minimum profile requirements
     try std.testing.expect(LanguageFeature.basic_types.getMinimumProfile() == .core);

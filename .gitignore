@@ -75,10 +75,6 @@ Icon
 # Janus CLI stub (will be replaced by real binary)
 janus.new/
 *.jar
-# KIRO directory preferences
-#.kiro/
-#!.kiro/specs/
-#learning/
 # ---> Linux
 # Linux trash folder which might appear on any partition or disk
 *.ll
@@ -184,3 +180,4 @@ packages/
 # Agents
 .agent/
 .venv/
+docs/tools/*_bin

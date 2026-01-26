@@ -18,6 +18,8 @@ const SymbolId = symbol_table.SymbolId;
 const NodeId = astdb.NodeId;
 const UnitId = astdb.UnitId;
 const SourceSpan = symbol_table.SourceSpan;
+// PATCH: Import type_store
+const type_store = @import("type_system.zig");
 
 /// Type Checking Diagnostic
 pub const TypeDiagnostic = struct {
@@ -37,11 +39,11 @@ pub const TypeChecker = struct {
     allocator: Allocator,
     astdb: *astdb.ASTDBSystem,
     symbol_table: *SymbolTable,
-    type_system: *@import("type_system.zig").TypeSystem,
+    type_system: *type_store.TypeSystem,
     diagnostics: ArrayList(TypeDiagnostic),
     current_unit: ?UnitId = null,
 
-    pub fn init(allocator: Allocator, astdb_instance: *astdb.ASTDBSystem, symbol_table_instance: *SymbolTable, type_system_instance: *@import("type_system.zig").TypeSystem) !*TypeChecker {
+    pub fn init(allocator: Allocator, astdb_instance: *astdb.ASTDBSystem, symbol_table_instance: *SymbolTable, type_system_instance: *type_store.TypeSystem) !*TypeChecker {
         const checker = try allocator.create(TypeChecker);
         checker.* = TypeChecker{
             .allocator = allocator,
@@ -206,9 +208,9 @@ pub const TypeChecker = struct {
     }
 
     /// Infer the type of an expression
-    pub fn inferExpressionType(self: *TypeChecker, node_id: NodeId) anyerror!?@import("type_system.zig").TypeId {
+    pub fn inferExpressionType(self: *TypeChecker, node_id: NodeId) anyerror!?type_store.TypeId {
         const node = self.getNode(node_id);
-        const TypeSystem = @import("type_system.zig").TypeSystem;
+        const TypeSystem = type_store.TypeSystem;
 
         return switch (node.kind) {
             .integer_literal => TypeSystem.getPrimitiveType(self.type_system, .i64),
@@ -229,14 +231,14 @@ pub const TypeChecker = struct {
     }
 
     /// Check if two types are compatible
-    fn typesCompatible(self: *TypeChecker, expected: @import("type_system.zig").TypeId, actual: @import("type_system.zig").TypeId) bool {
+    fn typesCompatible(self: *TypeChecker, expected: type_store.TypeId, actual: type_store.TypeId) bool {
         _ = self;
         // Use TypeId.eql for comparison
         return expected.eql(actual);
     }
 
     /// Get human-readable type name
-    pub fn getTypeName(self: *TypeChecker, type_id: @import("type_system.zig").TypeId) []const u8 {
+    pub fn getTypeName(self: *TypeChecker, type_id: type_store.TypeId) []const u8 {
         const info = self.type_system.getTypeInfo(type_id);
         return switch (info.kind) {
             .primitive => |p| @tagName(p),

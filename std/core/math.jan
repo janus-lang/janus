@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// std/core/math.jan - Minimal math module for :min profile
+// Uses extern func to declare runtime bindings
+
+// Runtime function declarations
+extern func janus_pow(base: i32, exp: i32) -> i32
+extern func janus_abs_i32(x: i32) -> i32
+extern func janus_abs_f64(x: f64) -> f64
+
+// Integer power function
+func pow(base: i32, exp: i32) -> i32 {
+    return janus_pow(base, exp)
+}
+
+// Absolute value for i32
+func abs(x: i32) -> i32 {
+    return janus_abs_i32(x)
+}
+
+// Absolute value for f64
+func abs_f64(x: f64) -> f64 {
+    return janus_abs_f64(x)
+}
+
+// Min of two integers
+func min(a: i32, b: i32) -> i32 {
+    if a < b {
+        return a
+    }
+    return b
+}
+
+// Max of two integers
+func max(a: i32, b: i32) -> i32 {
+    if a > b {
+        return a
+    }
+    return b
+}

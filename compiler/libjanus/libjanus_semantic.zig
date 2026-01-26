@@ -6,9 +6,6 @@ const Parser = @import("janus_parser");
 const astdb = @import("libjanus_astdb");
 const astdb_core = @import("astdb_core");
 
-
-
-
 // Revolutionary semantic analysis with ASTDB integration and standard library resolution.
 // Performs name resolution, type checking, and capability inference using the AST-as-Database architecture.
 
@@ -859,12 +856,22 @@ fn getCalleeNameFromNode(node: astdb_core.AstNode, unit: *astdb_core.Compilation
     if (children.len == 0) return null;
     const callee_id = children[0];
     const callee = unit.nodes[@intFromEnum(callee_id)];
-    if (callee.kind != .identifier) return null;
-    if (getIdentifierStrId(unit, callee)) |sid| {
-        // Convert StrId to bytes using the astdb_system interner on the graph later if needed
-        // Return null here to prefer using StrId-based lookup
-        _ = sid;
-        return null;
+
+    if (callee.kind == .identifier) {
+        if (getIdentifierStrId(unit, callee)) |_| {
+            // Conversion to bytes happens elsewhere or we return placeholder
+            return null; // Signals we should use StrId based lookup
+        }
+    } else if (callee.kind == .field_expr) {
+        // UFCS: receiver.method()
+        const field_edges = unit.edges[callee.child_lo..callee.child_hi];
+        if (field_edges.len >= 2) {
+            const method_node = unit.nodes[@intFromEnum(field_edges[1])];
+            if (method_node.kind == .identifier) {
+                // Return null to signal StrId based lookup for method name
+                return null;
+            }
+        }
     }
     return null;
 }
@@ -881,6 +888,16 @@ fn normalizeAndStoreCallArgs(analyzer: *Analyzer, call_id: astdb_core.NodeId, no
     defer names_buf.deinit(analyzer.allocator);
 
     var i: usize = 1; // skip callee
+    const callee = unit.nodes[@intFromEnum(edges[0])];
+    if (callee.kind == .field_expr) {
+        // UFCS: Prepend receiver
+        const field_edges = unit.edges[callee.child_lo..callee.child_hi];
+        if (field_edges.len >= 1) {
+            try args_buf.append(analyzer.allocator, field_edges[0]);
+            try names_buf.append(analyzer.allocator, null);
+        }
+    }
+
     while (i < edges.len) : (i += 1) {
         const arg_id = edges[i];
         const arg_node = unit.nodes[@intFromEnum(arg_id)];
@@ -903,13 +920,21 @@ fn normalizeAndStoreCallArgs(analyzer: *Analyzer, call_id: astdb_core.NodeId, no
 
     // If we can resolve callee, and have param names, reorder
     const sid = blk: {
-        // Prefer direct StrId from callee identifier
+        // Prefer direct StrId from callee identifier or method name
         const children = unit.edges[node.child_lo..node.child_hi];
         if (children.len > 0) {
             const callee_id = children[0];
-            const callee = unit.nodes[@intFromEnum(callee_id)];
-            if (callee.kind == .identifier) {
-                if (getIdentifierStrId(unit, callee)) |csid| break :blk csid;
+            const callee_node = unit.nodes[@intFromEnum(callee_id)];
+            if (callee_node.kind == .identifier) {
+                if (getIdentifierStrId(unit, callee_node)) |csid| break :blk csid;
+            } else if (callee_node.kind == .field_expr) {
+                const field_edges = unit.edges[callee_node.child_lo..callee_node.child_hi];
+                if (field_edges.len >= 2) {
+                    const method = unit.nodes[@intFromEnum(field_edges[1])];
+                    if (method.kind == .identifier) {
+                        if (getIdentifierStrId(unit, method)) |msid| break :blk msid;
+                    }
+                }
             }
         }
         break :blk null;

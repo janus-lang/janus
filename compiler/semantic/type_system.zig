@@ -7,6 +7,8 @@
 //! using canonical hashing. The old O(N²) brute-force implementation has been
 //! DEMOLISHED.
 //!
+//! References: [SPEC-015: Ownership & Affinity](../../specs/SPEC-015-ownership.md)
+//!
 //! PERFORMANCE VICTORY: All type operations are now O(1) using HashMap lookups
 
 const std = @import("std");
@@ -102,7 +104,7 @@ pub const SliceInfo = struct {
 /// Range type information
 pub const RangeInfo = struct {
     element_type: TypeId,
-    is_inclusive: bool,  // true for .., false for ..<
+    is_inclusive: bool, // true for .., false for ..<
 };
 
 /// Function type information
@@ -506,11 +508,11 @@ pub const TypeSystem = struct {
             .size = 0,
             .alignment = 0,
         };
-        
+
         if (self.canonical_hasher.findExistingType(&type_info)) |existing_id| {
             return existing_id;
         }
-        
+
         return self.registerTypeInternal(type_info);
     }
 

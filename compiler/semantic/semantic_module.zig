@@ -7,16 +7,23 @@
 //! including symbol resolution, type system, validation engine, and arena allocation.
 
 // Core semantic components
+// Core semantic components
 pub const SymbolTable = @import("symbol_table.zig").SymbolTable;
 pub const SymbolResolver = @import("symbol_resolver.zig").SymbolResolver;
 pub const TypeSystem = @import("type_system.zig").TypeSystem;
 pub const TypeId = @import("type_system.zig").TypeId;
+pub const PrimitiveType = @import("type_system.zig").PrimitiveType;
 pub const TypeChecker = @import("type_checker.zig").TypeChecker;
 pub const TypeInference = @import("type_inference.zig").TypeInference;
 pub const TypeInferenceDiagnostics = @import("type_inference_diagnostics.zig").TypeInferenceDiagnostics;
 pub const ValidationEngine = @import("validation_engine.zig").ValidationEngine;
 pub const ValidationResult = @import("validation_engine.zig").ValidationResult;
 pub const ProfileManager = @import("profile_manager.zig").ProfileManager;
+
+// Profile-specific validators
+pub const CoreProfileValidator = @import("core_profile_validator.zig").CoreProfileValidator;
+pub const CoreValidationResult = @import("core_profile_validator.zig").CoreValidationResult;
+pub const CoreProfileType = @import("core_profile_validator.zig").CoreProfileType;
 
 // Arena allocation components
 pub const ArenaValidationContext = @import("validation_engine_arena.zig").ArenaValidationContext;
@@ -33,6 +40,7 @@ pub const ValidationMode = @import("validation_engine_arena_integration.zig").Va
 
 // Error management
 pub const ErrorManager = @import("error_manager.zig").ErrorManager;
+pub const InferenceContext = @import("error_manager.zig").InferenceContext;
 pub const ControlFlowValidator = @import("control_flow_validator.zig").ControlFlowValidator;
 pub const ControlFlowAnalyzer = @import("control_flow.zig").ControlFlowAnalyzer;
 pub const ControlFlowResult = @import("control_flow.zig").ControlFlowResult;

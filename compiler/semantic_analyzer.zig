@@ -216,6 +216,8 @@ pub const SemanticAnalyzer = struct {
             .call_expr => try self.analyzeFunctionCall(node_id, node, analysis_info),
             .range_inclusive_expr, .range_exclusive_expr => try self.analyzeRangeExpr(node_id, node, analysis_info),
             .array_lit => try self.analyzeArrayLit(node_id, node, analysis_info),
+            .if_stmt => try self.analyzeIfStmt(node_id, node, analysis_info),
+            .while_stmt => try self.analyzeWhileStmt(node_id, node, analysis_info),
             else => {},
         }
     }
@@ -280,6 +282,60 @@ pub const SemanticAnalyzer = struct {
         _ = analysis_info.function_signatures.put(func_name, func_info) catch {};
         // Clean up params list (slice now owned by func_info)
         // Note: params buffer is now owned, no need to deinit
+    }
+
+    /// Analyze if statement
+    fn analyzeIfStmt(
+        self: *SemanticAnalyzer,
+        node_id: astdb.NodeId,
+        node: *const astdb.AstNode,
+        analysis_info: *SemanticAnalysisInfo,
+    ) !void {
+        _ = analysis_info;
+        const unit = self.astdb_instance.units.items[0];
+        const children = unit.edges[node.child_lo..node.child_hi];
+
+        if (children.len == 0) return;
+
+        // 1. Condition is first child
+        const cond_node_id = children[0];
+        const cond_node = &unit.nodes[@intFromEnum(cond_node_id)];
+
+        const cond_type = try self.inferExpressionType(node_id, cond_node);
+
+        // Expect bool
+        if (!std.mem.eql(u8, cond_type, "bool") and
+            !std.mem.eql(u8, cond_type, "unknown"))
+        {
+            return error.SemanticError;
+        }
+    }
+
+    /// Analyze while statement
+    fn analyzeWhileStmt(
+        self: *SemanticAnalyzer,
+        node_id: astdb.NodeId,
+        node: *const astdb.AstNode,
+        analysis_info: *SemanticAnalysisInfo,
+    ) !void {
+        _ = analysis_info;
+        const unit = self.astdb_instance.units.items[0];
+        const children = unit.edges[node.child_lo..node.child_hi];
+
+        if (children.len == 0) return;
+
+        // 1. Condition is first child
+        const cond_node_id = children[0];
+        const cond_node = &unit.nodes[@intFromEnum(cond_node_id)];
+
+        const cond_type = try self.inferExpressionType(node_id, cond_node);
+
+        // Expect bool
+        if (!std.mem.eql(u8, cond_type, "bool") and
+            !std.mem.eql(u8, cond_type, "unknown"))
+        {
+            return error.SemanticError;
+        }
     }
 
     /// Analyze range expression
@@ -443,11 +499,73 @@ pub const SemanticAnalyzer = struct {
         node: *const astdb.AstNode,
         analysis_info: *SemanticAnalysisInfo,
     ) !void {
-        _ = self;
-        _ = node_id;
-        _ = node;
-        _ = analysis_info;
-        // TODO: Track variable declarations
+        const unit = self.astdb_instance.units.items[0];
+        const children = unit.edges[node.child_lo..node.child_hi];
+
+        if (children.len == 0) return;
+
+        // 1. Variable Name
+        const name_node = &unit.nodes[@intFromEnum(children[0])];
+        if (name_node.kind != .identifier) return;
+
+        const name_token = &unit.tokens[@intFromEnum(name_node.first_token)];
+        const var_name = if (name_token.str) |str_id|
+            self.astdb_instance.str_interner.getString(str_id)
+        else
+            return;
+
+        var type_name: []const u8 = "unknown";
+        var type_explicit = false;
+
+        // 2. Determine if explicit type or inference
+        if (children.len > 1) {
+            const possible_type_node = &unit.nodes[@intFromEnum(children[1])];
+
+            if (possible_type_node.kind == .primitive_type) {
+                const type_token = &unit.tokens[@intFromEnum(possible_type_node.first_token)];
+                if (type_token.str) |sid| {
+                    type_name = self.astdb_instance.str_interner.getString(sid);
+                    type_explicit = true;
+                }
+            } else if (possible_type_node.kind == .array_type) {
+                type_name = "Array"; // Simplified
+                type_explicit = true;
+            } else if (possible_type_node.kind == .identifier) {
+                // Heuristic: If 3 children, middle is likely type identifier (e.g. valid user struct)
+                if (children.len == 3) {
+                    const tok = &unit.tokens[@intFromEnum(possible_type_node.first_token)];
+                    if (tok.str) |sid| {
+                        type_name = self.astdb_instance.str_interner.getString(sid);
+                        type_explicit = true;
+                    }
+                }
+            }
+        }
+
+        // 3. Inference from initializer if no explicit type
+        if (!type_explicit and children.len >= 2) {
+            const initializer_node = &unit.nodes[@intFromEnum(children[children.len - 1])];
+            const inferred = try self.inferExpressionType(node_id, initializer_node);
+            if (!std.mem.eql(u8, inferred, "unknown")) {
+                type_name = inferred;
+            }
+        } else if (type_explicit and children.len >= 3) {
+            // Validate initializer type against explicit type
+            const initializer_node = &unit.nodes[@intFromEnum(children[2])];
+            const inferred = try self.inferExpressionType(node_id, initializer_node);
+            if (!std.mem.eql(u8, inferred, "unknown") and !std.mem.eql(u8, type_name, "unknown")) {
+                if (!std.mem.eql(u8, inferred, type_name)) {
+                    return error.SemanticError;
+                }
+            }
+        }
+
+        try analysis_info.variable_declarations.append(analysis_info.allocator, .{
+            .variable_name = var_name,
+            .type_name = type_name,
+            .line = name_token.span.line,
+            .column = name_token.span.column,
+        });
     }
 
     /// Analyze function call (critical for s0_smoke test)
@@ -499,15 +617,29 @@ pub const SemanticAnalyzer = struct {
             .argument_count = arg_count,
             // In S0 bootstrap mode, report calls as .s0 even if analyzer is .min
             .profile = if (bootstrap_s0.isEnabled()) .s0 else self.profile,
-            .profile_compatible = true, // TODO: Check compatibility
+            .profile_compatible = true,
             .node_id = node_id,
         };
+
         // Resolve stdlib function if any
         var matched_fn: ?StdLibFunction = null;
         for (STDLIB_FUNCTIONS) |stdlib_fn| {
             if (std.mem.eql(u8, stdlib_fn.name, function_name)) {
                 matched_fn = stdlib_fn;
                 break;
+            }
+        }
+
+        // Check profile compatibility for stdlib functions
+        if (matched_fn) |stdlib_fn| {
+            const expected_params = switch (call_info.profile) {
+                .s0 => stdlib_fn.s0_profile_params,
+                .core => stdlib_fn.core_profile_params,
+                .service => stdlib_fn.service_profile_params,
+                else => stdlib_fn.sovereign_profile_params,
+            };
+            if (arg_count != expected_params) {
+                call_info.profile_compatible = false;
             }
         }
         // Type‑check arguments if we have a known stdlib function

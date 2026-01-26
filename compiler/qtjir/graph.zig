@@ -35,8 +35,10 @@ pub const OpCode = enum {
     Array_Construct, // Array construction [e1, e2, ...]
     Index, // Array/Slice access: arr[i]
     Index_Store, // Array element store: arr[i] = v
+    Slice, // Array slice: arr[start..end] - returns new array
     Range, // Range construction: start .. end
     Struct_Construct, // Struct literal { f1: v1, f2: v2 }
+    Struct_Alloca, // Struct allocation (mutable struct variable)
     Field_Access, // Struct field read: s.field
     Field_Store, // Struct field write: s.field = v
 
@@ -52,6 +54,8 @@ pub const OpCode = enum {
     Sub,
     Mul,
     Div,
+    Mod, // Modulo/remainder
+    Pow, // Exponentiation
 
     // --- Comparison ---
     Equal,
@@ -823,6 +827,99 @@ pub const IRBuilder = struct {
         // Sovereign Graph: allocate null-terminated copy for graph ownership
         const owned_name = try self.graph.allocator.dupeZ(u8, name);
         node.data = .{ .string = owned_name };
+        return id;
+    }
+
+    // =========================================================================
+    // Extended Builder Methods for :core profile codegen
+    // =========================================================================
+
+    /// Create alloca (stack allocation) - simplified API
+    pub fn createAlloca(self: *IRBuilder) !u32 {
+        return try self.createNode(.Alloca);
+    }
+
+    /// Create store instruction
+    pub fn createStore(self: *IRBuilder, value_id: u32, ptr_id: u32) !u32 {
+        const id = try self.createNode(.Store);
+        var node = &self.graph.nodes.items[id];
+        try node.inputs.append(self.graph.allocator, ptr_id);
+        try node.inputs.append(self.graph.allocator, value_id);
+        return id;
+    }
+
+    /// Create load instruction
+    pub fn createLoad(self: *IRBuilder, ptr_id: u32) !u32 {
+        const id = try self.createNode(.Load);
+        var node = &self.graph.nodes.items[id];
+        try node.inputs.append(self.graph.allocator, ptr_id);
+        return id;
+    }
+
+    /// Create binary operation
+    pub fn createBinaryOp(self: *IRBuilder, op: OpCode, left_id: u32, right_id: u32) !u32 {
+        const id = try self.createNode(op);
+        var node = &self.graph.nodes.items[id];
+        try node.inputs.append(self.graph.allocator, left_id);
+        try node.inputs.append(self.graph.allocator, right_id);
+        return id;
+    }
+
+    /// Create unary operation
+    pub fn createUnaryOp(self: *IRBuilder, op: OpCode, operand_id: u32) !u32 {
+        const id = try self.createNode(op);
+        var node = &self.graph.nodes.items[id];
+        try node.inputs.append(self.graph.allocator, operand_id);
+        return id;
+    }
+
+    /// Create conditional branch
+    pub fn createBranch(self: *IRBuilder, cond_id: u32, then_label: u32, else_label: u32) !u32 {
+        const id = try self.createNode(.Branch);
+        var node = &self.graph.nodes.items[id];
+        try node.inputs.append(self.graph.allocator, cond_id);
+        try node.inputs.append(self.graph.allocator, then_label);
+        try node.inputs.append(self.graph.allocator, else_label);
+        return id;
+    }
+
+    /// Create unconditional jump
+    pub fn createJump(self: *IRBuilder, target_label: u32) !u32 {
+        const id = try self.createNode(.Jump);
+        var node = &self.graph.nodes.items[id];
+        try node.inputs.append(self.graph.allocator, target_label);
+        return id;
+    }
+
+    /// Create label (basic block entry)
+    pub fn createLabel(self: *IRBuilder, label_id: u32) !u32 {
+        const id = try self.createNode(.Label);
+        self.graph.nodes.items[id].data = .{ .integer = @intCast(label_id) };
+        return id;
+    }
+
+    /// Create named function call
+    pub fn createCallNamed(self: *IRBuilder, func_name: []const u8, args: []const u32) !u32 {
+        const id = try self.createNode(.Call);
+        var node = &self.graph.nodes.items[id];
+
+        // Store function name
+        const owned_name = try self.graph.allocator.dupeZ(u8, func_name);
+        node.data = .{ .string = owned_name };
+
+        // Add arguments
+        try node.inputs.appendSlice(self.graph.allocator, args);
+        return id;
+    }
+
+    /// Create phi node for SSA
+    pub fn createPhi(self: *IRBuilder, incoming: []const struct { value: u32, block: u32 }) !u32 {
+        const id = try self.createNode(.Phi);
+        var node = &self.graph.nodes.items[id];
+        for (incoming) |entry| {
+            try node.inputs.append(self.graph.allocator, entry.value);
+            try node.inputs.append(self.graph.allocator, entry.block);
+        }
         return id;
     }
 };

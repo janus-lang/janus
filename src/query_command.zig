@@ -25,8 +25,9 @@ const parser = janus.parser;
 
 // Real ASTDB components
 const ASTDBSystem = astdb.ASTDBSystem;
-// const QueryEngine = astdb.QueryEngine; // TODO: Fix import
+const QueryEngine = astdb.QueryEngine;
 const Predicate = astdb.Predicate;
+const QueryParser = astdb.QueryParser;
 const Snapshot = astdb.Snapshot;
 const NodeId = astdb.NodeId;
 const TokenId = astdb.TokenId;
@@ -477,21 +478,22 @@ pub const QueryCommand = struct {
     }
 
     /// Execute ASTDB semantic query - Task 6: CLI Tooling Implementation
-    pub fn executeASTDBQuery(self: *QueryCommand, expression: []const u8, _source_files: [][]const u8, _: QueryOptions) !void {
+    pub fn executeASTDBQuery(self: *QueryCommand, expression: []const u8, source_files: [][]const u8, options: QueryOptions) !void {
         const start_time = std.time.nanoTimestamp();
 
         std.debug.print("🧠 Janus ASTDB Semantic Query Engine\n", .{});
         std.debug.print("🎯 Expression: \"{s}\"\n", .{expression});
-        std.debug.print("📁 Source files: {d}\n", .{_source_files.len});
+        std.debug.print("📁 Source files: {d}\n", .{source_files.len});
 
-        // Parse the query expression into predicates
-        _ = try self.parseQueryExpression(expression);
+        // Parse the query expression into predicates using full QueryParser
+        const predicate = try self.parseQueryExpression(expression);
 
-        const total_matches: u64 = 0;
+        var total_matches: u64 = 0;
         var total_nodes_analyzed: u64 = 0;
+        const cache_hits: u64 = 0; // TODO: Implement memoization cache tracking
 
         // Process each source file
-        for (_source_files) |file_path| {
+        for (source_files) |file_path| {
             std.debug.print("📄 Analyzing: {s}\n", .{file_path});
 
             // Read and parse the source file
@@ -531,19 +533,19 @@ pub const QueryCommand = struct {
             };
 
             // Create QueryEngine for this snapshot
-            // var query_engine = QueryEngine.init(self.allocator, @constCast(&snapshot)); // TODO: Fix import
-            // defer query_engine.deinit(); // TODO: Fix import
+            var query_engine = QueryEngine.init(self.allocator, @constCast(&snapshot));
+            defer query_engine.deinit();
 
-            // Execute query against the parsed AST (use granular API)
-            // const nodes_result = query_engine.filterNodes(predicate); // TODO: Fix import
-            // const query_result = nodes_result.result; // TODO: Fix import
+            // Execute query against the parsed AST
+            var query_result = query_engine.filterNodes(predicate);
+            defer query_result.deinit(self.allocator);
 
             // Process and display results
-            // const file_matches = try self.processQueryResults(file_path, query_result, options); // TODO: Fix import
-            // total_matches += file_matches; // TODO: Fix import
+            const file_matches = self.processQueryResults(file_path, query_result.nodes, options) catch 0;
+            total_matches += file_matches;
             total_nodes_analyzed += snapshot.nodeCount();
 
-            // std.debug.print("✅ {s}: {d} matches found\n", .{ file_path, file_matches }); // TODO: Fix import
+            std.debug.print("✅ {s}: {d} matches in {d} nodes\n", .{ file_path, file_matches, snapshot.nodeCount() });
         }
 
         const end_time = std.time.nanoTimestamp();
@@ -551,7 +553,51 @@ pub const QueryCommand = struct {
         self.stats.processing_time_ns = @intCast(end_time - start_time);
 
         // Display semantic query performance
-        self.displaySemanticQueryResults(total_nodes_analyzed);
+        if (options.show_stats) {
+            self.displayDetailedStats(total_nodes_analyzed, cache_hits);
+        } else {
+            self.displaySemanticQueryResults(total_nodes_analyzed);
+        }
+    }
+
+    /// Display detailed statistics when --stats flag is used
+    fn displayDetailedStats(self: *QueryCommand, nodes_analyzed: u64, cache_hits: u64) void {
+        const duration_ms = @as(f64, @floatFromInt(self.stats.processing_time_ns)) / 1_000_000.0;
+        const nodes_per_sec = if (self.stats.processing_time_ns > 0)
+            @as(f64, @floatFromInt(nodes_analyzed)) / (@as(f64, @floatFromInt(self.stats.processing_time_ns)) / 1_000_000_000.0)
+        else
+            0.0;
+
+        std.debug.print("\n📊 DETAILED QUERY STATISTICS\n", .{});
+        std.debug.print("=" ** 50 ++ "\n", .{});
+        std.debug.print("🎯 Total matches:     {d}\n", .{self.stats.matches_found});
+        std.debug.print("🔍 Nodes analyzed:    {d}\n", .{nodes_analyzed});
+        std.debug.print("⏱️  Execution time:    {d:.3}ms\n", .{duration_ms});
+        std.debug.print("📈 Throughput:        {d:.0} nodes/sec\n", .{nodes_per_sec});
+
+        if (cache_hits > 0) {
+            const cache_ratio = @as(f64, @floatFromInt(cache_hits)) / @as(f64, @floatFromInt(nodes_analyzed)) * 100.0;
+            std.debug.print("💾 Cache hit ratio:   {d:.1}%\n", .{cache_ratio});
+        }
+
+        // Memory estimate (rough)
+        const memory_estimate = nodes_analyzed * 64; // ~64 bytes per node average
+        if (memory_estimate > 1024 * 1024) {
+            std.debug.print("🧠 Memory estimate:   {d:.2} MB\n", .{@as(f64, @floatFromInt(memory_estimate)) / (1024.0 * 1024.0)});
+        } else {
+            std.debug.print("🧠 Memory estimate:   {d:.2} KB\n", .{@as(f64, @floatFromInt(memory_estimate)) / 1024.0});
+        }
+
+        std.debug.print("=" ** 50 ++ "\n", .{});
+
+        // Performance assessment
+        if (duration_ms < 10.0) {
+            std.debug.print("⚡ EXCELLENT: Query completed under 10ms target!\n", .{});
+        } else if (duration_ms < 50.0) {
+            std.debug.print("✅ GOOD: Query completed within acceptable range.\n", .{});
+        } else {
+            std.debug.print("⚠️  SLOW: Consider optimizing query or using indexes.\n", .{});
+        }
     }
 
     /// Query options for ASTDB semantic queries
@@ -562,11 +608,25 @@ pub const QueryCommand = struct {
         show_source_context: bool = true,
     };
 
-    /// Parse query expression into ASTDB predicates
-    fn parseQueryExpression(_: *QueryCommand, expression: []const u8) !Predicate {
-        // Suppress unused parameter warning
-        // Simple query parser - can be extended with full query language
+    /// Parse query expression into ASTDB predicates using full QueryParser
+    fn parseQueryExpression(self: *QueryCommand, expression: []const u8) !Predicate {
+        // Use the full query parser for complete query language support
+        var query_parser = QueryParser.init(self.allocator, expression) catch |err| {
+            // Fallback to simple parsing if QueryParser fails
+            std.log.warn("QueryParser init failed: {}, using fallback", .{err});
+            return self.parseQueryExpressionFallback(expression);
+        };
+        defer query_parser.deinit();
 
+        return query_parser.parseQuery() catch |err| {
+            // Fallback to simple parsing on parse errors
+            std.log.warn("QueryParser parse failed: {}, using fallback", .{err});
+            return self.parseQueryExpressionFallback(expression);
+        };
+    }
+
+    /// Fallback simple parser for basic queries when QueryParser unavailable
+    fn parseQueryExpressionFallback(_: *QueryCommand, expression: []const u8) !Predicate {
         if (std.mem.startsWith(u8, expression, "func")) {
             return Predicate{ .node_kind = .func_decl };
         } else if (std.mem.startsWith(u8, expression, "var")) {
@@ -575,9 +635,11 @@ pub const QueryCommand = struct {
             return Predicate{ .node_kind = .call_expr };
         } else if (std.mem.startsWith(u8, expression, "struct")) {
             return Predicate{ .node_kind = .struct_decl };
+        } else if (std.mem.startsWith(u8, expression, "enum")) {
+            return Predicate{ .node_kind = .enum_decl };
         } else {
-            // Default to searching for any node kind
-            return Predicate{ .node_kind = .source_file };
+            // Default to match-all predicate
+            return Predicate{ .any = {} };
         }
     }
 

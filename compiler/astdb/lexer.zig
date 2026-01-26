@@ -248,6 +248,10 @@ pub const RegionLexer = struct {
             },
             '%' => blk: {
                 self.advance();
+                if (self.pos < self.source.len and self.source[self.pos] == '=') {
+                    self.advance();
+                    break :blk .percent_assign;
+                }
                 break :blk .percent;
             },
 
@@ -277,6 +281,11 @@ pub const RegionLexer = struct {
                         },
                         '<' => {
                             self.advance();
+                            // Check for <<=
+                            if (self.pos < self.source.len and self.source[self.pos] == '=') {
+                                self.advance();
+                                break :blk .left_shift_assign;
+                            }
                             break :blk .left_shift;
                         },
                         else => {},
@@ -294,6 +303,11 @@ pub const RegionLexer = struct {
                         },
                         '>' => {
                             self.advance();
+                            // Check for >>=
+                            if (self.pos < self.source.len and self.source[self.pos] == '=') {
+                                self.advance();
+                                break :blk .right_shift_assign;
+                            }
                             break :blk .right_shift;
                         },
                         else => {},
@@ -304,22 +318,36 @@ pub const RegionLexer = struct {
 
             '&' => blk: {
                 self.advance();
-                if (self.pos < self.source.len and self.source[self.pos] == '&') {
-                    self.advance();
-                    break :blk .logical_and;
+                if (self.pos < self.source.len) {
+                    if (self.source[self.pos] == '&') {
+                        self.advance();
+                        break :blk .logical_and;
+                    } else if (self.source[self.pos] == '=') {
+                        self.advance();
+                        break :blk .ampersand_assign;
+                    }
                 }
                 break :blk .bitwise_and;
             },
             '|' => blk: {
                 self.advance();
-                if (self.pos < self.source.len and self.source[self.pos] == '|') {
-                    self.advance();
-                    break :blk .logical_or;
+                if (self.pos < self.source.len) {
+                    if (self.source[self.pos] == '|') {
+                        self.advance();
+                        break :blk .logical_or;
+                    } else if (self.source[self.pos] == '=') {
+                        self.advance();
+                        break :blk .pipe_assign;
+                    }
                 }
                 break :blk .bitwise_or;
             },
             '^' => blk: {
                 self.advance();
+                if (self.pos < self.source.len and self.source[self.pos] == '=') {
+                    self.advance();
+                    break :blk .xor_assign;
+                }
                 break :blk .bitwise_xor;
             },
             '~' => blk: {
@@ -425,8 +453,62 @@ pub const RegionLexer = struct {
         const start = self.pos;
         var is_float = false;
 
-        // Read integer part
-        while (self.pos < self.source.len and std.ascii.isDigit(self.source[self.pos])) {
+        // Check for hex (0x), binary (0b), or octal (0o) prefix
+        if (self.source[self.pos] == '0' and self.pos + 1 < self.source.len) {
+            const next = self.source[self.pos + 1];
+            if (next == 'x' or next == 'X') {
+                // Hexadecimal literal with optional underscores
+                self.advance(); // skip '0'
+                self.advance(); // skip 'x'
+                while (self.pos < self.source.len and (std.ascii.isHex(self.source[self.pos]) or self.source[self.pos] == '_')) {
+                    self.advance();
+                }
+                const text = self.source[start..self.pos];
+                const str_id = try self.str_interner.intern(text);
+                return Token{
+                    .kind = .integer_literal,
+                    .str = str_id,
+                    .span = self.makeSpan(start, self.pos),
+                    .trivia_lo = trivia_start,
+                    .trivia_hi = @intCast(self.trivia.items.len),
+                };
+            } else if (next == 'b' or next == 'B') {
+                // Binary literal with optional underscores
+                self.advance(); // skip '0'
+                self.advance(); // skip 'b'
+                while (self.pos < self.source.len and (self.source[self.pos] == '0' or self.source[self.pos] == '1' or self.source[self.pos] == '_')) {
+                    self.advance();
+                }
+                const text = self.source[start..self.pos];
+                const str_id = try self.str_interner.intern(text);
+                return Token{
+                    .kind = .integer_literal,
+                    .str = str_id,
+                    .span = self.makeSpan(start, self.pos),
+                    .trivia_lo = trivia_start,
+                    .trivia_hi = @intCast(self.trivia.items.len),
+                };
+            } else if (next == 'o' or next == 'O') {
+                // Octal literal with optional underscores
+                self.advance(); // skip '0'
+                self.advance(); // skip 'o'
+                while (self.pos < self.source.len and ((self.source[self.pos] >= '0' and self.source[self.pos] <= '7') or self.source[self.pos] == '_')) {
+                    self.advance();
+                }
+                const text = self.source[start..self.pos];
+                const str_id = try self.str_interner.intern(text);
+                return Token{
+                    .kind = .integer_literal,
+                    .str = str_id,
+                    .span = self.makeSpan(start, self.pos),
+                    .trivia_lo = trivia_start,
+                    .trivia_hi = @intCast(self.trivia.items.len),
+                };
+            }
+        }
+
+        // Read decimal integer part with optional underscores
+        while (self.pos < self.source.len and (std.ascii.isDigit(self.source[self.pos]) or self.source[self.pos] == '_')) {
             self.advance();
         }
 
@@ -437,8 +519,8 @@ pub const RegionLexer = struct {
                 is_float = true;
                 self.advance(); // skip '.'
 
-                // Read fractional part
-                while (self.pos < self.source.len and std.ascii.isDigit(self.source[self.pos])) {
+                // Read fractional part with optional underscores
+                while (self.pos < self.source.len and (std.ascii.isDigit(self.source[self.pos]) or self.source[self.pos] == '_')) {
                     self.advance();
                 }
             }
@@ -453,7 +535,7 @@ pub const RegionLexer = struct {
                 self.advance();
             }
 
-            while (self.pos < self.source.len and std.ascii.isDigit(self.source[self.pos])) {
+            while (self.pos < self.source.len and (std.ascii.isDigit(self.source[self.pos]) or self.source[self.pos] == '_')) {
                 self.advance();
             }
         }

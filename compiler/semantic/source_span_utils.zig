@@ -11,7 +11,7 @@ const Allocator = std.mem.Allocator;
 const libjanus = @import("astdb");
 const core = libjanus.astdb.snapshot;
 const node_view_mod = libjanus.astdb.node_view;
-const SourceSpan = core.SourceSpan;
+pub const SourceSpan = core.SourceSpan;
 
 /// Source position in a file
 pub const SourcePosition = struct {

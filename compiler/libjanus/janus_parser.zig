@@ -249,9 +249,9 @@ pub const Parser = struct {
             // Convert token type from old tokenizer to ASTDB format
             const astdb_token_kind = convertTokenType(old_token.type);
 
-            // Intern string if it's an identifier or literal
+            // Intern string if it's an identifier, literal, or underscore (wildcard pattern)
             var str_id: ?astdb_core.StrId = null;
-            if (old_token.type == .identifier or old_token.type == .number or old_token.type == .string_literal) {
+            if (old_token.type == .identifier or old_token.type == .number or old_token.type == .string_literal or old_token.type == .underscore) {
                 str_id = try astdb_system.str_interner.intern(old_token.lexeme);
             }
 
@@ -368,10 +368,10 @@ pub fn tokenizeIntoSnapshot(astdb_system: *AstDB, source: []const u8) !Tokenizat
             // Convert token type from Janus to ASTDB format
             const astdb_token_kind = convertTokenType(janus_token.type);
 
-            // Intern string if it's an identifier
+            // Intern string if it's an identifier, literal, or underscore (wildcard pattern)
             var str_id: ?StrId = null;
             switch (janus_token.type) {
-                .identifier, .string_literal, .number, .true, .false => {
+                .identifier, .string_literal, .number, .true, .false, .underscore => {
                     str_id = try astdb_system.str_interner.intern(janus_token.lexeme);
                 },
                 else => {},
@@ -419,6 +419,7 @@ fn convertOldTokenType(old_type: tokenizer.TokenType) TokenKind {
         .plus => .plus,
         .minus => .minus,
         .star => .star,
+        .star_star => .star_star,
         .slash => .slash,
         .left_paren => .left_paren,
         .right_paren => .right_paren,
@@ -455,6 +456,9 @@ fn convertTokenType(janus_type: tokenizer.TokenType) TokenKind {
         .@"or" => .or_,
         .not => .not_,
         .use => .use_,
+        .import_ => .import_,
+        .extern_ => .extern_,
+        .zig_ => .zig_,
         .graft => .use_,
         .using => .using,
 
@@ -485,6 +489,7 @@ fn convertTokenType(janus_type: tokenizer.TokenType) TokenKind {
         .plus => .plus,
         .minus => .minus,
         .star => .star,
+        .star_star => .star_star,
         .slash => .slash,
         .percent => .percent,
         .equal => .assign, // Use assign for consistency with walrus operator
@@ -498,6 +503,7 @@ fn convertTokenType(janus_type: tokenizer.TokenType) TokenKind {
         // New operators added to tokenizer
         .match_arrow => .arrow, // Use arrow for now, TODO: add match_arrow to core_astdb
         .pipe => .bitwise_or, // Use bitwise_or for |
+        .pipeline => .pipeline, // Pipeline operator |>
         .dot_dot => .range_inclusive, // Use range_inclusive for ..
         .dot_dot_less => .range_exclusive, // Use range_exclusive for ..<
         .ampersand => .bitwise_and, // Address-of operator ( & )
@@ -510,6 +516,24 @@ fn convertTokenType(janus_type: tokenizer.TokenType) TokenKind {
         .bitwise_not => .bitwise_not,
         .left_shift => .left_shift,
         .right_shift => .right_shift,
+
+        // Compound assignment
+        .plus_equal => .plus_assign,
+        .minus_equal => .minus_assign,
+        .star_equal => .star_assign,
+        .slash_equal => .slash_assign,
+        .percent_equal => .percent_assign,
+        .ampersand_equal => .ampersand_assign,
+        .pipe_equal => .pipe_assign,
+        .xor_equal => .xor_assign,
+        .left_shift_equal => .left_shift_assign,
+        .right_shift_equal => .right_shift_assign,
+
+        // Character literal
+        .char_literal => .char_literal,
+
+        // Logical/unary operators
+        .exclaim => .exclamation, // Logical NOT / negation pattern
 
         .underscore => .identifier, // Treat underscore as identifier for now
 
@@ -622,7 +646,7 @@ fn validateS0Tokens(unit: *astdb_core.CompilationUnit) !void {
 
 fn isTokenAllowedInS0(kind: TokenKind) bool {
     return switch (kind) {
-        .func, .return_, .identifier, .integer_literal, .float_literal, .string_literal, .true_, .false_, .left_paren, .right_paren, .left_brace, .right_brace, .semicolon, .comma, .newline, .eof, .left_bracket, .right_bracket, .let, .var_, .plus, .minus, .star, .slash, .equal, .assign, .equal_equal, .not_equal, .less, .less_equal, .greater, .greater_equal, .colon, .if_, .else_, .arrow, .arrow_fat, .while_, .for_, .in_, .match, .when, .break_, .continue_, .defer_, .do_, .end, .struct_, .dot, .test_, .question, .optional_chain, .null_coalesce, .null_, .type_, .logical_and, .logical_or, .logical_not, .exclamation, .tilde, .bitwise_and, .bitwise_or, .bitwise_xor, .bitwise_not, .left_shift, .right_shift, .ampersand, .pipe, .caret, .range_inclusive, .range_exclusive, .walrus_assign, .percent, .and_, .or_, .not_ => true,
+        .func, .return_, .identifier, .integer_literal, .float_literal, .string_literal, .true_, .false_, .left_paren, .right_paren, .left_brace, .right_brace, .semicolon, .comma, .newline, .eof, .left_bracket, .right_bracket, .let, .var_, .plus, .minus, .star, .star_star, .slash, .equal, .assign, .equal_equal, .not_equal, .less, .less_equal, .greater, .greater_equal, .colon, .if_, .else_, .arrow, .arrow_fat, .while_, .for_, .in_, .match, .when, .break_, .continue_, .defer_, .do_, .end, .struct_, .dot, .test_, .question, .optional_chain, .null_coalesce, .null_, .type_, .logical_and, .logical_or, .logical_not, .exclamation, .tilde, .bitwise_and, .bitwise_or, .bitwise_xor, .bitwise_not, .left_shift, .right_shift, .ampersand, .pipe, .caret, .range_inclusive, .range_exclusive, .walrus_assign, .percent, .and_, .or_, .not_, .pipeline, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign, .ampersand_assign, .pipe_assign, .xor_assign, .left_shift_assign, .right_shift_assign, .char_literal, .import_, .use_, .extern_, .zig_ => true,
 
         else => false,
     };
@@ -684,6 +708,11 @@ fn parseCompilationUnit(parser: *ParserState) !void {
             const struct_index = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, struct_node);
             try top_level_declarations.append(parser.allocator, struct_index);
+        } else if (parser.match(.extern_)) {
+            const extern_node = try parseExternFuncDeclaration(parser, nodes);
+            const extern_index = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, extern_node);
+            try top_level_declarations.append(parser.allocator, extern_index);
         } else if (parser.match(.func)) {
             const func_node = try parseFunctionDeclaration(parser, nodes);
             const func_index = @as(u32, @intCast(nodes.items.len));
@@ -857,7 +886,8 @@ fn parseImportStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
 
     _ = try parser.consume(.import_);
 
-    const children_start = @as(u32, @intCast(nodes.items.len));
+    // Track start of children in edges array
+    const edges_start = @as(u32, @intCast(parser.edges.items.len));
 
     // Parse module path (e.g., std.string)
     // For now, we'll parse it as a sequence of identifiers separated by dots
@@ -869,7 +899,9 @@ fn parseImportStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
         .child_lo = 0,
         .child_hi = 0,
     };
+    const first_idx = @as(u32, @intCast(nodes.items.len));
     try nodes.append(parser.allocator, first_ident);
+    try parser.edges.append(parser.allocator, @enumFromInt(first_idx));
 
     // Parse remaining path components (e.g., .string in std.string)
     while (parser.match(.dot)) {
@@ -882,7 +914,9 @@ fn parseImportStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
             .child_lo = 0,
             .child_hi = 0,
         };
+        const idx = @as(u32, @intCast(nodes.items.len));
         try nodes.append(parser.allocator, ident);
+        try parser.edges.append(parser.allocator, @enumFromInt(idx));
     }
 
     // Optional semicolon
@@ -894,8 +928,8 @@ fn parseImportStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
         .kind = .import_stmt,
         .first_token = @enumFromInt(start_token),
         .last_token = @enumFromInt(parser.current - 1),
-        .child_lo = children_start,
-        .child_hi = @as(u32, @intCast(nodes.items.len)),
+        .child_lo = edges_start,
+        .child_hi = @as(u32, @intCast(parser.edges.items.len)),
     };
 }
 
@@ -946,7 +980,7 @@ fn parseUsingStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.As
     };
 }
 
-/// Parse use statement: use module.path OR graft alias = origin "module"
+/// Parse use statement: use module.path OR use zig "path.zig" OR graft alias = origin "module"
 fn parseUseStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) !astdb_core.AstNode {
     const start_token = parser.current;
 
@@ -960,6 +994,35 @@ fn parseUseStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstN
     }
 
     const children_start = @as(u32, @intCast(nodes.items.len));
+
+    // NEW: Branch 0: use zig "path.zig" - Native Zig module import
+    if (parser.match(.zig_)) {
+        _ = parser.advance(); // consume 'zig'
+
+        // Expect string literal for path
+        _ = try parser.consume(.string_literal);
+        const path_node = astdb_core.AstNode{
+            .kind = .string_literal,
+            .first_token = @enumFromInt(parser.current - 1),
+            .last_token = @enumFromInt(parser.current - 1),
+            .child_lo = 0,
+            .child_hi = 0,
+        };
+        try nodes.append(parser.allocator, path_node);
+
+        // Optional semicolon
+        if (parser.match(.semicolon)) {
+            _ = parser.advance();
+        }
+
+        return astdb_core.AstNode{
+            .kind = .use_zig,
+            .first_token = @enumFromInt(start_token),
+            .last_token = @enumFromInt(parser.current - 1),
+            .child_lo = children_start,
+            .child_hi = @as(u32, @intCast(nodes.items.len)),
+        };
+    }
 
     // Branch 1: graft form — alias = origin "module" [;]
     if (parser.peek()) |t1| {
@@ -1019,21 +1082,26 @@ fn parseUseStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstN
     }
 
     // Branch 2: use origin "module" [;] (also applies to graft without alias)
+    // Only match this if identifier is followed by string_literal, NOT by dot (path form)
     if (parser.peek()) |t2| {
         if (t2.kind == .identifier) {
-            // origin identifier (e.g., zig, c, python)
-            _ = try parser.consume(.identifier);
-            const origin_node = astdb_core.AstNode{
-                .kind = .identifier,
-                .first_token = @enumFromInt(parser.current - 1),
-                .last_token = @enumFromInt(parser.current - 1),
-                .child_lo = 0,
-                .child_hi = 0,
-            };
-            try nodes.append(parser.allocator, origin_node);
+            // Lookahead: if next token after identifier is dot, this is path form, not FFI
+            if (parser.tokens.len > parser.current + 1 and parser.tokens[parser.current + 1].kind == .dot) {
+                // Skip Branch 2, fall through to path form
+            } else {
+                // origin identifier (e.g., zig, c, python)
+                _ = try parser.consume(.identifier);
+                const origin_node = astdb_core.AstNode{
+                    .kind = .identifier,
+                    .first_token = @enumFromInt(parser.current - 1),
+                    .last_token = @enumFromInt(parser.current - 1),
+                    .child_lo = 0,
+                    .child_hi = 0,
+                };
+                try nodes.append(parser.allocator, origin_node);
 
-            // module string literal
-            if (parser.match(.string_literal)) {
+                // module string literal
+                if (parser.match(.string_literal)) {
                 _ = parser.advance();
                 const mod_node = astdb_core.AstNode{
                     .kind = .string_literal,
@@ -1056,14 +1124,16 @@ fn parseUseStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstN
                     .child_lo = children_start,
                     .child_hi = @as(u32, @intCast(nodes.items.len)),
                 };
+                }
             }
         }
     }
 
-    // Fallback: original path form: identifier ( . identifier )*
-    var path_nodes = try std.ArrayList(astdb_core.AstNode).initCapacity(parser.allocator, 0);
-    defer path_nodes.deinit(parser.allocator);
+    // Fallback: path form with optional selective imports
+    // use module.path OR use module.{item1, item2}
+    const edges_start = @as(u32, @intCast(parser.edges.items.len));
 
+    // Parse first identifier (module name)
     if (parser.peek()) |token| {
         if (token.kind == .identifier) {
             const id_node = astdb_core.AstNode{
@@ -1073,40 +1143,97 @@ fn parseUseStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstN
                 .child_lo = 0,
                 .child_hi = 0,
             };
-            try path_nodes.append(parser.allocator, id_node);
+            const id_idx = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, id_node);
+            try parser.edges.append(parser.allocator, @enumFromInt(id_idx));
             _ = parser.advance();
         }
     }
 
-    while (parser.peek()) |token| {
-        if (token.kind == .dot) {
-            _ = parser.advance();
-            if (parser.peek()) |next_token| {
-                if (next_token.kind == .identifier) {
-                    const id_node = astdb_core.AstNode{
+    // Parse remaining path components until we see .{ for selective imports
+    while (parser.match(.dot)) {
+        _ = parser.advance(); // consume dot
+
+        // Check for selective import syntax: .{item1, item2}
+        if (parser.match(.left_brace)) {
+            _ = parser.advance(); // consume {
+
+            // Parse list of selected identifiers
+            while (true) {
+                // Skip any newlines inside braces
+                while (parser.match(.newline)) {
+                    _ = parser.advance();
+                }
+
+                if (parser.match(.right_brace)) {
+                    _ = parser.advance(); // consume }
+                    break;
+                }
+
+                // Parse identifier
+                if (parser.match(.identifier)) {
+                    const item_node = astdb_core.AstNode{
                         .kind = .identifier,
                         .first_token = @enumFromInt(parser.current),
                         .last_token = @enumFromInt(parser.current),
                         .child_lo = 0,
                         .child_hi = 0,
                     };
-                    try path_nodes.append(parser.allocator, id_node);
-                    try nodes.append(parser.allocator, id_node);
+                    const item_idx = @as(u32, @intCast(nodes.items.len));
+                    try nodes.append(parser.allocator, item_node);
+                    try parser.edges.append(parser.allocator, @enumFromInt(item_idx));
                     _ = parser.advance();
                 }
-                break;
+
+                // Skip comma between items
+                if (parser.match(.comma)) {
+                    _ = parser.advance();
+                }
             }
+
+            // Optional semicolon
+            if (parser.match(.semicolon)) {
+                _ = parser.advance();
+            }
+
+            return astdb_core.AstNode{
+                .kind = .use_selective,
+                .first_token = @enumFromInt(start_token),
+                .last_token = @enumFromInt(parser.current - 1),
+                .child_lo = edges_start,
+                .child_hi = @as(u32, @intCast(parser.edges.items.len)),
+            };
         }
-        break;
+
+        // Regular path component
+        if (parser.match(.identifier)) {
+            const id_node = astdb_core.AstNode{
+                .kind = .identifier,
+                .first_token = @enumFromInt(parser.current),
+                .last_token = @enumFromInt(parser.current),
+                .child_lo = 0,
+                .child_hi = 0,
+            };
+            const id_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, id_node);
+            try parser.edges.append(parser.allocator, @enumFromInt(id_idx));
+            _ = parser.advance();
+        } else {
+            break;
+        }
+    }
+
+    // Optional semicolon
+    if (parser.match(.semicolon)) {
+        _ = parser.advance();
     }
 
     return astdb_core.AstNode{
         .kind = .use_stmt,
         .first_token = @enumFromInt(start_token),
         .last_token = @enumFromInt(parser.current - 1),
-        .child_lo = @intCast(nodes.items.len - path_nodes.items.len),
-        .child_hi = @as(u32, @intCast(nodes.items.len)),
+        .child_lo = edges_start,
+        .child_hi = @as(u32, @intCast(parser.edges.items.len)),
     };
 }
 
@@ -1368,8 +1495,8 @@ fn parseBlockStatements(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
             const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
             try parser.nodes.append(parser.allocator, for_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
-        } else if (parser.match(.identifier)) {
-            // Parse full expression starting with identifier (handles method calls, assignments, etc.)
+        } else if (parser.match(.identifier) or parser.match(.string_literal) or parser.match(.integer_literal) or parser.match(.float_literal) or parser.match(.true_) or parser.match(.false_) or parser.match(.left_paren)) {
+            // Parse full expression (handles method calls, assignments, pipeline chains, etc.)
             const expr = try parseExpression(parser, nodes, .none);
             const expr_index = @as(u32, @intCast(parser.nodes.items.len));
             try parser.nodes.append(parser.allocator, expr);
@@ -1406,6 +1533,34 @@ fn parseBlockStatements(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
             const match_stmt = try parseMatchStatement(parser, nodes);
             const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
             try parser.nodes.append(parser.allocator, match_stmt);
+            try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
+        } else if (parser.match(.break_)) {
+            // Handle break statement
+            const break_token: astdb_core.TokenId = @enumFromInt(parser.current);
+            _ = parser.advance(); // consume 'break'
+            const break_stmt = astdb_core.AstNode{
+                .kind = .break_stmt,
+                .first_token = break_token,
+                .last_token = @enumFromInt(parser.current -| 1),
+                .child_lo = 0,
+                .child_hi = 0,
+            };
+            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
+            try parser.nodes.append(parser.allocator, break_stmt);
+            try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
+        } else if (parser.match(.continue_)) {
+            // Handle continue statement
+            const continue_token: astdb_core.TokenId = @enumFromInt(parser.current);
+            _ = parser.advance(); // consume 'continue'
+            const continue_stmt = astdb_core.AstNode{
+                .kind = .continue_stmt,
+                .first_token = continue_token,
+                .last_token = @enumFromInt(parser.current -| 1),
+                .child_lo = 0,
+                .child_hi = 0,
+            };
+            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
+            try parser.nodes.append(parser.allocator, continue_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
         } else {
             // Skip unknown tokens for now
@@ -2279,6 +2434,137 @@ fn parseFunctionDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_co
     return func_node;
 }
 
+/// Parse extern function declaration: extern func name(params) -> type
+fn parseExternFuncDeclaration(parser: *ParserState, _: *std.ArrayList(astdb_core.AstNode)) !astdb_core.AstNode {
+    const start_token = parser.current;
+
+    // Consume 'extern' keyword
+    _ = try parser.consume(.extern_);
+
+    // Consume 'func' keyword
+    _ = try parser.consume(.func);
+
+    // Function name (required for extern)
+    _ = try parser.consume(.identifier);
+    const name_token_index = parser.current - 1;
+
+    // Consume '('
+    _ = try parser.consume(.left_paren);
+
+    // Parse parameters
+    var parameters = try std.ArrayList(astdb_core.AstNode).initCapacity(parser.allocator, 0);
+    defer parameters.deinit(parser.allocator);
+
+    while (parser.current < parser.tokens.len and
+        parser.tokens[parser.current].kind != .right_paren)
+    {
+        if (parser.tokens[parser.current].kind == .identifier) {
+            const param_node = astdb_core.AstNode{
+                .kind = .parameter,
+                .first_token = @enumFromInt(parser.current),
+                .last_token = @enumFromInt(parser.current),
+                .child_lo = 0,
+                .child_hi = 0,
+            };
+            try parameters.append(parser.allocator, param_node);
+
+            _ = parser.advance();
+
+            // Consume ':' and type if present
+            if (parser.current < parser.tokens.len and
+                parser.tokens[parser.current].kind == .colon)
+            {
+                _ = parser.advance();
+                // Skip type tokens until comma or right paren
+                while (parser.current < parser.tokens.len and
+                    parser.tokens[parser.current].kind != .comma and
+                    parser.tokens[parser.current].kind != .right_paren)
+                {
+                    _ = parser.advance();
+                }
+            }
+
+            // Consume comma if present
+            if (parser.current < parser.tokens.len and
+                parser.tokens[parser.current].kind == .comma)
+            {
+                _ = parser.advance();
+            }
+        } else {
+            _ = parser.advance();
+        }
+    }
+
+    // Consume ')'
+    _ = try parser.consume(.right_paren);
+
+    // Skip return type annotation if present (-> type)
+    if (parser.current < parser.tokens.len and
+        parser.tokens[parser.current].kind == .arrow)
+    {
+        parser.current += 1; // skip ->
+        // Skip the return type until newline or semicolon
+        while (parser.current < parser.tokens.len and
+            parser.tokens[parser.current].kind != .semicolon and
+            parser.tokens[parser.current].kind != .func and
+            parser.tokens[parser.current].kind != .extern_ and
+            parser.tokens[parser.current].kind != .let and
+            parser.tokens[parser.current].kind != .const_ and
+            parser.tokens[parser.current].kind != .eof)
+        {
+            // Stop at tokens that indicate next declaration
+            const kind = parser.tokens[parser.current].kind;
+            if (kind == .identifier) {
+                // Check if this is the start of a new declaration by peeking
+                // If next token after identifier is '(' or ':', it's still part of type
+                if (parser.current + 1 < parser.tokens.len) {
+                    const next = parser.tokens[parser.current + 1].kind;
+                    if (next != .left_paren and next != .colon and next != .left_bracket and next != .dot) {
+                        break;
+                    }
+                }
+            }
+            parser.current += 1;
+        }
+    }
+
+    // Build edges for function name and parameters
+    var func_edges = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 0);
+    defer func_edges.deinit(parser.allocator);
+
+    // Add name node
+    const func_name_node = astdb_core.AstNode{
+        .kind = .identifier,
+        .first_token = @enumFromInt(name_token_index),
+        .last_token = @enumFromInt(name_token_index),
+        .child_lo = 0,
+        .child_hi = 0,
+    };
+    const name_idx = @as(u32, @intCast(parser.nodes.items.len));
+    try parser.nodes.append(parser.allocator, func_name_node);
+    try func_edges.append(parser.allocator, @enumFromInt(name_idx));
+
+    // Add parameter nodes
+    for (parameters.items) |param_node| {
+        const idx = @as(u32, @intCast(parser.nodes.items.len));
+        try parser.nodes.append(parser.allocator, param_node);
+        try func_edges.append(parser.allocator, @enumFromInt(idx));
+    }
+
+    const child_lo = @as(u32, @intCast(parser.edges.items.len));
+    try parser.edges.appendSlice(parser.allocator, func_edges.items);
+    const child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+    // No body for extern functions
+    return astdb_core.AstNode{
+        .kind = .extern_func,
+        .first_token = @enumFromInt(start_token),
+        .last_token = @enumFromInt(parser.current - 1),
+        .child_lo = child_lo,
+        .child_hi = child_hi,
+    };
+}
+
 /// Operator precedence levels for Pratt parser
 const Precedence = enum(u8) {
     none = 0,
@@ -2295,15 +2581,17 @@ const Precedence = enum(u8) {
     range = 11, // .. ..<
     term = 12, // + -
     factor = 13, // * / %
-    unary = 14, // ! -
-    call = 15, // . ()
-    primary = 16,
+    power = 14, // ** (right-associative)
+    unary = 15, // ! -
+    pipeline = 16, // |>
+    call = 17, // . ()
+    primary = 18,
 };
 
 /// Get precedence for a token kind
 fn getTokenPrecedence(kind: TokenKind) Precedence {
     const prec: Precedence = switch (kind) {
-        .assign, .equal, .plus_assign, .minus_assign, .star_assign, .slash_assign => .assignment,
+        .assign, .equal, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign, .ampersand_assign, .pipe_assign, .xor_assign, .left_shift_assign, .right_shift_assign => .assignment,
         .or_, .logical_or => .logical_or,
         .null_coalesce => .null_coalesce,
         .and_, .logical_and => .logical_and,
@@ -2316,6 +2604,8 @@ fn getTokenPrecedence(kind: TokenKind) Precedence {
         .range_inclusive, .range_exclusive => .range,
         .plus, .minus => .term,
         .star, .slash, .percent => .factor,
+        .star_star => .power,
+        .pipeline => .pipeline,
         else => .none,
     };
     return prec;
@@ -2326,7 +2616,7 @@ fn parseExpression(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNod
     // Parse left side (primary expression or prefix expression)
     var left: astdb_core.AstNode = blk: {
         if (parser.peek()) |token| {
-            if (token.kind == .minus or token.kind == .logical_not or token.kind == .bitwise_not or token.kind == .exclamation or token.kind == .tilde) {
+            if (token.kind == .minus or token.kind == .logical_not or token.kind == .bitwise_not or token.kind == .exclamation or token.kind == .tilde or token.kind == .not_) {
                 const op_idx = parser.current;
                 _ = parser.advance();
 
@@ -2491,46 +2781,88 @@ fn parseExpression(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNod
                 }
 
                 if (is_range or is_slice_colon) {
-                    // Parse range expression: start..end or start.. or ..end
-                    const range_start = @as(u32, @intCast(nodes.items.len));
-                    try nodes.append(parser.allocator, left);
-
-                    // Parse optional start expression (e.g., 0 in 0..3)
-                    // Use a higher precedence to avoid consuming the range operator
+                    // Parse slice expression: arr[start..end] or arr[start..<end]
+                    // Parse start expression (e.g., 1 in arr[1..3])
                     var start_expr: ?astdb_core.AstNode = null;
                     if (parser.peek() != null and
-                        !parser.match(.right_bracket))
+                        !parser.match(.right_bracket) and
+                        !parser.match(.range_inclusive) and
+                        !parser.match(.range_exclusive) and
+                        !parser.match(.colon))
                     {
                         start_expr = try parseExpression(parser, nodes, .range);
-                        try nodes.append(parser.allocator, start_expr.?);
                     }
 
-                    // Parse range operator - '..' or ':' slice
+                    // Parse range operator - '..' or ':' or '..<'
                     const current_token = parser.peek() orelse return error.UnexpectedToken;
-                    if (current_token.kind == .range_inclusive or current_token.kind == .range_exclusive) {
-                        _ = parser.advance(); // consume '..' or '..<'
+                    var is_inclusive = true;
+                    if (current_token.kind == .range_inclusive) {
+                        _ = parser.advance(); // consume '..'
+                        is_inclusive = true;
+                    } else if (current_token.kind == .range_exclusive) {
+                        _ = parser.advance(); // consume '..<'
+                        is_inclusive = false;
                     } else if (current_token.kind == .colon) {
-                        _ = parser.advance(); // consume ':' slice delimiter
+                        _ = parser.advance(); // consume ':' slice delimiter (treat as exclusive)
+                        is_inclusive = false;
                     } else {
                         return error.UnexpectedToken;
                     }
 
-                    // Parse optional end expression (e.g., 3 in 0..3)
+                    // Parse end expression (e.g., 3 in arr[1..3])
                     var end_expr: ?astdb_core.AstNode = null;
                     if (!parser.match(.right_bracket)) {
                         end_expr = try parseExpression(parser, nodes, .none);
-                        try nodes.append(parser.allocator, end_expr.?);
                     }
 
                     _ = try parser.consume(.right_bracket);
 
-                    const range_end = @as(u32, @intCast(nodes.items.len));
+                    // Append child nodes to nodes array and get their indices
+                    const left_idx = @as(u32, @intCast(parser.nodes.items.len));
+                    try parser.nodes.append(parser.allocator, left);
+
+                    const start_idx = @as(u32, @intCast(parser.nodes.items.len));
+                    if (start_expr) |se| {
+                        try parser.nodes.append(parser.allocator, se);
+                    } else {
+                        // Default start = 0
+                        try parser.nodes.append(parser.allocator, astdb_core.AstNode{
+                            .kind = .integer_literal,
+                            .first_token = @enumFromInt(0),
+                            .last_token = @enumFromInt(0),
+                            .child_lo = 0,
+                            .child_hi = 0,
+                        });
+                    }
+
+                    const end_idx = @as(u32, @intCast(parser.nodes.items.len));
+                    if (end_expr) |ee| {
+                        try parser.nodes.append(parser.allocator, ee);
+                    } else {
+                        // Default end - needs to be array length, for now use a placeholder
+                        try parser.nodes.append(parser.allocator, astdb_core.AstNode{
+                            .kind = .integer_literal,
+                            .first_token = @enumFromInt(0),
+                            .last_token = @enumFromInt(0),
+                            .child_lo = 0,
+                            .child_hi = 0,
+                        });
+                    }
+
+                    // Append NodeIds to edges array (child_lo/child_hi reference edges, not nodes!)
+                    const child_lo = @as(u32, @intCast(parser.edges.items.len));
+                    try parser.edges.append(parser.allocator, @enumFromInt(left_idx));
+                    try parser.edges.append(parser.allocator, @enumFromInt(start_idx));
+                    try parser.edges.append(parser.allocator, @enumFromInt(end_idx));
+                    const child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+                    const slice_kind: astdb_core.AstNode.NodeKind = if (is_inclusive) .slice_inclusive_expr else .slice_exclusive_expr;
                     return astdb_core.AstNode{
-                        .kind = .index_expr, // Use index_expr for slice operations
+                        .kind = slice_kind,
                         .first_token = @enumFromInt(parser.current - 1),
                         .last_token = @enumFromInt(parser.current - 1),
-                        .child_lo = range_start,
-                        .child_hi = range_end,
+                        .child_lo = child_lo,
+                        .child_hi = child_hi,
                     };
                 } else {
                     // Regular indexing: left[expr]
@@ -2662,6 +2994,67 @@ fn parseExpression(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNod
             continue;
         }
 
+        // Handle pipeline operator (|>) - Desugar to call_expr
+        if (token.kind == .pipeline) {
+            _ = parser.advance(); // consume |>
+            // Parse RHS with .call precedence for left-associativity
+            // This ensures chained pipelines are handled iteratively, not recursively
+            // e.g., 1 |> inc() |> print() -> (1 |> inc()) |> print()
+            const rhs = try parseExpression(parser, nodes, .call);
+
+            // Desugar logic: LHS |> RHS -> RHS(LHS, ...)
+            const child_lo = @as(u32, @intCast(parser.edges.items.len));
+
+            if (rhs.kind == .call_expr) {
+                // Copy original edges to avoid stale slice if parser.edges reallocates
+                var orig_edges_buf = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, rhs.child_hi - rhs.child_lo);
+                defer orig_edges_buf.deinit(parser.allocator);
+                orig_edges_buf.appendSliceAssumeCapacity(parser.edges.items[rhs.child_lo..rhs.child_hi]);
+                const orig_edges = orig_edges_buf.items;
+
+                // 1. Function callee
+                try parser.edges.append(parser.allocator, orig_edges[0]);
+
+                // 2. Injected LHS as first argument
+                const left_node_idx = @as(u32, @intCast(nodes.items.len));
+                try nodes.append(parser.allocator, left);
+                try parser.edges.append(parser.allocator, @enumFromInt(left_node_idx));
+
+                // 3. Original arguments
+                if (orig_edges.len > 1) {
+                    try parser.edges.appendSlice(parser.allocator, orig_edges[1..]);
+                }
+            } else {
+                // create call: rhs(left)
+                const rhs_idx = @as(u32, @intCast(nodes.items.len));
+                try nodes.append(parser.allocator, rhs);
+                try parser.edges.append(parser.allocator, @enumFromInt(rhs_idx));
+
+                const left_idx = @as(u32, @intCast(nodes.items.len));
+                try nodes.append(parser.allocator, left);
+                try parser.edges.append(parser.allocator, @enumFromInt(left_idx));
+            }
+
+            const child_hi = @as(u32, @intCast(parser.edges.items.len));
+            const desugared_call = astdb_core.AstNode{
+                .kind = .call_expr,
+                .first_token = left.first_token,
+                .last_token = rhs.last_token,
+                .child_lo = child_lo,
+                .child_hi = child_hi,
+            };
+
+            // Add the desugared call to nodes so it can be referenced by subsequent operations
+            try nodes.append(parser.allocator, desugared_call);
+
+            // Update left to be a reference to the node we just added
+            left = desugared_call;
+            left.child_lo = child_lo; // Preserve the edge indices
+            left.child_hi = child_hi;
+
+            continue;
+        }
+
         _ = parser.advance(); // consume operator
         const right = try parseExpression(parser, nodes, token_prec);
 
@@ -2735,7 +3128,8 @@ fn parsePrimary(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode))
             .not_, .logical_not, .exclamation, .minus, .tilde, .bitwise_not => {
                 const op_idx = parser.current;
                 _ = parser.advance();
-                const expr = try parsePrimary(parser, nodes);
+                // Use parseExpression to handle nested unary and compound expressions
+                const expr = try parseExpression(parser, nodes, .unary);
                 const child_lo = @as(u32, @intCast(nodes.items.len));
                 try nodes.append(parser.allocator, expr);
                 const child_hi = @as(u32, @intCast(nodes.items.len));
@@ -2791,6 +3185,16 @@ fn parsePrimary(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode))
                     .child_hi = 0,
                 };
             },
+            .char_literal => {
+                _ = parser.advance();
+                return astdb_core.AstNode{
+                    .kind = .char_literal,
+                    .first_token = @enumFromInt(parser.current - 1),
+                    .last_token = @enumFromInt(parser.current - 1),
+                    .child_lo = 0,
+                    .child_hi = 0,
+                };
+            },
             .true_, .false_ => {
                 _ = parser.advance();
                 return astdb_core.AstNode{
@@ -2834,12 +3238,37 @@ fn parsePrimary(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode))
             .left_bracket => {
                 return try parseArrayLiteral(parser, nodes);
             },
+            .match => {
+                return try parseMatchStatement(parser, nodes);
+            },
             .identifier => {
                 // Lookahead for struct literal: Identifier '{'
                 const id_index = parser.current;
                 _ = parser.advance(); // consume identifier
 
+                // Disambiguate: Struct Literal vs Block
+                // Struct literal: { ident : ... } or { }
+                // Block: { ident ... } or { ... }
+
+                var is_struct_literal = false;
                 if (parser.match(.left_brace)) {
+                    const next_idx = parser.current + 1;
+                    if (next_idx < parser.tokens.len) {
+                        const next_tok = parser.tokens[next_idx];
+                        if (next_tok.kind == .right_brace) {
+                            is_struct_literal = true; // Empty struct: T {}
+                        } else if (next_tok.kind == .identifier) {
+                            const after_idx = parser.current + 2;
+                            if (after_idx < parser.tokens.len) {
+                                if (parser.tokens[after_idx].kind == .colon) {
+                                    is_struct_literal = true; // T { f : ... }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (is_struct_literal) {
                     // Struct Literal: Type { field: val, ... }
                     _ = try parser.consume(.left_brace);
 
@@ -3065,14 +3494,7 @@ fn parseVarStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstN
     var type_node: ?astdb_core.AstNode = null;
     if (parser.match(.colon)) {
         _ = parser.advance();
-        _ = try parser.consume(.identifier);
-        type_node = astdb_core.AstNode{
-            .kind = .primitive_type,
-            .first_token = @enumFromInt(parser.current - 1),
-            .last_token = @enumFromInt(parser.current - 1),
-            .child_lo = 0,
-            .child_hi = 0,
-        };
+        type_node = try parseType(parser, nodes);
     }
 
     // optional initializer
@@ -3156,18 +3578,23 @@ fn parseMatchStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.As
 
         // Parse match arm
         const arm_start = parser.current;
-        const arm_child_lo = @as(u32, @intCast(nodes.items.len));
+        var arm_edges = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 3);
+        defer arm_edges.deinit(parser.allocator);
 
         // Parse pattern (for now, just an expression or identifier)
         // TODO: Implement full pattern parsing
         const pattern = try parseExpression(parser, nodes, .none);
+        const pattern_idx = @as(u32, @intCast(nodes.items.len));
         try nodes.append(parser.allocator, pattern);
+        try arm_edges.append(parser.allocator, @enumFromInt(pattern_idx));
 
         // Optional guard: when expr
         if (parser.match(.when)) {
             _ = parser.advance();
             const guard = try parseExpression(parser, nodes, .none);
+            const guard_idx = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, guard);
+            try arm_edges.append(parser.allocator, @enumFromInt(guard_idx));
         } else {
             // Placeholder for no guard (using null literal for now to keep child count consistent)
             const null_node = astdb_core.AstNode{
@@ -3177,7 +3604,9 @@ fn parseMatchStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.As
                 .child_lo = 0,
                 .child_hi = 0,
             };
+            const null_idx = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, null_node);
+            try arm_edges.append(parser.allocator, @enumFromInt(null_idx));
         }
 
         _ = try parser.consume(.arrow); // => (converted from match_arrow)
@@ -3187,30 +3616,40 @@ fn parseMatchStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.As
             const block_start_token = parser.current;
             _ = try parser.consume(.left_brace);
 
-            const stmts_start = @as(u32, @intCast(nodes.items.len));
-            var dummy_stmts = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 0);
-            defer dummy_stmts.deinit(parser.allocator);
-            try parseBlockStatements(parser, nodes, &dummy_stmts);
-            const stmts_end = @as(u32, @intCast(nodes.items.len));
+            var body_stmts = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 0);
+            defer body_stmts.deinit(parser.allocator);
+            try parseBlockStatements(parser, nodes, &body_stmts);
 
             _ = try parser.consume(.right_brace);
+
+            const block_lo = @as(u32, @intCast(parser.edges.items.len));
+            try parser.edges.appendSlice(parser.allocator, body_stmts.items);
+            const block_hi = @as(u32, @intCast(parser.edges.items.len));
 
             const block_node = astdb_core.AstNode{
                 .kind = .block_stmt,
                 .first_token = @enumFromInt(block_start_token),
                 .last_token = @enumFromInt(parser.current - 1),
-                .child_lo = stmts_start,
-                .child_hi = stmts_end,
+                .child_lo = block_lo,
+                .child_hi = block_hi,
             };
+            const block_idx = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, block_node);
+            try arm_edges.append(parser.allocator, @enumFromInt(block_idx));
         } else {
             const body_expr = try parseExpression(parser, nodes, .none);
+            const body_idx = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, body_expr);
+            try arm_edges.append(parser.allocator, @enumFromInt(body_idx));
             // Optional comma
             if (parser.match(.comma)) _ = parser.advance();
         }
 
-        const arm_child_hi = @as(u32, @intCast(nodes.items.len));
+        // Create arm node with edges for pattern, guard, body
+        const arm_child_lo = @as(u32, @intCast(parser.edges.items.len));
+        try parser.edges.appendSlice(parser.allocator, arm_edges.items);
+        const arm_child_hi = @as(u32, @intCast(parser.edges.items.len));
+
         const arm_end = parser.current - 1;
         const arm_node = astdb_core.AstNode{
             .kind = .match_arm,

@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const ArrayList = std.array_list.Managed;
 const SemanticResolver = @import("semantic_resolver.zig");
 const ResolveResult = SemanticResolver.ResolveResult;
 const CallSite = SemanticResolver.CallSite;
@@ -11,6 +12,19 @@ const Candidate = @import("candidate_collector.zig").Candidate;
 const RejectionReason = @import("candidate_collector.zig").RejectionReason;
 const FunctionDecl = @import("scope_manager.zig").FunctionDecl;
 const TypeId = @import("type_registry.zig").TypeId;
+
+// NextGen imports
+const nextgen = @import("nextgen_diagnostic.zig");
+const NextGenDiagnostic = nextgen.NextGenDiagnostic;
+const DiagnosticCode = nextgen.DiagnosticCode;
+const CauseCategory = nextgen.CauseCategory;
+const hypothesis_engine = @import("hypothesis_engine.zig");
+const HypothesisEngine = hypothesis_engine.HypothesisEngine;
+const ErrorContext = hypothesis_engine.ErrorContext;
+const TypeFlowAnalyzer = @import("type_flow_analyzer.zig").TypeFlowAnalyzer;
+const TypeFlowRecorder = @import("type_flow_analyzer.zig").TypeFlowRecorder;
+const SemanticCorrelator = @import("semantic_correlator.zig").SemanticCorrelator;
+const FixLearningEngine = @import("fix_learning.zig").FixLearningEngine;
 
 /// Diagnostic severity levels
 pub const Severity = enum {
@@ -282,13 +296,13 @@ pub const DiagnosticEngine = struct {
     }
 
     fn formatAmbiguityData(self: *DiagnosticEngine, ambiguous: ResolveResult.AmbiguityInfo) !DiagnosticData {
-        var candidates = std.ArrayList(DiagnosticData.CandidateInfo).init(self.allocator);
+        var candidates = ArrayList(DiagnosticData.CandidateInfo).init(self.allocator);
 
         for (ambiguous.candidates, 0..) |candidate, i| {
             const candidate_id = try std.fmt.allocPrint(self.allocator, "{c}", .{'A' + @as(u8, @intCast(i))});
             const signature = try std.fmt.allocPrint(self.allocator, "func {s}({s}) -> {s}", .{ candidate.candidate.function.name, candidate.candidate.function.parameter_types, candidate.candidate.function.return_type });
 
-            var conversions = std.ArrayList(DiagnosticData.CandidateInfo.ConversionInfo).init(self.allocator);
+            var conversions = ArrayList(DiagnosticData.CandidateInfo.ConversionInfo).init(self.allocator);
             for (candidate.conversion_path.get().conversions, 0..) |conversion, j| {
                 if (conversion.cost > 0) { // Only include actual conversions
                     try conversions.append(DiagnosticData.CandidateInfo.ConversionInfo{
@@ -320,7 +334,7 @@ pub const DiagnosticEngine = struct {
     }
 
     fn generateAmbiguityFixes(self: *DiagnosticEngine, ambiguous: ResolveResult.AmbiguityInfo) ![]FixSuggestion {
-        var fixes = std.ArrayList(FixSuggestion).init(self.allocator);
+        var fixes = ArrayList(FixSuggestion).init(self.allocator);
 
         for (ambiguous.candidates, 0..) |candidate, i| {
             // Generate explicit cast suggestions
@@ -377,7 +391,7 @@ pub const DiagnosticEngine = struct {
     }
 
     fn collectAmbiguityRelatedInfo(self: *DiagnosticEngine, ambiguous: ResolveResult.AmbiguityInfo) ![]RelatedInfo {
-        var related = std.ArrayList(RelatedInfo).init(self.allocator);
+        var related = ArrayList(RelatedInfo).init(self.allocator);
 
         for (ambiguous.candidates, 0..) |candidate, i| {
             const message = try std.fmt.allocPrint(self.allocator, "Candidate {c} defined here", .{'A' + @as(u8, @intCast(i))});
@@ -470,7 +484,7 @@ pub const DiagnosticEngine = struct {
     fn formatArgumentTypes(self: *DiagnosticEngine, arg_types: []const TypeId) ![]const u8 {
         if (arg_types.len == 0) return try self.allocator.dupe(u8, "");
 
-        var result = std.ArrayList(u8).init(self.allocator);
+        var result = ArrayList(u8).init(self.allocator);
         for (arg_types, 0..) |arg_type, i| {
             if (i > 0) try result.appendSlice(", ");
             const type_name = try self.getTypeName(arg_type);
@@ -481,7 +495,7 @@ pub const DiagnosticEngine = struct {
     }
 
     fn formatCandidateList(self: *DiagnosticEngine, candidates: []CompatibleCandidate) ![]const u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
+        var result = ArrayList(u8).init(self.allocator);
 
         for (candidates, 0..) |candidate, i| {
             const label = 'A' + @as(u8, @intCast(i));
@@ -494,7 +508,7 @@ pub const DiagnosticEngine = struct {
     fn formatAvailableFunctions(self: *DiagnosticEngine, functions: [][]const u8) ![]const u8 {
         if (functions.len == 0) return try self.allocator.dupe(u8, "  (none visible in current scope)");
 
-        var result = std.ArrayList(u8).init(self.allocator);
+        var result = ArrayList(u8).init(self.allocator);
         for (functions) |func_name| {
             try result.writer().print("  • {s}\n", .{func_name});
         }
@@ -511,6 +525,635 @@ pub const DiagnosticEngine = struct {
         };
     }
 };
+
+// =============================================================================
+// NEXT-GENERATION DIAGNOSTIC ENGINE
+// =============================================================================
+
+/// Configuration for NextGen diagnostic engine
+pub const NextGenConfig = struct {
+    /// Enable multi-hypothesis analysis
+    enable_hypotheses: bool = true,
+    /// Enable type flow visualization
+    enable_type_flow: bool = true,
+    /// Enable semantic correlation (CID-based)
+    enable_correlation: bool = true,
+    /// Enable fix learning
+    enable_learning: bool = true,
+    /// Maximum hypotheses to generate
+    max_hypotheses: u32 = 5,
+};
+
+/// Next-Generation Diagnostic Engine integrating all advanced features
+pub const NextGenDiagnosticEngine = struct {
+    allocator: Allocator,
+    config: NextGenConfig,
+
+    // Sub-engines
+    hypothesis_engine: HypothesisEngine,
+    type_flow_analyzer: TypeFlowAnalyzer,
+    type_flow_recorder: TypeFlowRecorder,
+    semantic_correlator: SemanticCorrelator,
+    fix_learning_engine: FixLearningEngine,
+
+    // Legacy engine for fallback
+    legacy_engine: DiagnosticEngine,
+
+    // Diagnostic counter
+    next_diagnostic_id: u64,
+
+    pub fn init(allocator: Allocator) NextGenDiagnosticEngine {
+        return initWithConfig(allocator, .{});
+    }
+
+    pub fn initWithConfig(allocator: Allocator, config: NextGenConfig) NextGenDiagnosticEngine {
+        return .{
+            .allocator = allocator,
+            .config = config,
+            .hypothesis_engine = HypothesisEngine.init(allocator),
+            .type_flow_analyzer = TypeFlowAnalyzer.init(allocator),
+            .type_flow_recorder = TypeFlowRecorder.init(allocator),
+            .semantic_correlator = SemanticCorrelator.init(allocator),
+            .fix_learning_engine = FixLearningEngine.initWithConfig(allocator, .{
+                .enable_persistence = config.enable_learning,
+            }),
+            .legacy_engine = DiagnosticEngine.init(allocator),
+            .next_diagnostic_id = 1,
+        };
+    }
+
+    pub fn deinit(self: *NextGenDiagnosticEngine) void {
+        self.hypothesis_engine.deinit();
+        self.type_flow_analyzer.deinit();
+        self.type_flow_recorder.deinit();
+        self.semantic_correlator.deinit();
+        self.fix_learning_engine.deinit();
+    }
+
+    /// Generate NextGen diagnostic from a resolution result
+    pub fn generateFromResolveResult(
+        self: *NextGenDiagnosticEngine,
+        result: ResolveResult,
+    ) !NextGenDiagnostic {
+        const diagnostic_id = nextgen.DiagnosticId{ .id = self.next_diagnostic_id };
+        self.next_diagnostic_id += 1;
+
+        return switch (result) {
+            .success => unreachable, // Should not generate diagnostic for success
+            .ambiguous => |info| try self.generateAmbiguityDiagnostic(diagnostic_id, info),
+            .no_matches => |info| try self.generateNoMatchesDiagnostic(diagnostic_id, info),
+            .error_occurred => |info| try self.generateErrorDiagnostic(diagnostic_id, info),
+        };
+    }
+
+    /// Generate diagnostic for ambiguous function call
+    fn generateAmbiguityDiagnostic(
+        self: *NextGenDiagnosticEngine,
+        id: nextgen.DiagnosticId,
+        info: ResolveResult.AmbiguityInfo,
+    ) !NextGenDiagnostic {
+        const span = nextgen.SourceSpan{
+            .file = info.call_site.source_location.file,
+            .start = .{
+                .line = info.call_site.source_location.line,
+                .column = info.call_site.source_location.column,
+                .byte_offset = info.call_site.source_location.start_byte,
+            },
+            .end = .{
+                .line = info.call_site.source_location.line,
+                .column = info.call_site.source_location.column + 10,
+                .byte_offset = info.call_site.source_location.end_byte,
+            },
+        };
+
+        var diag = NextGenDiagnostic.init(
+            self.allocator,
+            id,
+            DiagnosticCode.semantic(.dispatch_ambiguous),
+            .@"error",
+            span,
+        );
+
+        // Generate hypotheses (one per candidate)
+        if (self.config.enable_hypotheses) {
+            var candidates = ArrayList(HypothesisEngine.CandidateInfo).init(self.allocator);
+            defer candidates.deinit();
+
+            for (info.candidates) |candidate| {
+                try candidates.append(.{
+                    .signature = candidate.candidate.function.parameter_types,
+                    .module_path = candidate.candidate.function.module_path,
+                    .definition_location = .{
+                        .file = candidate.candidate.function.source_location.file,
+                        .start = .{
+                            .line = candidate.candidate.function.source_location.line,
+                            .column = candidate.candidate.function.source_location.column,
+                        },
+                        .end = .{
+                            .line = candidate.candidate.function.source_location.line,
+                            .column = candidate.candidate.function.source_location.column + 10,
+                        },
+                    },
+                    .conversion_cost = @intCast(candidate.conversion_path.get().total_cost),
+                });
+            }
+
+            diag.hypotheses = try self.hypothesis_engine.generateAmbiguityHypotheses(
+                info.call_site.function_name,
+                candidates.items,
+            );
+
+            // Build confidence distribution
+            if (diag.hypotheses.len > 0) {
+                diag.confidence_distribution = try self.allocator.alloc(f32, diag.hypotheses.len);
+                for (diag.hypotheses, 0..) |h, i| {
+                    diag.confidence_distribution[i] = h.probability;
+                }
+            }
+        }
+
+        // Build human message
+        const arg_types_str = try self.formatArgumentTypes(info.call_site.argument_types);
+        defer self.allocator.free(arg_types_str);
+
+        diag.human_message = .{
+            .summary = try std.fmt.allocPrint(
+                self.allocator,
+                "Ambiguous call to `{s}` with arguments ({s})",
+                .{ info.call_site.function_name, arg_types_str },
+            ),
+            .explanation = try std.fmt.allocPrint(
+                self.allocator,
+                "The compiler found {d} functions matching this call but cannot choose between them.\n" ++
+                    "All candidates have equal conversion costs and specificity.",
+                .{info.candidates.len},
+            ),
+            .suggestions = try self.allocator.dupe(
+                u8,
+                "Use explicit type casts or fully qualified names to disambiguate.",
+            ),
+            .educational_note = try self.allocator.dupe(
+                u8,
+                "Janus uses a specificity-based overload resolution system. " ++
+                    "When multiple candidates are equally specific, you must help the compiler choose.",
+            ),
+            .severity_rationale = null,
+        };
+
+        // Build machine data
+        diag.machine_data = .{
+            .error_type = try self.allocator.dupe(u8, "ambiguous_dispatch"),
+            .error_category = .ambiguous_dispatch,
+            .affected_symbols = &[_]nextgen.MachineReadableData.SymbolInfo{},
+            .scope_context = try self.allocator.dupe(u8, info.call_site.function_name),
+        };
+
+        // Register for cascade detection
+        if (self.config.enable_correlation) {
+            try self.semantic_correlator.registerDiagnostic(
+                id,
+                std.mem.zeroes(nextgen.CID),
+                &[_][]const u8{info.call_site.function_name},
+            );
+        }
+
+        return diag;
+    }
+
+    /// Generate diagnostic for no matching function
+    fn generateNoMatchesDiagnostic(
+        self: *NextGenDiagnosticEngine,
+        id: nextgen.DiagnosticId,
+        info: ResolveResult.NoMatchInfo,
+    ) !NextGenDiagnostic {
+        const span = nextgen.SourceSpan{
+            .file = info.call_site.source_location.file,
+            .start = .{
+                .line = info.call_site.source_location.line,
+                .column = info.call_site.source_location.column,
+                .byte_offset = info.call_site.source_location.start_byte,
+            },
+            .end = .{
+                .line = info.call_site.source_location.line,
+                .column = info.call_site.source_location.column + 10,
+                .byte_offset = info.call_site.source_location.end_byte,
+            },
+        };
+
+        var diag = NextGenDiagnostic.init(
+            self.allocator,
+            id,
+            DiagnosticCode.semantic(.dispatch_no_match),
+            .@"error",
+            span,
+        );
+
+        // Generate hypotheses
+        if (self.config.enable_hypotheses) {
+            var available = ArrayList(ErrorContext.SymbolInfo).init(self.allocator);
+            defer available.deinit();
+
+            for (info.available_functions) |func_name| {
+                try available.append(.{
+                    .name = func_name,
+                    .kind = .function,
+                    .signature = null,
+                    .visibility = .public,
+                });
+            }
+
+            diag.hypotheses = try self.hypothesis_engine.generateNoMatchHypotheses(
+                info.function_name,
+                info.argument_types,
+                available.items,
+            );
+
+            // Build confidence distribution
+            if (diag.hypotheses.len > 0) {
+                diag.confidence_distribution = try self.allocator.alloc(f32, diag.hypotheses.len);
+                for (diag.hypotheses, 0..) |h, i| {
+                    diag.confidence_distribution[i] = h.probability;
+                }
+            }
+        }
+
+        // Add type flow if available
+        if (self.config.enable_type_flow and self.type_flow_recorder.count() > 0) {
+            diag.type_flow_chain = try self.type_flow_analyzer.buildChain(
+                &self.type_flow_recorder,
+                TypeId.INVALID,
+                TypeId.INVALID,
+            );
+        }
+
+        // Build human message with hypothesis-aware content
+        const arg_types_str = try self.formatArgumentTypes(info.argument_types);
+        defer self.allocator.free(arg_types_str);
+
+        var summary_buf = ArrayList(u8).init(self.allocator);
+        try summary_buf.writer().print(
+            "No matching function for `{s}` with arguments ({s})",
+            .{ info.function_name, arg_types_str },
+        );
+
+        var explanation_buf = ArrayList(u8).init(self.allocator);
+        const explanation_writer = explanation_buf.writer();
+
+        try explanation_writer.print(
+            "The compiler could not find any function named `{s}` " ++
+                "that accepts the given arguments.\n\n",
+            .{info.function_name},
+        );
+
+        // Add hypothesis-specific explanations
+        if (diag.hypotheses.len > 0) {
+            try explanation_writer.writeAll("Most likely causes:\n\n");
+            for (diag.hypotheses[0..@min(3, diag.hypotheses.len)]) |h| {
+                try explanation_writer.print(
+                    "  [{d:.0}%] {s}\n        {s}\n\n",
+                    .{ h.probability * 100, h.cause_category.description(), h.explanation },
+                );
+            }
+        }
+
+        diag.human_message = .{
+            .summary = try summary_buf.toOwnedSlice(),
+            .explanation = try explanation_buf.toOwnedSlice(),
+            .suggestions = try self.allocator.dupe(
+                u8,
+                "Check function name spelling, argument types, and imports.",
+            ),
+            .educational_note = null,
+            .severity_rationale = null,
+        };
+
+        // Build machine data
+        diag.machine_data = .{
+            .error_type = try self.allocator.dupe(u8, "no_matching_function"),
+            .error_category = if (diag.hypotheses.len > 0)
+                diag.hypotheses[0].cause_category
+            else
+                .scope_error,
+            .affected_symbols = &[_]nextgen.MachineReadableData.SymbolInfo{},
+            .scope_context = try self.allocator.dupe(u8, info.function_name),
+        };
+
+        // Convert hypotheses fixes to ranked suggestions
+        if (diag.hypotheses.len > 0) {
+            var fixes = ArrayList(nextgen.RankedFixSuggestion).init(self.allocator);
+            var rank: u32 = 1;
+
+            for (diag.hypotheses) |h| {
+                for (h.targeted_fixes) |fix| {
+                    // Adjust confidence based on learning
+                    const error_pattern = FixLearningEngine.computeErrorPattern(
+                        diag.code,
+                        h.cause_category,
+                        0,
+                    );
+                    const fix_pattern = FixLearningEngine.computeFixPattern(
+                        .other,
+                        fix.description,
+                    );
+
+                    const adjusted_confidence = if (self.config.enable_learning)
+                        self.fix_learning_engine.adjustConfidence(
+                            fix.confidence,
+                            error_pattern,
+                            fix_pattern,
+                            .other,
+                        )
+                    else
+                        fix.confidence;
+
+                    try fixes.append(.{
+                        .suggestion = .{
+                            .id = try self.allocator.dupe(u8, fix.id),
+                            .description = try self.allocator.dupe(u8, fix.description),
+                            .confidence = adjusted_confidence,
+                            .edits = &[_]nextgen.TextEdit{},
+                            .hypothesis_id = h.id,
+                            .acceptance_rate = fix.acceptance_rate,
+                            .requires_user_input = fix.requires_user_input,
+                        },
+                        .rank = rank,
+                        .score = adjusted_confidence * h.probability,
+                        .rationale = try std.fmt.allocPrint(
+                            self.allocator,
+                            "Based on hypothesis: {s}",
+                            .{h.cause_category.description()},
+                        ),
+                    });
+                    rank += 1;
+                }
+            }
+
+            // Sort by score
+            std.mem.sort(nextgen.RankedFixSuggestion, fixes.items, {}, struct {
+                fn lessThan(_: void, a: nextgen.RankedFixSuggestion, b: nextgen.RankedFixSuggestion) bool {
+                    return a.score > b.score;
+                }
+            }.lessThan);
+
+            diag.fix_suggestions = try fixes.toOwnedSlice();
+        }
+
+        return diag;
+    }
+
+    /// Generate diagnostic for internal errors
+    fn generateErrorDiagnostic(
+        self: *NextGenDiagnosticEngine,
+        id: nextgen.DiagnosticId,
+        info: ResolveResult.ResolutionError,
+    ) !NextGenDiagnostic {
+        const span = nextgen.SourceSpan{
+            .file = info.call_site.source_location.file,
+            .start = .{
+                .line = info.call_site.source_location.line,
+                .column = info.call_site.source_location.column,
+            },
+            .end = .{
+                .line = info.call_site.source_location.line,
+                .column = info.call_site.source_location.column + 10,
+            },
+        };
+
+        var diag = NextGenDiagnostic.init(
+            self.allocator,
+            id,
+            DiagnosticCode.semantic(.dispatch_internal),
+            .@"error",
+            span,
+        );
+
+        diag.human_message = .{
+            .summary = try self.allocator.dupe(u8, info.message),
+            .explanation = try self.allocator.dupe(u8, "An internal error occurred during resolution."),
+            .suggestions = try self.allocator.dupe(u8, "Please report this as a compiler bug."),
+            .educational_note = null,
+            .severity_rationale = null,
+        };
+
+        diag.machine_data = .{
+            .error_type = try self.allocator.dupe(u8, "internal_error"),
+            .error_category = .scope_error,
+            .affected_symbols = &[_]nextgen.MachineReadableData.SymbolInfo{},
+            .scope_context = try self.allocator.dupe(u8, ""),
+        };
+
+        return diag;
+    }
+
+    /// Generate diagnostic for type mismatch with full type flow
+    pub fn generateTypeMismatchDiagnostic(
+        self: *NextGenDiagnosticEngine,
+        expected: TypeId,
+        actual: TypeId,
+        location: nextgen.SourceSpan,
+        context_name: []const u8,
+    ) !NextGenDiagnostic {
+        const diagnostic_id = nextgen.DiagnosticId{ .id = self.next_diagnostic_id };
+        self.next_diagnostic_id += 1;
+
+        var diag = NextGenDiagnostic.init(
+            self.allocator,
+            diagnostic_id,
+            DiagnosticCode.semantic(.type_mismatch),
+            .@"error",
+            location,
+        );
+
+        // Add type flow chain
+        if (self.config.enable_type_flow) {
+            diag.type_flow_chain = try self.type_flow_analyzer.buildChain(
+                &self.type_flow_recorder,
+                expected,
+                actual,
+            );
+
+            // Analyze the chain for insights
+            if (diag.type_flow_chain) |*chain| {
+                const analysis = self.type_flow_analyzer.analyzeChain(chain);
+                if (analysis.suggested_fix_point) |fix_loc| {
+                    // Add related info pointing to fix location
+                    var related = ArrayList(nextgen.RelatedInfo).init(self.allocator);
+                    try related.append(.{
+                        .message = try self.allocator.dupe(u8, "Consider fixing here"),
+                        .span = fix_loc,
+                        .info_type = .suggestion_context,
+                    });
+                    diag.related_info = try related.toOwnedSlice();
+                }
+            }
+        }
+
+        // Generate hypotheses for type mismatch
+        if (self.config.enable_hypotheses) {
+            const context = ErrorContext{
+                .failed_symbol = context_name,
+                .expected_type = expected,
+                .actual_type = actual,
+                .available_symbols = &[_]ErrorContext.SymbolInfo{},
+                .error_location = location,
+                .scope_context = context_name,
+            };
+
+            diag.hypotheses = try self.hypothesis_engine.generateTypeMismatchHypotheses(
+                expected,
+                actual,
+                context,
+            );
+
+            if (diag.hypotheses.len > 0) {
+                diag.confidence_distribution = try self.allocator.alloc(f32, diag.hypotheses.len);
+                for (diag.hypotheses, 0..) |h, i| {
+                    diag.confidence_distribution[i] = h.probability;
+                }
+            }
+        }
+
+        // Build human message
+        diag.human_message = .{
+            .summary = try std.fmt.allocPrint(
+                self.allocator,
+                "Type mismatch: expected {s}, found {s}",
+                .{ typeIdToName(expected), typeIdToName(actual) },
+            ),
+            .explanation = try self.buildTypeFlowExplanation(&diag),
+            .suggestions = try self.allocator.dupe(u8, "Add an explicit cast or change the source expression."),
+            .educational_note = null,
+            .severity_rationale = null,
+        };
+
+        diag.machine_data = .{
+            .error_type = try self.allocator.dupe(u8, "type_mismatch"),
+            .error_category = .type_mismatch,
+            .affected_symbols = &[_]nextgen.MachineReadableData.SymbolInfo{},
+            .scope_context = try self.allocator.dupe(u8, context_name),
+        };
+
+        return diag;
+    }
+
+    /// Get the type flow recorder for external use
+    pub fn getTypeFlowRecorder(self: *NextGenDiagnosticEngine) *TypeFlowRecorder {
+        return &self.type_flow_recorder;
+    }
+
+    /// Record a fix acceptance (for learning)
+    pub fn recordFixAcceptance(
+        self: *NextGenDiagnosticEngine,
+        diag: *const NextGenDiagnostic,
+        fix_index: usize,
+        verbatim: bool,
+    ) !void {
+        if (!self.config.enable_learning) return;
+        if (fix_index >= diag.fix_suggestions.len) return;
+
+        const fix = diag.fix_suggestions[fix_index];
+
+        // Determine category from hypothesis
+        var category: FixLearningEngine.FixAcceptance.FixCategory = .other;
+        if (fix.suggestion.hypothesis_id) |hyp_id| {
+            for (diag.hypotheses) |h| {
+                if (h.id.id == hyp_id.id) {
+                    category = causeCategoryToFixCategory(h.cause_category);
+                    break;
+                }
+            }
+        }
+
+        const error_pattern = FixLearningEngine.computeErrorPattern(
+            diag.code,
+            diag.machine_data.error_category,
+            0,
+        );
+        const fix_pattern = FixLearningEngine.computeFixPattern(
+            category,
+            fix.suggestion.description,
+        );
+
+        try self.fix_learning_engine.recordAcceptance(
+            error_pattern,
+            fix_pattern,
+            category,
+            verbatim,
+        );
+    }
+
+    /// Clear state for new compilation
+    pub fn reset(self: *NextGenDiagnosticEngine) void {
+        self.type_flow_recorder.clear();
+        self.semantic_correlator.clearActiveDiagnostics();
+    }
+
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+
+    fn formatArgumentTypes(self: *NextGenDiagnosticEngine, arg_types: []const TypeId) ![]const u8 {
+        if (arg_types.len == 0) return try self.allocator.dupe(u8, "");
+
+        var result = ArrayList(u8).init(self.allocator);
+        for (arg_types, 0..) |arg_type, i| {
+            if (i > 0) try result.appendSlice(", ");
+            try result.appendSlice(typeIdToName(arg_type));
+        }
+        return result.toOwnedSlice();
+    }
+
+    fn buildTypeFlowExplanation(self: *NextGenDiagnosticEngine, diag: *const NextGenDiagnostic) ![]const u8 {
+        var buf = ArrayList(u8).init(self.allocator);
+        const writer = buf.writer();
+
+        if (diag.type_flow_chain) |chain| {
+            if (chain.steps.len > 0) {
+                try writer.writeAll("Type flow chain:\n\n");
+                for (chain.steps, 0..) |step, i| {
+                    const marker = if (chain.divergence_point) |div|
+                        (if (i == div) " <-- DIVERGENCE" else "")
+                    else
+                        "";
+
+                    try writer.print("   {d}. {s}: {s}{s}\n", .{
+                        i + 1,
+                        step.expression_text,
+                        step.reason.description(),
+                        marker,
+                    });
+                }
+            }
+        }
+
+        if (buf.items.len == 0) {
+            try writer.writeAll("The expression type does not match the expected type in this context.");
+        }
+
+        return buf.toOwnedSlice();
+    }
+};
+
+fn typeIdToName(type_id: TypeId) []const u8 {
+    return switch (type_id.id) {
+        0 => "invalid",
+        1 => "i32",
+        2 => "f64",
+        3 => "bool",
+        4 => "string",
+        else => "unknown",
+    };
+}
+
+fn causeCategoryToFixCategory(cause: CauseCategory) FixLearningEngine.FixAcceptance.FixCategory {
+    return switch (cause) {
+        .missing_conversion, .type_mismatch => .explicit_cast,
+        .wrong_import, .scope_error => .import_statement,
+        .typo => .variable_rename,
+        .wrong_argument_order => .argument_reorder,
+        else => .other,
+    };
+}
 
 // Tests
 test "DiagnosticEngine initialization" {
@@ -531,4 +1174,43 @@ test "DiagnosticEngine severity enum" {
 
     try std.testing.expectEqualStrings(error_severity.toString(), "error");
     try std.testing.expectEqualStrings(warning_severity.toString(), "warning");
+}
+
+test "NextGenDiagnosticEngine initialization" {
+    const allocator = std.testing.allocator;
+
+    var engine = NextGenDiagnosticEngine.init(allocator);
+    defer engine.deinit();
+
+    try std.testing.expect(engine.config.enable_hypotheses);
+    try std.testing.expect(engine.config.enable_type_flow);
+}
+
+test "NextGenDiagnosticEngine type mismatch diagnostic" {
+    const allocator = std.testing.allocator;
+
+    var engine = NextGenDiagnosticEngine.initWithConfig(allocator, .{
+        .enable_hypotheses = true,
+        .enable_type_flow = false, // Disable for simpler test
+        .enable_correlation = false,
+        .enable_learning = false,
+    });
+    defer engine.deinit();
+
+    const location = nextgen.SourceSpan{
+        .file = "test.jan",
+        .start = .{ .line = 10, .column = 5 },
+        .end = .{ .line = 10, .column = 15 },
+    };
+
+    var diag = try engine.generateTypeMismatchDiagnostic(
+        TypeId.I32,
+        TypeId.F64,
+        location,
+        "test_context",
+    );
+    defer diag.deinit();
+
+    try std.testing.expectEqual(nextgen.Severity.@"error", diag.severity);
+    try std.testing.expect(diag.hypotheses.len > 0);
 }
