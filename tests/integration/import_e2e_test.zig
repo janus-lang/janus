@@ -224,3 +224,138 @@ test "Multi-file: Shared utility function" {
 
     std.debug.print("\n=== SHARED UTILITY TEST PASSED ===\n", .{});
 }
+
+fn compileFileToObject(
+    allocator: std.mem.Allocator,
+    file_path: []const u8,
+    module_name: []const u8,
+    tmp_dir: std.testing.TmpDir,
+) ![]const u8 {
+    // Read file content
+    const source = try std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024);
+    defer allocator.free(source);
+
+    return compileToObject(allocator, source, module_name, tmp_dir);
+}
+
+fn extractImportsAndCompile(
+    allocator: std.mem.Allocator,
+    main_source: []const u8,
+    search_dir: []const u8,
+    tmp_dir: std.testing.TmpDir,
+) !struct { main_obj: []const u8, dep_objs: std.ArrayListUnmanaged([]const u8) } {
+    // Parse main to extract imports
+    var parser = janus_parser.Parser.init(allocator);
+    defer parser.deinit();
+
+    const snapshot = try parser.parseWithSource(main_source);
+    defer snapshot.deinit();
+
+    // Extract import statements from AST
+    const unit = snapshot.core_snapshot.astdb.getUnitConst(@enumFromInt(0)) orelse return error.NoUnit;
+
+    var dep_objs = std.ArrayListUnmanaged([]const u8){};
+    errdefer {
+        for (dep_objs.items) |obj| allocator.free(obj);
+        dep_objs.deinit(allocator);
+    }
+
+    for (unit.nodes, 0..) |node, i| {
+        if (node.kind == .import_stmt) {
+            // Get import path from children (identifiers)
+            const node_id: astdb_core.NodeId = @enumFromInt(@as(u32, @intCast(i)));
+            const children = snapshot.core_snapshot.getChildren(node_id);
+
+            if (children.len > 0) {
+                const child = snapshot.core_snapshot.getNode(children[0]) orelse continue;
+                if (child.kind == .identifier) {
+                    const token = snapshot.core_snapshot.getToken(child.first_token) orelse continue;
+                    if (token.str) |str_id| {
+                        const module_name = snapshot.core_snapshot.astdb.str_interner.getString(str_id);
+
+                        // Build file path
+                        const file_name = try std.fmt.allocPrint(allocator, "{s}.jan", .{module_name});
+                        defer allocator.free(file_name);
+
+                        const full_path = try std.fs.path.join(allocator, &[_][]const u8{ search_dir, file_name });
+                        defer allocator.free(full_path);
+
+                        std.debug.print("=== Found import: {s} -> {s} ===\n", .{ module_name, full_path });
+
+                        // Compile the dependency
+                        const obj_path = try compileFileToObject(allocator, full_path, module_name, tmp_dir);
+                        try dep_objs.append(allocator, obj_path);
+                    }
+                }
+            }
+        }
+    }
+
+    // Compile main
+    const main_obj = try compileToObject(allocator, main_source, "main", tmp_dir);
+
+    return .{ .main_obj = main_obj, .dep_objs = dep_objs };
+}
+
+test "Import syntax: import mathlib with file resolution" {
+    const allocator = testing.allocator;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    // Write mathlib.jan to temp directory
+    const mathlib_source =
+        \\func add(a: i32, b: i32) -> i32 {
+        \\    return a + b
+        \\}
+        \\
+        \\func sub(a: i32, b: i32) -> i32 {
+        \\    return a - b
+        \\}
+    ;
+    try tmp_dir.dir.writeFile(.{ .sub_path = "mathlib.jan", .data = mathlib_source });
+
+    // Main module with import statement
+    const main_source =
+        \\import mathlib
+        \\
+        \\func main() {
+        \\    let sum = add(10, 5)
+        \\    print_int(sum)
+        \\    let diff = sub(10, 5)
+        \\    print_int(diff)
+        \\}
+    ;
+
+    // Get the temp dir path for import resolution
+    const search_dir = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(search_dir);
+
+    // Extract imports and compile all modules
+    var result = try extractImportsAndCompile(allocator, main_source, search_dir, tmp_dir);
+    defer {
+        allocator.free(result.main_obj);
+        for (result.dep_objs.items) |obj| allocator.free(obj);
+        result.dep_objs.deinit(allocator);
+    }
+
+    // Build list of all object files
+    var all_objs = std.ArrayListUnmanaged([]const u8){};
+    defer all_objs.deinit(allocator);
+
+    try all_objs.append(allocator, result.main_obj);
+    for (result.dep_objs.items) |obj| {
+        try all_objs.append(allocator, obj);
+    }
+
+    // Link and run
+    const output = try linkAndRun(allocator, all_objs.items, "import_test", tmp_dir);
+    defer allocator.free(output);
+
+    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
+
+    // add(10, 5) = 15, sub(10, 5) = 5
+    try testing.expectEqualStrings("15\n5\n", output);
+
+    std.debug.print("\n=== IMPORT SYNTAX TEST PASSED ===\n", .{});
+}

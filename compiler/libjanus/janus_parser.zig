@@ -456,6 +456,7 @@ fn convertTokenType(janus_type: tokenizer.TokenType) TokenKind {
         .@"or" => .or_,
         .not => .not_,
         .use => .use_,
+        .import_ => .import_,
         .graft => .use_,
         .using => .using,
 
@@ -643,7 +644,7 @@ fn validateS0Tokens(unit: *astdb_core.CompilationUnit) !void {
 
 fn isTokenAllowedInS0(kind: TokenKind) bool {
     return switch (kind) {
-        .func, .return_, .identifier, .integer_literal, .float_literal, .string_literal, .true_, .false_, .left_paren, .right_paren, .left_brace, .right_brace, .semicolon, .comma, .newline, .eof, .left_bracket, .right_bracket, .let, .var_, .plus, .minus, .star, .star_star, .slash, .equal, .assign, .equal_equal, .not_equal, .less, .less_equal, .greater, .greater_equal, .colon, .if_, .else_, .arrow, .arrow_fat, .while_, .for_, .in_, .match, .when, .break_, .continue_, .defer_, .do_, .end, .struct_, .dot, .test_, .question, .optional_chain, .null_coalesce, .null_, .type_, .logical_and, .logical_or, .logical_not, .exclamation, .tilde, .bitwise_and, .bitwise_or, .bitwise_xor, .bitwise_not, .left_shift, .right_shift, .ampersand, .pipe, .caret, .range_inclusive, .range_exclusive, .walrus_assign, .percent, .and_, .or_, .not_, .pipeline, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign, .ampersand_assign, .pipe_assign, .xor_assign, .left_shift_assign, .right_shift_assign, .char_literal => true,
+        .func, .return_, .identifier, .integer_literal, .float_literal, .string_literal, .true_, .false_, .left_paren, .right_paren, .left_brace, .right_brace, .semicolon, .comma, .newline, .eof, .left_bracket, .right_bracket, .let, .var_, .plus, .minus, .star, .star_star, .slash, .equal, .assign, .equal_equal, .not_equal, .less, .less_equal, .greater, .greater_equal, .colon, .if_, .else_, .arrow, .arrow_fat, .while_, .for_, .in_, .match, .when, .break_, .continue_, .defer_, .do_, .end, .struct_, .dot, .test_, .question, .optional_chain, .null_coalesce, .null_, .type_, .logical_and, .logical_or, .logical_not, .exclamation, .tilde, .bitwise_and, .bitwise_or, .bitwise_xor, .bitwise_not, .left_shift, .right_shift, .ampersand, .pipe, .caret, .range_inclusive, .range_exclusive, .walrus_assign, .percent, .and_, .or_, .not_, .pipeline, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign, .ampersand_assign, .pipe_assign, .xor_assign, .left_shift_assign, .right_shift_assign, .char_literal, .import_ => true,
 
         else => false,
     };
@@ -878,7 +879,8 @@ fn parseImportStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
 
     _ = try parser.consume(.import_);
 
-    const children_start = @as(u32, @intCast(nodes.items.len));
+    // Track start of children in edges array
+    const edges_start = @as(u32, @intCast(parser.edges.items.len));
 
     // Parse module path (e.g., std.string)
     // For now, we'll parse it as a sequence of identifiers separated by dots
@@ -890,7 +892,9 @@ fn parseImportStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
         .child_lo = 0,
         .child_hi = 0,
     };
+    const first_idx = @as(u32, @intCast(nodes.items.len));
     try nodes.append(parser.allocator, first_ident);
+    try parser.edges.append(parser.allocator, @enumFromInt(first_idx));
 
     // Parse remaining path components (e.g., .string in std.string)
     while (parser.match(.dot)) {
@@ -903,7 +907,9 @@ fn parseImportStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
             .child_lo = 0,
             .child_hi = 0,
         };
+        const idx = @as(u32, @intCast(nodes.items.len));
         try nodes.append(parser.allocator, ident);
+        try parser.edges.append(parser.allocator, @enumFromInt(idx));
     }
 
     // Optional semicolon
@@ -915,8 +921,8 @@ fn parseImportStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
         .kind = .import_stmt,
         .first_token = @enumFromInt(start_token),
         .last_token = @enumFromInt(parser.current - 1),
-        .child_lo = children_start,
-        .child_hi = @as(u32, @intCast(nodes.items.len)),
+        .child_lo = edges_start,
+        .child_hi = @as(u32, @intCast(parser.edges.items.len)),
     };
 }
 
