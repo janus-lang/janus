@@ -1066,9 +1066,6 @@ fn lowerForStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNod
 fn lowerArrayAccess(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable }!u32 {
     _ = node;
     const children = ctx.snapshot.getChildren(node_id);
-    if (children.len < 1) return error.InvalidNode; // Access needs at least array (and index is usually child 1)
-
-    // In Janus AST for index_expr, child 0 is array, child 1 is index
     if (children.len < 2) return error.InvalidNode;
 
     const array_id = children[0];
@@ -1078,16 +1075,47 @@ fn lowerArrayAccess(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode
     const index_node = ctx.snapshot.getNode(index_id) orelse return error.InvalidNode;
 
     const array_val = try lowerExpression(ctx, array_id, array_node);
-
     const index_val = try lowerExpression(ctx, index_id, index_node);
 
-    // Create Index node
+    // Create Index node for single element access
     const idx_node_id = try ctx.builder.createNode(.Index);
     var idx_node = &ctx.builder.graph.nodes.items[idx_node_id];
     try idx_node.inputs.append(ctx.allocator, array_val);
     try idx_node.inputs.append(ctx.allocator, index_val);
 
     return idx_node_id;
+}
+
+/// Lower slice expression: arr[start..end] or arr[start..<end]
+fn lowerSliceExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode, is_inclusive: bool) LowerError!u32 {
+    _ = node;
+    const children = ctx.snapshot.getChildren(node_id);
+    // Format: array, start, end (3 children)
+    if (children.len < 3) return error.InvalidNode;
+
+    const array_id = children[0];
+    const start_id = children[1];
+    const end_id = children[2];
+
+    const array_node = ctx.snapshot.getNode(array_id) orelse return error.InvalidNode;
+    const start_node = ctx.snapshot.getNode(start_id) orelse return error.InvalidNode;
+    const end_node = ctx.snapshot.getNode(end_id) orelse return error.InvalidNode;
+
+    const array_val = try lowerExpression(ctx, array_id, array_node);
+    const start_val = try lowerExpression(ctx, start_id, start_node);
+    const end_val = try lowerExpression(ctx, end_id, end_node);
+
+    // Create Slice node with inputs: [array, start, end]
+    const slice_node_id = try ctx.builder.createNode(.Slice);
+    var slice_node = &ctx.builder.graph.nodes.items[slice_node_id];
+    try slice_node.inputs.append(ctx.allocator, array_val);
+    try slice_node.inputs.append(ctx.allocator, start_val);
+    try slice_node.inputs.append(ctx.allocator, end_val);
+
+    // Store inclusivity in data field (1 = inclusive, 0 = exclusive)
+    slice_node.data = .{ .integer = if (is_inclusive) 1 else 0 };
+
+    return slice_node_id;
 }
 
 fn lowerExpression(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable }!u32 {
@@ -1111,6 +1139,8 @@ fn lowerExpression(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
             const ptr_id = try lowerArrayAccess(ctx, node_id, node);
             break :blk try ctx.builder.buildLoad(ctx.allocator, ptr_id, "idx_load");
         },
+        .slice_inclusive_expr => try lowerSliceExpr(ctx, node_id, node, true),
+        .slice_exclusive_expr => try lowerSliceExpr(ctx, node_id, node, false),
         .field_expr => try lowerFieldExpr(ctx, node_id),
         .struct_literal => try lowerStructLiteral(ctx, node_id),
         .range_inclusive_expr => try lowerRangeExpr(ctx, node_id, node, true),
@@ -1513,8 +1543,15 @@ fn lowerFieldCall(
             return tensor_node_id;
         }
 
-        // Generic field call (treat as function name)
-        return try lowerUserFunctionCall(ctx, full_path, children);
+        // Generic field call - extract just the function name (last component)
+        // For module-qualified calls like mathlib.add, use just "add" since
+        // at LLVM level there are no namespaces - functions are global symbols
+        const func_name = if (std.mem.lastIndexOfScalar(u8, full_path, '.')) |dot_idx|
+            full_path[dot_idx + 1 ..]
+        else
+            full_path;
+        trace.dumpContext("lowerFieldCall", "Using function name: '{s}'", .{func_name});
+        return try lowerUserFunctionCall(ctx, func_name, children);
     }
 
     return error.UnsupportedCall;
@@ -2523,6 +2560,35 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
         if (is_wildcard) {
             // Always matches
             pattern_matches_val = try ctx.builder.createConstant(.{ .boolean = true });
+        } else if (pattern_node.kind == .unary_expr) {
+            // Check for negation pattern: !value means scrutinee != value
+            const pattern_token = ctx.snapshot.getToken(pattern_node.first_token) orelse return error.InvalidToken;
+            const is_negation = pattern_token.kind == .exclamation or
+                pattern_token.kind == .logical_not or
+                pattern_token.kind == .not_;
+
+            if (is_negation) {
+                // Negation pattern: !value -> scrutinee != value
+                const pattern_children = ctx.snapshot.getChildren(pattern_id);
+                if (pattern_children.len != 1) return error.InvalidNode;
+                const inner_pattern_id = pattern_children[0];
+                const inner_pattern_node = ctx.snapshot.getNode(inner_pattern_id) orelse return error.InvalidNode;
+                const inner_val = try lowerExpression(ctx, inner_pattern_id, inner_pattern_node);
+
+                const neq_node_id = try ctx.builder.createNode(.NotEqual);
+                var neq_node = &ctx.builder.graph.nodes.items[neq_node_id];
+                try neq_node.inputs.append(ctx.allocator, scrutinee_val);
+                try neq_node.inputs.append(ctx.allocator, inner_val);
+                pattern_matches_val = neq_node_id;
+            } else {
+                // Other unary expr - evaluate and compare
+                const pattern_val = try lowerExpression(ctx, pattern_id, pattern_node);
+                const eq_node_id = try ctx.builder.createNode(.Equal);
+                var eq_node = &ctx.builder.graph.nodes.items[eq_node_id];
+                try eq_node.inputs.append(ctx.allocator, scrutinee_val);
+                try eq_node.inputs.append(ctx.allocator, pattern_val);
+                pattern_matches_val = eq_node_id;
+            }
         } else {
             // Equality check: scrutinee == pattern_val
             const pattern_val = try lowerExpression(ctx, pattern_id, pattern_node);

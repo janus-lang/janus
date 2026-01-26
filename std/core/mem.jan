@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// std/core/mem.jan - Minimal memory module for :min profile
+// Uses extern func to declare runtime bindings
+
+// Runtime function declarations
+extern func janus_default_allocator() -> ptr
+extern func janus_alloc(size: i64) -> ptr
+extern func janus_free(ptr: ptr)
+extern func janus_realloc(ptr: ptr, new_size: i64) -> ptr
+
+// Get the default allocator handle
+func default_allocator() -> ptr {
+    return janus_default_allocator()
+}
+
+// Allocate memory
+func alloc(size: i64) -> ptr {
+    return janus_alloc(size)
+}
+
+// Free memory
+func free(p: ptr) {
+    janus_free(p)
+}
+
+// Reallocate memory
+func realloc(p: ptr, new_size: i64) -> ptr {
+    return janus_realloc(p, new_size)
+}

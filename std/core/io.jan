@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// std/core/io.jan - Minimal I/O module for :min profile
+// Uses extern func to declare runtime bindings
+
+// Runtime function declarations
+extern func janus_print_int(x: i32)
+extern func janus_print_float(x: f64)
+extern func janus_print_bool(x: bool)
+
+// Print an integer to stdout
+func print_int(x: i32) {
+    janus_print_int(x)
+}
+
+// Print a float to stdout
+func print_float(x: f64) {
+    janus_print_float(x)
+}
+
+// Print a boolean to stdout
+func print_bool(x: bool) {
+    janus_print_bool(x)
+}
