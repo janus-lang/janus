@@ -43,10 +43,10 @@ pub const Profile = enum {
     pub fn hasFeature(self: Profile, feature: Feature) bool {
         return switch (feature) {
             // Core features available in all profiles
-            .basic_types, .functions, .variables, .control_flow => true,
+            .basic_types, .functions, .variables, .control_flow, .error_handling => true,
 
             // :service profile and above
-            .error_handling, .interfaces, .channels => switch (self) {
+            .interfaces, .channels => switch (self) {
                 .core => false,
                 .service, .cluster, .sovereign => true,
             },

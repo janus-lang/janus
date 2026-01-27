@@ -1,0 +1,23 @@
+// Test native Zig filesystem operations grafted into Janus
+use zig "std/core/fs_ops.zig"
+
+func main() do
+    // Test fs_exists - check if current directory exists
+    let exists_dot = fs_exists(".", 1)
+    print(exists_dot)  // Should print 1 (true)
+
+    // Test fs_is_directory
+    let is_dir = fs_is_directory(".", 1)
+    print(is_dir)  // Should print 1 (true)
+
+    // Test fs_is_file - current directory is not a file
+    let is_file = fs_is_file(".", 1)
+    print(is_file)  // Should print 0 (false)
+
+    // Test with non-existent path
+    let fake = "__nonexistent_12345__"
+    let fake_exists = fs_exists(fake, 21)
+    print(fake_exists)  // Should print 0 (false)
+
+    print(100)  // Success marker
+end

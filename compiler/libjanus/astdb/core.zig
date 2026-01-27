@@ -24,6 +24,7 @@ pub const NodeKind = enum {
     impl_decl,
     using_decl,
     use_stmt,
+    error_decl, // error set definition
 
     // Statements
     expr_stmt,
@@ -38,6 +39,7 @@ pub const NodeKind = enum {
     break_stmt,
     continue_stmt,
     block_stmt,
+    fail_stmt, // fail ErrorType.Variant
 
     // Expressions
     binary_expr,
@@ -47,6 +49,8 @@ pub const NodeKind = enum {
     field_expr,
     cast_expr,
     paren_expr,
+    catch_expr, // expr catch err { block }
+    try_expr, // expr? (error propagation)
 
     // Literals
     integer_literal,
@@ -66,6 +70,7 @@ pub const NodeKind = enum {
     slice_type,
     function_type,
     named_type,
+    error_union_type, // T ! E
 
     // Patterns
     identifier_pattern,

@@ -661,6 +661,54 @@ pub const TypeSystem = struct {
         return self.registerTypeInternal(type_info);
     }
 
+    /// Create an error union type (T ! E) - O(1) with canonical hashing
+    pub fn createErrorUnionType(self: *TypeSystem, payload_type: TypeId, error_type: TypeId) !TypeId {
+        const payload_info = self.getTypeInfo(payload_type);
+        const error_info = self.getTypeInfo(error_type);
+
+        const type_info = TypeInfo{
+            .kind = .{
+                .error_union = .{
+                    .payload_type = payload_type,
+                    .error_type = error_type,
+                },
+            },
+            .size = @max(payload_info.size, error_info.size) + 1, // Max size + discriminant
+            .alignment = @max(payload_info.alignment, error_info.alignment),
+        };
+
+        // O(1) LOOKUP
+        if (self.canonical_hasher.findExistingType(&type_info)) |existing_id| {
+            return existing_id;
+        }
+
+        return self.registerTypeInternal(type_info);
+    }
+
+    /// Check if a type is an error union
+    pub fn isErrorUnion(self: *TypeSystem, type_id: TypeId) bool {
+        const info = self.getTypeInfo(type_id);
+        return info.kind == .error_union;
+    }
+
+    /// Extract payload type from error union, returns null if not an error union
+    pub fn getErrorUnionPayload(self: *TypeSystem, type_id: TypeId) ?TypeId {
+        const info = self.getTypeInfo(type_id);
+        return switch (info.kind) {
+            .error_union => |eu| eu.payload_type,
+            else => null,
+        };
+    }
+
+    /// Extract error type from error union, returns null if not an error union
+    pub fn getErrorUnionError(self: *TypeSystem, type_id: TypeId) ?TypeId {
+        const info = self.getTypeInfo(type_id);
+        return switch (info.kind) {
+            .error_union => |eu| eu.error_type,
+            else => null,
+        };
+    }
+
     /// Register new type with canonical hash - O(1) operation
     fn registerTypeInternal(self: *TypeSystem, type_info: TypeInfo) !TypeId {
         const type_id = TypeId{ .id = self.next_type_id };

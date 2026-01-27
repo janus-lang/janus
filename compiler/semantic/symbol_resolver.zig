@@ -60,6 +60,9 @@ pub const SymbolResolver = struct {
     /// Current compilation unit being processed
     current_unit: ?UnitId = null,
 
+    /// Module scope for current unit
+    module_scope: ?ScopeId = null,
+
     /// Resolution statistics
     stats: ResolutionStats = .{},
 
@@ -132,18 +135,29 @@ pub const SymbolResolver = struct {
 
         // Phase 3: Validate and generate diagnostics
         try self.validateResolution(unit_id);
+
+        // Re-push module scope so symbols remain accessible after resolution
+        if (self.module_scope) |scope| {
+            try self.symbol_table.pushScope(scope);
+        }
     }
 
     /// Phase 1: Walk AST and collect all declarations
     fn collectDeclarations(self: *SymbolResolver, unit_id: UnitId) !void {
-        _ = unit_id; // TODO: Use unit_id when getUnitRoot is implemented
-        // TODO: Implement getUnitRoot in ASTDBSystem
-        // For now, create a dummy root node to allow compilation
-        const root_node = @as(NodeId, @enumFromInt(0));
+        // Get the unit and find the root node (should be last node - source_file)
+        const unit = self.astdb.getUnit(unit_id) orelse return error.UnitNotFound;
 
-        // Create module scope for this unit
-        const module_scope = try self.symbol_table.createScope(self.symbol_table.global_scope, .module);
-        try self.symbol_table.pushScope(module_scope);
+        // Root node is typically the last node (source_file)
+        const root_node = if (unit.nodes.len > 0)
+            @as(NodeId, @enumFromInt(unit.nodes.len - 1))
+        else
+            return error.NoNodes;
+
+        // Create module scope for this unit (or reuse if already exists)
+        if (self.module_scope == null) {
+            self.module_scope = try self.symbol_table.createScope(self.symbol_table.global_scope, .module);
+        }
+        try self.symbol_table.pushScope(self.module_scope.?);
 
         try self.walkDeclarations(root_node);
 
@@ -158,6 +172,7 @@ pub const SymbolResolver = struct {
             .func_decl => try self.collectFunctionDeclaration(node_id),
             .struct_decl => try self.collectStructDeclaration(node_id),
             .enum_decl => try self.collectEnumDeclaration(node_id),
+            .error_decl => try self.collectErrorDeclaration(node_id),
             .var_stmt, .let_stmt, .const_stmt => try self.collectVariableDeclaration(node_id),
             .parameter => try self.collectParameterDeclaration(node_id),
 
@@ -355,6 +370,66 @@ pub const SymbolResolver = struct {
         }
     }
 
+    /// Collect error type declaration (:core profile)
+    /// error DivisionError { DivisionByZero, Overflow }
+    fn collectErrorDeclaration(self: *SymbolResolver, node_id: NodeId) !void {
+        const children = self.getNodeChildren(node_id);
+        if (children.len == 0) return;
+
+        // First child is error type name
+        const name_text = try self.getNodeText(children[0]);
+        const span = self.getNodeSpan(node_id);
+
+        const symbol_id = self.symbol_table.declareSymbol(
+            try self.symbol_table.symbol_interner.intern(name_text),
+            .error_type,
+            node_id,
+            span,
+            .public,
+            null,
+        ) catch |err| switch (err) {
+            error.DuplicateDeclaration => {
+                try self.reportDuplicateDeclaration(try self.symbol_table.symbol_interner.intern(name_text), span);
+                return;
+            },
+            else => return err,
+        };
+        _ = symbol_id;
+
+        self.stats.declarations_collected += 1;
+
+        // Create error body scope for variants
+        const error_scope = try self.symbol_table.createScope(self.symbol_table.getCurrentScope() orelse return error.NoCurrentScope, .error_body);
+        try self.symbol_table.pushScope(error_scope);
+        defer _ = self.symbol_table.popScope();
+
+        // Register variants (remaining children)
+        for (children[1..]) |variant_id| {
+            const variant_node = self.getNode(variant_id);
+            if (variant_node.kind != .variant) continue;
+
+            const variant_name = try self.getNodeText(variant_id);
+            const variant_span = self.getNodeSpan(variant_id);
+
+            _ = self.symbol_table.declareSymbol(
+                try self.symbol_table.symbol_interner.intern(variant_name),
+                .error_variant,
+                variant_id,
+                variant_span,
+                .public,
+                null,
+            ) catch |err| switch (err) {
+                error.DuplicateDeclaration => {
+                    try self.reportDuplicateDeclaration(try self.symbol_table.symbol_interner.intern(variant_name), variant_span);
+                    continue;
+                },
+                else => return err,
+            };
+
+            self.stats.declarations_collected += 1;
+        }
+    }
+
     /// Collect parameter declaration
     fn collectParameterDeclaration(self: *SymbolResolver, node_id: NodeId) !void {
         // Parameter node corresponds to the identifier token.
@@ -464,12 +539,8 @@ pub const SymbolResolver = struct {
         else
             @enumFromInt(0);
 
-        // Reset scope stack to module scope
-        // This assumes collectDeclarations has already set up the module scope.
-        // We need to ensure the scope stack is correctly managed between phases.
-        // For now, re-creating and pushing the module scope.
-        // A better approach might be to pass the initial scope or reset to a known state.
-        const module_scope = try self.symbol_table.createScope(self.symbol_table.global_scope, .module);
+        // Reuse the module scope created in collectDeclarations
+        const module_scope = self.module_scope orelse return error.NoModuleScope;
         try self.symbol_table.pushScope(module_scope);
 
         try self.walkReferences(root_node);
@@ -490,6 +561,7 @@ pub const SymbolResolver = struct {
             .func_decl => try self.walkScopedReferences(node_id, .function),
             .struct_decl => try self.walkScopedReferences(node_id, .struct_body),
             .enum_decl => try self.walkScopedReferences(node_id, .enum_body),
+            .error_decl => try self.walkScopedReferences(node_id, .error_body),
             .block_stmt => try self.walkScopedReferences(node_id, .block),
 
             else => {
