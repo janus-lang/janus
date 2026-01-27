@@ -1,0 +1,19 @@
+// Test optional types
+func main() do
+    // Create an optional with a value
+    let maybe_num: ?i32 = 42
+
+    // Create a null optional
+    let nothing: ?i32 = null
+
+    // Test that we created valid optionals
+    // (Full unwrap/pattern matching will come later)
+    print(1)
+
+    // For now, let's test assigning different values
+    let a: ?i32 = 10
+    let b: ?i32 = 20
+    let c: ?i32 = null
+
+    print(2)
+end

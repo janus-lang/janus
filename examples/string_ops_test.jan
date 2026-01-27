@@ -1,0 +1,30 @@
+// Test native Zig string operations grafted into Janus
+use zig "std/core/string_ops.zig"
+
+func main() do
+    // Test str_contains
+    let text = "Hello, World!"
+    let has_world = str_contains(text, 13, "World", 5)
+    print(has_world)  // Should print 1 (true)
+
+    // Test str_starts_with
+    let starts_hello = str_starts_with(text, 13, "Hello", 5)
+    print(starts_hello)  // Should print 1 (true)
+
+    // Test str_ends_with
+    let ends_exclaim = str_ends_with(text, 13, "!", 1)
+    print(ends_exclaim)  // Should print 1 (true)
+
+    // Test str_index_of
+    let idx = str_index_of(text, 13, "World", 5)
+    print(idx)  // Should print 7
+
+    // Test str_equals
+    let eq = str_equals("hello", 5, "hello", 5)
+    print(eq)  // Should print 1 (true)
+
+    let neq = str_equals("hello", 5, "world", 5)
+    print(neq)  // Should print 0 (false)
+
+    print(100)  // Success marker
+end

@@ -1,0 +1,20 @@
+// Test slice iteration
+func main() do
+    // Create an array
+    let arr = [10, 20, 30, 40, 50]
+
+    // Create a slice from the array
+    let sub = arr[1..4]  // Elements at indices 1,2,3 = [20, 30, 40]
+
+    // Print slice elements using indexing
+    print(sub[0])  // Should print 20
+    print(sub[1])  // Should print 30
+    print(sub[2])  // Should print 40
+
+    // Test that we can iterate (when iteration is working)
+    // for x in sub do
+    //     print(x)
+    // end
+
+    print(100)  // Success marker
+end

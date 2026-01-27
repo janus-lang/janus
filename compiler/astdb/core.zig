@@ -99,6 +99,11 @@ pub const Token = struct {
         invariant,
         ghost, // for ghost code state
 
+        // Keywords - :core profile additions (error handling)
+        error_,   // error ErrorType { Variant } - error type declaration
+        fail_,    // fail ErrorType.Variant
+        catch_,   // expr catch err { ... }
+
         // Additional keywords from syntax spec
         type_,
         enum_,
@@ -249,6 +254,7 @@ pub const AstNode = struct {
         struct_decl,
         union_decl,
         enum_decl,
+        error_decl, // Error type declaration (:core profile)
         trait_decl,
         impl_decl,
         using_decl,
@@ -276,6 +282,7 @@ pub const AstNode = struct {
         break_stmt,
         continue_stmt,
         block_stmt,
+        fail_stmt, // Error handling: fail ErrorType.Variant (:core profile)
         match_stmt,
         match_arm,
         postfix_when,
@@ -293,6 +300,8 @@ pub const AstNode = struct {
         paren_expr,
         range_inclusive_expr, // Range: start..end (inclusive)
         range_exclusive_expr, // Range: start..<end (exclusive)
+        catch_expr, // Error handling: expr catch err { ... } (:core profile)
+        try_expr, // Error handling: expr? (:core profile)
 
         // Literals
         integer_literal,
@@ -310,6 +319,8 @@ pub const AstNode = struct {
         pointer_type,
         array_type,
         slice_type,
+        optional_type,
+        error_union_type, // Error handling: T ! E (:core profile)
         function_type,
         named_type,
 

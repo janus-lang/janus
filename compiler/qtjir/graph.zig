@@ -33,14 +33,29 @@ pub const OpCode = enum {
     Store,
     Phi, // SSA phi node (merge point)
     Array_Construct, // Array construction [e1, e2, ...]
-    Index, // Array/Slice access: arr[i]
+    Index, // Array access: arr[i] (returns pointer for GEP)
     Index_Store, // Array element store: arr[i] = v
-    Slice, // Array slice: arr[start..end] - returns new array
+    Slice, // Array slice: arr[start..end] - returns slice struct
+    SliceIndex, // Slice element access: slice[i] - calls runtime
+    SliceLen, // Get slice length: slice.len - extract from fat pointer
     Range, // Range construction: start .. end
     Struct_Construct, // Struct literal { f1: v1, f2: v2 }
     Struct_Alloca, // Struct allocation (mutable struct variable)
     Field_Access, // Struct field read: s.field
     Field_Store, // Struct field write: s.field = v
+
+    // --- Optional Types ---
+    Optional_None, // Create null/none optional: { tag: 0, value: undef }
+    Optional_Some, // Wrap value in optional: { tag: 1, value: v }
+    Optional_Unwrap, // Unwrap optional (returns value, panics if none)
+    Optional_Is_Some, // Check if optional has value: tag == 1
+
+    // --- Error Unions (Error Handling) ---
+    Error_Union_Construct, // Create error union from payload: { ok: value, is_error: 0 }
+    Error_Fail_Construct, // Create error union from error: { err: error, is_error: 1 }
+    Error_Union_Is_Error, // Check if error union is error: is_error == 1
+    Error_Union_Unwrap, // Unwrap payload (asserts not error, panics if error)
+    Error_Union_Get_Error, // Extract error value (asserts is_error)
 
     // --- Control Flow ---
     Call, // Function call
@@ -920,6 +935,55 @@ pub const IRBuilder = struct {
             try node.inputs.append(self.graph.allocator, entry.value);
             try node.inputs.append(self.graph.allocator, entry.block);
         }
+        return id;
+    }
+
+    // =========================================================================
+    // Error Handling Operations (:core profile)
+    // =========================================================================
+
+    /// Create error union from success payload: T ! E -> ok value
+    /// Constructs: { ok: payload, is_error: false }
+    pub fn createErrorUnionConstruct(self: *IRBuilder, payload_id: u32) !u32 {
+        const id = try self.createNode(.Error_Union_Construct);
+        var node = &self.graph.nodes.items[id];
+        try node.inputs.append(self.graph.allocator, payload_id);
+        return id;
+    }
+
+    /// Create error union from error value: fail ErrorType.Variant
+    /// Constructs: { err: error_value, is_error: true }
+    pub fn createErrorFailConstruct(self: *IRBuilder, error_id: u32) !u32 {
+        const id = try self.createNode(.Error_Fail_Construct);
+        var node = &self.graph.nodes.items[id];
+        try node.inputs.append(self.graph.allocator, error_id);
+        return id;
+    }
+
+    /// Check if error union contains an error
+    /// Returns: boolean (true if error, false if ok)
+    pub fn createErrorUnionIsError(self: *IRBuilder, error_union_id: u32) !u32 {
+        const id = try self.createNode(.Error_Union_Is_Error);
+        var node = &self.graph.nodes.items[id];
+        try node.inputs.append(self.graph.allocator, error_union_id);
+        return id;
+    }
+
+    /// Unwrap payload from error union (asserts not error, panics if error)
+    /// Returns: payload value T
+    pub fn createErrorUnionUnwrap(self: *IRBuilder, error_union_id: u32) !u32 {
+        const id = try self.createNode(.Error_Union_Unwrap);
+        var node = &self.graph.nodes.items[id];
+        try node.inputs.append(self.graph.allocator, error_union_id);
+        return id;
+    }
+
+    /// Extract error value from error union (asserts is_error)
+    /// Returns: error value E
+    pub fn createErrorUnionGetError(self: *IRBuilder, error_union_id: u32) !u32 {
+        const id = try self.createNode(.Error_Union_Get_Error);
+        var node = &self.graph.nodes.items[id];
+        try node.inputs.append(self.graph.allocator, error_union_id);
         return id;
     }
 };

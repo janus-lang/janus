@@ -1,0 +1,13 @@
+// Test slice operations
+func main() do
+    // Basic array: [10, 20, 30, 40, 50]
+    let arr = [10, 20, 30, 40, 50]
+
+    // Slice expression - get elements 1..4 (indices 1,2,3 = [20, 30, 40])
+    let sub = arr[1..4]
+
+    // Access slice elements
+    print(sub[0])  // Should print 20
+    print(sub[1])  // Should print 30
+    print(sub[2])  // Should print 40
+end
