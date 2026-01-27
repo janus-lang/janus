@@ -43,6 +43,9 @@ pub const LLVMEmitter = struct {
     // Optional external function registry for native Zig integration
     extern_registry: ?*const extern_reg.ExternRegistry = null,
 
+    // Function signature mapping: function_name -> return_type
+    function_return_types: std.StringHashMap([]const u8),
+
     const DeferredPhi = struct {
         phi_value: llvm.Value,
         input_ids: []const u32,
@@ -79,6 +82,7 @@ pub const LLVMEmitter = struct {
             .current_function = undefined,
             .struct_info = std.AutoHashMap(u32, StructInfo).init(allocator),
             .alloca_types = std.AutoHashMap(u32, void).init(allocator),
+            .function_return_types = std.StringHashMap([]const u8).init(allocator),
         };
     }
 
@@ -94,6 +98,7 @@ pub const LLVMEmitter = struct {
         self.node_blocks.deinit();
         self.struct_info.deinit();
         self.alloca_types.deinit();
+        self.function_return_types.deinit();
         for (self.deferred_phis.items) |phi| {
             self.allocator.free(phi.input_ids);
         }
@@ -105,7 +110,12 @@ pub const LLVMEmitter = struct {
 
     /// Emit QTJIR graphs to LLVM Module
     pub fn emit(self: *LLVMEmitter, ir_graphs: []const QTJIRGraph) !void {
-        // Emit all functions
+        // First pass: collect function signatures
+        for (ir_graphs) |*g| {
+            try self.function_return_types.put(g.function_name, g.return_type);
+        }
+
+        // Second pass: emit all functions
         for (ir_graphs) |*g| {
             try self.emitFunction(g);
         }
@@ -146,7 +156,18 @@ pub const LLVMEmitter = struct {
         }
 
         // Return Type
-        const ret_type = if (is_main or std.mem.eql(u8, ir_graph.return_type, "i32"))
+        const ret_type = if (is_main)
+            llvm.int32TypeInContext(self.context)
+        else if (std.mem.eql(u8, ir_graph.return_type, "error_union"))
+            blk: {
+                // Error union is struct { i8 is_error, i64 value }
+                var fields = [_]llvm.Type{
+                    llvm.c.LLVMInt8TypeInContext(self.context),  // is_error flag
+                    llvm.c.LLVMInt64TypeInContext(self.context), // value (error code or payload)
+                };
+                break :blk llvm.structTypeInContext(self.context, &fields, fields.len, false);
+            }
+        else if (std.mem.eql(u8, ir_graph.return_type, "i32"))
             llvm.int32TypeInContext(self.context)
         else
             llvm.voidTypeInContext(self.context);
@@ -199,6 +220,11 @@ pub const LLVMEmitter = struct {
             {
                 if (ret_type == llvm.voidTypeInContext(self.context)) {
                     _ = llvm.buildRetVoid(self.builder);
+                } else if (std.mem.eql(u8, ir_graph.return_type, "error_union")) {
+                    // Error union functions must have explicit returns
+                    // This is a lowering bug if we reach here
+                    std.debug.print("ERROR: Error union function missing explicit return\n", .{});
+                    return error.MissingReturn;
                 } else {
                     // If supposed to return i32 but didn't, return 0 or unreachable
                     const zero = llvm.constInt(llvm.int32TypeInContext(self.context), 0, false);
@@ -1014,8 +1040,7 @@ pub const LLVMEmitter = struct {
                 }
             }
 
-            // Generic Call Fallback: Assume i32 return, i32 args
-            // This allows us to call other functions even if signatures are imperfect
+            // Generic Call Fallback: Look up function return type, assume i32 args
             const i32_type = llvm.int32TypeInContext(self.context);
             var param_types = std.ArrayListUnmanaged(llvm.Type){};
             defer param_types.deinit(self.allocator);
@@ -1028,7 +1053,23 @@ pub const LLVMEmitter = struct {
                 try param_types.append(self.allocator, i32_type); // Assume i32
             }
 
-            const func_type = llvm.functionType(i32_type, param_types.items.ptr, @intCast(param_types.items.len), false);
+            // Look up return type from function signature map
+            const return_type_str = self.function_return_types.get(func_name) orelse "i32";
+            const return_type = if (std.mem.eql(u8, return_type_str, "error_union"))
+                blk: {
+                    // Error union is struct { i8 is_error, i64 value }
+                    var fields = [_]llvm.Type{
+                        llvm.c.LLVMInt8TypeInContext(self.context),
+                        llvm.c.LLVMInt64TypeInContext(self.context),
+                    };
+                    break :blk llvm.structTypeInContext(self.context, &fields, fields.len, false);
+                }
+            else if (std.mem.eql(u8, return_type_str, "i32"))
+                i32_type
+            else
+                llvm.voidTypeInContext(self.context);
+
+            const func_type = llvm.functionType(return_type, param_types.items.ptr, @intCast(param_types.items.len), false);
 
             const name_z = try self.allocator.dupeZ(u8, func_name);
             defer self.allocator.free(name_z);

@@ -937,6 +937,55 @@ pub const IRBuilder = struct {
         }
         return id;
     }
+
+    // =========================================================================
+    // Error Handling Operations (:core profile)
+    // =========================================================================
+
+    /// Create error union from success payload: T ! E -> ok value
+    /// Constructs: { ok: payload, is_error: false }
+    pub fn createErrorUnionConstruct(self: *IRBuilder, payload_id: u32) !u32 {
+        const id = try self.createNode(.Error_Union_Construct);
+        var node = &self.graph.nodes.items[id];
+        try node.inputs.append(self.graph.allocator, payload_id);
+        return id;
+    }
+
+    /// Create error union from error value: fail ErrorType.Variant
+    /// Constructs: { err: error_value, is_error: true }
+    pub fn createErrorFailConstruct(self: *IRBuilder, error_id: u32) !u32 {
+        const id = try self.createNode(.Error_Fail_Construct);
+        var node = &self.graph.nodes.items[id];
+        try node.inputs.append(self.graph.allocator, error_id);
+        return id;
+    }
+
+    /// Check if error union contains an error
+    /// Returns: boolean (true if error, false if ok)
+    pub fn createErrorUnionIsError(self: *IRBuilder, error_union_id: u32) !u32 {
+        const id = try self.createNode(.Error_Union_Is_Error);
+        var node = &self.graph.nodes.items[id];
+        try node.inputs.append(self.graph.allocator, error_union_id);
+        return id;
+    }
+
+    /// Unwrap payload from error union (asserts not error, panics if error)
+    /// Returns: payload value T
+    pub fn createErrorUnionUnwrap(self: *IRBuilder, error_union_id: u32) !u32 {
+        const id = try self.createNode(.Error_Union_Unwrap);
+        var node = &self.graph.nodes.items[id];
+        try node.inputs.append(self.graph.allocator, error_union_id);
+        return id;
+    }
+
+    /// Extract error value from error union (asserts is_error)
+    /// Returns: error value E
+    pub fn createErrorUnionGetError(self: *IRBuilder, error_union_id: u32) !u32 {
+        const id = try self.createNode(.Error_Union_Get_Error);
+        var node = &self.graph.nodes.items[id];
+        try node.inputs.append(self.graph.allocator, error_union_id);
+        return id;
+    }
 };
 
 // --- Tests ---

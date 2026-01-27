@@ -138,6 +138,21 @@ test "E2E: Catch expression with error handling" {
 
     std.debug.print("\n=== Catch Expression Test ===\n", .{});
 
+    // Debug: Print all IR nodes for safe_divide
+    for (ir_graphs.items) |graph| {
+        if (std.mem.indexOf(u8, graph.function_name, "safe_divide")) |_| {
+            std.debug.print("safe_divide IR nodes:\n", .{});
+            for (graph.nodes.items, 0..) |node, i| {
+                std.debug.print("  [{d}] {s} inputs: [", .{i, @tagName(node.op)});
+                for (node.inputs.items, 0..) |input, j| {
+                    if (j > 0) std.debug.print(", ", .{});
+                    std.debug.print("{d}", .{input});
+                }
+                std.debug.print("]\n", .{});
+            }
+        }
+    }
+
     // Look for catch-related opcodes
     var found_is_error = false;
     var found_unwrap = false;

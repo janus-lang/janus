@@ -879,6 +879,61 @@ pub fn build(b: *std.Build) void {
     test_error_syntax_step.dependOn(&run_error_syntax_tests.step);
     test_step.dependOn(&run_error_syntax_tests.step);
 
+    // Error Symbol Table Tests (:core profile)
+    const error_symbol_table_tests = b.addTest(.{
+        .name = "error_symbol_table_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/semantic/error_symbol_table_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    error_symbol_table_tests.root_module.addIncludePath(b.path("."));
+    error_symbol_table_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    error_symbol_table_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    error_symbol_table_tests.root_module.addImport("semantic", semantic_mod);
+
+    const run_error_symbol_table_tests = b.addRunArtifact(error_symbol_table_tests);
+    const test_error_symbol_table_step = b.step("test-error-symbols", "Run Error Symbol Table tests");
+    test_error_symbol_table_step.dependOn(&run_error_symbol_table_tests.step);
+    test_step.dependOn(&run_error_symbol_table_tests.step);
+
+    // Error Type System Tests (:core profile)
+    const error_type_system_tests = b.addTest(.{
+        .name = "error_type_system_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/semantic/error_type_system_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    error_type_system_tests.root_module.addIncludePath(b.path("."));
+    error_type_system_tests.root_module.addImport("semantic", semantic_mod);
+
+    const run_error_type_system_tests = b.addRunArtifact(error_type_system_tests);
+    const test_error_types_step = b.step("test-error-types", "Run Error Type System tests");
+    test_error_types_step.dependOn(&run_error_type_system_tests.step);
+    test_step.dependOn(&run_error_type_system_tests.step);
+
+    // Error Handling Integration Tests (:core profile)
+    const error_integration_tests = b.addTest(.{
+        .name = "error_integration_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/semantic/error_integration_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    error_integration_tests.root_module.addIncludePath(b.path("."));
+    error_integration_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    error_integration_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    error_integration_tests.root_module.addImport("semantic", semantic_mod);
+
+    const run_error_integration_tests = b.addRunArtifact(error_integration_tests);
+    const test_error_integration_step = b.step("test-error-integration", "Run Error Handling Integration tests");
+    test_error_integration_step.dependOn(&run_error_integration_tests.step);
+    test_step.dependOn(&run_error_integration_tests.step);
+
     // Full Stack Verification
     const verify_tests = b.addTest(.{
         .name = "full_stack_verify",
@@ -1154,6 +1209,38 @@ pub fn build(b: *std.Build) void {
 
     const test_qtjir_std_step = b.step("test-qtjir-std", "Run QTJIR standard library tests");
     test_qtjir_std_step.dependOn(&run_qtjir_std_tests.step);
+
+    // QTJIR Error Handling Opcodes Tests (:core profile)
+    const qtjir_error_opcodes_tests = b.addTest(.{
+        .name = "qtjir_error_opcodes_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/qtjir/error_opcodes_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    qtjir_error_opcodes_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_qtjir_error_opcodes_tests = b.addRunArtifact(qtjir_error_opcodes_tests);
+    const test_qtjir_error_opcodes_step = b.step("test-error-opcodes", "Run QTJIR error handling opcodes tests");
+    test_qtjir_error_opcodes_step.dependOn(&run_qtjir_error_opcodes_tests.step);
+    test_step.dependOn(&run_qtjir_error_opcodes_tests.step);
+
+    // QTJIR Error Handling Lowering Tests (:core profile)
+    const qtjir_error_lowering_tests = b.addTest(.{
+        .name = "qtjir_error_lowering_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/qtjir/error_lowering_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    qtjir_error_lowering_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    qtjir_error_lowering_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    qtjir_error_lowering_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_qtjir_error_lowering_tests = b.addRunArtifact(qtjir_error_lowering_tests);
+    const test_qtjir_error_lowering_step = b.step("test-error-lowering", "Run QTJIR error handling lowering tests");
+    test_qtjir_error_lowering_step.dependOn(&run_qtjir_error_lowering_tests.step);
+    test_step.dependOn(&run_qtjir_error_lowering_tests.step);
 
     // Add QTJIR tensor operation tests (Task 2.1.1)
     const qtjir_tensor_tests = b.addTest(.{

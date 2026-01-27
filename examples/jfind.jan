@@ -1,0 +1,41 @@
+// jfind - A simple file finder written in Janus
+// Demonstrates: Native Zig grafting, slice types, directory iteration
+//
+// Usage: jfind <pattern>
+// Finds files in current directory matching the pattern
+
+use zig "std/core/fs_ops.zig"
+use zig "std/core/string_ops.zig"
+
+func main() do
+    // For now, just demonstrate directory listing
+    // Full pattern matching will come with command-line args
+
+    // Open current directory for iteration
+    let dir = fs_dir_open(".", 1)
+
+    // Iterate through entries
+    var count = 0
+    while fs_dir_next(dir) == 1 do
+        // Get entry name length
+        let name_len = fs_dir_entry_name_len(dir)
+
+        // Check if it's a directory
+        let is_dir = fs_dir_entry_is_dir(dir)
+
+        // Print count for now (full name printing needs string support)
+        if is_dir == 1 do
+            print(1)  // Directory marker
+        else
+            print(0)  // File marker
+        end
+
+        count = count + 1
+    end
+
+    // Close directory
+    fs_dir_close(dir)
+
+    // Print total count
+    print(count)
+end
