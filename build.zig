@@ -861,6 +861,79 @@ pub fn build(b: *std.Build) void {
     test_while_stmt_step.dependOn(&run_while_stmt_tests.step);
     test_step.dependOn(&run_while_stmt_tests.step);
 
+    // Error Handling Syntax Tests (:core profile)
+    const error_syntax_tests = b.addTest(.{
+        .name = "error_syntax_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/specs/test_error_syntax.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    error_syntax_tests.root_module.addIncludePath(b.path("."));
+    error_syntax_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    error_syntax_tests.root_module.addImport("astdb_core", astdb_core_mod);
+
+    const run_error_syntax_tests = b.addRunArtifact(error_syntax_tests);
+    const test_error_syntax_step = b.step("test-error-syntax", "Run Error Handling Syntax tests");
+    test_error_syntax_step.dependOn(&run_error_syntax_tests.step);
+    test_step.dependOn(&run_error_syntax_tests.step);
+
+    // Error Symbol Table Tests (:core profile)
+    const error_symbol_table_tests = b.addTest(.{
+        .name = "error_symbol_table_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/semantic/error_symbol_table_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    error_symbol_table_tests.root_module.addIncludePath(b.path("."));
+    error_symbol_table_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    error_symbol_table_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    error_symbol_table_tests.root_module.addImport("semantic", semantic_mod);
+
+    const run_error_symbol_table_tests = b.addRunArtifact(error_symbol_table_tests);
+    const test_error_symbol_table_step = b.step("test-error-symbols", "Run Error Symbol Table tests");
+    test_error_symbol_table_step.dependOn(&run_error_symbol_table_tests.step);
+    test_step.dependOn(&run_error_symbol_table_tests.step);
+
+    // Error Type System Tests (:core profile)
+    const error_type_system_tests = b.addTest(.{
+        .name = "error_type_system_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/semantic/error_type_system_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    error_type_system_tests.root_module.addIncludePath(b.path("."));
+    error_type_system_tests.root_module.addImport("semantic", semantic_mod);
+
+    const run_error_type_system_tests = b.addRunArtifact(error_type_system_tests);
+    const test_error_types_step = b.step("test-error-types", "Run Error Type System tests");
+    test_error_types_step.dependOn(&run_error_type_system_tests.step);
+    test_step.dependOn(&run_error_type_system_tests.step);
+
+    // Error Handling Integration Tests (:core profile)
+    const error_integration_tests = b.addTest(.{
+        .name = "error_integration_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/semantic/error_integration_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    error_integration_tests.root_module.addIncludePath(b.path("."));
+    error_integration_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    error_integration_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    error_integration_tests.root_module.addImport("semantic", semantic_mod);
+
+    const run_error_integration_tests = b.addRunArtifact(error_integration_tests);
+    const test_error_integration_step = b.step("test-error-integration", "Run Error Handling Integration tests");
+    test_error_integration_step.dependOn(&run_error_integration_tests.step);
+    test_step.dependOn(&run_error_integration_tests.step);
+
     // Full Stack Verification
     const verify_tests = b.addTest(.{
         .name = "full_stack_verify",
@@ -1136,6 +1209,38 @@ pub fn build(b: *std.Build) void {
 
     const test_qtjir_std_step = b.step("test-qtjir-std", "Run QTJIR standard library tests");
     test_qtjir_std_step.dependOn(&run_qtjir_std_tests.step);
+
+    // QTJIR Error Handling Opcodes Tests (:core profile)
+    const qtjir_error_opcodes_tests = b.addTest(.{
+        .name = "qtjir_error_opcodes_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/qtjir/error_opcodes_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    qtjir_error_opcodes_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_qtjir_error_opcodes_tests = b.addRunArtifact(qtjir_error_opcodes_tests);
+    const test_qtjir_error_opcodes_step = b.step("test-error-opcodes", "Run QTJIR error handling opcodes tests");
+    test_qtjir_error_opcodes_step.dependOn(&run_qtjir_error_opcodes_tests.step);
+    test_step.dependOn(&run_qtjir_error_opcodes_tests.step);
+
+    // QTJIR Error Handling Lowering Tests (:core profile)
+    const qtjir_error_lowering_tests = b.addTest(.{
+        .name = "qtjir_error_lowering_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/qtjir/error_lowering_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    qtjir_error_lowering_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    qtjir_error_lowering_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    qtjir_error_lowering_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_qtjir_error_lowering_tests = b.addRunArtifact(qtjir_error_lowering_tests);
+    const test_qtjir_error_lowering_step = b.step("test-error-lowering", "Run QTJIR error handling lowering tests");
+    test_qtjir_error_lowering_step.dependOn(&run_qtjir_error_lowering_tests.step);
+    test_step.dependOn(&run_qtjir_error_lowering_tests.step);
 
     // Add QTJIR tensor operation tests (Task 2.1.1)
     const qtjir_tensor_tests = b.addTest(.{
@@ -1481,6 +1586,47 @@ pub fn build(b: *std.Build) void {
     const test_hello_world_e2e_step = b.step("test-hello-world-e2e", "Run Hello World end-to-end integration test");
     test_hello_world_e2e_step.dependOn(&run_hello_world_e2e_tests.step);
     test_step.dependOn(&run_hello_world_e2e_tests.step);
+
+    // Error Handling End-to-End Integration Test (:core profile)
+    const error_handling_e2e_tests = b.addTest(.{
+        .name = "error_handling_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/error_handling_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    error_handling_e2e_tests.linkLibC();
+    error_handling_e2e_tests.linkSystemLibrary("LLVM-21");
+    error_handling_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    error_handling_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    error_handling_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    error_handling_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_error_handling_e2e_tests = b.addRunArtifact(error_handling_e2e_tests);
+
+    const test_error_handling_e2e_step = b.step("test-error-handling-e2e", "Run Error Handling end-to-end integration test");
+    test_error_handling_e2e_step.dependOn(&run_error_handling_e2e_tests.step);
+    test_step.dependOn(&run_error_handling_e2e_tests.step);
+
+    // Add jfind End-to-End Integration Test (Native Zig Grafting)
+    const jfind_e2e_tests = b.addTest(.{
+        .name = "jfind_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/jfind_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    jfind_e2e_tests.linkLibC();
+    jfind_e2e_tests.linkSystemLibrary("LLVM-21");
+    jfind_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    jfind_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    jfind_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    jfind_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_jfind_e2e_tests = b.addRunArtifact(jfind_e2e_tests);
+
+    const test_jfind_e2e_step = b.step("test-jfind-e2e", "Run jfind end-to-end integration test");
+    test_jfind_e2e_step.dependOn(&run_jfind_e2e_tests.step);
 
     // Add For Loop End-to-End Integration Test (Epic 1.5)
     const for_loop_e2e_tests = b.addTest(.{

@@ -70,6 +70,7 @@ pub const SymbolTable = struct {
             block,
             struct_body,
             enum_body,
+            error_body,  // Error type body scope (:core profile)
         };
     };
 
@@ -90,6 +91,8 @@ pub const SymbolTable = struct {
             type_alias,
             struct_type,
             enum_type,
+            error_type,     // Error type declaration (:core profile)
+            error_variant,  // Error variant (e.g., DivisionByZero)
         };
 
         pub const Visibility = enum {
