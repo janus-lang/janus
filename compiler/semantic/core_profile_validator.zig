@@ -477,14 +477,11 @@ pub const CoreProfileValidator = struct {
                 // Actor/concurrency (cluster profile)
                 .trait_decl, .impl_decl => true,
 
-                // Match expressions (not in basic :core)
-                .match_stmt, .match_arm => true,
-
                 // Advanced features
                 .using_decl => true,
 
-                // Postfix guards (advanced)
-                .postfix_when, .postfix_unless => true,
+                // Match expressions and postfix guards ARE ALLOWED in :core
+                // (Removed .match_stmt, .match_arm, .postfix_when, .postfix_unless)
 
                 // All other node kinds are allowed in :core
                 else => false,
@@ -508,11 +505,7 @@ pub const CoreProfileValidator = struct {
         return switch (kind) {
             .trait_decl => "Traits are not available in :core profile (upgrade to :service)",
             .impl_decl => "Impl blocks are not available in :core profile (upgrade to :service)",
-            .match_stmt => "Match expressions are not available in :core profile (use if/else)",
-            .match_arm => "Match arms are not available in :core profile",
             .using_decl => "Using declarations are not available in :core profile",
-            .postfix_when => "Postfix 'when' guards are not available in :core profile",
-            .postfix_unless => "Postfix 'unless' guards are not available in :core profile",
             else => "Feature not available in :core profile",
         };
     }
