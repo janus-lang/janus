@@ -113,9 +113,9 @@ The `:core` profile provides the following primitive types:
 | Type | Status | Description |
 |------|--------|-------------|
 | Structs | ✅ Implemented | User-defined product types with named fields |
-| Arrays | ⚠️ Partial | Dynamic arrays (implementation in progress) |
-| Slices | ❌ Planned | Views into contiguous memory |
-| Strings | ⚠️ Partial | UTF-8 strings (literals work, operations limited) |
+| Arrays | ✅ Via Zig | Dynamic arrays via `std.ArrayList` |
+| Slices | ✅ Via Zig | Views via Zig slice types |
+| Strings | ✅ Via Zig | UTF-8 strings (literals + `std/core/string_ops.zig`, `std.mem`, `std.unicode`) |
 
 [PCORE:3.3] **Forbidden Types** (∅)
 
@@ -354,7 +354,47 @@ mem.realloc(ptr: ptr, new_size: i64) -> ptr  // Resize allocation
 
 **Note:** Explicit allocator management is required. No garbage collection, no automatic memory management.
 
-### 5.4 Native Zig Integration — The Industrial Workshop (🔥 BREAKTHROUGH)
+### 5.4 String Operations (std/core/string_ops.zig) — ✅ IMPLEMENTED
+
+[PCORE:5.4.1] **String Operations via Native Zig**
+
+Janus provides comprehensive string operations through `std/core/string_ops.zig`:
+
+```janus
+use zig "std/core/string_ops.zig"
+
+func main() {
+    // String comparison
+    let eq = str_equals("hello", 5, "hello", 5)  // Returns 1 (true)
+
+    // String search
+    let idx = str_index_of("Hello, World!", 13, "World", 5)  // Returns 7
+
+    // Prefix/suffix checks
+    let starts = str_starts_with("Hello", 5, "He", 2)  // Returns 1
+    let ends = str_ends_with("World!", 6, "!", 1)  // Returns 1
+
+    // Case conversion (buffer-based)
+    let result_len = str_to_upper("hello", 5, buffer_ptr, buffer_len)
+}
+```
+
+**Available Operations:**
+- **Comparison:** `str_equals`, `str_equals_ignore_case`, `str_compare`
+- **Search:** `str_contains`, `str_index_of`, `str_last_index_of`, `str_index_of_char`
+- **Prefix/Suffix:** `str_starts_with`, `str_ends_with`
+- **Transformation:** `str_to_upper`, `str_to_lower`, `str_to_upper_inplace`, `str_to_lower_inplace`
+- **Trimming:** `str_trim`, `str_trim_start`, `str_trim_end`
+- **Length:** `str_length`, `str_char_count` (UTF-8 codepoint count)
+- **Substring:** `str_substring` (byte-based slicing)
+- **Copy/Concat:** `str_copy`, `str_concat`
+- **UTF-8:** `str_is_valid_utf8`, `str_char_count`
+
+**Implementation:** `std/core/string_ops.zig` (450+ lines, production-ready)
+
+**Note:** All functions use C-compatible calling convention (pointer + length pairs) for seamless integration.
+
+### 5.5 Native Zig Integration — The Industrial Workshop (🔥 BREAKTHROUGH)
 
 [PCORE:5.4.1] **Native Zig Integration** (✅ 100% FUNCTIONAL)
 
