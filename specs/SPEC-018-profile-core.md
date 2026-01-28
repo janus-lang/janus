@@ -55,7 +55,6 @@ This specification documents the **:core profile** as currently implemented in t
 - ⚠️ Idiomatic Janus wrappers for Zig types (convenience APIs)
 - ⚠️ Postfix `when` guards (validation)
 - ⚠️ Profile validation enforcement
-- ⚠️ Error handling QTJIR lowering and codegen (parser complete)
 
 **What's Planned:**
 - ❌ Defer statements (RAII) — *or just use Zig's defer directly*
@@ -239,7 +238,7 @@ match value {
 **Logical:** `and`, `or`, `not`
 **Bitwise:** `&`, `|`, `^`, `<<`, `>>`
 
-### 4.6 Error Handling (✅ PARSER COMPLETE)
+### 4.6 Error Handling (✅ FULLY IMPLEMENTED)
 
 [PCORE:4.6.1] **Error Union Types**
 
