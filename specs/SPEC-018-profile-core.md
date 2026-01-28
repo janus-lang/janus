@@ -30,6 +30,7 @@ This specification documents the **:core profile** as currently implemented in t
 - ✅ Function declarations (`func`)
 - ✅ Variable declarations (`let`, `var`)
 - ✅ Control flow (`if`, `else`, `for`, `while`)
+- ✅ Range operators (`..` inclusive, `..<` exclusive)
 - ✅ Pattern matching (`match`)
 - ✅ Arithmetic and logical operators
 - ✅ Function calls with multiple arguments
@@ -58,7 +59,6 @@ This specification documents the **:core profile** as currently implemented in t
 
 **What's Planned:**
 - ❌ Defer statements (RAII) — *or just use Zig's defer directly*
-- ❌ Range operators (`..`, `..=`) — *minor sugar*
 
 ---
 
@@ -182,10 +182,20 @@ if x > 0 {
 
 [PCORE:4.3.2] **For loops** (range-based):
 ```janus
+// Inclusive range (0..10 means 0 to 10, inclusive)
 for i in 0..10 {
-    print_int(i)
+    print_int(i)  // Prints 0,1,2,3,4,5,6,7,8,9,10
+}
+
+// Exclusive range (0..<10 means 0 to 9, excluding 10)
+for i in 0..<10 {
+    print_int(i)  // Prints 0,1,2,3,4,5,6,7,8,9
 }
 ```
+
+**Range Operator Semantics:**
+- `..` — **Inclusive range**: `start..end` includes both start and end
+- `..<` — **Exclusive range**: `start..<end` includes start but excludes end
 
 [PCORE:4.3.3] **While loops:**
 ```janus
@@ -501,7 +511,7 @@ func main() {
 import std.core.io
 
 func fizzbuzz(n: i32) {
-    for i in 1..=n {
+    for i in 1..n {
         match (i % 15, i % 3, i % 5) {
             (0, _, _) -> io.println("FizzBuzz"),
             (_, 0, _) -> io.println("Fizz"),
@@ -698,7 +708,6 @@ The CoreProfileValidator implements four validation passes:
 
 ### Phase 3: Language Features (Q1 2026)
 - ❌ Defer statements (or just use Zig's `defer` directly)
-- ❌ Range operators (`..`, `..=`)
 - ❌ Postfix when guards (validation)
 - ❌ Full pattern matching guards
 
