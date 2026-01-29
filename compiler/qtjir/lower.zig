@@ -3556,6 +3556,7 @@ fn lowerAwaitExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) 
 /// Lower spawn expression: `spawn task_call()`
 /// Launches a task in the current nursery scope.
 /// Returns a task handle (opaque u32 in QTJIR).
+/// Phase 2: Captures function pointer for true parallel execution.
 fn lowerSpawnExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!u32 {
     _ = node;
     const children = ctx.snapshot.getChildren(node_id);
@@ -3565,13 +3566,40 @@ fn lowerSpawnExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) 
     const call_id = children[0];
     const call_node = ctx.snapshot.getNode(call_id) orelse return error.InvalidNode;
 
-    // Lower the call as an async call
-    const call_val = try lowerExpression(ctx, call_id, call_node);
+    // Spawn expects a call expression - extract function name without executing
+    if (call_node.kind != .call_expr) {
+        return error.InvalidNode; // spawn requires a function call
+    }
 
-    // Create Spawn node - launches task in current nursery
+    const call_children = ctx.snapshot.getChildren(call_id);
+    if (call_children.len == 0) return error.InvalidNode;
+
+    // First child of call_expr is the callee (function identifier)
+    const callee_id = call_children[0];
+    const callee = ctx.snapshot.getNode(callee_id) orelse return error.InvalidNode;
+
+    // Extract function name from identifier
+    if (callee.kind != .identifier) {
+        return error.UnsupportedCall; // Only support direct function calls for now
+    }
+
+    const token = ctx.snapshot.getToken(callee.first_token) orelse return error.InvalidToken;
+    const name = if (token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+    // Create Spawn node with function name stored in data
     const spawn_node_id = try ctx.builder.createNode(.Spawn);
     var spawn_node = &ctx.builder.graph.nodes.items[spawn_node_id];
-    try spawn_node.inputs.append(ctx.allocator, call_val);
+
+    // Clone function name for graph ownership (Sovereign Graph doctrine)
+    const owned_name = try ctx.builder.graph.allocator.dupeZ(u8, name);
+    spawn_node.data = .{ .string = owned_name };
+
+    // Lower arguments and store as inputs (for functions with parameters)
+    for (call_children[1..]) |arg_id| {
+        const arg_node = ctx.snapshot.getNode(arg_id) orelse continue;
+        const arg_val = try lowerExpression(ctx, arg_id, arg_node);
+        try spawn_node.inputs.append(ctx.allocator, arg_val);
+    }
 
     return spawn_node_id;
 }

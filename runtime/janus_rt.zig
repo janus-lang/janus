@@ -509,10 +509,20 @@ export fn janus_string_free(handle: ?*anyopaque, allocator_handle: ?*anyopaque) 
 /// Task function signature: takes opaque argument, returns i64 result
 pub const TaskFn = *const fn (?*anyopaque) callconv(.c) i64;
 
+/// No-argument task function signature (Phase 2.3 - common case)
+pub const NoArgTaskFn = *const fn () callconv(.c) i32;
+
 /// Task context for thread execution
 const TaskContext = struct {
     func: TaskFn,
     arg: ?*anyopaque,
+    result: i64,
+    has_error: bool,
+};
+
+/// No-argument task context (Phase 2.3)
+const NoArgTaskContext = struct {
+    func: NoArgTaskFn,
     result: i64,
     has_error: bool,
 };
@@ -522,6 +532,7 @@ const TaskContext = struct {
 const JanusNursery = struct {
     threads: std.ArrayListUnmanaged(std.Thread),
     contexts: std.ArrayListUnmanaged(*TaskContext),
+    noarg_contexts: std.ArrayListUnmanaged(*NoArgTaskContext), // Phase 2.3
     allocator: std.mem.Allocator,
     has_error: bool,
 
@@ -529,6 +540,7 @@ const JanusNursery = struct {
         return JanusNursery{
             .threads = .{},
             .contexts = .{},
+            .noarg_contexts = .{},
             .allocator = allocator,
             .has_error = false,
         };
@@ -540,6 +552,11 @@ const JanusNursery = struct {
             self.allocator.destroy(ctx);
         }
         self.contexts.deinit(self.allocator);
+        // Free no-arg task contexts (Phase 2.3)
+        for (self.noarg_contexts.items) |ctx| {
+            self.allocator.destroy(ctx);
+        }
+        self.noarg_contexts.deinit(self.allocator);
         self.threads.deinit(self.allocator);
     }
 
@@ -559,15 +576,39 @@ const JanusNursery = struct {
         try self.threads.append(self.allocator, thread);
     }
 
+    /// Spawn a no-argument function (Phase 2.3 - common case)
+    fn spawnNoArg(self: *JanusNursery, func: NoArgTaskFn) !void {
+        // Create task context
+        const ctx = try self.allocator.create(NoArgTaskContext);
+        ctx.* = NoArgTaskContext{
+            .func = func,
+            .result = 0,
+            .has_error = false,
+        };
+        try self.noarg_contexts.append(self.allocator, ctx);
+
+        // Spawn thread
+        const thread = try std.Thread.spawn(.{}, noArgTaskRunner, .{ctx});
+        try self.threads.append(self.allocator, thread);
+    }
+
     fn awaitAll(self: *JanusNursery) i64 {
         // Join all threads (wait for completion)
         for (self.threads.items) |thread| {
             thread.join();
         }
 
-        // Check for errors and collect results
+        // Check for errors and collect results from regular contexts
         var first_error: i64 = 0;
         for (self.contexts.items) |ctx| {
+            if (ctx.has_error and first_error == 0) {
+                first_error = ctx.result;
+                self.has_error = true;
+            }
+        }
+
+        // Check for errors from no-arg contexts (Phase 2.3)
+        for (self.noarg_contexts.items) |ctx| {
             if (ctx.has_error and first_error == 0) {
                 first_error = ctx.result;
                 self.has_error = true;
@@ -581,6 +622,14 @@ const JanusNursery = struct {
 /// Thread entry point - executes task and stores result
 fn taskRunner(ctx: *TaskContext) void {
     ctx.result = ctx.func(ctx.arg);
+    // Result < 0 indicates error in Janus convention
+    ctx.has_error = (ctx.result < 0);
+}
+
+/// Thread entry point for no-argument tasks (Phase 2.3)
+fn noArgTaskRunner(ctx: *NoArgTaskContext) void {
+    const result_i32 = ctx.func();
+    ctx.result = @intCast(result_i32);
     // Result < 0 indicates error in Janus convention
     ctx.has_error = (ctx.result < 0);
 }
@@ -616,6 +665,25 @@ export fn janus_nursery_spawn(func: TaskFn, arg: ?*anyopaque) callconv(.c) i32 {
 
     const nursery = nursery_stack.items[nursery_stack.items.len - 1];
     nursery.spawn(func, arg) catch {
+        std.debug.print("ERROR: failed to spawn task\n", .{});
+        return -1;
+    };
+
+    return 0;
+}
+
+/// Spawn a no-argument function in the current nursery (Phase 2.3)
+/// func: function pointer returning i32 (common Janus function signature)
+/// Runtime handles thread spawning and result collection
+export fn janus_nursery_spawn_noarg(func: NoArgTaskFn) callconv(.c) i32 {
+    // Get current nursery from stack
+    if (nursery_stack.items.len == 0) {
+        std.debug.print("ERROR: spawn called outside of nursery\n", .{});
+        return -1;
+    }
+
+    const nursery = nursery_stack.items[nursery_stack.items.len - 1];
+    nursery.spawnNoArg(func) catch {
         std.debug.print("ERROR: failed to spawn task\n", .{});
         return -1;
     };

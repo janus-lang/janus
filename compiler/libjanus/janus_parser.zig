@@ -1624,8 +1624,8 @@ fn parseBlockStatements(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
             const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
             try parser.nodes.append(parser.allocator, for_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
-        } else if (parser.match(.identifier) or parser.match(.string_literal) or parser.match(.integer_literal) or parser.match(.float_literal) or parser.match(.true_) or parser.match(.false_) or parser.match(.left_paren)) {
-            // Parse full expression (handles method calls, assignments, pipeline chains, etc.)
+        } else if (parser.match(.identifier) or parser.match(.string_literal) or parser.match(.integer_literal) or parser.match(.float_literal) or parser.match(.true_) or parser.match(.false_) or parser.match(.left_paren) or parser.match(.spawn_) or parser.match(.await_)) {
+            // Parse full expression (handles method calls, assignments, pipeline chains, spawn/await, etc.)
             const expr = try parseExpression(parser, nodes, .none);
             const expr_index = @as(u32, @intCast(parser.nodes.items.len));
             try parser.nodes.append(parser.allocator, expr);
@@ -3673,9 +3673,13 @@ fn parsePrimary(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode))
                 _ = parser.advance(); // consume 'await'
                 const awaited_expr = try parseExpression(parser, nodes, .unary);
 
-                const child_lo = @as(u32, @intCast(nodes.items.len));
+                // Store child node and add to edges
+                const expr_idx = @as(u32, @intCast(nodes.items.len));
                 try nodes.append(parser.allocator, awaited_expr);
-                const child_hi = @as(u32, @intCast(nodes.items.len));
+
+                const child_lo = @as(u32, @intCast(parser.edges.items.len));
+                try parser.edges.append(parser.allocator, @enumFromInt(expr_idx));
+                const child_hi = @as(u32, @intCast(parser.edges.items.len));
 
                 return astdb_core.AstNode{
                     .kind = .await_expr,
@@ -3691,9 +3695,13 @@ fn parsePrimary(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode))
                 _ = parser.advance(); // consume 'spawn'
                 const spawned_expr = try parseExpression(parser, nodes, .unary);
 
-                const child_lo = @as(u32, @intCast(nodes.items.len));
+                // Store child node and add to edges
+                const expr_idx = @as(u32, @intCast(nodes.items.len));
                 try nodes.append(parser.allocator, spawned_expr);
-                const child_hi = @as(u32, @intCast(nodes.items.len));
+
+                const child_lo = @as(u32, @intCast(parser.edges.items.len));
+                try parser.edges.append(parser.allocator, @enumFromInt(expr_idx));
+                const child_hi = @as(u32, @intCast(parser.edges.items.len));
 
                 return astdb_core.AstNode{
                     .kind = .spawn_expr,

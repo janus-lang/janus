@@ -279,3 +279,71 @@ test ":service profile: Async function E2E execution (blocking model)" {
 
     std.debug.print("\n=== ASYNC E2E EXECUTION PASSED (Blocking Model) ===\n", .{});
 }
+
+test ":service profile: Spawn generates janus_nursery_spawn_noarg call (Phase 2.3)" {
+    const allocator = testing.allocator;
+
+    // Spawn a task inside a nursery
+    const source =
+        \\func task() do
+        \\    return 0
+        \\end
+        \\
+        \\async func main() do
+        \\    nursery do
+        \\        spawn task()
+        \\    end
+        \\    return 0
+        \\end
+    ;
+
+    var parser = janus_parser.Parser.init(allocator);
+    defer parser.deinit();
+
+    const snapshot = try parser.parseWithSource(source);
+    defer snapshot.deinit();
+
+    const unit_id: astdb_core.UnitId = @enumFromInt(0);
+    var ir_graphs = try qtjir.lower.lowerUnit(allocator, &snapshot.core_snapshot, unit_id);
+    defer {
+        for (ir_graphs.items) |*g| g.deinit();
+        ir_graphs.deinit(allocator);
+    }
+
+    // Check that Spawn node was created in QTJIR
+    var found_spawn = false;
+    std.debug.print("\n=== SPAWN QTJIR ===\n", .{});
+    for (ir_graphs.items) |ir_graph| {
+        for (ir_graph.nodes.items, 0..) |node, i| {
+            std.debug.print("  [{d}] {s}", .{ i, @tagName(node.op) });
+            if (node.op == .Spawn) {
+                found_spawn = true;
+                // Check that function name is stored in data
+                switch (node.data) {
+                    .string => |s| std.debug.print(" -> '{s}'", .{s}),
+                    else => {},
+                }
+            }
+            std.debug.print("\n", .{});
+        }
+    }
+    try testing.expect(found_spawn);
+
+    // Emit to LLVM IR
+    var emitter = try qtjir.llvm_emitter.LLVMEmitter.init(allocator, "spawn_test");
+    defer emitter.deinit();
+
+    try emitter.emit(ir_graphs.items);
+
+    const llvm_ir = try emitter.toString();
+    defer allocator.free(llvm_ir);
+
+    std.debug.print("\n=== SPAWN LLVM IR ===\n{s}\n", .{llvm_ir});
+
+    // Verify janus_nursery_spawn_noarg is called
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "janus_nursery_spawn_noarg") != null);
+    // Verify task function is defined
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "@task") != null);
+
+    std.debug.print("\n=== SPAWN GENERATES janus_nursery_spawn_noarg CALL ===\n", .{});
+}

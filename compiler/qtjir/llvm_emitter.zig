@@ -1814,23 +1814,53 @@ pub const LLVMEmitter = struct {
         try self.values.put(node.id, awaited_value);
     }
 
-    /// Emit Spawn: In blocking model, spawn calls the task immediately
-    /// The spawned expression is already lowered as a call node in the input
+    /// Emit Spawn: Phase 2.3 - True parallel execution via runtime trampoline
+    /// Passes function pointer to janus_nursery_spawn_noarg for thread spawning
     fn emitSpawn(self: *LLVMEmitter, node: *const IRNode) !void {
-        // Spawn takes one input: the result of calling the spawned function
-        if (node.inputs.items.len < 1) {
-            // Void spawn - just a no-op
+        // Check if current block is already terminated
+        const current_block = llvm.c.LLVMGetInsertBlock(self.builder);
+        if (current_block != null) {
+            const terminator = llvm.c.LLVMGetBasicBlockTerminator(current_block);
+            if (terminator != null) return;
+        }
+
+        // Get function name from node data
+        const func_name = switch (node.data) {
+            .string => |s| s,
+            else => {
+                std.debug.print("Warning: Spawn node missing function name\n", .{});
+                return;
+            },
+        };
+
+        // Get the target function
+        const target_func = llvm.c.LLVMGetNamedFunction(self.module, func_name.ptr);
+        if (target_func == null) {
+            std.debug.print("Warning: Spawn target function '{s}' not found\n", .{func_name});
             return;
         }
 
-        // In blocking model, the spawned function was already called during lowering
-        // We just record its result for potential later use (e.g., if nursery collects results)
-        const spawn_result = self.values.get(node.inputs.items[0]) orelse {
-            // Void-returning spawned function
-            return;
-        };
+        // Declare janus_nursery_spawn_noarg: fn(ptr) -> i32
+        const ptr_type = llvm.c.LLVMPointerTypeInContext(self.context, 0);
+        const i32_type = llvm.c.LLVMInt32TypeInContext(self.context);
+        const spawn_fn = self.getOrDeclareExternFn(
+            "janus_nursery_spawn_noarg",
+            i32_type,
+            &[_]llvm.Type{ptr_type},
+        );
 
-        // Map this node's id to the spawn result
+        // Call janus_nursery_spawn_noarg(func_ptr)
+        var spawn_args = [_]llvm.Value{target_func};
+        const spawn_result = llvm.c.LLVMBuildCall2(
+            self.builder,
+            llvm.c.LLVMGlobalGetValueType(spawn_fn),
+            spawn_fn,
+            &spawn_args,
+            1,
+            "spawn_result",
+        );
+
+        // Map spawn result for potential use
         try self.values.put(node.id, spawn_result);
     }
 
