@@ -3586,6 +3586,17 @@ fn lowerSpawnExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) 
     const token = ctx.snapshot.getToken(callee.first_token) orelse return error.InvalidToken;
     const name = if (token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
 
+    // Lower arguments FIRST before creating spawn node
+    // (lowerExpression may create nodes which could reallocate the array)
+    var arg_values = std.ArrayList(u32).empty;
+    defer arg_values.deinit(ctx.allocator);
+
+    for (call_children[1..]) |arg_id| {
+        const arg_node = ctx.snapshot.getNode(arg_id) orelse continue;
+        const arg_val = try lowerExpression(ctx, arg_id, arg_node);
+        try arg_values.append(ctx.allocator, arg_val);
+    }
+
     // Create Spawn node with function name stored in data
     const spawn_node_id = try ctx.builder.createNode(.Spawn);
     var spawn_node = &ctx.builder.graph.nodes.items[spawn_node_id];
@@ -3594,10 +3605,8 @@ fn lowerSpawnExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) 
     const owned_name = try ctx.builder.graph.allocator.dupeZ(u8, name);
     spawn_node.data = .{ .string = owned_name };
 
-    // Lower arguments and store as inputs (for functions with parameters)
-    for (call_children[1..]) |arg_id| {
-        const arg_node = ctx.snapshot.getNode(arg_id) orelse continue;
-        const arg_val = try lowerExpression(ctx, arg_id, arg_node);
+    // Add pre-lowered argument values as inputs
+    for (arg_values.items) |arg_val| {
         try spawn_node.inputs.append(ctx.allocator, arg_val);
     }
 

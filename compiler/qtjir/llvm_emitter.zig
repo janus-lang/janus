@@ -1814,8 +1814,9 @@ pub const LLVMEmitter = struct {
         try self.values.put(node.id, awaited_value);
     }
 
-    /// Emit Spawn: Phase 2.3 - True parallel execution via runtime trampoline
-    /// Passes function pointer to janus_nursery_spawn_noarg for thread spawning
+    /// Emit Spawn: Phase 2.3/2.4 - True parallel execution
+    /// - No args: use janus_nursery_spawn_noarg (simple path)
+    /// - With args: generate thunk that unpacks args and calls target
     fn emitSpawn(self: *LLVMEmitter, node: *const IRNode) !void {
         // Check if current block is already terminated
         const current_block = llvm.c.LLVMGetInsertBlock(self.builder);
@@ -1840,27 +1841,171 @@ pub const LLVMEmitter = struct {
             return;
         }
 
-        // Declare janus_nursery_spawn_noarg: fn(ptr) -> i32
         const ptr_type = llvm.c.LLVMPointerTypeInContext(self.context, 0);
         const i32_type = llvm.c.LLVMInt32TypeInContext(self.context);
-        const spawn_fn = self.getOrDeclareExternFn(
-            "janus_nursery_spawn_noarg",
-            i32_type,
-            &[_]llvm.Type{ptr_type},
+
+        // Check if we have arguments
+        if (node.inputs.items.len == 0) {
+            // No arguments - use simple spawn_noarg
+            const spawn_fn = self.getOrDeclareExternFn(
+                "janus_nursery_spawn_noarg",
+                i32_type,
+                &[_]llvm.Type{ptr_type},
+            );
+
+            var spawn_args = [_]llvm.Value{target_func};
+            const spawn_result = llvm.c.LLVMBuildCall2(
+                self.builder,
+                llvm.c.LLVMGlobalGetValueType(spawn_fn),
+                spawn_fn,
+                &spawn_args,
+                1,
+                "spawn_result",
+            );
+            try self.values.put(node.id, spawn_result);
+        } else {
+            // With arguments - generate thunk and args struct
+            try self.emitSpawnWithArgs(node, target_func, func_name);
+        }
+    }
+
+    /// Emit spawn with arguments: generates thunk function and args struct
+    fn emitSpawnWithArgs(
+        self: *LLVMEmitter,
+        node: *const IRNode,
+        target_func: llvm.Value,
+        func_name: [:0]const u8,
+    ) !void {
+        const ptr_type = llvm.c.LLVMPointerTypeInContext(self.context, 0);
+        const i32_type = llvm.c.LLVMInt32TypeInContext(self.context);
+        const i64_type = llvm.c.LLVMInt64TypeInContext(self.context);
+
+        // Get argument LLVM values
+        var arg_values: [16]llvm.Value = undefined; // Max 16 args for now
+        var arg_types: [16]llvm.Type = undefined;
+        const arg_count = @min(node.inputs.items.len, 16);
+
+        for (node.inputs.items[0..arg_count], 0..) |input_id, i| {
+            const val = self.values.get(input_id) orelse {
+                std.debug.print("Warning: Spawn arg {d} not found\n", .{i});
+                return;
+            };
+            arg_values[i] = val;
+            arg_types[i] = llvm.c.LLVMTypeOf(val);
+        }
+
+        // Create args struct type: { arg0_type, arg1_type, ... }
+        const args_struct_type = llvm.c.LLVMStructTypeInContext(
+            self.context,
+            @ptrCast(&arg_types),
+            @intCast(arg_count),
+            0, // not packed
         );
 
-        // Call janus_nursery_spawn_noarg(func_ptr)
-        var spawn_args = [_]llvm.Value{target_func};
+        // Allocate args struct on stack
+        const args_alloca = llvm.c.LLVMBuildAlloca(self.builder, args_struct_type, "spawn_args");
+
+        // Store each argument into the struct
+        for (0..arg_count) |i| {
+            const idx = llvm.c.LLVMConstInt(llvm.c.LLVMInt32TypeInContext(self.context), 0, 0);
+            const field_idx = llvm.c.LLVMConstInt(llvm.c.LLVMInt32TypeInContext(self.context), @intCast(i), 0);
+            var indices = [_]llvm.Value{ idx, field_idx };
+            const field_ptr = llvm.c.LLVMBuildGEP2(
+                self.builder,
+                args_struct_type,
+                args_alloca,
+                &indices,
+                2,
+                "arg_ptr",
+            );
+            _ = llvm.c.LLVMBuildStore(self.builder, arg_values[i], field_ptr);
+        }
+
+        // Generate thunk function name using stack buffer
+        var thunk_name_buf: [128]u8 = undefined;
+        const thunk_name = std.fmt.bufPrintZ(&thunk_name_buf, "__spawn_thunk_{s}_{d}", .{ func_name, node.id }) catch "__spawn_thunk";
+
+        // Create thunk function type: fn(ptr) -> i64
+        var thunk_param_types = [_]llvm.Type{ptr_type};
+        const thunk_func_type = llvm.c.LLVMFunctionType(i64_type, &thunk_param_types, 1, 0);
+
+        // Create thunk function
+        const thunk_func = llvm.c.LLVMAddFunction(self.module, thunk_name.ptr, thunk_func_type);
+        llvm.c.LLVMSetLinkage(thunk_func, llvm.c.LLVMInternalLinkage);
+
+        // Save current insert point
+        const saved_block = llvm.c.LLVMGetInsertBlock(self.builder);
+        const saved_func = self.current_function;
+
+        // Build thunk body
+        const thunk_entry = llvm.c.LLVMAppendBasicBlockInContext(self.context, thunk_func, "entry");
+        llvm.c.LLVMPositionBuilderAtEnd(self.builder, thunk_entry);
+
+        // Get args struct pointer (first parameter)
+        const args_param = llvm.c.LLVMGetParam(thunk_func, 0);
+
+        // Load each argument from the struct
+        var call_args: [16]llvm.Value = undefined;
+        for (0..arg_count) |i| {
+            const idx = llvm.c.LLVMConstInt(llvm.c.LLVMInt32TypeInContext(self.context), 0, 0);
+            const field_idx = llvm.c.LLVMConstInt(llvm.c.LLVMInt32TypeInContext(self.context), @intCast(i), 0);
+            var indices = [_]llvm.Value{ idx, field_idx };
+            const field_ptr = llvm.c.LLVMBuildGEP2(
+                self.builder,
+                args_struct_type,
+                args_param,
+                &indices,
+                2,
+                "arg_load_ptr",
+            );
+            call_args[i] = llvm.c.LLVMBuildLoad2(self.builder, arg_types[i], field_ptr, "arg");
+        }
+
+        // Call the target function with unpacked arguments
+        const target_func_type = llvm.c.LLVMGlobalGetValueType(target_func);
+        const call_result = llvm.c.LLVMBuildCall2(
+            self.builder,
+            target_func_type,
+            target_func,
+            @ptrCast(&call_args),
+            @intCast(arg_count),
+            "result",
+        );
+
+        // Convert result to i64 for TaskFn signature
+        const target_ret_type = llvm.c.LLVMGetReturnType(target_func_type);
+        const target_ret_kind = llvm.c.LLVMGetTypeKind(target_ret_type);
+
+        const return_val = if (target_ret_kind == llvm.c.LLVMVoidTypeKind)
+            llvm.c.LLVMConstInt(i64_type, 0, 0)
+        else if (target_ret_kind == llvm.c.LLVMIntegerTypeKind)
+            llvm.c.LLVMBuildSExt(self.builder, call_result, i64_type, "sext")
+        else
+            llvm.c.LLVMConstInt(i64_type, 0, 0);
+
+        _ = llvm.c.LLVMBuildRet(self.builder, return_val);
+
+        // Restore insert point
+        llvm.c.LLVMPositionBuilderAtEnd(self.builder, saved_block);
+        self.current_function = saved_func;
+
+        // Call janus_nursery_spawn(thunk, args_ptr)
+        const spawn_fn = self.getOrDeclareExternFn(
+            "janus_nursery_spawn",
+            i32_type,
+            &[_]llvm.Type{ ptr_type, ptr_type },
+        );
+
+        var spawn_args = [_]llvm.Value{ thunk_func, args_alloca };
         const spawn_result = llvm.c.LLVMBuildCall2(
             self.builder,
             llvm.c.LLVMGlobalGetValueType(spawn_fn),
             spawn_fn,
             &spawn_args,
-            1,
+            2,
             "spawn_result",
         );
 
-        // Map spawn result for potential use
         try self.values.put(node.id, spawn_result);
     }
 

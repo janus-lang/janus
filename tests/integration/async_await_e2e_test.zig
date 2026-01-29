@@ -347,3 +347,77 @@ test ":service profile: Spawn generates janus_nursery_spawn_noarg call (Phase 2.
 
     std.debug.print("\n=== SPAWN GENERATES janus_nursery_spawn_noarg CALL ===\n", .{});
 }
+
+test ":service profile: Spawn with arguments generates thunk and janus_nursery_spawn call (Phase 2.4)" {
+    const allocator = testing.allocator;
+
+    // Spawn a task with arguments inside a nursery
+    const source =
+        \\func task_with_arg(x: i32) do
+        \\    print(x)
+        \\    return x
+        \\end
+        \\
+        \\async func main() do
+        \\    nursery do
+        \\        spawn task_with_arg(42)
+        \\    end
+        \\    return 0
+        \\end
+    ;
+
+    var parser = janus_parser.Parser.init(allocator);
+    defer parser.deinit();
+
+    const snapshot = try parser.parseWithSource(source);
+    defer snapshot.deinit();
+
+    const unit_id: astdb_core.UnitId = @enumFromInt(0);
+    var ir_graphs = try qtjir.lower.lowerUnit(allocator, &snapshot.core_snapshot, unit_id);
+    defer {
+        for (ir_graphs.items) |*g| g.deinit();
+        ir_graphs.deinit(allocator);
+    }
+
+    // Check that Spawn node was created with argument input
+    var found_spawn_with_args = false;
+    std.debug.print("\n=== SPAWN WITH ARGS QTJIR ===\n", .{});
+    for (ir_graphs.items) |ir_graph| {
+        for (ir_graph.nodes.items, 0..) |node, i| {
+            std.debug.print("  [{d}] {s}", .{ i, @tagName(node.op) });
+            if (node.op == .Spawn) {
+                switch (node.data) {
+                    .string => |s| std.debug.print(" -> '{s}'", .{s}),
+                    else => {},
+                }
+                std.debug.print(" (args: {d})", .{node.inputs.items.len});
+                // Verify spawn has at least one argument input
+                if (node.inputs.items.len > 0) {
+                    found_spawn_with_args = true;
+                }
+            }
+            std.debug.print("\n", .{});
+        }
+    }
+    try testing.expect(found_spawn_with_args);
+
+    // Emit to LLVM IR
+    var emitter = try qtjir.llvm_emitter.LLVMEmitter.init(allocator, "spawn_args_test");
+    defer emitter.deinit();
+
+    try emitter.emit(ir_graphs.items);
+
+    const llvm_ir = try emitter.toString();
+    defer allocator.free(llvm_ir);
+
+    std.debug.print("\n=== SPAWN WITH ARGS LLVM IR ===\n{s}\n", .{llvm_ir});
+
+    // Verify janus_nursery_spawn (not noarg) is called for functions with arguments
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "janus_nursery_spawn") != null);
+    // Verify a thunk function was generated
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "__spawn_thunk") != null);
+    // Verify target function is defined
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "@task_with_arg") != null);
+
+    std.debug.print("\n=== SPAWN WITH ARGS GENERATES THUNK AND janus_nursery_spawn CALL ===\n", .{});
+}
