@@ -6,8 +6,8 @@
 
 const std = @import("std");
 const testing = std.testing;
-const astdb_core = @import("../../compiler/libjanus/astdb/core.zig");
-const janus_parser = @import("../../compiler/libjanus/passes/janus_parser.zig");
+const astdb_core = @import("astdb_core");
+const janus_parser = @import("janus_parser");
 
 test "async function declaration parses" {
     const allocator = testing.allocator;
@@ -18,7 +18,10 @@ test "async function declaration parses" {
         \\end
     ;
 
-    var snapshot = try janus_parser.parse(allocator, source);
+    var parser = janus_parser.Parser.init(allocator);
+    defer parser.deinit();
+
+    const snapshot = try parser.parseWithSource(source);
     defer snapshot.deinit();
 
     // Verify we got nodes
@@ -27,7 +30,7 @@ test "async function declaration parses" {
     // Find async function declaration node
     var found_async_func = false;
     for (0..snapshot.core_snapshot.nodeCount()) |i| {
-        const node_id = astdb_core.NodeId{ .value = @intCast(i) };
+        const node_id: astdb_core.NodeId = @enumFromInt(i);
         if (snapshot.core_snapshot.getNode(node_id)) |node| {
             if (node.kind == .async_func_decl) {
                 found_async_func = true;
@@ -49,7 +52,10 @@ test "await expression parses" {
         \\end
     ;
 
-    var snapshot = try janus_parser.parse(allocator, source);
+    var parser = janus_parser.Parser.init(allocator);
+    defer parser.deinit();
+
+    const snapshot = try parser.parseWithSource(source);
     defer snapshot.deinit();
 
     // Verify we got nodes
@@ -58,7 +64,7 @@ test "await expression parses" {
     // Find await expression node
     var found_await = false;
     for (0..snapshot.core_snapshot.nodeCount()) |i| {
-        const node_id = astdb_core.NodeId{ .value = @intCast(i) };
+        const node_id: astdb_core.NodeId = @enumFromInt(i);
         if (snapshot.core_snapshot.getNode(node_id)) |node| {
             if (node.kind == .await_expr) {
                 found_await = true;
@@ -79,7 +85,10 @@ test "regular function still works" {
         \\end
     ;
 
-    var snapshot = try janus_parser.parse(allocator, source);
+    var parser = janus_parser.Parser.init(allocator);
+    defer parser.deinit();
+
+    const snapshot = try parser.parseWithSource(source);
     defer snapshot.deinit();
 
     // Verify we got nodes
@@ -89,7 +98,7 @@ test "regular function still works" {
     var found_regular_func = false;
     var found_async_func = false;
     for (0..snapshot.core_snapshot.nodeCount()) |i| {
-        const node_id = astdb_core.NodeId{ .value = @intCast(i) };
+        const node_id: astdb_core.NodeId = @enumFromInt(i);
         if (snapshot.core_snapshot.getNode(node_id)) |node| {
             if (node.kind == .func_decl) {
                 found_regular_func = true;

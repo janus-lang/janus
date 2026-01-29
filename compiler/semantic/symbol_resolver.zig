@@ -169,7 +169,8 @@ pub const SymbolResolver = struct {
         const node = self.getNode(node_id);
 
         switch (node.kind) {
-            .func_decl => try self.collectFunctionDeclaration(node_id),
+            .func_decl => try self.collectFunctionDeclaration(node_id, false),
+            .async_func_decl => try self.collectFunctionDeclaration(node_id, true), // :service profile
             .struct_decl => try self.collectStructDeclaration(node_id),
             .enum_decl => try self.collectEnumDeclaration(node_id),
             .error_decl => try self.collectErrorDeclaration(node_id),
@@ -205,7 +206,10 @@ pub const SymbolResolver = struct {
     }
 
     /// Collect function declaration
-    fn collectFunctionDeclaration(self: *SymbolResolver, node_id: NodeId) !void {
+    fn collectFunctionDeclaration(self: *SymbolResolver, node_id: NodeId, is_async: bool) !void {
+        // TODO: Pass is_async flag to type inference so FunctionInfo can be created with correct async flag
+        _ = is_async;
+
         const children = self.getNodeChildren(node_id);
         if (children.len == 0) return;
 
@@ -559,6 +563,7 @@ pub const SymbolResolver = struct {
 
             // Scoped constructs - manage scope stack
             .func_decl => try self.walkScopedReferences(node_id, .function),
+            .async_func_decl => try self.walkScopedReferences(node_id, .function), // :service profile
             .struct_decl => try self.walkScopedReferences(node_id, .struct_body),
             .enum_decl => try self.walkScopedReferences(node_id, .enum_body),
             .error_decl => try self.walkScopedReferences(node_id, .error_body),

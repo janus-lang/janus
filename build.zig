@@ -2433,6 +2433,24 @@ pub fn build(b: *std.Build) void {
     test_postfix_guards_step.dependOn(&run_postfix_guards_tests.step);
     test_step.dependOn(&run_postfix_guards_tests.step);
 
+    // Async/Await Basic Parser Tests (:service profile)
+    const async_basic_tests = b.addTest(.{
+        .name = "async_basic_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/async_basic_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    async_basic_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    async_basic_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    async_basic_tests.root_module.addImport("semantic", semantic_mod);
+    const run_async_basic_tests = b.addRunArtifact(async_basic_tests);
+
+    const test_async_basic_step = b.step("test-async-basic", "Run async/await basic parser tests");
+    test_async_basic_step.dependOn(&run_async_basic_tests.step);
+    test_step.dependOn(&run_async_basic_tests.step);
+
     // Postfix Guard Parser Unit Tests
     const postfix_guards_parser_tests = b.addTest(.{
         .name = "postfix_guards_parser_tests",
