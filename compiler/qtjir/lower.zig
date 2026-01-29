@@ -55,6 +55,10 @@ pub const LoweringContext = struct {
     // Defer Stack
     defer_stack: std.ArrayListUnmanaged(ScopeLayer),
 
+    // Nursery Stack - tracks active nursery scopes for structured concurrency
+    // Stores Nursery_Begin node IDs so we can emit Nursery_End before returns
+    nursery_stack: std.ArrayListUnmanaged(u32),
+
     // Loop depth counter (for break/continue patching)
     loop_depth: usize = 0,
 
@@ -120,6 +124,7 @@ pub const LoweringContext = struct {
             .node_map = std.AutoHashMap(NodeId, u32).init(allocator),
             .scope = ScopeTracker.init(allocator),
             .defer_stack = .{},
+            .nursery_stack = .{},
             .loop_depth = 0,
             .pending_breaks = .{},
             .pending_continues = .{},
@@ -189,6 +194,7 @@ pub const LoweringContext = struct {
             layer.actions.deinit(self.allocator);
         }
         self.defer_stack.deinit(self.allocator);
+        self.nursery_stack.deinit(self.allocator);
         self.pending_breaks.deinit(self.allocator);
         self.pending_continues.deinit(self.allocator);
         self.slice_nodes.deinit(self.allocator);
@@ -895,6 +901,17 @@ fn lowerStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) 
                         try node_def.inputs.append(ctx.allocator, arg);
                     }
                 }
+            }
+
+            // Emit Nursery_End for all active nurseries (structured concurrency cleanup)
+            // Must happen BEFORE return to ensure all spawned tasks complete
+            var n = ctx.nursery_stack.items.len;
+            while (n > 0) {
+                n -= 1;
+                const nursery_begin_id = ctx.nursery_stack.items[n];
+                const nursery_end_id = try ctx.builder.createNode(.Nursery_End);
+                var nursery_end_node = &ctx.builder.graph.nodes.items[nursery_end_id];
+                try nursery_end_node.inputs.append(ctx.allocator, nursery_begin_id);
             }
 
             // If function returns error union, wrap the value
@@ -3569,6 +3586,9 @@ fn lowerNurseryStatement(ctx: *LoweringContext, node_id: NodeId, node: *const As
     // Create Nursery_Begin node - marks start of structured concurrency scope
     const nursery_begin_id = try ctx.builder.createNode(.Nursery_Begin);
 
+    // Track this nursery on the stack so returns emit cleanup
+    try ctx.nursery_stack.append(ctx.allocator, nursery_begin_id);
+
     // Push a new scope layer for the nursery (for defer handling)
     try ctx.pushScope(.Block);
 
@@ -3581,6 +3601,9 @@ fn lowerNurseryStatement(ctx: *LoweringContext, node_id: NodeId, node: *const As
     // Pop scope and emit any defers
     var actions = try ctx.popScope();
     try ctx.emitDefersForScope(&actions);
+
+    // Pop nursery from stack (normal exit path)
+    _ = ctx.nursery_stack.pop();
 
     // Create Nursery_End node - waits for all spawned tasks to complete
     const nursery_end_id = try ctx.builder.createNode(.Nursery_End);
