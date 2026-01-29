@@ -1870,6 +1870,27 @@ pub fn build(b: *std.Build) void {
     test_compound_assignment_e2e_step.dependOn(&run_compound_assignment_e2e_tests.step);
     test_step.dependOn(&run_compound_assignment_e2e_tests.step);
 
+    // Async/Await End-to-End Integration Test (:service profile)
+    const async_await_e2e_tests = b.addTest(.{
+        .name = "async_await_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/async_await_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    async_await_e2e_tests.linkLibC();
+    async_await_e2e_tests.linkSystemLibrary("LLVM-21");
+    async_await_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    async_await_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    async_await_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    async_await_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_async_await_e2e_tests = b.addRunArtifact(async_await_e2e_tests);
+
+    const test_async_await_e2e_step = b.step("test-async-await-e2e", "Run Async/Await end-to-end integration test (:service profile)");
+    test_async_await_e2e_step.dependOn(&run_async_await_e2e_tests.step);
+    test_step.dependOn(&run_async_await_e2e_tests.step);
+
     // Binder tests (AST binding infrastructure)
     const binder_tests = b.addTest(.{
         .name = "binder_tests",

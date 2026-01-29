@@ -8,7 +8,9 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 > "The last programming language you need to learn."
 
 **Status:** Production-Ready — :core Profile Complete
+
 **License:** [Libertaria Suite](docs/legal/licensing-explained.md) (LCL-1.0 / LSL-1.0 / LUL-1.0)
+
 **Repository:** https://git.maiwald.work/Janus/janus-lang
 
 ---
@@ -68,7 +70,7 @@ Systems programming lost its way:
 *   **Python** — Easy but too slow for systems
 *   **C/C++** — Fast but unsafe, complex, memory leaks
 *   **Rust** — Safe but steep learning curve, slow iteration
-*   **Go** — Simple but hides too much, not for systems
+*   **Go** — Simple & procedural but hides too much, not for systems
 
 **Janus gives you all four virtues:**
 - **Easy** — Clean teaching syntax, progressive disclosure

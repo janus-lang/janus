@@ -207,17 +207,20 @@ pub const LLVMEmitter = struct {
         // Resolve deferred PHI incoming edges
         try self.resolveDeferredPhis();
 
-        // Add return statement
-        if (is_main) {
-            // main returns 0 (success)
-            const i32_type = llvm.int32TypeInContext(self.context);
-            const zero = llvm.constInt(i32_type, 0, false);
-            _ = llvm.buildRet(self.builder, zero);
-        } else {
-            // Check implicit return
-            if (ir_graph.nodes.items.len == 0 or
-                ir_graph.nodes.items[ir_graph.nodes.items.len - 1].op != .Return)
-            {
+        // Add return statement only if the current block doesn't already have a terminator
+        const current_block = llvm.c.LLVMGetInsertBlock(self.builder);
+        const existing_terminator = if (current_block != null)
+            llvm.c.LLVMGetBasicBlockTerminator(current_block)
+        else
+            null;
+
+        if (existing_terminator == null) {
+            if (is_main) {
+                // main returns 0 (success)
+                const i32_type = llvm.int32TypeInContext(self.context);
+                const zero = llvm.constInt(i32_type, 0, false);
+                _ = llvm.buildRet(self.builder, zero);
+            } else {
                 if (ret_type == llvm.voidTypeInContext(self.context)) {
                     _ = llvm.buildRetVoid(self.builder);
                 } else if (std.mem.eql(u8, ir_graph.return_type, "error_union")) {
@@ -286,6 +289,12 @@ pub const LLVMEmitter = struct {
             .Error_Union_Is_Error => try self.emitErrorUnionIsError(node),
             .Error_Union_Unwrap => try self.emitErrorUnionUnwrap(node),
             .Error_Union_Get_Error => try self.emitErrorUnionGetError(node),
+            // :service profile - Structured Concurrency (Blocking Model Phase 1)
+            .Await => try self.emitAwait(node),
+            .Spawn => try self.emitSpawn(node),
+            .Nursery_Begin => try self.emitNurseryBegin(node),
+            .Nursery_End => try self.emitNurseryEnd(node),
+            .Async_Call => try self.emitAsyncCall(node),
             // Tensor / Quantum (Placeholder)
             .Tensor_Contract => {
                 std.debug.print("Warning: Unimplemented Tensor_Contract\n", .{});
@@ -1768,5 +1777,153 @@ pub const LLVMEmitter = struct {
         const result = llvm.c.LLVMBuildTrunc(self.builder, error_val, i32_type, "error");
 
         try self.values.put(node.id, result);
+    }
+
+    // =========================================================================
+    // :service Profile - Structured Concurrency (Blocking Model Phase 1)
+    // =========================================================================
+    //
+    // Phase 1 implementation uses a BLOCKING MODEL where:
+    // - async func = regular function (no actual suspension)
+    // - await = pass-through (value already computed)
+    // - spawn = immediate call (no actual concurrent execution)
+    // - nursery = scope markers only
+    //
+    // This allows the full :service syntax to work end-to-end while
+    // maintaining correct semantics for single-threaded execution.
+    // Real concurrency will be added in Phase 2 using std.Thread or coroutines.
+    // =========================================================================
+
+    /// Emit Await: In blocking model, await just passes through the result
+    /// The awaited expression (Async_Call) already produced the value synchronously
+    fn emitAwait(self: *LLVMEmitter, node: *const IRNode) !void {
+        // Await takes one input: the result of an async operation (Async_Call/Spawn)
+        if (node.inputs.items.len < 1) {
+            // No input means void await - just a no-op
+            return;
+        }
+
+        // In blocking model, the async operation already completed and stored its result
+        // We just pass through that result
+        const awaited_value = self.values.get(node.inputs.items[0]) orelse {
+            // If no value exists, this might be a void-returning async call
+            return;
+        };
+
+        // Map this node's id to the awaited value
+        try self.values.put(node.id, awaited_value);
+    }
+
+    /// Emit Spawn: In blocking model, spawn calls the task immediately
+    /// The spawned expression is already lowered as a call node in the input
+    fn emitSpawn(self: *LLVMEmitter, node: *const IRNode) !void {
+        // Spawn takes one input: the result of calling the spawned function
+        if (node.inputs.items.len < 1) {
+            // Void spawn - just a no-op
+            return;
+        }
+
+        // In blocking model, the spawned function was already called during lowering
+        // We just record its result for potential later use (e.g., if nursery collects results)
+        const spawn_result = self.values.get(node.inputs.items[0]) orelse {
+            // Void-returning spawned function
+            return;
+        };
+
+        // Map this node's id to the spawn result
+        try self.values.put(node.id, spawn_result);
+    }
+
+    /// Emit Nursery_Begin: In blocking model, just a scope marker (no-op)
+    /// Future: Will initialize task registry and cancellation token
+    fn emitNurseryBegin(self: *LLVMEmitter, node: *const IRNode) !void {
+        _ = self;
+        _ = node;
+        // Blocking model: No runtime structures needed
+        // The nursery scope is handled at the QTJIR level for defer ordering
+        //
+        // TODO (Phase 2): Emit call to janus_rt_nursery_begin() to:
+        // - Allocate nursery context struct
+        // - Initialize task list
+        // - Set up cancellation token
+    }
+
+    /// Emit Nursery_End: In blocking model, just a scope marker (no-op)
+    /// Future: Will wait for all spawned tasks and handle cancellation
+    fn emitNurseryEnd(self: *LLVMEmitter, node: *const IRNode) !void {
+        _ = self;
+        _ = node;
+        // Blocking model: All spawned tasks already completed synchronously
+        //
+        // TODO (Phase 2): Emit call to janus_rt_nursery_end() to:
+        // - Wait for all tasks in the nursery to complete
+        // - Propagate first error (fail-fast)
+        // - Cancel remaining tasks on error
+        // - Clean up nursery context
+    }
+
+    /// Emit Async_Call: In blocking model, just emit a regular function call
+    /// The function executes synchronously and returns its result immediately
+    fn emitAsyncCall(self: *LLVMEmitter, node: *const IRNode) !void {
+        // Async_Call behaves exactly like a regular Call in blocking model
+        // The function name is stored in node.data.string
+        // Arguments are in node.inputs
+
+        const func_name = switch (node.data) {
+            .string => |s| s,
+            else => return error.InvalidAsyncCall,
+        };
+
+        // Check if it's a user-defined function (starts with "user_")
+        if (std.mem.startsWith(u8, func_name, "user_")) {
+            // User-defined function - emit direct call
+            try self.emitUserAsyncCall(node, func_name);
+        } else {
+            // Intrinsic or extern function - emit as regular call
+            // For now, just treat it like a regular Call
+            try self.emitCall(node);
+        }
+    }
+
+    /// Helper: Emit call to user-defined async function
+    fn emitUserAsyncCall(self: *LLVMEmitter, node: *const IRNode, func_name: []const u8) !void {
+        // Get the function from the module
+        const func_name_z = try self.allocator.dupeZ(u8, func_name);
+        defer self.allocator.free(func_name_z);
+
+        const func = llvm.c.LLVMGetNamedFunction(self.module, func_name_z.ptr);
+        if (func == null) {
+            std.debug.print("Warning: Async function not found: {s}\n", .{func_name});
+            return error.FunctionNotFound;
+        }
+
+        // Get the function type
+        const func_type = llvm.c.LLVMGlobalGetValueType(func);
+
+        // Build argument list
+        var args: std.ArrayList(llvm.Value) = .empty;
+        defer args.deinit(self.allocator);
+
+        for (node.inputs.items) |input_id| {
+            if (self.values.get(input_id)) |val| {
+                try args.append(self.allocator, val);
+            }
+        }
+
+        // Emit the call
+        const result = llvm.c.LLVMBuildCall2(
+            self.builder,
+            func_type,
+            func,
+            args.items.ptr,
+            @intCast(args.items.len),
+            "async_call",
+        );
+
+        // Store the result if the function returns a value
+        const return_type = llvm.c.LLVMGetReturnType(func_type);
+        if (llvm.c.LLVMGetTypeKind(return_type) != llvm.c.LLVMVoidTypeKind) {
+            try self.values.put(node.id, result);
+        }
     }
 };
