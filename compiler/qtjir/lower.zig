@@ -256,6 +256,26 @@ pub fn lowerUnitWithExterns(allocator: std.mem.Allocator, snapshot: *const Snaps
 /// Lower a compilation unit to QTJIR
 /// For now, this assumes a single main function and returns its graph
 pub fn lowerUnit(allocator: std.mem.Allocator, snapshot: *const Snapshot, unit_id: UnitId) !std.ArrayListUnmanaged(QTJIRGraph) {
+    // ========== PROFILE VALIDATION (:core) ==========
+    // Validate AST against :core profile restrictions BEFORE lowering
+    // This ensures forbidden features are caught at compile time
+    const semantic = @import("semantic");
+    var validator = try semantic.CoreProfileValidator.init(allocator);
+    defer validator.deinit();
+
+    var validation_result = try validator.validateProgram(@constCast(snapshot.astdb), unit_id);
+    defer validation_result.deinit();
+
+    if (!validation_result.is_valid) {
+        std.debug.print("\n=== :core Profile Validation Failed ===\n", .{});
+        for (validation_result.errors.items) |err| {
+            std.debug.print("Error E{d:0>4}: {s}\n", .{ @intFromEnum(err.kind), err.message });
+            std.debug.print("  at line {d}, column {d}\n", .{ err.span.start_line, err.span.start_column });
+        }
+        return error.ProfileViolation;
+    }
+    // ===============================================
+
     var graphs = std.ArrayListUnmanaged(QTJIRGraph){};
     errdefer {
         for (graphs.items) |*g| g.deinit();

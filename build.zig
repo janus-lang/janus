@@ -203,6 +203,7 @@ pub fn build(b: *std.Build) void {
     qtjir_mod.addImport("astdb_core", astdb_core_mod);
     qtjir_mod.addImport("janus_parser", libjanus_parser_mod);
     qtjir_mod.addImport("zig_parser", zig_parser_mod);
+    qtjir_mod.addImport("semantic", semantic_mod);
     qtjir_mod.addOptions("compiler_options", compiler_options);
 
     // Add qtjir to libjanus for core_profile_codegen
