@@ -203,6 +203,7 @@ pub fn build(b: *std.Build) void {
     qtjir_mod.addImport("astdb_core", astdb_core_mod);
     qtjir_mod.addImport("janus_parser", libjanus_parser_mod);
     qtjir_mod.addImport("zig_parser", zig_parser_mod);
+    qtjir_mod.addImport("semantic", semantic_mod);
     qtjir_mod.addOptions("compiler_options", compiler_options);
 
     // Add qtjir to libjanus for core_profile_codegen
@@ -1648,6 +1649,27 @@ pub fn build(b: *std.Build) void {
     const test_for_loop_e2e_step = b.step("test-for-loop-e2e", "Run For Loop end-to-end integration test");
     test_for_loop_e2e_step.dependOn(&run_for_loop_e2e_tests.step);
     test_step.dependOn(&run_for_loop_e2e_tests.step);
+
+    // Add Range Operators End-to-End Integration Test (:core profile P0)
+    const range_operators_e2e_tests = b.addTest(.{
+        .name = "range_operators_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/range_operators_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    range_operators_e2e_tests.linkLibC();
+    range_operators_e2e_tests.linkSystemLibrary("LLVM-21");
+    range_operators_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    range_operators_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    range_operators_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    range_operators_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_range_operators_e2e_tests = b.addRunArtifact(range_operators_e2e_tests);
+
+    const test_range_operators_e2e_step = b.step("test-range-operators-e2e", "Run Range Operators end-to-end integration test");
+    test_range_operators_e2e_step.dependOn(&run_range_operators_e2e_tests.step);
+    test_step.dependOn(&run_range_operators_e2e_tests.step);
 
     // Add If/Else End-to-End Integration Test (Epic 1.6)
     const if_else_e2e_tests = b.addTest(.{

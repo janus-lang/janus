@@ -33,6 +33,7 @@ pub const CID = ids.CID;
 pub const interner = @import("astdb/granite_interner.zig");
 pub const StrInterner = interner.StrInterner;
 pub const Snapshot = snapshot.Snapshot;
+pub const CompilationUnit = snapshot.CompilationUnit;
 pub const NodeKind = snapshot.AstNode.NodeKind;
 pub const NodeRow = snapshot.AstNode; // AstNode is the row type
 pub const AstNode = snapshot.AstNode; // Compatibility alias
