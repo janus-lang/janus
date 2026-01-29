@@ -224,6 +224,13 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Janus Runtime module - for tests that directly use Channel, etc.
+    const janus_rt_mod = b.addModule("janus_rt", .{
+        .root_source_file = b.path("runtime/janus_rt.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const rogue_ast_checker = b.addExecutable(.{
         .name = "check_rogue_ast",
         .root_module = b.createModule(.{
@@ -1890,6 +1897,23 @@ pub fn build(b: *std.Build) void {
     const test_async_await_e2e_step = b.step("test-async-await-e2e", "Run Async/Await end-to-end integration test (:service profile)");
     test_async_await_e2e_step.dependOn(&run_async_await_e2e_tests.step);
     test_step.dependOn(&run_async_await_e2e_tests.step);
+
+    // Channel Integration Tests - Phase 3 (:service profile)
+    const channel_tests = b.addTest(.{
+        .name = "channel_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/channel_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    channel_tests.linkLibC();
+    channel_tests.root_module.addImport("janus_rt", janus_rt_mod);
+    const run_channel_tests = b.addRunArtifact(channel_tests);
+
+    const test_channels_step = b.step("test-channels", "Run Channel integration tests (:service profile Phase 3)");
+    test_channels_step.dependOn(&run_channel_tests.step);
+    test_step.dependOn(&run_channel_tests.step);
 
     // Binder tests (AST binding infrastructure)
     const binder_tests = b.addTest(.{
