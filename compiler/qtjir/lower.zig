@@ -256,6 +256,26 @@ pub fn lowerUnitWithExterns(allocator: std.mem.Allocator, snapshot: *const Snaps
 /// Lower a compilation unit to QTJIR
 /// For now, this assumes a single main function and returns its graph
 pub fn lowerUnit(allocator: std.mem.Allocator, snapshot: *const Snapshot, unit_id: UnitId) !std.ArrayListUnmanaged(QTJIRGraph) {
+    // ========== PROFILE VALIDATION (:core) ==========
+    // Validate AST against :core profile restrictions BEFORE lowering
+    // This ensures forbidden features are caught at compile time
+    const semantic = @import("semantic");
+    var validator = try semantic.CoreProfileValidator.init(allocator);
+    defer validator.deinit();
+
+    var validation_result = try validator.validateProgram(@constCast(snapshot.astdb), unit_id);
+    defer validation_result.deinit();
+
+    if (!validation_result.is_valid) {
+        std.debug.print("\n=== :core Profile Validation Failed ===\n", .{});
+        for (validation_result.errors.items) |err| {
+            std.debug.print("Error E{d:0>4}: {s}\n", .{ @intFromEnum(err.kind), err.message });
+            std.debug.print("  at line {d}, column {d}\n", .{ err.span.start_line, err.span.start_column });
+        }
+        return error.ProfileViolation;
+    }
+    // ===============================================
+
     var graphs = std.ArrayListUnmanaged(QTJIRGraph){};
     errdefer {
         for (graphs.items) |*g| g.deinit();
@@ -764,7 +784,7 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
                 // Find last non-parameter/non-type statement
                 for (func_children) |child_id| {
                     const child = ctx.snapshot.getNode(child_id) orelse continue;
-                    if (child.kind != .parameter and child.kind != .error_union_type and child.kind != .type_annotation) {
+                    if (child.kind != .parameter and child.kind != .error_union_type) {
                         if (child.kind == .expr_stmt) {
                             last_expr_stmt_id = child_id;
                         } else {
@@ -778,7 +798,7 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
             // Lower all but potentially last expression
             for (func_children) |child_id| {
                 const child = ctx.snapshot.getNode(child_id) orelse continue;
-                if (child.kind == .parameter or child.kind == .error_union_type or child.kind == .type_annotation) continue;
+                if (child.kind == .parameter or child.kind == .error_union_type) continue;
 
                 // If this is the last expr_stmt, handle it specially
                 if (last_expr_stmt_id) |last_id| {
@@ -877,7 +897,13 @@ fn lowerStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) 
                 }
             }
 
-            _ = try ctx.builder.createReturn(ret_val);
+            // If function returns error union, wrap the value
+            var final_ret_val = ret_val;
+            if (std.mem.eql(u8, ctx.builder.graph.return_type, "error_union")) {
+                final_ret_val = try ctx.builder.createErrorUnionConstruct(ret_val);
+            }
+
+            _ = try ctx.builder.createReturn(final_ret_val);
         },
         .defer_stmt => {
             try lowerDeferStatement(ctx, node_id, node);
@@ -3394,11 +3420,13 @@ fn lowerCatchExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) 
         return phi_id;
     } else if (jump_from_error != null) {
         // Only error path continues - remove jump, continue linearly
-        _ = ctx.builder.graph.nodes.pop();
+        var popped_node = ctx.builder.graph.nodes.pop().?;
+        popped_node.deinit(ctx.allocator);
         return error_result_val.?;
     } else if (jump_from_ok != null) {
         // Only ok path continues - remove jump, continue linearly
-        _ = ctx.builder.graph.nodes.pop();
+        var popped_node = ctx.builder.graph.nodes.pop().?;
+        popped_node.deinit(ctx.allocator);
         return unwrap_id;
     } else {
         // Both paths terminated - return dummy

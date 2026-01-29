@@ -24,6 +24,8 @@ pub const SourceSpan = astdb.SourceSpan;
 pub const NodeId = astdb.NodeId;
 pub const DeclId = astdb.DeclId;
 pub const AstNode = astdb.AstNode;
+pub const AstDB = astdb.AstDB;
+pub const CompilationUnit = astdb.CompilationUnit;
 // Re-export core ASTDB types
 const core_astdb = @import("astdb_core");
 pub const CoreSnapshot = core_astdb.Snapshot;

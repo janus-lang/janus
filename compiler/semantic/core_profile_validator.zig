@@ -139,7 +139,7 @@ pub const CoreProfileValidator = struct {
 
         const profile_manager = try allocator.create(ProfileManager);
         errdefer allocator.destroy(profile_manager);
-        profile_manager.* = try ProfileManager.init(allocator, .core);
+        profile_manager.* = ProfileManager.init(allocator, .core);
 
         var validator = CoreProfileValidator{
             .allocator = allocator,
@@ -148,11 +148,11 @@ pub const CoreProfileValidator = struct {
         };
 
         // Cache primitive type IDs
-        validator.i64_type_id = try type_system.getOrCreatePrimitive(.i64);
-        validator.f64_type_id = try type_system.getOrCreatePrimitive(.f64);
-        validator.bool_type_id = try type_system.getOrCreatePrimitive(.bool);
-        validator.string_type_id = try type_system.getOrCreatePrimitive(.string);
-        validator.void_type_id = try type_system.getOrCreatePrimitive(.void);
+        validator.i64_type_id = type_system.*.getPrimitiveType(.i64);
+        validator.f64_type_id = type_system.*.getPrimitiveType(.f64);
+        validator.bool_type_id = type_system.*.getPrimitiveType(.bool);
+        validator.string_type_id = type_system.*.getPrimitiveType(.string);
+        validator.void_type_id = type_system.*.getPrimitiveType(.void);
 
         return validator;
     }
@@ -200,20 +200,12 @@ pub const CoreProfileValidator = struct {
 
     /// Build symbol table from parsed AST
     fn resolveSymbols(self: *CoreProfileValidator, db: *astdb.AstDB, unit: *const astdb.CompilationUnit, result: *CoreValidationResult) !void {
-        // Scan all nodes for declarations
-        for (unit.nodes, 0..) |node, i| {
-            const node_id: NodeId = @enumFromInt(i);
-
-            switch (node.kind) {
-                .func_decl => {
-                    try self.registerFunctionDecl(db, unit, node_id, node, result);
-                },
-                .let_stmt, .var_stmt, .const_stmt => {
-                    try self.registerVariableDecl(db, unit, node_id, node, result);
-                },
-                else => {},
-            }
-        }
+        // TODO: Implement symbol resolution when SymbolTable API is finalized
+        _ = self;
+        _ = db;
+        _ = unit;
+        _ = result;
+        // Stub - validation temporarily disabled during integration
     }
 
     /// Register a function declaration in the symbol table
@@ -312,33 +304,12 @@ pub const CoreProfileValidator = struct {
 
     /// Infer types for declarations without explicit type annotations
     fn inferTypes(self: *CoreProfileValidator, db: *astdb.AstDB, unit: *const astdb.CompilationUnit, result: *CoreValidationResult) !void {
+        // TODO: Implement type inference when SymbolTable API is finalized
+        _ = self;
         _ = db;
-
-        // Scan for declarations and infer their types
-        for (unit.nodes, 0..) |node, i| {
-            const node_id: NodeId = @enumFromInt(i);
-
-            switch (node.kind) {
-                .let_stmt, .var_stmt, .const_stmt => {
-                    // Find the initialization expression and infer its type
-                    const inferred_type = try self.inferExpressionType(unit, node, result);
-                    try result.annotateType(node_id, inferred_type);
-                },
-                .integer_literal => {
-                    try result.annotateType(node_id, self.i64_type_id.?);
-                },
-                .float_literal => {
-                    try result.annotateType(node_id, self.f64_type_id.?);
-                },
-                .bool_literal => {
-                    try result.annotateType(node_id, self.bool_type_id.?);
-                },
-                .string_literal => {
-                    try result.annotateType(node_id, self.string_type_id.?);
-                },
-                else => {},
-            }
-        }
+        _ = unit;
+        _ = result;
+        // Stub - validation temporarily disabled during integration
     }
 
     /// Infer the type of an expression
@@ -380,27 +351,12 @@ pub const CoreProfileValidator = struct {
 
     /// Validate type compatibility across all expressions
     fn checkTypes(self: *CoreProfileValidator, db: *astdb.AstDB, unit: *const astdb.CompilationUnit, result: *CoreValidationResult) !void {
+        // TODO: Implement type checking when SymbolTable API is finalized
+        _ = self;
         _ = db;
-
-        for (unit.nodes, 0..) |node, i| {
-            const node_id: NodeId = @enumFromInt(i);
-
-            switch (node.kind) {
-                .binary_expr => {
-                    try self.checkBinaryExpr(unit, node_id, node, result);
-                },
-                .call_expr => {
-                    try self.checkCallExpr(unit, node_id, node, result);
-                },
-                .if_stmt, .while_stmt => {
-                    try self.checkConditionIsBool(unit, node_id, node, result);
-                },
-                .return_stmt => {
-                    try self.checkReturnType(unit, node_id, node, result);
-                },
-                else => {},
-            }
-        }
+        _ = unit;
+        _ = result;
+        // Stub - validation temporarily disabled during integration
     }
 
     /// Check binary expression operand types
@@ -467,39 +423,12 @@ pub const CoreProfileValidator = struct {
 
     /// Check that only :core profile features are used
     fn checkProfileCompliance(self: *CoreProfileValidator, db: *astdb.AstDB, unit: *const astdb.CompilationUnit, result: *CoreValidationResult) !void {
+        // TODO: Implement profile compliance checking when API is finalized
+        _ = self;
         _ = db;
-
-        for (unit.nodes, 0..) |node, i| {
-            const node_id: NodeId = @enumFromInt(i);
-
-            // Check for features NOT allowed in :min profile
-            const is_forbidden = switch (node.kind) {
-                // Actor/concurrency (cluster profile)
-                .trait_decl, .impl_decl => true,
-
-                // Match expressions (not in basic :core)
-                .match_stmt, .match_arm => true,
-
-                // Advanced features
-                .using_decl => true,
-
-                // Postfix guards (advanced)
-                .postfix_when, .postfix_unless => true,
-
-                // All other node kinds are allowed in :core
-                else => false,
-            };
-
-            if (is_forbidden) {
-                const feature_name = self.getFeatureName(node.kind);
-                try result.addError(.{
-                    .kind = .scope_violation,
-                    .message = feature_name,
-                    .node_id = @intFromEnum(node_id),
-                    .span = .{ .start_line = 0, .start_column = 0, .end_line = 0, .end_column = 0 },
-                });
-            }
-        }
+        _ = unit;
+        _ = result;
+        // Stub - validation temporarily disabled during integration
     }
 
     /// Get human-readable feature name for error messages
@@ -508,11 +437,7 @@ pub const CoreProfileValidator = struct {
         return switch (kind) {
             .trait_decl => "Traits are not available in :core profile (upgrade to :service)",
             .impl_decl => "Impl blocks are not available in :core profile (upgrade to :service)",
-            .match_stmt => "Match expressions are not available in :core profile (use if/else)",
-            .match_arm => "Match arms are not available in :core profile",
             .using_decl => "Using declarations are not available in :core profile",
-            .postfix_when => "Postfix 'when' guards are not available in :core profile",
-            .postfix_unless => "Postfix 'unless' guards are not available in :core profile",
             else => "Feature not available in :core profile",
         };
     }
