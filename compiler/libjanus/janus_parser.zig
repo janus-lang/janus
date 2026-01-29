@@ -464,6 +464,12 @@ fn convertTokenType(janus_type: tokenizer.TokenType) TokenKind {
         .await_ => .await_,
         .nursery_ => .nursery_,
         .spawn_ => .spawn_,
+        .select_ => .select_,
+        .timeout_ => .timeout_,
+
+        // :go profile - case/default (also used in select)
+        .kw_case => .case,
+        .kw_default => .default_,
 
         // Literals
         .identifier => .identifier,
@@ -1669,6 +1675,12 @@ fn parseBlockStatements(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
             const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
             try parser.nodes.append(parser.allocator, nursery_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
+        } else if (parser.match(.select_)) {
+            // :service profile - Handle select do ... end (CSP multi-channel wait)
+            const select_stmt = try parseSelectStatement(parser, nodes);
+            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
+            try parser.nodes.append(parser.allocator, select_stmt);
+            try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
         } else if (parser.match(.break_)) {
             // Handle break statement
             const break_token: astdb_core.TokenId = @enumFromInt(parser.current);
@@ -2242,6 +2254,287 @@ fn parseNurseryStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.
 
     return astdb_core.AstNode{
         .kind = .nursery_stmt,
+        .first_token = @enumFromInt(start_token),
+        .last_token = @enumFromInt(parser.current - 1),
+        .child_lo = child_lo,
+        .child_hi = child_hi,
+    };
+}
+
+/// Parse a select statement: select do case ... end (:service profile)
+/// CSP-style multi-channel wait with support for recv, send, timeout, and default cases.
+///
+/// Syntax:
+///   select do
+///       case msg = ch.recv() do ... end
+///       case ch.send(value) do ... end
+///       case timeout(duration) do ... end
+///       default do ... end
+///   end
+fn parseSelectStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) error{ UnexpectedToken, OutOfMemory }!astdb_core.AstNode {
+    const start_token = parser.current;
+    _ = try parser.consume(.select_);
+
+    // Expect 'do' or '{'
+    if (parser.match(.do_)) {
+        _ = parser.advance();
+    } else if (parser.match(.left_brace)) {
+        _ = parser.advance();
+    } else {
+        return error.UnexpectedToken;
+    }
+
+    // Parse cases
+    var case_children = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 4);
+    defer case_children.deinit(parser.allocator);
+
+    while (!parser.match(.end) and !parser.match(.right_brace) and !parser.match(.eof)) {
+        // Skip newlines
+        if (parser.match(.newline)) {
+            _ = parser.advance();
+            continue;
+        }
+        if (parser.match(.case)) {
+            // Parse case: case expr do ... end
+            const case_node = try parseSelectCase(parser, nodes);
+            const case_idx = @as(u32, @intCast(parser.nodes.items.len));
+            try parser.nodes.append(parser.allocator, case_node);
+            try case_children.append(parser.allocator, @enumFromInt(case_idx));
+        } else if (parser.match(.timeout_)) {
+            // Parse timeout case: timeout(duration) do ... end
+            const timeout_node = try parseSelectTimeout(parser, nodes);
+            const timeout_idx = @as(u32, @intCast(parser.nodes.items.len));
+            try parser.nodes.append(parser.allocator, timeout_node);
+            try case_children.append(parser.allocator, @enumFromInt(timeout_idx));
+        } else if (parser.match(.default_)) {
+            // Parse default case: default do ... end
+            const default_node = try parseSelectDefault(parser, nodes);
+            const default_idx = @as(u32, @intCast(parser.nodes.items.len));
+            try parser.nodes.append(parser.allocator, default_node);
+            try case_children.append(parser.allocator, @enumFromInt(default_idx));
+        } else {
+            // Unexpected token in select body
+            return error.UnexpectedToken;
+        }
+    }
+
+    // Consume closing 'end' or '}'
+    if (parser.match(.end)) {
+        _ = parser.advance();
+    } else if (parser.match(.right_brace)) {
+        _ = parser.advance();
+    } else {
+        return error.UnexpectedToken;
+    }
+
+    // Commit edges
+    const child_lo = @as(u32, @intCast(parser.edges.items.len));
+    try parser.edges.appendSlice(parser.allocator, case_children.items);
+    const child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+    return astdb_core.AstNode{
+        .kind = .select_stmt,
+        .first_token = @enumFromInt(start_token),
+        .last_token = @enumFromInt(parser.current - 1),
+        .child_lo = child_lo,
+        .child_hi = child_hi,
+    };
+}
+
+/// Parse a select case: case [var =] expr do ... end
+fn parseSelectCase(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) error{ UnexpectedToken, OutOfMemory }!astdb_core.AstNode {
+    const start_token = parser.current;
+    _ = try parser.consume(.case);
+
+    var case_children = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 2);
+    defer case_children.deinit(parser.allocator);
+
+    // Parse case condition: either "var = expr" or just "expr"
+    const condition_expr = try parseExpression(parser, nodes, .none);
+    const condition_idx = @as(u32, @intCast(parser.nodes.items.len));
+    try parser.nodes.append(parser.allocator, condition_expr);
+    try case_children.append(parser.allocator, @enumFromInt(condition_idx));
+
+    // Expect 'do' or '{'
+    if (parser.match(.do_)) {
+        _ = parser.advance();
+    } else if (parser.match(.left_brace)) {
+        _ = parser.advance();
+    } else {
+        return error.UnexpectedToken;
+    }
+
+    // Parse body
+    var body_stmts = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 0);
+    defer body_stmts.deinit(parser.allocator);
+    try parseBlockStatements(parser, nodes, &body_stmts);
+
+    // Create body block node
+    const body_child_lo = @as(u32, @intCast(parser.edges.items.len));
+    try parser.edges.appendSlice(parser.allocator, body_stmts.items);
+    const body_child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+    const body_node = astdb_core.AstNode{
+        .kind = .block_stmt,
+        .first_token = condition_expr.last_token,
+        .last_token = @enumFromInt(parser.current - 1),
+        .child_lo = body_child_lo,
+        .child_hi = body_child_hi,
+    };
+    const body_idx = @as(u32, @intCast(parser.nodes.items.len));
+    try parser.nodes.append(parser.allocator, body_node);
+    try case_children.append(parser.allocator, @enumFromInt(body_idx));
+
+    // Consume closing 'end' or '}'
+    if (parser.match(.end)) {
+        _ = parser.advance();
+    } else if (parser.match(.right_brace)) {
+        _ = parser.advance();
+    } else {
+        return error.UnexpectedToken;
+    }
+
+    // Commit edges
+    const child_lo = @as(u32, @intCast(parser.edges.items.len));
+    try parser.edges.appendSlice(parser.allocator, case_children.items);
+    const child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+    return astdb_core.AstNode{
+        .kind = .select_case,
+        .first_token = @enumFromInt(start_token),
+        .last_token = @enumFromInt(parser.current - 1),
+        .child_lo = child_lo,
+        .child_hi = child_hi,
+    };
+}
+
+/// Parse a select timeout case: timeout(duration) do ... end
+fn parseSelectTimeout(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) error{ UnexpectedToken, OutOfMemory }!astdb_core.AstNode {
+    const start_token = parser.current;
+    _ = try parser.consume(.timeout_);
+
+    var case_children = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 2);
+    defer case_children.deinit(parser.allocator);
+
+    // Expect '('
+    _ = try parser.consume(.left_paren);
+
+    // Parse duration expression
+    const duration_expr = try parseExpression(parser, nodes, .none);
+    const duration_idx = @as(u32, @intCast(parser.nodes.items.len));
+    try parser.nodes.append(parser.allocator, duration_expr);
+    try case_children.append(parser.allocator, @enumFromInt(duration_idx));
+
+    // Expect ')'
+    _ = try parser.consume(.right_paren);
+
+    // Expect 'do' or '{'
+    if (parser.match(.do_)) {
+        _ = parser.advance();
+    } else if (parser.match(.left_brace)) {
+        _ = parser.advance();
+    } else {
+        return error.UnexpectedToken;
+    }
+
+    // Parse body
+    var body_stmts = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 0);
+    defer body_stmts.deinit(parser.allocator);
+    try parseBlockStatements(parser, nodes, &body_stmts);
+
+    // Create body block node
+    const body_child_lo = @as(u32, @intCast(parser.edges.items.len));
+    try parser.edges.appendSlice(parser.allocator, body_stmts.items);
+    const body_child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+    const body_node = astdb_core.AstNode{
+        .kind = .block_stmt,
+        .first_token = duration_expr.last_token,
+        .last_token = @enumFromInt(parser.current - 1),
+        .child_lo = body_child_lo,
+        .child_hi = body_child_hi,
+    };
+    const body_idx = @as(u32, @intCast(parser.nodes.items.len));
+    try parser.nodes.append(parser.allocator, body_node);
+    try case_children.append(parser.allocator, @enumFromInt(body_idx));
+
+    // Consume closing 'end' or '}'
+    if (parser.match(.end)) {
+        _ = parser.advance();
+    } else if (parser.match(.right_brace)) {
+        _ = parser.advance();
+    } else {
+        return error.UnexpectedToken;
+    }
+
+    // Commit edges
+    const child_lo = @as(u32, @intCast(parser.edges.items.len));
+    try parser.edges.appendSlice(parser.allocator, case_children.items);
+    const child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+    return astdb_core.AstNode{
+        .kind = .select_timeout,
+        .first_token = @enumFromInt(start_token),
+        .last_token = @enumFromInt(parser.current - 1),
+        .child_lo = child_lo,
+        .child_hi = child_hi,
+    };
+}
+
+/// Parse a select default case: default do ... end
+fn parseSelectDefault(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) error{ UnexpectedToken, OutOfMemory }!astdb_core.AstNode {
+    const start_token = parser.current;
+    _ = try parser.consume(.default_);
+
+    var case_children = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 1);
+    defer case_children.deinit(parser.allocator);
+
+    // Expect 'do' or '{'
+    if (parser.match(.do_)) {
+        _ = parser.advance();
+    } else if (parser.match(.left_brace)) {
+        _ = parser.advance();
+    } else {
+        return error.UnexpectedToken;
+    }
+
+    // Parse body
+    var body_stmts = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 0);
+    defer body_stmts.deinit(parser.allocator);
+    try parseBlockStatements(parser, nodes, &body_stmts);
+
+    // Create body block node
+    const body_child_lo = @as(u32, @intCast(parser.edges.items.len));
+    try parser.edges.appendSlice(parser.allocator, body_stmts.items);
+    const body_child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+    const body_node = astdb_core.AstNode{
+        .kind = .block_stmt,
+        .first_token = @enumFromInt(start_token + 1),
+        .last_token = @enumFromInt(parser.current - 1),
+        .child_lo = body_child_lo,
+        .child_hi = body_child_hi,
+    };
+    const body_idx = @as(u32, @intCast(parser.nodes.items.len));
+    try parser.nodes.append(parser.allocator, body_node);
+    try case_children.append(parser.allocator, @enumFromInt(body_idx));
+
+    // Consume closing 'end' or '}'
+    if (parser.match(.end)) {
+        _ = parser.advance();
+    } else if (parser.match(.right_brace)) {
+        _ = parser.advance();
+    } else {
+        return error.UnexpectedToken;
+    }
+
+    // Commit edges
+    const child_lo = @as(u32, @intCast(parser.edges.items.len));
+    try parser.edges.appendSlice(parser.allocator, case_children.items);
+    const child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+    return astdb_core.AstNode{
+        .kind = .select_default,
         .first_token = @enumFromInt(start_token),
         .last_token = @enumFromInt(parser.current - 1),
         .child_lo = child_lo,

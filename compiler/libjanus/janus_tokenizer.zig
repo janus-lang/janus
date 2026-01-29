@@ -79,6 +79,8 @@ pub const TokenType = enum {
     await_, // await expr - wait for async result
     nursery_, // nursery { } - structured concurrency scope
     spawn_, // spawn task - launch concurrent task
+    select_, // select { } - CSP multi-channel wait
+    timeout_, // timeout(duration) - select timeout case
 
     // Error handling keywords (:core profile)
     error_, // error ErrorType { Variant } - error type declaration
@@ -805,6 +807,8 @@ pub const Tokenizer = struct {
             .{ "await", .await_ },
             .{ "nursery", .nursery_ },
             .{ "spawn", .spawn_ },
+            .{ "select", .select_ },
+            .{ "timeout", .timeout_ },
         });
 
         return keywords.get(text) orelse .identifier;

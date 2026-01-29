@@ -1038,3 +1038,302 @@ pub export fn janus_channel_len_i64(handle: ?*anyopaque) callconv(.c) i32 {
     const ch: *ChannelI64 = @ptrCast(@alignCast(handle.?));
     return @intCast(ch.len());
 }
+
+// ============================================================================
+// Select API - Phase 4: CSP-style Multi-Channel Wait
+// ============================================================================
+//
+// Select enables waiting on multiple channel operations simultaneously.
+// Semantics match Go's select:
+// - Multiple cases: first ready case is chosen
+// - Default case: non-blocking, chosen if no other case ready
+// - Timeout case: chosen after specified duration
+//
+// Implementation: Polling with exponential backoff
+// Future optimization: Use proper condition variable waiting
+
+/// Maximum number of cases in a select statement
+const MAX_SELECT_CASES = 16;
+
+/// Select case types
+pub const SelectCaseType = enum(i32) {
+    recv = 0,
+    send = 1,
+    timeout = 2,
+    default = 3,
+};
+
+/// Select case descriptor
+pub const SelectCase = struct {
+    case_type: SelectCaseType,
+    channel: ?*ChannelI64, // null for timeout/default
+    value: i64, // value to send, or storage for received value
+    timeout_ns: u64, // timeout in nanoseconds (for timeout case)
+    ready: bool, // set to true when case completes
+};
+
+/// Select context - manages multiple cases
+pub const SelectContext = struct {
+    cases: [MAX_SELECT_CASES]SelectCase,
+    case_count: usize,
+    has_default: bool,
+    has_timeout: bool,
+    timeout_deadline: u64, // absolute deadline in nanoseconds
+    allocator: std.mem.Allocator,
+
+    fn init(allocator: std.mem.Allocator) SelectContext {
+        return SelectContext{
+            .cases = undefined,
+            .case_count = 0,
+            .has_default = false,
+            .has_timeout = false,
+            .timeout_deadline = 0,
+            .allocator = allocator,
+        };
+    }
+
+    /// Add a receive case
+    fn addRecv(self: *SelectContext, channel: ?*anyopaque) i32 {
+        if (self.case_count >= MAX_SELECT_CASES) return -1;
+        if (channel == null) return -1;
+
+        self.cases[self.case_count] = SelectCase{
+            .case_type = .recv,
+            .channel = @ptrCast(@alignCast(channel.?)),
+            .value = 0,
+            .timeout_ns = 0,
+            .ready = false,
+        };
+        const idx: i32 = @intCast(self.case_count);
+        self.case_count += 1;
+        return idx;
+    }
+
+    /// Add a send case
+    fn addSend(self: *SelectContext, channel: ?*anyopaque, value: i64) i32 {
+        if (self.case_count >= MAX_SELECT_CASES) return -1;
+        if (channel == null) return -1;
+
+        self.cases[self.case_count] = SelectCase{
+            .case_type = .send,
+            .channel = @ptrCast(@alignCast(channel.?)),
+            .value = value,
+            .timeout_ns = 0,
+            .ready = false,
+        };
+        const idx: i32 = @intCast(self.case_count);
+        self.case_count += 1;
+        return idx;
+    }
+
+    /// Add a timeout case
+    fn addTimeout(self: *SelectContext, timeout_ms: i64) i32 {
+        if (self.case_count >= MAX_SELECT_CASES) return -1;
+
+        const timeout_ns: u64 = if (timeout_ms < 0) 0 else @as(u64, @intCast(timeout_ms)) * 1_000_000;
+
+        self.cases[self.case_count] = SelectCase{
+            .case_type = .timeout,
+            .channel = null,
+            .value = 0,
+            .timeout_ns = timeout_ns,
+            .ready = false,
+        };
+        const idx: i32 = @intCast(self.case_count);
+        self.case_count += 1;
+        self.has_timeout = true;
+        return idx;
+    }
+
+    /// Add a default case
+    fn addDefault(self: *SelectContext) i32 {
+        if (self.case_count >= MAX_SELECT_CASES) return -1;
+
+        self.cases[self.case_count] = SelectCase{
+            .case_type = .default,
+            .channel = null,
+            .value = 0,
+            .timeout_ns = 0,
+            .ready = false,
+        };
+        const idx: i32 = @intCast(self.case_count);
+        self.case_count += 1;
+        self.has_default = true;
+        return idx;
+    }
+
+    /// Wait for one case to become ready
+    /// Returns the index of the ready case, or -1 on error
+    fn wait(self: *SelectContext) i32 {
+        // Record start time for timeout handling
+        const start_time = std.time.nanoTimestamp();
+
+        // Find maximum timeout and set deadline
+        var max_timeout_ns: u64 = 0;
+        for (self.cases[0..self.case_count]) |c| {
+            if (c.case_type == .timeout and c.timeout_ns > max_timeout_ns) {
+                max_timeout_ns = c.timeout_ns;
+            }
+        }
+        if (self.has_timeout) {
+            self.timeout_deadline = @as(u64, @intCast(start_time)) + max_timeout_ns;
+        }
+
+        // Polling loop with exponential backoff
+        var sleep_ns: u64 = 1000; // Start at 1 microsecond
+        const max_sleep_ns: u64 = 10_000_000; // Cap at 10ms
+
+        while (true) {
+            // Check each case
+            for (self.cases[0..self.case_count], 0..) |*c, i| {
+                switch (c.case_type) {
+                    .recv => {
+                        if (c.channel) |ch| {
+                            const maybe_value = ch.tryRecv() catch {
+                                // Channel closed - mark ready with error indication
+                                c.ready = true;
+                                c.value = std.math.minInt(i64);
+                                return @intCast(i);
+                            };
+                            if (maybe_value) |v| {
+                                c.ready = true;
+                                c.value = v;
+                                return @intCast(i);
+                            }
+                        }
+                    },
+                    .send => {
+                        if (c.channel) |ch| {
+                            const sent = ch.trySend(c.value) catch {
+                                // Channel closed - mark as error
+                                c.ready = true;
+                                return @intCast(i);
+                            };
+                            if (sent) {
+                                c.ready = true;
+                                return @intCast(i);
+                            }
+                        }
+                    },
+                    .timeout => {
+                        const now: u64 = @intCast(std.time.nanoTimestamp());
+                        const elapsed = now -| @as(u64, @intCast(start_time));
+                        if (elapsed >= c.timeout_ns) {
+                            c.ready = true;
+                            return @intCast(i);
+                        }
+                    },
+                    .default => {
+                        // Default is only taken if no other case is immediately ready
+                        // We do one pass first, then take default
+                    },
+                }
+            }
+
+            // If we have a default case and no other case was ready, take default
+            if (self.has_default) {
+                for (self.cases[0..self.case_count], 0..) |*c, i| {
+                    if (c.case_type == .default) {
+                        c.ready = true;
+                        return @intCast(i);
+                    }
+                }
+            }
+
+            // Check timeout deadline
+            if (self.has_timeout) {
+                const now: u64 = @intCast(std.time.nanoTimestamp());
+                if (now >= self.timeout_deadline) {
+                    // Find and return timeout case
+                    for (self.cases[0..self.case_count], 0..) |*c, i| {
+                        if (c.case_type == .timeout) {
+                            c.ready = true;
+                            return @intCast(i);
+                        }
+                    }
+                }
+            }
+
+            // Sleep with exponential backoff
+            std.Thread.sleep(sleep_ns);
+            sleep_ns = @min(sleep_ns * 2, max_sleep_ns);
+        }
+    }
+
+    /// Get received value from a completed recv case
+    fn getRecvValue(self: *SelectContext, case_index: i32) i64 {
+        if (case_index < 0 or @as(usize, @intCast(case_index)) >= self.case_count) {
+            return 0;
+        }
+        return self.cases[@intCast(case_index)].value;
+    }
+};
+
+// ============================================================================
+// C-Compatible Select Exports (for LLVM interop)
+// ============================================================================
+
+/// Create a new select context
+/// Returns opaque handle, or null on allocation failure
+pub export fn janus_select_create() callconv(.c) ?*anyopaque {
+    const allocator = gpa.allocator();
+    const ctx = allocator.create(SelectContext) catch return null;
+    ctx.* = SelectContext.init(allocator);
+    return @ptrCast(ctx);
+}
+
+/// Destroy a select context
+pub export fn janus_select_destroy(handle: ?*anyopaque) callconv(.c) void {
+    if (handle) |h| {
+        const ctx: *SelectContext = @ptrCast(@alignCast(h));
+        ctx.allocator.destroy(ctx);
+    }
+}
+
+/// Add a receive case to select
+/// Returns case index (0-based), or -1 on error
+pub export fn janus_select_add_recv(handle: ?*anyopaque, channel: ?*anyopaque) callconv(.c) i32 {
+    if (handle == null) return -1;
+    const ctx: *SelectContext = @ptrCast(@alignCast(handle.?));
+    return ctx.addRecv(channel);
+}
+
+/// Add a send case to select
+/// Returns case index (0-based), or -1 on error
+pub export fn janus_select_add_send(handle: ?*anyopaque, channel: ?*anyopaque, value: i64) callconv(.c) i32 {
+    if (handle == null) return -1;
+    const ctx: *SelectContext = @ptrCast(@alignCast(handle.?));
+    return ctx.addSend(channel, value);
+}
+
+/// Add a timeout case to select (in milliseconds)
+/// Returns case index (0-based), or -1 on error
+pub export fn janus_select_add_timeout(handle: ?*anyopaque, timeout_ms: i64) callconv(.c) i32 {
+    if (handle == null) return -1;
+    const ctx: *SelectContext = @ptrCast(@alignCast(handle.?));
+    return ctx.addTimeout(timeout_ms);
+}
+
+/// Add a default case to select
+/// Returns case index (0-based), or -1 on error
+pub export fn janus_select_add_default(handle: ?*anyopaque) callconv(.c) i32 {
+    if (handle == null) return -1;
+    const ctx: *SelectContext = @ptrCast(@alignCast(handle.?));
+    return ctx.addDefault();
+}
+
+/// Wait for one case to become ready
+/// Returns the index of the ready case (0-based), or -1 on error
+pub export fn janus_select_wait(handle: ?*anyopaque) callconv(.c) i32 {
+    if (handle == null) return -1;
+    const ctx: *SelectContext = @ptrCast(@alignCast(handle.?));
+    return ctx.wait();
+}
+
+/// Get the received value from a completed recv case
+/// Only valid after janus_select_wait returns the recv case index
+pub export fn janus_select_get_recv_value(handle: ?*anyopaque, case_index: i32) callconv(.c) i64 {
+    if (handle == null) return 0;
+    const ctx: *SelectContext = @ptrCast(@alignCast(handle.?));
+    return ctx.getRecvValue(case_index);
+}
