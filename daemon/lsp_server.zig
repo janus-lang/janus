@@ -698,6 +698,8 @@ pub fn LspServer(comptime Reader: type, comptime Writer: type) type {
                         .type_alias => .Interface,
                         .struct_type => .Struct,
                         .enum_type => .Enum,
+                        .error_type => .Class,
+                        .error_variant => .EnumMember,
                     };
                     try items.append(self.allocator, .{
                         .label = try self.allocator.dupe(u8, name),
