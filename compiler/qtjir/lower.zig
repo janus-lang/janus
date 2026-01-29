@@ -956,6 +956,10 @@ fn lowerStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) 
             try lowerNurseryStatement(ctx, node_id, node);
         },
 
+        .select_stmt => {
+            try lowerSelectStatement(ctx, node_id, node);
+        },
+
         else => {},
     }
 }
@@ -1939,6 +1943,11 @@ fn lowerFieldCall(
             return tensor_node_id;
         }
 
+        // :service profile - Channel method calls
+        if (isChannelMethod(full_path)) {
+            return try lowerChannelMethod(ctx, full_path, callee_id, children);
+        }
+
         // Generic field call - extract just the function name (last component)
         // For module-qualified calls like mathlib.add, use just "add" since
         // at LLVM level there are no namespaces - functions are global symbols
@@ -1948,6 +1957,100 @@ fn lowerFieldCall(
             full_path;
         trace.dumpContext("lowerFieldCall", "Using function name: '{s}'", .{func_name});
         return try lowerUserFunctionCall(ctx, func_name, children);
+    }
+
+    return error.UnsupportedCall;
+}
+
+// --- CHANNEL HELPERS ---
+
+/// Check if a field path is a channel method call
+fn isChannelMethod(path: []const u8) bool {
+    // Check if path ends with .send, .recv, .close, etc.
+    return std.mem.endsWith(u8, path, ".send") or
+        std.mem.endsWith(u8, path, ".recv") or
+        std.mem.endsWith(u8, path, ".close") or
+        std.mem.endsWith(u8, path, ".tryRecv") or
+        std.mem.endsWith(u8, path, ".trySend") or
+        std.mem.endsWith(u8, path, ".isClosed");
+}
+
+/// Lower a channel method call to QTJIR
+fn lowerChannelMethod(
+    ctx: *LoweringContext,
+    full_path: []const u8,
+    callee_id: NodeId,
+    children: []const NodeId,
+) !u32 {
+    const scope = trace.trace("lowerChannelMethod", "");
+    defer scope.end();
+
+    // Extract method name (last component after dot)
+    const method_name = if (std.mem.lastIndexOfScalar(u8, full_path, '.')) |dot_idx|
+        full_path[dot_idx + 1 ..]
+    else
+        return error.UnsupportedCall;
+
+    // Get the channel object (left side of dot)
+    const callee_node = ctx.snapshot.getNode(callee_id) orelse return error.InvalidNode;
+    if (callee_node.kind != .field_expr) return error.UnsupportedCall;
+
+    const field_children = ctx.snapshot.getChildren(callee_id);
+    if (field_children.len != 2) return error.UnsupportedCall;
+
+    const channel_id = field_children[0];
+    const channel_node = ctx.snapshot.getNode(channel_id) orelse return error.InvalidNode;
+    const channel_val = try lowerExpression(ctx, channel_id, channel_node);
+
+    // Dispatch based on method name
+    if (std.mem.eql(u8, method_name, "send")) {
+        // ch.send(value) - args: [callee, value]
+        if (children.len < 2) return error.InvalidCall;
+        const value_id = children[1];
+        const value_node = ctx.snapshot.getNode(value_id) orelse return error.InvalidNode;
+        const value_val = try lowerExpression(ctx, value_id, value_node);
+
+        const send_id = try ctx.builder.createNode(.Channel_Send);
+        var send_node = &ctx.builder.graph.nodes.items[send_id];
+        try send_node.inputs.append(ctx.allocator, channel_val);
+        try send_node.inputs.append(ctx.allocator, value_val);
+        return send_id;
+    } else if (std.mem.eql(u8, method_name, "recv")) {
+        // ch.recv() - args: [callee]
+        const recv_id = try ctx.builder.createNode(.Channel_Recv);
+        var recv_node = &ctx.builder.graph.nodes.items[recv_id];
+        try recv_node.inputs.append(ctx.allocator, channel_val);
+        return recv_id;
+    } else if (std.mem.eql(u8, method_name, "close")) {
+        // ch.close() - args: [callee]
+        const close_id = try ctx.builder.createNode(.Channel_Close);
+        var close_node = &ctx.builder.graph.nodes.items[close_id];
+        try close_node.inputs.append(ctx.allocator, channel_val);
+        return close_id;
+    } else if (std.mem.eql(u8, method_name, "tryRecv")) {
+        // ch.tryRecv() - args: [callee]
+        const try_recv_id = try ctx.builder.createNode(.Channel_TryRecv);
+        var try_recv_node = &ctx.builder.graph.nodes.items[try_recv_id];
+        try_recv_node.inputs.append(ctx.allocator, channel_val) catch {};
+        return try_recv_id;
+    } else if (std.mem.eql(u8, method_name, "trySend")) {
+        // ch.trySend(value) - args: [callee, value]
+        if (children.len < 2) return error.InvalidCall;
+        const value_id = children[1];
+        const value_node = ctx.snapshot.getNode(value_id) orelse return error.InvalidNode;
+        const value_val = try lowerExpression(ctx, value_id, value_node);
+
+        const try_send_id = try ctx.builder.createNode(.Channel_TrySend);
+        var try_send_node = &ctx.builder.graph.nodes.items[try_send_id];
+        try try_send_node.inputs.append(ctx.allocator, channel_val);
+        try try_send_node.inputs.append(ctx.allocator, value_val);
+        return try_send_id;
+    } else if (std.mem.eql(u8, method_name, "isClosed")) {
+        // ch.isClosed() - args: [callee]
+        const is_closed_id = try ctx.builder.createNode(.Channel_IsClosed);
+        var is_closed_node = &ctx.builder.graph.nodes.items[is_closed_id];
+        try is_closed_node.inputs.append(ctx.allocator, channel_val);
+        return is_closed_id;
     }
 
     return error.UnsupportedCall;
@@ -3647,4 +3750,201 @@ fn lowerNurseryStatement(ctx: *LoweringContext, node_id: NodeId, node: *const As
     var nursery_end_node = &ctx.builder.graph.nodes.items[nursery_end_id];
     // Link back to the begin node for scope tracking
     try nursery_end_node.inputs.append(ctx.allocator, nursery_begin_id);
+}
+
+/// Lower select statement to QTJIR
+/// select do
+///   case ch.recv() do ... end
+///   case ch.send(value) do ... end
+///   timeout(ms) do ... end
+///   default do ... end
+/// end
+fn lowerSelectStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
+    _ = node;
+    const children = ctx.snapshot.getChildren(node_id);
+
+    // Create Select_Begin node - creates select context
+    const select_begin_id = try ctx.builder.createNode(.Select_Begin);
+
+    // Process each case and build select context
+    var case_indices = std.ArrayListUnmanaged(u32){};
+    defer case_indices.deinit(ctx.allocator);
+
+    for (children) |child_id| {
+        const child_node = ctx.snapshot.getNode(child_id) orelse continue;
+
+        switch (child_node.kind) {
+            .select_case => {
+                const case_idx = try lowerSelectCase(ctx, child_id, child_node, select_begin_id);
+                try case_indices.append(ctx.allocator, case_idx);
+            },
+            .select_timeout => {
+                const case_idx = try lowerSelectTimeout(ctx, child_id, child_node, select_begin_id);
+                try case_indices.append(ctx.allocator, case_idx);
+            },
+            .select_default => {
+                const case_idx = try lowerSelectDefault(ctx, child_id, child_node, select_begin_id);
+                try case_indices.append(ctx.allocator, case_idx);
+            },
+            else => {},
+        }
+    }
+
+    // Create Select_Wait node - waits for one case to be ready
+    // Returns the case index that became ready
+    const wait_id = try ctx.builder.createNode(.Select_Wait);
+    var wait_node = &ctx.builder.graph.nodes.items[wait_id];
+    try wait_node.inputs.append(ctx.allocator, select_begin_id);
+
+    // Create branches for each case based on the returned index
+    // This will be a switch-like structure in LLVM
+    // For now, we'll create a simpler linear check structure
+
+    // Create end label for select statement
+    const end_label_id = try ctx.builder.createNode(.Label);
+
+    // For each case, create: if (wait_result == case_index) goto case_body
+    for (case_indices.items, 0..) |_, i| {
+        const case_label_id = try ctx.builder.createNode(.Label);
+
+        // Create comparison: wait_result == i
+        const index_const_id = try ctx.builder.createConstant(.{ .integer = @intCast(i) });
+        const cmp_id = try ctx.builder.createNode(.Equal);
+        var cmp_node = &ctx.builder.graph.nodes.items[cmp_id];
+        try cmp_node.inputs.append(ctx.allocator, wait_id);
+        try cmp_node.inputs.append(ctx.allocator, index_const_id);
+
+        // Create conditional branch
+        const branch_id = try ctx.builder.createNode(.Branch);
+        var branch_node = &ctx.builder.graph.nodes.items[branch_id];
+        try branch_node.inputs.append(ctx.allocator, cmp_id);
+        try branch_node.inputs.append(ctx.allocator, case_label_id);
+
+        // Create next check label for fall-through
+        const next_label_id = if (i < case_indices.items.len - 1)
+            try ctx.builder.createNode(.Label)
+        else
+            end_label_id;
+        try branch_node.inputs.append(ctx.allocator, next_label_id);
+
+        // Lower the case body at case_label
+        const child_id = children[i];
+        _ = ctx.snapshot.getNode(child_id) orelse continue;
+        const case_children = ctx.snapshot.getChildren(child_id);
+
+        // Case body is the last child (after condition/timeout/default marker)
+        if (case_children.len > 0) {
+            const body_id = case_children[case_children.len - 1];
+            const body_node = ctx.snapshot.getNode(body_id) orelse continue;
+            try lowerStatement(ctx, body_id, body_node);
+        }
+
+        // Jump to end after case body
+        const jump_id = try ctx.builder.createNode(.Jump);
+        var jump_node = &ctx.builder.graph.nodes.items[jump_id];
+        try jump_node.inputs.append(ctx.allocator, end_label_id);
+    }
+
+    // Create Select_End node - cleanup select context
+    const select_end_id = try ctx.builder.createNode(.Select_End);
+    var select_end_node = &ctx.builder.graph.nodes.items[select_end_id];
+    try select_end_node.inputs.append(ctx.allocator, select_begin_id);
+}
+
+/// Lower a select recv/send case
+fn lowerSelectCase(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode, select_begin_id: u32) LowerError!u32 {
+    _ = node;
+    const children = ctx.snapshot.getChildren(node_id);
+    if (children.len < 1) return error.InvalidNode;
+
+    // First child is the condition expression (ch.recv() or ch.send(value))
+    const condition_id = children[0];
+    const condition_node = ctx.snapshot.getNode(condition_id) orelse return error.InvalidNode;
+
+    // Check if this is a recv or send by examining the call
+    if (condition_node.kind == .call_expr) {
+        const call_children = ctx.snapshot.getChildren(condition_id);
+        if (call_children.len > 0) {
+            const callee_id = call_children[0];
+            const callee_node = ctx.snapshot.getNode(callee_id) orelse return error.InvalidNode;
+
+            if (callee_node.kind == .field_expr) {
+                const field_children = ctx.snapshot.getChildren(callee_id);
+                if (field_children.len == 2) {
+                    // Get channel and method name
+                    const channel_id = field_children[0];
+                    const method_id = field_children[1];
+                    const method_node = ctx.snapshot.getNode(method_id) orelse return error.InvalidNode;
+
+                    if (method_node.kind == .identifier) {
+                        const method_token = ctx.snapshot.getToken(method_node.first_token) orelse return error.InvalidNode;
+                        const method_name = if (method_token.str) |str_id|
+                            ctx.snapshot.astdb.str_interner.getString(str_id)
+                        else
+                            return error.InvalidNode;
+
+                        // Lower the channel expression
+                        const channel_node = ctx.snapshot.getNode(channel_id) orelse return error.InvalidNode;
+                        const channel_val = try lowerExpression(ctx, channel_id, channel_node);
+
+                        if (std.mem.eql(u8, method_name, "recv")) {
+                            // Add recv case to select
+                            const add_recv_id = try ctx.builder.createNode(.Select_Add_Recv);
+                            var add_recv_node = &ctx.builder.graph.nodes.items[add_recv_id];
+                            try add_recv_node.inputs.append(ctx.allocator, select_begin_id);
+                            try add_recv_node.inputs.append(ctx.allocator, channel_val);
+                            return add_recv_id;
+                        } else if (std.mem.eql(u8, method_name, "send")) {
+                            // Add send case to select
+                            // Get the value to send (first argument after callee)
+                            if (call_children.len < 2) return error.InvalidNode;
+                            const value_id = call_children[1];
+                            const value_node = ctx.snapshot.getNode(value_id) orelse return error.InvalidNode;
+                            const value_val = try lowerExpression(ctx, value_id, value_node);
+
+                            const add_send_id = try ctx.builder.createNode(.Select_Add_Send);
+                            var add_send_node = &ctx.builder.graph.nodes.items[add_send_id];
+                            try add_send_node.inputs.append(ctx.allocator, select_begin_id);
+                            try add_send_node.inputs.append(ctx.allocator, channel_val);
+                            try add_send_node.inputs.append(ctx.allocator, value_val);
+                            return add_send_id;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return error.UnsupportedCall;
+}
+
+/// Lower a select timeout case
+fn lowerSelectTimeout(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode, select_begin_id: u32) LowerError!u32 {
+    _ = node;
+    const children = ctx.snapshot.getChildren(node_id);
+    if (children.len < 1) return error.InvalidNode;
+
+    // First child is the timeout duration expression
+    const duration_id = children[0];
+    const duration_node = ctx.snapshot.getNode(duration_id) orelse return error.InvalidNode;
+    const duration_val = try lowerExpression(ctx, duration_id, duration_node);
+
+    // Add timeout case to select
+    const add_timeout_id = try ctx.builder.createNode(.Select_Add_Timeout);
+    var add_timeout_node = &ctx.builder.graph.nodes.items[add_timeout_id];
+    try add_timeout_node.inputs.append(ctx.allocator, select_begin_id);
+    try add_timeout_node.inputs.append(ctx.allocator, duration_val);
+    return add_timeout_id;
+}
+
+/// Lower a select default case
+fn lowerSelectDefault(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode, select_begin_id: u32) LowerError!u32 {
+    _ = node;
+    _ = node_id;
+
+    // Add default case to select
+    const add_default_id = try ctx.builder.createNode(.Select_Add_Default);
+    var add_default_node = &ctx.builder.graph.nodes.items[add_default_id];
+    try add_default_node.inputs.append(ctx.allocator, select_begin_id);
+    return add_default_id;
 }

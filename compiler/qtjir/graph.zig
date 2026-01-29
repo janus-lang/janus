@@ -113,6 +113,25 @@ pub const OpCode = enum {
     Nursery_Begin, // Begin nursery scope (structured concurrency boundary)
     Nursery_End, // End nursery scope (waits for all spawned tasks)
     Async_Call, // Call async function (returns task handle)
+
+    // --- :service Profile - CSP Channels (Phase 3) ---
+    Channel_Create, // Create channel: Channel(T).init(capacity)
+    Channel_Send, // Blocking send: ch.send(value)
+    Channel_Recv, // Blocking receive: value = ch.recv()
+    Channel_Close, // Close channel: ch.close()
+    Channel_TryRecv, // Non-blocking receive: ch.tryRecv()
+    Channel_TrySend, // Non-blocking send: ch.trySend(value)
+    Channel_IsClosed, // Check if channel is closed: ch.isClosed()
+
+    // --- :service Profile - Select Statement (Phase 4) ---
+    Select_Begin, // Begin select statement (create select context)
+    Select_Add_Recv, // Add recv case to select
+    Select_Add_Send, // Add send case to select
+    Select_Add_Timeout, // Add timeout case to select
+    Select_Add_Default, // Add default case to select
+    Select_Wait, // Wait for one case to become ready (returns case index)
+    Select_Get_Value, // Get received value from completed recv case
+    Select_End, // End select statement (cleanup select context)
 };
 
 /// Data types supported by tensor operations
