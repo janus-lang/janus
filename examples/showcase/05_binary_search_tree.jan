@@ -1,0 +1,102 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Binary Search Tree
+//
+// Demonstrates:
+// - Struct types (data structures)
+// - Recursive algorithms
+// - Option types (nullable pointers)
+// - Memory-safe tree operations
+// - Classic CS data structure
+
+struct TreeNode do
+    value: i64
+    left: ?*TreeNode
+    right: ?*TreeNode
+end
+
+func create_node(value: i64, allocator: Allocator) -> *TreeNode do
+    let node = try allocator.create(TreeNode)
+    node.value = value
+    node.left = null
+    node.right = null
+    return node
+end
+
+func insert(root: ?*TreeNode, value: i64, allocator: Allocator) -> *TreeNode do
+    if root == null do
+        return create_node(value, allocator)
+    end
+
+    if value < root.?.value do
+        root.?.left = insert(root.?.left, value, allocator)
+    else if value > root.?.value do
+        root.?.right = insert(root.?.right, value, allocator)
+    end
+
+    return root.?
+end
+
+func inorder_traversal(node: ?*TreeNode) do
+    if node == null do
+        return
+    end
+
+    inorder_traversal(node.?.left)
+    print_int(node.?.value)
+    print(" ")
+    inorder_traversal(node.?.right)
+end
+
+func search(node: ?*TreeNode, value: i64) -> bool do
+    if node == null do
+        return false
+    end
+
+    if node.?.value == value do
+        return true
+    else if value < node.?.value do
+        return search(node.?.left, value)
+    else
+        return search(node.?.right, value)
+    end
+end
+
+func main() do
+    let allocator = std.heap.page_allocator
+
+    // Build a binary search tree
+    var root: ?*TreeNode = null
+
+    println("Building Binary Search Tree...")
+    root = insert(root, 50, allocator)
+    root = insert(root, 30, allocator)
+    root = insert(root, 70, allocator)
+    root = insert(root, 20, allocator)
+    root = insert(root, 40, allocator)
+    root = insert(root, 60, allocator)
+    root = insert(root, 80, allocator)
+
+    println("\nInorder Traversal (sorted):")
+    inorder_traversal(root)
+    println("")
+
+    // Search for values
+    println("\nSearching:")
+    print("Search 40: ")
+    if search(root, 40) do
+        println("Found!")
+    else
+        println("Not found")
+    end
+
+    print("Search 100: ")
+    if search(root, 100) do
+        println("Found!")
+    else
+        println("Not found")
+    end
+
+    println("\n✓ Memory-safe tree operations!")
+end
