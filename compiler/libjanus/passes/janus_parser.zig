@@ -593,8 +593,14 @@ fn parseCompilationUnit(parser: *ParserState) !void {
             const struct_index = @as(u32, @intCast(nodes.items.len));
             try nodes.append(struct_node);
             try top_level_declarations.append(struct_index);
+        } else if (parser.match(.async_)) {
+            // :service profile - async function declaration
+            const func_node = try parseFunctionDeclaration(parser, &nodes, true);
+            const func_index = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(func_node);
+            try top_level_declarations.append(func_index);
         } else if (parser.match(.func)) {
-            const func_node = try parseFunctionDeclaration(parser, &nodes);
+            const func_node = try parseFunctionDeclaration(parser, &nodes, false);
             const func_index = @as(u32, @intCast(nodes.items.len));
             try nodes.append(func_node);
             try top_level_declarations.append(func_index);
@@ -1272,8 +1278,8 @@ fn parseDeferStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.As
 }
 
 /// Parse a function declaration: func name() { }
-fn parseFunctionDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) !astdb_core.AstNode {
-    // Consume 'func' keyword
+fn parseFunctionDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode), is_async: bool) !astdb_core.AstNode {
+    // Consume 'func' keyword (async already consumed if is_async is true)
     var used_do_end = false;
     _ = try parser.consume(.func);
 
@@ -1395,7 +1401,7 @@ fn parseFunctionDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_co
 
     // Create function declaration node with proper child indices
     const func_node = astdb_core.AstNode{
-        .kind = .func_decl,
+        .kind = if (is_async) .async_func_decl else .func_decl,
         .first_token = @enumFromInt(if (has_name) name_token_index else 0),
         .last_token = @enumFromInt(parser.current - 1),
         .child_lo = child_lo,
@@ -1783,6 +1789,25 @@ fn parsePrimary(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode))
         std.debug.print("DEBUG parsePrimary: processing token kind={s} at position {}\n", .{ @tagName(token.kind), parser.current });
 
         switch (token.kind) {
+            .await_ => {
+                // :service profile - await expression
+                const await_token = parser.current;
+                _ = parser.advance(); // consume 'await'
+                const awaited_expr = try parseExpression(parser, nodes, .prefix);
+
+                // Store awaited expression as child
+                const child_lo = @as(u32, @intCast(nodes.items.len));
+                try nodes.append(awaited_expr);
+                const child_hi = @as(u32, @intCast(nodes.items.len));
+
+                return astdb_core.AstNode{
+                    .kind = .await_expr,
+                    .first_token = @enumFromInt(await_token),
+                    .last_token = @enumFromInt(parser.current - 1),
+                    .child_lo = child_lo,
+                    .child_hi = child_hi,
+                };
+            },
             .func => {
                 return try parseFunctionLiteral(parser, nodes);
             },
