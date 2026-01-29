@@ -729,8 +729,15 @@ fn parseCompilationUnit(parser: *ParserState) !void {
             const extern_index = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, extern_node);
             try top_level_declarations.append(parser.allocator, extern_index);
+        } else if (parser.match(.async_)) {
+            // :service profile - async function
+            _ = parser.advance(); // consume 'async'
+            const func_node = try parseFunctionDeclaration(parser, nodes, true);
+            const func_index = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, func_node);
+            try top_level_declarations.append(parser.allocator, func_index);
         } else if (parser.match(.func)) {
-            const func_node = try parseFunctionDeclaration(parser, nodes);
+            const func_node = try parseFunctionDeclaration(parser, nodes, false);
             const func_index = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, func_node);
             try top_level_declarations.append(parser.allocator, func_index);
@@ -2483,8 +2490,8 @@ fn parseTestDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
 }
 
 /// Parse a function declaration: func name() { }
-fn parseFunctionDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) !astdb_core.AstNode {
-    // Consume 'func' keyword
+fn parseFunctionDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode), is_async: bool) !astdb_core.AstNode {
+    // Consume 'func' keyword (async already consumed by caller if is_async)
     const start_token = parser.current;
     var used_do_end = false;
     _ = try parser.consume(.func);
@@ -2621,7 +2628,7 @@ fn parseFunctionDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_co
 
     // Create function declaration node with proper child indices
     const func_node = astdb_core.AstNode{
-        .kind = .func_decl,
+        .kind = if (is_async) .async_func_decl else .func_decl, // :service profile
         .first_token = @enumFromInt(start_token),
         .last_token = @enumFromInt(parser.current - 1),
         .child_lo = child_lo,
@@ -3661,6 +3668,24 @@ fn parsePrimary(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode))
                 // Assignment operator (=) - should not appear in primary expressions
                 // This indicates we're in a statement context, not expression context
                 return error.UnexpectedToken;
+            },
+            .await_ => {
+                // :service profile - await expression
+                const await_token = parser.current;
+                _ = parser.advance(); // consume 'await'
+                const awaited_expr = try parseExpression(parser, nodes, .unary);
+
+                const child_lo = @as(u32, @intCast(nodes.items.len));
+                try nodes.append(parser.allocator, awaited_expr);
+                const child_hi = @as(u32, @intCast(nodes.items.len));
+
+                return astdb_core.AstNode{
+                    .kind = .await_expr,
+                    .first_token = @enumFromInt(await_token),
+                    .last_token = awaited_expr.last_token,
+                    .child_lo = child_lo,
+                    .child_hi = child_hi,
+                };
             },
             else => return error.UnexpectedToken,
         }
