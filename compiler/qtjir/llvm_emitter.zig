@@ -1834,32 +1834,89 @@ pub const LLVMEmitter = struct {
         try self.values.put(node.id, spawn_result);
     }
 
-    /// Emit Nursery_Begin: In blocking model, just a scope marker (no-op)
-    /// Future: Will initialize task registry and cancellation token
+    /// Emit Nursery_Begin: Initialize nursery scope for structured concurrency
+    /// Phase 2: Calls janus_nursery_create() to set up task tracking
     fn emitNurseryBegin(self: *LLVMEmitter, node: *const IRNode) !void {
-        _ = self;
         _ = node;
-        // Blocking model: No runtime structures needed
-        // The nursery scope is handled at the QTJIR level for defer ordering
-        //
-        // TODO (Phase 2): Emit call to janus_rt_nursery_begin() to:
-        // - Allocate nursery context struct
-        // - Initialize task list
-        // - Set up cancellation token
+
+        // Check if current block is already terminated (e.g., by early return)
+        const current_block = llvm.c.LLVMGetInsertBlock(self.builder);
+        if (current_block != null) {
+            const terminator = llvm.c.LLVMGetBasicBlockTerminator(current_block);
+            if (terminator != null) return; // Block already terminated, skip
+        }
+
+        // Declare janus_nursery_create if not already declared
+        const create_fn = self.getOrDeclareExternFn(
+            "janus_nursery_create",
+            llvm.c.LLVMPointerTypeInContext(self.context, 0), // returns ptr (opaque nursery handle)
+            &[_]llvm.Type{}, // no params
+        );
+
+        // Call janus_nursery_create()
+        const nursery_handle = llvm.c.LLVMBuildCall2(
+            self.builder,
+            llvm.c.LLVMGlobalGetValueType(create_fn),
+            create_fn,
+            null,
+            0,
+            "nursery",
+        );
+
+        // Store nursery handle for potential use (e.g., passing to spawn)
+        // For now, we use thread-local stack in runtime, so handle is implicit
+        _ = nursery_handle;
     }
 
-    /// Emit Nursery_End: In blocking model, just a scope marker (no-op)
-    /// Future: Will wait for all spawned tasks and handle cancellation
+    /// Emit Nursery_End: Wait for all tasks and cleanup
+    /// Phase 2: Calls janus_nursery_await_all() to join all spawned tasks
     fn emitNurseryEnd(self: *LLVMEmitter, node: *const IRNode) !void {
-        _ = self;
         _ = node;
-        // Blocking model: All spawned tasks already completed synchronously
-        //
-        // TODO (Phase 2): Emit call to janus_rt_nursery_end() to:
-        // - Wait for all tasks in the nursery to complete
-        // - Propagate first error (fail-fast)
-        // - Cancel remaining tasks on error
-        // - Clean up nursery context
+
+        // Check if current block is already terminated (e.g., by early return)
+        const current_block = llvm.c.LLVMGetInsertBlock(self.builder);
+        if (current_block != null) {
+            const terminator = llvm.c.LLVMGetBasicBlockTerminator(current_block);
+            if (terminator != null) return; // Block already terminated, skip
+        }
+
+        // Declare janus_nursery_await_all if not already declared
+        const await_fn = self.getOrDeclareExternFn(
+            "janus_nursery_await_all",
+            llvm.c.LLVMInt64TypeInContext(self.context), // returns i64 (error code)
+            &[_]llvm.Type{}, // no params (uses thread-local nursery stack)
+        );
+
+        // Call janus_nursery_await_all()
+        _ = llvm.c.LLVMBuildCall2(
+            self.builder,
+            llvm.c.LLVMGlobalGetValueType(await_fn),
+            await_fn,
+            null,
+            0,
+            "nursery_result",
+        );
+    }
+
+    /// Helper: Get or declare an external function
+    fn getOrDeclareExternFn(
+        self: *LLVMEmitter,
+        name: [*:0]const u8,
+        ret_type: llvm.Type,
+        param_types: []const llvm.Type,
+    ) llvm.Value {
+        // Check if already declared
+        const existing = llvm.c.LLVMGetNamedFunction(self.module, name);
+        if (existing != null) return existing;
+
+        // Declare the function
+        const func_type = llvm.c.LLVMFunctionType(
+            ret_type,
+            @constCast(param_types.ptr),
+            @intCast(param_types.len),
+            0, // not variadic
+        );
+        return llvm.c.LLVMAddFunction(self.module, name, func_type);
     }
 
     /// Emit Async_Call: In blocking model, just emit a regular function call

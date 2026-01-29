@@ -499,3 +499,160 @@ export fn janus_string_free(handle: ?*anyopaque, allocator_handle: ?*anyopaque) 
     str.deinit(allocator);
     allocator.destroy(str);
 }
+
+// ============================================================================
+// :service Profile - Structured Concurrency (Phase 2)
+// ============================================================================
+// Thread-based implementation of nursery/spawn for concurrent task execution.
+// Each spawned task runs in a separate OS thread, managed by the nursery.
+
+/// Task function signature: takes opaque argument, returns i64 result
+pub const TaskFn = *const fn (?*anyopaque) callconv(.c) i64;
+
+/// Task context for thread execution
+const TaskContext = struct {
+    func: TaskFn,
+    arg: ?*anyopaque,
+    result: i64,
+    has_error: bool,
+};
+
+/// Nursery - manages structured concurrency scope
+/// All spawned tasks MUST complete before nursery exits
+const JanusNursery = struct {
+    threads: std.ArrayListUnmanaged(std.Thread),
+    contexts: std.ArrayListUnmanaged(*TaskContext),
+    allocator: std.mem.Allocator,
+    has_error: bool,
+
+    fn init(allocator: std.mem.Allocator) JanusNursery {
+        return JanusNursery{
+            .threads = .{},
+            .contexts = .{},
+            .allocator = allocator,
+            .has_error = false,
+        };
+    }
+
+    fn deinit(self: *JanusNursery) void {
+        // Free all task contexts
+        for (self.contexts.items) |ctx| {
+            self.allocator.destroy(ctx);
+        }
+        self.contexts.deinit(self.allocator);
+        self.threads.deinit(self.allocator);
+    }
+
+    fn spawn(self: *JanusNursery, func: TaskFn, arg: ?*anyopaque) !void {
+        // Create task context
+        const ctx = try self.allocator.create(TaskContext);
+        ctx.* = TaskContext{
+            .func = func,
+            .arg = arg,
+            .result = 0,
+            .has_error = false,
+        };
+        try self.contexts.append(self.allocator, ctx);
+
+        // Spawn thread
+        const thread = try std.Thread.spawn(.{}, taskRunner, .{ctx});
+        try self.threads.append(self.allocator, thread);
+    }
+
+    fn awaitAll(self: *JanusNursery) i64 {
+        // Join all threads (wait for completion)
+        for (self.threads.items) |thread| {
+            thread.join();
+        }
+
+        // Check for errors and collect results
+        var first_error: i64 = 0;
+        for (self.contexts.items) |ctx| {
+            if (ctx.has_error and first_error == 0) {
+                first_error = ctx.result;
+                self.has_error = true;
+            }
+        }
+
+        return first_error;
+    }
+};
+
+/// Thread entry point - executes task and stores result
+fn taskRunner(ctx: *TaskContext) void {
+    ctx.result = ctx.func(ctx.arg);
+    // Result < 0 indicates error in Janus convention
+    ctx.has_error = (ctx.result < 0);
+}
+
+/// Thread-local nursery stack for nested nurseries
+threadlocal var nursery_stack: std.ArrayListUnmanaged(*JanusNursery) = .{};
+
+/// Create a new nursery scope
+export fn janus_nursery_create() callconv(.c) ?*anyopaque {
+    const allocator = gpa.allocator();
+
+    const nursery = allocator.create(JanusNursery) catch return null;
+    nursery.* = JanusNursery.init(allocator);
+
+    // Push onto nursery stack
+    nursery_stack.append(allocator, nursery) catch {
+        allocator.destroy(nursery);
+        return null;
+    };
+
+    return @ptrCast(nursery);
+}
+
+/// Spawn a task in the current nursery
+/// func: function pointer (TaskFn signature)
+/// arg: opaque argument to pass to function
+export fn janus_nursery_spawn(func: TaskFn, arg: ?*anyopaque) callconv(.c) i32 {
+    // Get current nursery from stack
+    if (nursery_stack.items.len == 0) {
+        std.debug.print("ERROR: spawn called outside of nursery\n", .{});
+        return -1;
+    }
+
+    const nursery = nursery_stack.items[nursery_stack.items.len - 1];
+    nursery.spawn(func, arg) catch {
+        std.debug.print("ERROR: failed to spawn task\n", .{});
+        return -1;
+    };
+
+    return 0;
+}
+
+/// Wait for all tasks in nursery to complete and cleanup
+/// Returns 0 on success, error code on failure
+export fn janus_nursery_await_all() callconv(.c) i64 {
+    const allocator = gpa.allocator();
+
+    // Pop nursery from stack manually
+    if (nursery_stack.items.len == 0) {
+        std.debug.print("ERROR: nursery_await_all called without active nursery\n", .{});
+        return -1;
+    }
+
+    // Manual pop: get last item and shrink
+    const idx = nursery_stack.items.len - 1;
+    const nursery = nursery_stack.items[idx];
+    nursery_stack.items.len = idx;
+
+    // Wait for all tasks
+    const result = nursery.awaitAll();
+
+    // Cleanup
+    nursery.deinit();
+    allocator.destroy(nursery);
+
+    return result;
+}
+
+/// Get the number of active tasks in current nursery (for debugging)
+export fn janus_nursery_task_count() callconv(.c) i32 {
+    if (nursery_stack.items.len == 0) return 0;
+
+    const nursery = nursery_stack.items[nursery_stack.items.len - 1];
+    return @intCast(nursery.threads.items.len);
+}
