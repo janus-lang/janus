@@ -684,3 +684,221 @@ test ":service profile: Multiple spawns E2E execution (Phase 2.5)" {
 
     std.debug.print("\n=== MULTI-SPAWN E2E EXECUTION PASSED ===\n", .{});
 }
+
+test ":service profile: Await expression lowering (Phase 2.6)" {
+    const allocator = testing.allocator;
+
+    // Await inside async function
+    const source =
+        \\func fetch_data() do
+        \\    return 42
+        \\end
+        \\
+        \\async func main() do
+        \\    let result = await fetch_data()
+        \\    print(result)
+        \\    return 0
+        \\end
+    ;
+
+    var parser = janus_parser.Parser.init(allocator);
+    defer parser.deinit();
+
+    const snapshot = try parser.parseWithSource(source);
+    defer snapshot.deinit();
+
+    const unit_id: astdb_core.UnitId = @enumFromInt(0);
+    var ir_graphs = try qtjir.lower.lowerUnit(allocator, &snapshot.core_snapshot, unit_id);
+    defer {
+        for (ir_graphs.items) |*g| g.deinit();
+        ir_graphs.deinit(allocator);
+    }
+
+    // Find Await node in QTJIR
+    var found_await = false;
+    std.debug.print("\n=== AWAIT QTJIR ===\n", .{});
+    for (ir_graphs.items) |ir_graph| {
+        for (ir_graph.nodes.items, 0..) |node, i| {
+            std.debug.print("  [{d}] {s}\n", .{ i, @tagName(node.op) });
+            if (node.op == .Await) {
+                found_await = true;
+            }
+        }
+    }
+    try testing.expect(found_await);
+
+    // Emit to LLVM IR
+    var emitter = try qtjir.llvm_emitter.LLVMEmitter.init(allocator, "await_test");
+    defer emitter.deinit();
+
+    try emitter.emit(ir_graphs.items);
+
+    const llvm_ir = try emitter.toString();
+    defer allocator.free(llvm_ir);
+
+    std.debug.print("\n=== AWAIT LLVM IR ===\n{s}\n", .{llvm_ir});
+
+    // Verify the main function calls fetch_data and print
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "@fetch_data") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "janus_print") != null);
+
+    std.debug.print("\n=== AWAIT EXPRESSION LOWERING PASSED ===\n", .{});
+}
+
+test ":service profile: Await E2E execution (Phase 2.6)" {
+    const allocator = testing.allocator;
+
+    // Await inside async function
+    const source =
+        \\func compute() do
+        \\    return 100
+        \\end
+        \\
+        \\async func main() do
+        \\    let x = await compute()
+        \\    print(x)
+        \\    return 0
+        \\end
+    ;
+
+    var parser = janus_parser.Parser.init(allocator);
+    defer parser.deinit();
+
+    const snapshot = try parser.parseWithSource(source);
+    defer snapshot.deinit();
+
+    const unit_id: astdb_core.UnitId = @enumFromInt(0);
+    var ir_graphs = try qtjir.lower.lowerUnit(allocator, &snapshot.core_snapshot, unit_id);
+    defer {
+        for (ir_graphs.items) |*g| g.deinit();
+        ir_graphs.deinit(allocator);
+    }
+
+    var emitter = try qtjir.llvm_emitter.LLVMEmitter.init(allocator, "await_e2e");
+    defer emitter.deinit();
+
+    try emitter.emit(ir_graphs.items);
+
+    const llvm_ir = try emitter.toString();
+    defer allocator.free(llvm_ir);
+
+    // Write IR to temp file
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const ir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(ir_path);
+
+    try tmp_dir.dir.writeFile(.{ .sub_path = "await.ll", .data = llvm_ir });
+
+    const ir_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "await.ll" });
+    defer allocator.free(ir_file_path);
+
+    // Compile to object file
+    const obj_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "await.o" });
+    defer allocator.free(obj_file_path);
+
+    const llc_result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &[_][]const u8{
+            "llc",
+            "-filetype=obj",
+            ir_file_path,
+            "-o",
+            obj_file_path,
+        },
+    });
+    defer allocator.free(llc_result.stdout);
+    defer allocator.free(llc_result.stderr);
+
+    switch (llc_result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("LLC STDERR: {s}\n", .{llc_result.stderr});
+                return error.LLCFailed;
+            }
+        },
+        else => return error.LLCFailed,
+    }
+
+    // Compile runtime
+    const exe_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "await" });
+    defer allocator.free(exe_file_path);
+
+    const rt_obj_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "janus_rt.o" });
+    defer allocator.free(rt_obj_path);
+
+    const emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{rt_obj_path});
+    defer allocator.free(emit_arg);
+
+    const zig_build_result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &[_][]const u8{
+            "zig",
+            "build-obj",
+            "runtime/janus_rt.zig",
+            emit_arg,
+            "-lc",
+        },
+    });
+    defer allocator.free(zig_build_result.stdout);
+    defer allocator.free(zig_build_result.stderr);
+
+    if (zig_build_result.term.Exited != 0) {
+        std.debug.print("RUNTIME COMPILATION FAILED: {s}\n", .{zig_build_result.stderr});
+        return error.RuntimeCompilationFailed;
+    }
+
+    // Link
+    const link_result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &[_][]const u8{
+            "cc",
+            obj_file_path,
+            rt_obj_path,
+            "-o",
+            exe_file_path,
+        },
+    });
+    defer allocator.free(link_result.stdout);
+    defer allocator.free(link_result.stderr);
+
+    switch (link_result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("LINK STDERR: {s}\n", .{link_result.stderr});
+                return error.LinkFailed;
+            }
+        },
+        else => return error.LinkFailed,
+    }
+
+    // Execute
+    const exec_result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &[_][]const u8{exe_file_path},
+    });
+    defer allocator.free(exec_result.stdout);
+    defer allocator.free(exec_result.stderr);
+
+    switch (exec_result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("EXEC STDERR: {s}\n", .{exec_result.stderr});
+                std.debug.print("Exit code: {d}\n", .{code});
+                return error.ExecutionFailed;
+            }
+        },
+        else => {
+            std.debug.print("EXEC terminated abnormally: {any}\n", .{exec_result.term});
+            return error.ExecutionFailed;
+        },
+    }
+
+    std.debug.print("\n=== AWAIT E2E OUTPUT ===\n{s}\n", .{exec_result.stdout});
+
+    // Should print 100
+    try testing.expectEqualStrings("100\n", exec_result.stdout);
+
+    std.debug.print("\n=== AWAIT E2E EXECUTION PASSED ===\n", .{});
+}
