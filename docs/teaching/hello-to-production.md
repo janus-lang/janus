@@ -11,9 +11,9 @@ This document shows the progression from simple Janus programs to production-rea
 ### Hello World (Day 1)
 
 ```janus
-func main() {
+func main() do
     println("Hello, Monastery!")
-}
+end
 ```
 
 **What you learned:**
@@ -24,13 +24,13 @@ func main() {
 ### Variables and Arithmetic (Day 2)
 
 ```janus
-func main() {
+func main() do
     let x = 42
     let y = 13
     let sum = x + y
 
     print(sum)  // 55
-}
+end
 ```
 
 **What you learned:**
@@ -41,13 +41,13 @@ func main() {
 ### Loops and Conditionals (Day 3)
 
 ```janus
-func main() {
-    for i in 0..10 {
-        if i % 2 == 0 {
+func main() do
+    for i in 0..10 do
+        if i % 2 == 0 do
             print(i)
-        }
-    }
-}
+        end
+    end
+end
 ```
 
 **What you learned:**
@@ -58,17 +58,17 @@ func main() {
 ### Functions and Recursion (Day 4)
 
 ```janus
-func factorial(n: i32) -> i32 {
-    if n <= 1 {
+func factorial(n: i32) -> i32 do
+    if n <= 1 do
         return 1
-    }
+    end
     return n * factorial(n - 1)
-}
+end
 
-func main() {
+func main() do
     let result = factorial(5)
     print(result)  // 120
-}
+end
 ```
 
 **What you learned:**
@@ -88,7 +88,7 @@ func main() {
 use zig "std/ArrayList"
 use zig "std/heap"
 
-func main() {
+func main() do
     // Get an allocator (explicit memory management)
     var allocator = zig.heap.page_allocator
 
@@ -97,18 +97,18 @@ func main() {
     defer numbers.deinit()  // Cleanup at end of scope
 
     // Add elements
-    numbers.append(10) catch |_| {}
-    numbers.append(20) catch |_| {}
-    numbers.append(30) catch |_| {}
+    numbers.append(10) catch |_| do end
+    numbers.append(20) catch |_| do end
+    numbers.append(30) catch |_| do end
 
     // Sum all elements
     var sum: i32 = 0
-    for numbers.items |num| {
+    for numbers.items |num| do
         sum = sum + num
-    }
+    end
 
     print(sum)  // 60
-}
+end
 ```
 
 **What you learned:**
@@ -126,7 +126,7 @@ func main() {
 use zig "std/AutoHashMap"
 use zig "std/heap"
 
-func main() {
+func main() do
     var allocator = zig.heap.page_allocator
 
     // Create a HashMap
@@ -134,15 +134,15 @@ func main() {
     defer scores.deinit()
 
     // Add entries
-    scores.put("Alice", 95) catch |_| {}
-    scores.put("Bob", 87) catch |_| {}
-    scores.put("Charlie", 92) catch |_| {}
+    scores.put("Alice", 95) catch |_| do end
+    scores.put("Bob", 87) catch |_| do end
+    scores.put("Charlie", 92) catch |_| do end
 
     // Lookup
-    if scores.get("Alice") |score| {
+    if scores.get("Alice") |score| do
         print(score)  // 95
-    }
-}
+    end
+end
 ```
 
 **What you learned:**
@@ -161,21 +161,21 @@ func main() {
 use zig "std/fs"
 use zig "std/heap"
 
-func read_config() -> bool {
+func read_config() -> bool do
     var allocator = zig.heap.page_allocator
 
     // Open file
-    var file = zig.fs.cwd().openFile("config.txt", .{}) catch |err| {
+    var file = zig.fs.cwd().openFile("config.txt", .{}) catch |err| do
         println("Error: Could not open config.txt")
         return false
-    }
+    end
     defer file.close()
 
     // Read entire file
-    var content = file.readToEndAlloc(allocator, 1024 * 1024) catch |err| {
+    var content = file.readToEndAlloc(allocator, 1024 * 1024) catch |err| do
         println("Error: Could not read file")
         return false
-    }
+    end
     defer allocator.free(content)
 
     // Process content
@@ -183,13 +183,13 @@ func read_config() -> bool {
     println(content)
 
     return true
-}
+end
 
-func main() {
-    if !read_config() {
+func main() do
+    if not read_config() do
         println("Failed to load config")
-    }
-}
+    end
+end
 ```
 
 **What you learned:**
@@ -204,38 +204,38 @@ func main() {
 use zig "std/fs"
 use zig "std/heap"
 
-func save_log(message: []const u8) -> bool {
+func save_log(message: []const u8) -> bool do
     var allocator = zig.heap.page_allocator
 
     // Create or open file (append mode)
     var file = zig.fs.cwd().createFile("app.log", .{
         .read = true,
         .truncate = false,
-    }) catch |err| {
+    }) catch |err| do
         return false
-    }
+    end
     defer file.close()
 
     // Seek to end (append)
-    file.seekFromEnd(0) catch |err| {}
+    file.seekFromEnd(0) catch |err| do end
 
     // Write message
-    file.writeAll(message) catch |err| {
+    file.writeAll(message) catch |err| do
         return false
-    }
+    end
 
-    file.writeAll("\n") catch |err| {}
+    file.writeAll("\n") catch |err| do end
 
     return true
-}
+end
 
-func main() {
+func main() do
     save_log("Application started")
     save_log("Processing data...")
     save_log("Done")
 
     println("Logs written to app.log")
-}
+end
 ```
 
 **What you learned:**
@@ -256,31 +256,31 @@ use zig "std/heap"
 use zig "std/mem"
 use zig "std/process"
 
-func find_files(pattern: []const u8) -> i32 {
+func find_files(pattern: []const u8) -> i32 do
     var allocator = zig.heap.page_allocator
     var found: i32 = 0
 
     // Open current directory
-    var dir = zig.fs.cwd().openIterableDir(".", .{}) catch |err| {
+    var dir = zig.fs.cwd().openIterableDir(".", .{}) catch |err| do
         println("Error: Could not open directory")
         return 0
-    }
+    end
     defer dir.close()
 
     // Iterate through entries
     var iter = dir.iterate()
-    while iter.next() catch null |entry| {
+    while iter.next() catch null |entry| do
         // Check if filename contains pattern
-        if zig.mem.indexOf(u8, entry.name, pattern) != null {
+        if zig.mem.indexOf(u8, entry.name, pattern) != null do
             println(entry.name)
             found = found + 1
-        }
-    }
+        end
+    end
 
     return found
-}
+end
 
-func main() {
+func main() do
     var allocator = zig.heap.page_allocator
 
     // Get command-line arguments
@@ -291,17 +291,17 @@ func main() {
     _ = args_iter.next()
 
     // Get search pattern
-    var pattern = args_iter.next() orelse {
+    var pattern = args_iter.next() orelse do
         println("Usage: jfind <pattern>")
         return
-    }
+    end
 
     // Search for files
     println("Searching for files matching:", pattern)
     let count = find_files(pattern)
 
     println("Found", count, "files")
-}
+end
 ```
 
 **What you learned:**
@@ -335,41 +335,41 @@ struct Config {
     debug: bool,
 }
 
-func load_config() -> ?Config {
+func load_config() -> ?Config do
     var allocator = zig.heap.page_allocator
 
     // Read JSON file
-    var file = zig.fs.cwd().openFile("config.json", .{}) catch |err| {
+    var file = zig.fs.cwd().openFile("config.json", .{}) catch |err| do
         return null
-    }
+    end
     defer file.close()
 
-    var content = file.readToEndAlloc(allocator, 1024 * 1024) catch |err| {
+    var content = file.readToEndAlloc(allocator, 1024 * 1024) catch |err| do
         return null
-    }
+    end
     defer allocator.free(content)
 
     // Parse JSON
-    var parsed = zig.json.parseFromSlice(Config, allocator, content, .{}) catch |err| {
+    var parsed = zig.json.parseFromSlice(Config, allocator, content, .{}) catch |err| do
         println("Error: Invalid JSON format")
         return null
-    }
+    end
     defer parsed.deinit()
 
     return parsed.value
-}
+end
 
-func main() {
-    if load_config() |config| {
+func main() do
+    if load_config() |config| do
         println("Loaded config:")
         println("  Name:", config.name)
         println("  Version:", config.version)
         println("  Port:", config.port)
         println("  Debug:", config.debug)
-    } else {
+    else
         println("Failed to load config.json")
-    }
-}
+    end
+end
 ```
 
 **What you learned:**
@@ -399,14 +399,14 @@ use zig "std/net"
 use zig "std/heap"
 use zig "std/mem"
 
-func handle_request(client: anytype) {
+func handle_request(client: anytype) do
     var allocator = zig.heap.page_allocator
 
     // Read HTTP request
     var buffer: [1024]u8 = undefined
-    var read_bytes = client.read(&buffer) catch |err| {
+    var read_bytes = client.read(&buffer) catch |err| do
         return
-    }
+    end
 
     var request = buffer[0..read_bytes]
 
@@ -420,40 +420,40 @@ func handle_request(client: anytype) {
     ;
 
     // Send response
-    client.writeAll(response) catch |err| {}
-}
+    client.writeAll(response) catch |err| do end
+end
 
-func main() {
+func main() do
     var allocator = zig.heap.page_allocator
 
     println("Starting HTTP server on port 8080...")
 
     // Create TCP listener
-    var address = zig.net.Address.parseIp("127.0.0.1", 8080) catch |err| {
+    var address = zig.net.Address.parseIp("127.0.0.1", 8080) catch |err| do
         println("Error: Invalid address")
         return
-    }
+    end
 
     var server = zig.net.StreamServer.init(.{})
     defer server.deinit()
 
-    server.listen(address) catch |err| {
+    server.listen(address) catch |err| do
         println("Error: Could not bind to port 8080")
         return
-    }
+    end
 
     println("Server listening on http://127.0.0.1:8080")
 
     // Accept connections
-    while true {
-        var client = server.accept() catch |err| {
+    while true do
+        var client = server.accept() catch |err| do
             continue
-        }
+        end
         defer client.stream.close()
 
         handle_request(client.stream)
-    }
-}
+    end
+end
 ```
 
 **What you learned:**
