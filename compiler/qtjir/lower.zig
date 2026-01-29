@@ -239,7 +239,7 @@ pub fn lowerUnitWithExterns(allocator: std.mem.Allocator, snapshot: *const Snaps
     for (unit.nodes, 0..) |node, i| {
         const node_id: NodeId = @enumFromInt(@as(u32, @intCast(i)));
 
-        if (node.kind == .func_decl) {
+        if (node.kind == .func_decl or node.kind == .async_func_decl) {
             if (try lowerFunctionToGraph(allocator, snapshot, unit_id, node_id, &node)) |ir_graph| {
                 try result.graphs.append(allocator, ir_graph);
             }
@@ -289,7 +289,7 @@ pub fn lowerUnit(allocator: std.mem.Allocator, snapshot: *const Snapshot, unit_i
     for (unit.nodes, 0..) |node, i| {
         const node_id: NodeId = @enumFromInt(@as(u32, @intCast(i)));
         // We only care about function declarations for now
-        if (node.kind == .func_decl) {
+        if (node.kind == .func_decl or node.kind == .async_func_decl) {
             // Create graph for this function
             // Get name mapping
             const children = snapshot.getChildren(node_id);
@@ -933,6 +933,12 @@ fn lowerStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) 
         .postfix_when => {
             try lowerPostfixWhen(ctx, node_id, node);
         },
+
+        // :service profile - Structured Concurrency
+        .nursery_stmt => {
+            try lowerNurseryStatement(ctx, node_id, node);
+        },
+
         else => {},
     }
 }
@@ -1512,6 +1518,11 @@ fn lowerExpression(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
         .range_exclusive_expr => try lowerRangeExpr(ctx, node_id, node, false),
         .catch_expr => try lowerCatchExpr(ctx, node_id, node),
         .try_expr => try lowerTryExpr(ctx, node_id, node),
+
+        // :service profile - Structured Concurrency
+        .await_expr => try lowerAwaitExpr(ctx, node_id, node),
+        .spawn_expr => try lowerSpawnExpr(ctx, node_id, node),
+
         else => {
             trace.traceError("lowerExpression", error.UnsupportedCall, "unsupported node kind");
             return error.UnsupportedCall;
@@ -3498,4 +3509,82 @@ fn lowerTryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lo
 // Helper wrapper to avoid generic method call issue in tricky contexts if any
 fn jump_end_inputs_append(node: *graph.QTJIRNode, allocator: std.mem.Allocator, val: u32) !void {
     try node.inputs.append(allocator, val);
+}
+
+// ==============================================================================
+// :service Profile - Structured Concurrency Lowering
+// ==============================================================================
+
+/// Lower await expression: `await async_expr`
+/// Suspends execution until the async operation completes.
+/// Returns the result value of the awaited task.
+fn lowerAwaitExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!u32 {
+    _ = node;
+    const children = ctx.snapshot.getChildren(node_id);
+    if (children.len == 0) return error.InvalidNode;
+
+    // Get the awaited expression (should be an async call or task handle)
+    const awaited_id = children[0];
+    const awaited_node = ctx.snapshot.getNode(awaited_id) orelse return error.InvalidNode;
+    const awaited_val = try lowerExpression(ctx, awaited_id, awaited_node);
+
+    // Create Await node - suspends until task completes
+    const await_node_id = try ctx.builder.createNode(.Await);
+    var await_node = &ctx.builder.graph.nodes.items[await_node_id];
+    try await_node.inputs.append(ctx.allocator, awaited_val);
+
+    return await_node_id;
+}
+
+/// Lower spawn expression: `spawn task_call()`
+/// Launches a task in the current nursery scope.
+/// Returns a task handle (opaque u32 in QTJIR).
+fn lowerSpawnExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!u32 {
+    _ = node;
+    const children = ctx.snapshot.getChildren(node_id);
+    if (children.len == 0) return error.InvalidNode;
+
+    // Get the spawned call expression
+    const call_id = children[0];
+    const call_node = ctx.snapshot.getNode(call_id) orelse return error.InvalidNode;
+
+    // Lower the call as an async call
+    const call_val = try lowerExpression(ctx, call_id, call_node);
+
+    // Create Spawn node - launches task in current nursery
+    const spawn_node_id = try ctx.builder.createNode(.Spawn);
+    var spawn_node = &ctx.builder.graph.nodes.items[spawn_node_id];
+    try spawn_node.inputs.append(ctx.allocator, call_val);
+
+    return spawn_node_id;
+}
+
+/// Lower nursery statement: `nursery do ... end`
+/// Creates a structured concurrency scope. All spawned tasks must complete
+/// before the nursery exits. If any task fails, all siblings are cancelled.
+fn lowerNurseryStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
+    _ = node;
+    const children = ctx.snapshot.getChildren(node_id);
+
+    // Create Nursery_Begin node - marks start of structured concurrency scope
+    const nursery_begin_id = try ctx.builder.createNode(.Nursery_Begin);
+
+    // Push a new scope layer for the nursery (for defer handling)
+    try ctx.pushScope(.Block);
+
+    // Lower all statements inside the nursery block
+    for (children) |child_id| {
+        const child_node = ctx.snapshot.getNode(child_id) orelse continue;
+        try lowerStatement(ctx, child_id, child_node);
+    }
+
+    // Pop scope and emit any defers
+    var actions = try ctx.popScope();
+    try ctx.emitDefersForScope(&actions);
+
+    // Create Nursery_End node - waits for all spawned tasks to complete
+    const nursery_end_id = try ctx.builder.createNode(.Nursery_End);
+    var nursery_end_node = &ctx.builder.graph.nodes.items[nursery_end_id];
+    // Link back to the begin node for scope tracking
+    try nursery_end_node.inputs.append(ctx.allocator, nursery_begin_id);
 }

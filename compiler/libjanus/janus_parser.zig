@@ -13,29 +13,6 @@
 const std = @import("std");
 const astdb_core = @import("astdb_core");
 const tokenizer = @import("janus_tokenizer");
-const bootstrap_s0 = @import("bootstrap_s0");
-
-/// Enable or disable the global S0 bootstrap parse gate.
-pub fn setS0Gate(enable: bool) void {
-    bootstrap_s0.set(enable);
-}
-
-pub fn isS0GateEnabled() bool {
-    return bootstrap_s0.isEnabled();
-}
-
-/// RAII helper that restores the previous S0 gate state on deinit.
-pub const ScopedS0Gate = struct {
-    guard: bootstrap_s0.Gate.Scoped,
-
-    pub fn init(enable: bool) ScopedS0Gate {
-        return .{ .guard = bootstrap_s0.scoped(enable) };
-    }
-
-    pub fn deinit(self: *ScopedS0Gate) void {
-        self.guard.deinit();
-    }
-};
 
 // ASTDB types - PUBLIC API
 pub const AstDB = astdb_core.AstDB;
@@ -112,9 +89,11 @@ pub const Parser = struct {
         _ = self; // Nothing to clean up for now
     }
 
+    /// S0 bootstrap gate has been removed - this is now a no-op for backwards compatibility
     pub fn enableS0(self: *Parser, enable: bool) void {
         _ = self;
-        setS0Gate(enable);
+        _ = enable;
+        // S0 bootstrap gate removed - profile gating now handled by SemanticValidator
     }
 
     pub fn parse(self: *Parser) !*Snapshot {
@@ -585,10 +564,6 @@ pub fn parseTokensIntoNodes(astdb_system: *AstDB) !void {
     const unit_count = astdb_system.units.items.len;
     const unit = astdb_system.units.items[unit_count - 1];
 
-    if (bootstrap_s0.isEnabled()) {
-        try validateS0Tokens(unit);
-    }
-
     // Simple recursive descent parser for :min profile
     var parser_state = ParserState{
         .tokens = unit.tokens,
@@ -642,26 +617,6 @@ const ParserState = struct {
         return error.UnexpectedToken;
     }
 };
-
-fn validateS0Tokens(unit: *astdb_core.CompilationUnit) !void {
-    for (unit.tokens) |token| {
-        if (token.kind == .invalid) {
-            std.debug.print("S0: Found INVALID token at {}: {}\n", .{ token.span.line, token.span.column });
-        }
-        if (!isTokenAllowedInS0(token.kind)) {
-            std.log.err("S0 bootstrap: token kind '{s}' not allowed", .{@tagName(token.kind)});
-            return error.S0FeatureNotAllowed;
-        }
-    }
-}
-
-fn isTokenAllowedInS0(kind: TokenKind) bool {
-    return switch (kind) {
-        .func, .return_, .identifier, .integer_literal, .float_literal, .string_literal, .true_, .false_, .left_paren, .right_paren, .left_brace, .right_brace, .semicolon, .comma, .newline, .eof, .left_bracket, .right_bracket, .let, .var_, .plus, .minus, .star, .star_star, .slash, .equal, .assign, .equal_equal, .not_equal, .less, .less_equal, .greater, .greater_equal, .colon, .if_, .else_, .arrow, .arrow_fat, .while_, .for_, .in_, .match, .when, .break_, .continue_, .defer_, .do_, .end, .struct_, .dot, .test_, .question, .optional_chain, .null_coalesce, .null_, .type_, .logical_and, .logical_or, .logical_not, .exclamation, .tilde, .bitwise_and, .bitwise_or, .bitwise_xor, .bitwise_not, .left_shift, .right_shift, .ampersand, .pipe, .caret, .range_inclusive, .range_exclusive, .walrus_assign, .percent, .and_, .or_, .not_, .pipeline, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign, .ampersand_assign, .pipe_assign, .xor_assign, .left_shift_assign, .right_shift_assign, .char_literal, .import_, .use_, .extern_, .zig_, .error_, .fail_, .catch_, .async_, .await_, .nursery_, .spawn_ => true, // :service profile
-
-        else => false,
-    };
-}
 
 /// Parse a compilation unit (top-level)
 fn parseCompilationUnit(parser: *ParserState) !void {
@@ -1708,6 +1663,12 @@ fn parseBlockStatements(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
             const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
             try parser.nodes.append(parser.allocator, match_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
+        } else if (parser.match(.nursery_)) {
+            // :service profile - Handle nursery do ... end (structured concurrency)
+            const nursery_stmt = try parseNurseryStatement(parser, nodes);
+            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
+            try parser.nodes.append(parser.allocator, nursery_stmt);
+            try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
         } else if (parser.match(.break_)) {
             // Handle break statement
             const break_token: astdb_core.TokenId = @enumFromInt(parser.current);
@@ -2244,6 +2205,43 @@ fn parseWhileStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.As
 
     return astdb_core.AstNode{
         .kind = .while_stmt,
+        .first_token = @enumFromInt(start_token),
+        .last_token = @enumFromInt(parser.current - 1),
+        .child_lo = child_lo,
+        .child_hi = child_hi,
+    };
+}
+
+/// Parse a nursery statement: nursery do ... end (:service profile)
+/// Nursery is the structured concurrency boundary - all spawned tasks must
+/// complete before the nursery exits.
+fn parseNurseryStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) error{ UnexpectedToken, OutOfMemory }!astdb_core.AstNode {
+    const start_token = parser.current;
+    _ = try parser.consume(.nursery_);
+
+    // Parse body
+    var block_stmts = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 0);
+    defer block_stmts.deinit(parser.allocator);
+
+    if (parser.match(.do_)) {
+        _ = parser.advance();
+        try parseBlockStatements(parser, nodes, &block_stmts);
+        _ = try parser.consume(.end);
+    } else if (parser.match(.left_brace)) {
+        _ = parser.advance();
+        try parseBlockStatements(parser, nodes, &block_stmts);
+        _ = try parser.consume(.right_brace);
+    } else {
+        return error.UnexpectedToken;
+    }
+
+    // Commit edges
+    const child_lo = @as(u32, @intCast(parser.edges.items.len));
+    try parser.edges.appendSlice(parser.allocator, block_stmts.items);
+    const child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+    return astdb_core.AstNode{
+        .kind = .nursery_stmt,
         .first_token = @enumFromInt(start_token),
         .last_token = @enumFromInt(parser.current - 1),
         .child_lo = child_lo,
@@ -3683,6 +3681,24 @@ fn parsePrimary(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode))
                     .kind = .await_expr,
                     .first_token = @enumFromInt(await_token),
                     .last_token = awaited_expr.last_token,
+                    .child_lo = child_lo,
+                    .child_hi = child_hi,
+                };
+            },
+            .spawn_ => {
+                // :service profile - spawn expression
+                const spawn_token = parser.current;
+                _ = parser.advance(); // consume 'spawn'
+                const spawned_expr = try parseExpression(parser, nodes, .unary);
+
+                const child_lo = @as(u32, @intCast(nodes.items.len));
+                try nodes.append(parser.allocator, spawned_expr);
+                const child_hi = @as(u32, @intCast(nodes.items.len));
+
+                return astdb_core.AstNode{
+                    .kind = .spawn_expr,
+                    .first_token = @enumFromInt(spawn_token),
+                    .last_token = spawned_expr.last_token,
                     .child_lo = child_lo,
                     .child_hi = child_hi,
                 };

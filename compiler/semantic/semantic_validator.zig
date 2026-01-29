@@ -123,6 +123,10 @@ pub const ValidationError = struct {
         circular_dependency, // E2401 (E2005 alias)
         import_not_found, // E2402
         visibility_violation, // E2403
+
+        // :service profile - Structured Concurrency (N10xx)
+        spawn_outside_nursery, // N1001 - spawn used outside nursery block
+        await_outside_async, // N1002 - await used in non-async function
     };
 
     pub const RelatedInfo = struct {
@@ -153,6 +157,42 @@ pub const SemanticValidator = struct {
 
     /// Validation statistics
     stats: ValidationStats = .{},
+
+    /// :service profile - Structured concurrency scope tracking
+    /// Tracks whether we're inside async function or nursery block
+    scope_context: ScopeContext = .{},
+
+    /// Scope context for :service profile structured concurrency validation
+    const ScopeContext = struct {
+        /// Depth of async function scope (>0 means inside async func)
+        async_depth: u32 = 0,
+        /// Depth of nursery scope (>0 means inside nursery block)
+        nursery_depth: u32 = 0,
+
+        fn enterAsync(self: *ScopeContext) void {
+            self.async_depth += 1;
+        }
+
+        fn exitAsync(self: *ScopeContext) void {
+            if (self.async_depth > 0) self.async_depth -= 1;
+        }
+
+        fn enterNursery(self: *ScopeContext) void {
+            self.nursery_depth += 1;
+        }
+
+        fn exitNursery(self: *ScopeContext) void {
+            if (self.nursery_depth > 0) self.nursery_depth -= 1;
+        }
+
+        fn isInsideAsync(self: ScopeContext) bool {
+            return self.async_depth > 0;
+        }
+
+        fn isInsideNursery(self: ScopeContext) bool {
+            return self.nursery_depth > 0;
+        }
+    };
 
     const AssignmentState = struct {
         is_initialized: bool = false,
@@ -249,8 +289,8 @@ pub const SemanticValidator = struct {
     }
 
     /// Validate an entire compilation unit
-    pub fn validateUnit(self: *SemanticValidator, unit_id: UnitId) !void {
-        // TODO: Implement getUnitRoot in ASTDBSystem
+    pub fn validateUnit(self: *SemanticValidator, _: UnitId) !void {
+        // TODO: Implement getUnitRoot in ASTDBSystem using unit_id
         const root_node = NodeId{ .id = 0 };
 
         // Phase 1: Profile-aware feature validation
@@ -572,6 +612,13 @@ pub const SemanticValidator = struct {
             .assignment => try self.validateAssignmentRules(node_id),
             .binary_op => try self.validateBinaryOpRules(node_id),
             .function_call => try self.validateFunctionCallRules(node_id),
+
+            // :service profile - Structured concurrency scope tracking
+            .async_func_decl => try self.validateAsyncFuncDecl(node_id),
+            .nursery_stmt => try self.validateNurseryStatement(node_id),
+            .spawn_expr => try self.validateSpawnExpr(node_id),
+            .await_expr => try self.validateAwaitExpr(node_id),
+
             else => {
                 // Recursively validate child nodes
                 const children = self.astdb.getNodeChildren(node_id);
@@ -579,6 +626,100 @@ pub const SemanticValidator = struct {
                     try self.validateSemanticRules(child_id);
                 }
             },
+        }
+    }
+
+    // =========================================================================
+    // :service Profile - Structured Concurrency Validation
+    // =========================================================================
+
+    /// Validate async function declaration - track scope
+    fn validateAsyncFuncDecl(self: *SemanticValidator, node_id: NodeId) !void {
+        // Enter async scope
+        self.scope_context.enterAsync();
+        defer self.scope_context.exitAsync();
+
+        // Validate children within async scope
+        const children = self.astdb.getNodeChildren(node_id);
+        for (children) |child_id| {
+            try self.validateSemanticRules(child_id);
+        }
+    }
+
+    /// Validate nursery statement - track scope
+    fn validateNurseryStatement(self: *SemanticValidator, node_id: NodeId) !void {
+        // Enter nursery scope
+        self.scope_context.enterNursery();
+        defer self.scope_context.exitNursery();
+
+        // Validate children within nursery scope
+        const children = self.astdb.getNodeChildren(node_id);
+        for (children) |child_id| {
+            try self.validateSemanticRules(child_id);
+        }
+    }
+
+    /// Validate spawn expression - must be inside nursery (N1001)
+    fn validateSpawnExpr(self: *SemanticValidator, node_id: NodeId) !void {
+        if (!self.scope_context.isInsideNursery()) {
+            // N1001: SpawnOutsideNursery
+            const span = self.getNodeSpan(node_id);
+            const message = try std.fmt.allocPrint(
+                self.allocator,
+                "spawn expression must be inside a nursery block",
+            );
+
+            const suggestions = try self.allocator.alloc([]const u8, 1);
+            suggestions[0] = try self.allocator.dupe(u8, "Wrap spawn in: nursery do spawn ... end");
+
+            const error_item = ValidationError{
+                .kind = .spawn_outside_nursery,
+                .message = message,
+                .span = span,
+                .suggestions = suggestions,
+                .related_info = &.{},
+            };
+
+            try self.errors.append(error_item);
+            self.stats.errors_found += 1;
+        }
+
+        // Validate spawned expression
+        const children = self.astdb.getNodeChildren(node_id);
+        for (children) |child_id| {
+            try self.validateSemanticRules(child_id);
+        }
+    }
+
+    /// Validate await expression - must be inside async function (N1002)
+    fn validateAwaitExpr(self: *SemanticValidator, node_id: NodeId) !void {
+        if (!self.scope_context.isInsideAsync()) {
+            // N1002: AwaitOutsideAsync
+            const span = self.getNodeSpan(node_id);
+            const message = try std.fmt.allocPrint(
+                self.allocator,
+                "await expression must be inside an async function",
+            );
+
+            const suggestions = try self.allocator.alloc([]const u8, 1);
+            suggestions[0] = try self.allocator.dupe(u8, "Add 'async' keyword to function: async func ...");
+
+            const error_item = ValidationError{
+                .kind = .await_outside_async,
+                .message = message,
+                .span = span,
+                .suggestions = suggestions,
+                .related_info = &.{},
+            };
+
+            try self.errors.append(error_item);
+            self.stats.errors_found += 1;
+        }
+
+        // Validate awaited expression
+        const children = self.astdb.getNodeChildren(node_id);
+        for (children) |child_id| {
+            try self.validateSemanticRules(child_id);
         }
     }
 
@@ -641,10 +782,8 @@ pub const SemanticValidator = struct {
         };
     }
 
-    fn resolveTypeAnnotation(self: *SemanticValidator, type_node: NodeId) !TypeId {
-        // TODO: Resolve type annotation to TypeId
-        _ = self;
-        _ = type_node;
+    fn resolveTypeAnnotation(self: *SemanticValidator, _: NodeId) !TypeId {
+        // TODO: Resolve type annotation to TypeId using type_node
         return self.type_system.primitives.unknown;
     }
 

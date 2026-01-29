@@ -106,6 +106,13 @@ pub const OpCode = enum {
     // --- Quantum Operations (QPU) ---
     Quantum_Gate, // QPU Hinge (H, CNOT, etc.)
     Quantum_Measure, // Collapse wave function
+
+    // --- :service Profile - Structured Concurrency ---
+    Await, // Suspend until async operation completes
+    Spawn, // Launch task in current nursery scope
+    Nursery_Begin, // Begin nursery scope (structured concurrency boundary)
+    Nursery_End, // End nursery scope (waits for all spawned tasks)
+    Async_Call, // Call async function (returns task handle)
 };
 
 /// Data types supported by tensor operations

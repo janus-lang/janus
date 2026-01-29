@@ -13,7 +13,6 @@ const std = @import("std");
 const core = @import("astdb_core");
 const ArrayList = std.array_list.Managed;
 const lexer = @import("lexer");
-const bootstrap_s0 = @import("bootstrap_s0");
 
 const StrInterner = core.StrInterner;
 
@@ -71,7 +70,7 @@ pub const RegionParser = struct {
             .diagnostics = ArrayList(Diagnostic).init(allocator),
             .str_interner = str_interner,
             .node_spans = ArrayList(SourceSpan).init(allocator),
-            .s0_profile = bootstrap_s0.isEnabled(),
+            .s0_profile = false, // S0 bootstrap gate removed - always disabled
         };
     }
 

@@ -8,7 +8,7 @@ const astdb = @import("astdb_core");
 
 test "pipeline operator: basic desugaring" {
     const allocator = testing.allocator;
-    libjanus.parser.setS0Gate(false);
+    // S0 gate removed - profile gating now handled by SemanticValidator
     const source = "func main() { \"Hello\" |> print() }";
 
     var p = libjanus.parser.Parser.init(allocator);
@@ -50,7 +50,7 @@ test "pipeline operator: basic desugaring" {
 
 test "pipeline operator: chained desugaring" {
     const allocator = testing.allocator;
-    libjanus.parser.setS0Gate(false);
+    // S0 gate removed - profile gating now handled by SemanticValidator
     const source = "func main() { 1 |> inc() |> print() }";
 
     var p = libjanus.parser.Parser.init(allocator);
@@ -99,7 +99,7 @@ test "pipeline operator: chained desugaring" {
 
 test "semantic: UFCS argument normalization" {
     const allocator = testing.allocator;
-    libjanus.parser.setS0Gate(false);
+    // S0 gate removed - profile gating now handled by SemanticValidator
     const source =
         \\struct Viewer { name: string }
         \\func action(v: Viewer, x: i32) { print(v.name) }
