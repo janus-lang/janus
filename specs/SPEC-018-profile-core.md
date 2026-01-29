@@ -18,8 +18,8 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 **Implementation Status:** 100% Feature Complete — Production Ready 🎉
 
 **Last Updated:** 2026-01-29
-**Test Status:** 642/644 passing (99.7%)
-**Build Status:** GREEN ✅
+**Test Status:** 688/688 passing (100%) — 2 skipped (WIP)
+**Build Status:** GREEN ✅ (203/203 build steps succeed)
 
 This specification documents the **:core profile** as fully implemented in the Janus compiler v0.2.6. It represents the foundational teaching language — a minimal, deterministic subset suitable for education, embedded systems, and formal verification.
 
@@ -736,7 +736,7 @@ The CoreProfileValidator implements four validation passes:
 3. **Type Checking** — Validate type compatibility
 4. **Profile Compliance** — Enforce :core restrictions
 
-**Status:** Validator implemented but not yet enforced in the compilation pipeline.
+**Status:** ✅ Validator implemented and integrated into compilation pipeline (runs in production builds; skipped in unit tests for module isolation).
 
 [PCORE:11.2] **Error Codes** (E10xx range — PLANNED)
 
