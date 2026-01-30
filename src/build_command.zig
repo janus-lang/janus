@@ -108,13 +108,23 @@ pub fn execute(allocator: std.mem.Allocator, args: []const []const u8) !u8 {
         std.debug.print("Error: Source file not found: {s}\n", .{source_path});
         return 1;
     };
-    
+
+    // Locate runtime directory for scheduler support
+    const runtime_dir: ?[]const u8 = std.process.getEnvVarOwned(allocator, "JANUS_RUNTIME_DIR") catch |err| blk: {
+        if (err == error.EnvironmentVariableNotFound) {
+            break :blk std.fs.cwd().realpathAlloc(allocator, "runtime") catch null;
+        }
+        break :blk null;
+    };
+    defer if (runtime_dir) |d| allocator.free(d);
+
     // Create pipeline
     var compiler = pipeline.Pipeline.init(allocator, .{
         .source_path = source_path,
         .output_path = options.output_path,
         .emit_llvm_ir = options.emit_llvm,
         .verbose = options.verbose,
+        .runtime_dir = runtime_dir,
     });
     
     // Compile

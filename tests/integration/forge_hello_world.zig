@@ -26,19 +26,24 @@ test "Forge Cycle: Compile and Run Hello World (Real Example)" {
 
     std.debug.print("\nCompiling: {s}\nOutput: {s}\n", .{ source_path, output_path });
 
-    // 3. Initialize pipeline
+    // 3. Locate runtime directory (for scheduler support)
+    const runtime_dir = try fs.cwd().realpathAlloc(allocator, "runtime");
+    defer allocator.free(runtime_dir);
+
+    // 4. Initialize pipeline
     var pipe = pipeline.Pipeline.init(allocator, .{
         .source_path = source_path,
         .output_path = output_path,
         .emit_llvm_ir = true,
         .verbose = true,
+        .runtime_dir = runtime_dir,
     });
 
-    // 4. Compile
+    // 5. Compile
     var result = try pipe.compile();
     defer result.deinit(allocator);
 
-    // 5. Verify and Run
+    // 6. Verify and Run
     const run_result = try std.process.Child.run(.{
         .allocator = allocator,
         .argv = &[_][]const u8{result.executable_path},

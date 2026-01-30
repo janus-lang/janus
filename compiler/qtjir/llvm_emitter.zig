@@ -207,17 +207,20 @@ pub const LLVMEmitter = struct {
         // Resolve deferred PHI incoming edges
         try self.resolveDeferredPhis();
 
-        // Add return statement
-        if (is_main) {
-            // main returns 0 (success)
-            const i32_type = llvm.int32TypeInContext(self.context);
-            const zero = llvm.constInt(i32_type, 0, false);
-            _ = llvm.buildRet(self.builder, zero);
-        } else {
-            // Check implicit return
-            if (ir_graph.nodes.items.len == 0 or
-                ir_graph.nodes.items[ir_graph.nodes.items.len - 1].op != .Return)
-            {
+        // Add return statement only if the current block doesn't already have a terminator
+        const current_block = llvm.c.LLVMGetInsertBlock(self.builder);
+        const existing_terminator = if (current_block != null)
+            llvm.c.LLVMGetBasicBlockTerminator(current_block)
+        else
+            null;
+
+        if (existing_terminator == null) {
+            if (is_main) {
+                // main returns 0 (success)
+                const i32_type = llvm.int32TypeInContext(self.context);
+                const zero = llvm.constInt(i32_type, 0, false);
+                _ = llvm.buildRet(self.builder, zero);
+            } else {
                 if (ret_type == llvm.voidTypeInContext(self.context)) {
                     _ = llvm.buildRetVoid(self.builder);
                 } else if (std.mem.eql(u8, ir_graph.return_type, "error_union")) {
@@ -286,6 +289,32 @@ pub const LLVMEmitter = struct {
             .Error_Union_Is_Error => try self.emitErrorUnionIsError(node),
             .Error_Union_Unwrap => try self.emitErrorUnionUnwrap(node),
             .Error_Union_Get_Error => try self.emitErrorUnionGetError(node),
+            // :service profile - Structured Concurrency (Blocking Model Phase 1)
+            .Await => try self.emitAwait(node),
+            .Spawn => try self.emitSpawn(node),
+            .Nursery_Begin => try self.emitNurseryBegin(node),
+            .Nursery_End => try self.emitNurseryEnd(node),
+            .Async_Call => try self.emitAsyncCall(node),
+
+            // :service profile - CSP Channels (Phase 3)
+            .Channel_Create => try self.emitChannelCreate(node),
+            .Channel_Send => try self.emitChannelSend(node),
+            .Channel_Recv => try self.emitChannelRecv(node),
+            .Channel_Close => try self.emitChannelClose(node),
+            .Channel_TryRecv => try self.emitChannelTryRecv(node),
+            .Channel_TrySend => try self.emitChannelTrySend(node),
+            .Channel_IsClosed => try self.emitChannelIsClosed(node),
+
+            // :service profile - Select Statement (Phase 4)
+            .Select_Begin => try self.emitSelectBegin(node),
+            .Select_Add_Recv => try self.emitSelectAddRecv(node),
+            .Select_Add_Send => try self.emitSelectAddSend(node),
+            .Select_Add_Timeout => try self.emitSelectAddTimeout(node),
+            .Select_Add_Default => try self.emitSelectAddDefault(node),
+            .Select_Wait => try self.emitSelectWait(node),
+            .Select_Get_Value => try self.emitSelectGetValue(node),
+            .Select_End => try self.emitSelectEnd(node),
+
             // Tensor / Quantum (Placeholder)
             .Tensor_Contract => {
                 std.debug.print("Warning: Unimplemented Tensor_Contract\n", .{});
@@ -1768,5 +1797,807 @@ pub const LLVMEmitter = struct {
         const result = llvm.c.LLVMBuildTrunc(self.builder, error_val, i32_type, "error");
 
         try self.values.put(node.id, result);
+    }
+
+    // =========================================================================
+    // :service Profile - Structured Concurrency (Blocking Model Phase 1)
+    // =========================================================================
+    //
+    // Phase 1 implementation uses a BLOCKING MODEL where:
+    // - async func = regular function (no actual suspension)
+    // - await = pass-through (value already computed)
+    // - spawn = immediate call (no actual concurrent execution)
+    // - nursery = scope markers only
+    //
+    // This allows the full :service syntax to work end-to-end while
+    // maintaining correct semantics for single-threaded execution.
+    // Real concurrency will be added in Phase 2 using std.Thread or coroutines.
+    // =========================================================================
+
+    /// Emit Await: In blocking model, await just passes through the result
+    /// The awaited expression (Async_Call) already produced the value synchronously
+    fn emitAwait(self: *LLVMEmitter, node: *const IRNode) !void {
+        // Await takes one input: the result of an async operation (Async_Call/Spawn)
+        if (node.inputs.items.len < 1) {
+            // No input means void await - just a no-op
+            return;
+        }
+
+        // In blocking model, the async operation already completed and stored its result
+        // We just pass through that result
+        const awaited_value = self.values.get(node.inputs.items[0]) orelse {
+            // If no value exists, this might be a void-returning async call
+            return;
+        };
+
+        // Map this node's id to the awaited value
+        try self.values.put(node.id, awaited_value);
+    }
+
+    /// Emit Spawn: Phase 2.3/2.4 - True parallel execution
+    /// - No args: use janus_nursery_spawn_noarg (simple path)
+    /// - With args: generate thunk that unpacks args and calls target
+    fn emitSpawn(self: *LLVMEmitter, node: *const IRNode) !void {
+        // Check if current block is already terminated
+        const current_block = llvm.c.LLVMGetInsertBlock(self.builder);
+        if (current_block != null) {
+            const terminator = llvm.c.LLVMGetBasicBlockTerminator(current_block);
+            if (terminator != null) return;
+        }
+
+        // Get function name from node data
+        const func_name = switch (node.data) {
+            .string => |s| s,
+            else => {
+                std.debug.print("Warning: Spawn node missing function name\n", .{});
+                return;
+            },
+        };
+
+        // Get the target function
+        const target_func = llvm.c.LLVMGetNamedFunction(self.module, func_name.ptr);
+        if (target_func == null) {
+            std.debug.print("Warning: Spawn target function '{s}' not found\n", .{func_name});
+            return;
+        }
+
+        const ptr_type = llvm.c.LLVMPointerTypeInContext(self.context, 0);
+        const i32_type = llvm.c.LLVMInt32TypeInContext(self.context);
+
+        // Check if we have arguments
+        if (node.inputs.items.len == 0) {
+            // No arguments - use simple spawn_noarg
+            const spawn_fn = self.getOrDeclareExternFn(
+                "janus_nursery_spawn_noarg",
+                i32_type,
+                &[_]llvm.Type{ptr_type},
+            );
+
+            var spawn_args = [_]llvm.Value{target_func};
+            const spawn_result = llvm.c.LLVMBuildCall2(
+                self.builder,
+                llvm.c.LLVMGlobalGetValueType(spawn_fn),
+                spawn_fn,
+                &spawn_args,
+                1,
+                "spawn_result",
+            );
+            try self.values.put(node.id, spawn_result);
+        } else {
+            // With arguments - generate thunk and args struct
+            try self.emitSpawnWithArgs(node, target_func, func_name);
+        }
+    }
+
+    /// Emit spawn with arguments: generates thunk function and args struct
+    fn emitSpawnWithArgs(
+        self: *LLVMEmitter,
+        node: *const IRNode,
+        target_func: llvm.Value,
+        func_name: [:0]const u8,
+    ) !void {
+        const ptr_type = llvm.c.LLVMPointerTypeInContext(self.context, 0);
+        const i32_type = llvm.c.LLVMInt32TypeInContext(self.context);
+        const i64_type = llvm.c.LLVMInt64TypeInContext(self.context);
+
+        // Get argument LLVM values
+        var arg_values: [16]llvm.Value = undefined; // Max 16 args for now
+        var arg_types: [16]llvm.Type = undefined;
+        const arg_count = @min(node.inputs.items.len, 16);
+
+        for (node.inputs.items[0..arg_count], 0..) |input_id, i| {
+            const val = self.values.get(input_id) orelse {
+                std.debug.print("Warning: Spawn arg {d} not found\n", .{i});
+                return;
+            };
+            arg_values[i] = val;
+            arg_types[i] = llvm.c.LLVMTypeOf(val);
+        }
+
+        // Create args struct type: { arg0_type, arg1_type, ... }
+        const args_struct_type = llvm.c.LLVMStructTypeInContext(
+            self.context,
+            @ptrCast(&arg_types),
+            @intCast(arg_count),
+            0, // not packed
+        );
+
+        // Allocate args struct on stack
+        const args_alloca = llvm.c.LLVMBuildAlloca(self.builder, args_struct_type, "spawn_args");
+
+        // Store each argument into the struct
+        for (0..arg_count) |i| {
+            const idx = llvm.c.LLVMConstInt(llvm.c.LLVMInt32TypeInContext(self.context), 0, 0);
+            const field_idx = llvm.c.LLVMConstInt(llvm.c.LLVMInt32TypeInContext(self.context), @intCast(i), 0);
+            var indices = [_]llvm.Value{ idx, field_idx };
+            const field_ptr = llvm.c.LLVMBuildGEP2(
+                self.builder,
+                args_struct_type,
+                args_alloca,
+                &indices,
+                2,
+                "arg_ptr",
+            );
+            _ = llvm.c.LLVMBuildStore(self.builder, arg_values[i], field_ptr);
+        }
+
+        // Generate thunk function name using stack buffer
+        var thunk_name_buf: [128]u8 = undefined;
+        const thunk_name = std.fmt.bufPrintZ(&thunk_name_buf, "__spawn_thunk_{s}_{d}", .{ func_name, node.id }) catch "__spawn_thunk";
+
+        // Create thunk function type: fn(ptr) -> i64
+        var thunk_param_types = [_]llvm.Type{ptr_type};
+        const thunk_func_type = llvm.c.LLVMFunctionType(i64_type, &thunk_param_types, 1, 0);
+
+        // Create thunk function
+        const thunk_func = llvm.c.LLVMAddFunction(self.module, thunk_name.ptr, thunk_func_type);
+        llvm.c.LLVMSetLinkage(thunk_func, llvm.c.LLVMInternalLinkage);
+
+        // Save current insert point
+        const saved_block = llvm.c.LLVMGetInsertBlock(self.builder);
+        const saved_func = self.current_function;
+
+        // Build thunk body
+        const thunk_entry = llvm.c.LLVMAppendBasicBlockInContext(self.context, thunk_func, "entry");
+        llvm.c.LLVMPositionBuilderAtEnd(self.builder, thunk_entry);
+
+        // Get args struct pointer (first parameter)
+        const args_param = llvm.c.LLVMGetParam(thunk_func, 0);
+
+        // Load each argument from the struct
+        var call_args: [16]llvm.Value = undefined;
+        for (0..arg_count) |i| {
+            const idx = llvm.c.LLVMConstInt(llvm.c.LLVMInt32TypeInContext(self.context), 0, 0);
+            const field_idx = llvm.c.LLVMConstInt(llvm.c.LLVMInt32TypeInContext(self.context), @intCast(i), 0);
+            var indices = [_]llvm.Value{ idx, field_idx };
+            const field_ptr = llvm.c.LLVMBuildGEP2(
+                self.builder,
+                args_struct_type,
+                args_param,
+                &indices,
+                2,
+                "arg_load_ptr",
+            );
+            call_args[i] = llvm.c.LLVMBuildLoad2(self.builder, arg_types[i], field_ptr, "arg");
+        }
+
+        // Call the target function with unpacked arguments
+        const target_func_type = llvm.c.LLVMGlobalGetValueType(target_func);
+        const call_result = llvm.c.LLVMBuildCall2(
+            self.builder,
+            target_func_type,
+            target_func,
+            @ptrCast(&call_args),
+            @intCast(arg_count),
+            "result",
+        );
+
+        // Convert result to i64 for TaskFn signature
+        const target_ret_type = llvm.c.LLVMGetReturnType(target_func_type);
+        const target_ret_kind = llvm.c.LLVMGetTypeKind(target_ret_type);
+
+        const return_val = if (target_ret_kind == llvm.c.LLVMVoidTypeKind)
+            llvm.c.LLVMConstInt(i64_type, 0, 0)
+        else if (target_ret_kind == llvm.c.LLVMIntegerTypeKind)
+            llvm.c.LLVMBuildSExt(self.builder, call_result, i64_type, "sext")
+        else
+            llvm.c.LLVMConstInt(i64_type, 0, 0);
+
+        _ = llvm.c.LLVMBuildRet(self.builder, return_val);
+
+        // Restore insert point
+        llvm.c.LLVMPositionBuilderAtEnd(self.builder, saved_block);
+        self.current_function = saved_func;
+
+        // Call janus_nursery_spawn(thunk, args_ptr)
+        const spawn_fn = self.getOrDeclareExternFn(
+            "janus_nursery_spawn",
+            i32_type,
+            &[_]llvm.Type{ ptr_type, ptr_type },
+        );
+
+        var spawn_args = [_]llvm.Value{ thunk_func, args_alloca };
+        const spawn_result = llvm.c.LLVMBuildCall2(
+            self.builder,
+            llvm.c.LLVMGlobalGetValueType(spawn_fn),
+            spawn_fn,
+            &spawn_args,
+            2,
+            "spawn_result",
+        );
+
+        try self.values.put(node.id, spawn_result);
+    }
+
+    /// Emit Nursery_Begin: Initialize nursery scope for structured concurrency
+    /// Phase 2: Calls janus_nursery_create() to set up task tracking
+    fn emitNurseryBegin(self: *LLVMEmitter, node: *const IRNode) !void {
+        _ = node;
+
+        // Check if current block is already terminated (e.g., by early return)
+        const current_block = llvm.c.LLVMGetInsertBlock(self.builder);
+        if (current_block != null) {
+            const terminator = llvm.c.LLVMGetBasicBlockTerminator(current_block);
+            if (terminator != null) return; // Block already terminated, skip
+        }
+
+        // Declare janus_nursery_create if not already declared
+        const create_fn = self.getOrDeclareExternFn(
+            "janus_nursery_create",
+            llvm.c.LLVMPointerTypeInContext(self.context, 0), // returns ptr (opaque nursery handle)
+            &[_]llvm.Type{}, // no params
+        );
+
+        // Call janus_nursery_create()
+        const nursery_handle = llvm.c.LLVMBuildCall2(
+            self.builder,
+            llvm.c.LLVMGlobalGetValueType(create_fn),
+            create_fn,
+            null,
+            0,
+            "nursery",
+        );
+
+        // Store nursery handle for potential use (e.g., passing to spawn)
+        // For now, we use thread-local stack in runtime, so handle is implicit
+        _ = nursery_handle;
+    }
+
+    /// Emit Nursery_End: Wait for all tasks and cleanup
+    /// Phase 2: Calls janus_nursery_await_all() to join all spawned tasks
+    fn emitNurseryEnd(self: *LLVMEmitter, node: *const IRNode) !void {
+        _ = node;
+
+        // Check if current block is already terminated (e.g., by early return)
+        const current_block = llvm.c.LLVMGetInsertBlock(self.builder);
+        if (current_block != null) {
+            const terminator = llvm.c.LLVMGetBasicBlockTerminator(current_block);
+            if (terminator != null) return; // Block already terminated, skip
+        }
+
+        // Declare janus_nursery_await_all if not already declared
+        const await_fn = self.getOrDeclareExternFn(
+            "janus_nursery_await_all",
+            llvm.c.LLVMInt64TypeInContext(self.context), // returns i64 (error code)
+            &[_]llvm.Type{}, // no params (uses thread-local nursery stack)
+        );
+
+        // Call janus_nursery_await_all()
+        _ = llvm.c.LLVMBuildCall2(
+            self.builder,
+            llvm.c.LLVMGlobalGetValueType(await_fn),
+            await_fn,
+            null,
+            0,
+            "nursery_result",
+        );
+    }
+
+    /// Helper: Get or declare an external function
+    fn getOrDeclareExternFn(
+        self: *LLVMEmitter,
+        name: [*:0]const u8,
+        ret_type: llvm.Type,
+        param_types: []const llvm.Type,
+    ) llvm.Value {
+        // Check if already declared
+        const existing = llvm.c.LLVMGetNamedFunction(self.module, name);
+        if (existing != null) return existing;
+
+        // Declare the function
+        const func_type = llvm.c.LLVMFunctionType(
+            ret_type,
+            @constCast(param_types.ptr),
+            @intCast(param_types.len),
+            0, // not variadic
+        );
+        return llvm.c.LLVMAddFunction(self.module, name, func_type);
+    }
+
+    /// Emit Async_Call: In blocking model, just emit a regular function call
+    /// The function executes synchronously and returns its result immediately
+    fn emitAsyncCall(self: *LLVMEmitter, node: *const IRNode) !void {
+        // Async_Call behaves exactly like a regular Call in blocking model
+        // The function name is stored in node.data.string
+        // Arguments are in node.inputs
+
+        const func_name = switch (node.data) {
+            .string => |s| s,
+            else => return error.InvalidAsyncCall,
+        };
+
+        // Check if it's a user-defined function (starts with "user_")
+        if (std.mem.startsWith(u8, func_name, "user_")) {
+            // User-defined function - emit direct call
+            try self.emitUserAsyncCall(node, func_name);
+        } else {
+            // Intrinsic or extern function - emit as regular call
+            // For now, just treat it like a regular Call
+            try self.emitCall(node);
+        }
+    }
+
+    /// Helper: Emit call to user-defined async function
+    fn emitUserAsyncCall(self: *LLVMEmitter, node: *const IRNode, func_name: []const u8) !void {
+        // Get the function from the module
+        const func_name_z = try self.allocator.dupeZ(u8, func_name);
+        defer self.allocator.free(func_name_z);
+
+        const func = llvm.c.LLVMGetNamedFunction(self.module, func_name_z.ptr);
+        if (func == null) {
+            std.debug.print("Warning: Async function not found: {s}\n", .{func_name});
+            return error.FunctionNotFound;
+        }
+
+        // Get the function type
+        const func_type = llvm.c.LLVMGlobalGetValueType(func);
+
+        // Build argument list
+        var args: std.ArrayList(llvm.Value) = .empty;
+        defer args.deinit(self.allocator);
+
+        for (node.inputs.items) |input_id| {
+            if (self.values.get(input_id)) |val| {
+                try args.append(self.allocator, val);
+            }
+        }
+
+        // Emit the call
+        const result = llvm.c.LLVMBuildCall2(
+            self.builder,
+            func_type,
+            func,
+            args.items.ptr,
+            @intCast(args.items.len),
+            "async_call",
+        );
+
+        // Store the result if the function returns a value
+        const return_type = llvm.c.LLVMGetReturnType(func_type);
+        if (llvm.c.LLVMGetTypeKind(return_type) != llvm.c.LLVMVoidTypeKind) {
+            try self.values.put(node.id, result);
+        }
+    }
+
+    // ============================================================================
+    // Channel Operations (Phase 3)
+    // ============================================================================
+
+    /// Emit Channel_Create: Create a buffered/unbuffered channel
+    /// inputs[0] = capacity (i32) - 0 for unbuffered
+    fn emitChannelCreate(self: *LLVMEmitter, node: *const IRNode) !void {
+        // Get capacity argument (default to 0 for unbuffered)
+        const capacity = if (node.inputs.items.len > 0)
+            self.values.get(node.inputs.items[0]) orelse llvm.c.LLVMConstInt(llvm.c.LLVMInt32TypeInContext(self.context), 0, 0)
+        else
+            llvm.c.LLVMConstInt(llvm.c.LLVMInt32TypeInContext(self.context), 0, 0);
+
+        const create_fn = self.getOrDeclareExternFn(
+            "janus_channel_create_i64",
+            llvm.c.LLVMPointerTypeInContext(self.context, 0), // returns opaque ptr
+            &[_]llvm.Type{llvm.c.LLVMInt32TypeInContext(self.context)},
+        );
+
+        const result = llvm.c.LLVMBuildCall2(
+            self.builder,
+            llvm.c.LLVMGlobalGetValueType(create_fn),
+            create_fn,
+            @constCast(&[_]llvm.Value{capacity}),
+            1,
+            "channel",
+        );
+
+        try self.values.put(node.id, result);
+    }
+
+    /// Emit Channel_Send: Blocking send to channel
+    /// inputs[0] = channel handle, inputs[1] = value
+    fn emitChannelSend(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 2) return error.InvalidChannelSend;
+
+        const channel_handle = self.values.get(node.inputs.items[0]) orelse return error.InvalidChannelHandle;
+        const value = self.values.get(node.inputs.items[1]) orelse return error.InvalidValue;
+
+        const send_fn = self.getOrDeclareExternFn(
+            "janus_channel_send_i64",
+            llvm.c.LLVMInt32TypeInContext(self.context), // returns i32 (0=success, -1=closed)
+            &[_]llvm.Type{
+                llvm.c.LLVMPointerTypeInContext(self.context, 0),
+                llvm.c.LLVMInt64TypeInContext(self.context),
+            },
+        );
+
+        const result = llvm.c.LLVMBuildCall2(
+            self.builder,
+            llvm.c.LLVMGlobalGetValueType(send_fn),
+            send_fn,
+            @constCast(&[_]llvm.Value{ channel_handle, value }),
+            2,
+            "send_result",
+        );
+
+        try self.values.put(node.id, result);
+    }
+
+    /// Emit Channel_Recv: Blocking receive from channel
+    /// inputs[0] = channel handle
+    fn emitChannelRecv(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.InvalidChannelRecv;
+
+        const channel_handle = self.values.get(node.inputs.items[0]) orelse return error.InvalidChannelHandle;
+
+        // Allocate space for error_out parameter
+        const error_alloca = llvm.c.LLVMBuildAlloca(
+            self.builder,
+            llvm.c.LLVMInt32TypeInContext(self.context),
+            "error_out",
+        );
+
+        const recv_fn = self.getOrDeclareExternFn(
+            "janus_channel_recv_i64",
+            llvm.c.LLVMInt64TypeInContext(self.context), // returns i64 (value or min_i64 on error)
+            &[_]llvm.Type{
+                llvm.c.LLVMPointerTypeInContext(self.context, 0),
+                llvm.c.LLVMPointerTypeInContext(self.context, 0),
+            },
+        );
+
+        const result = llvm.c.LLVMBuildCall2(
+            self.builder,
+            llvm.c.LLVMGlobalGetValueType(recv_fn),
+            recv_fn,
+            @constCast(&[_]llvm.Value{ channel_handle, error_alloca }),
+            2,
+            "recv_value",
+        );
+
+        try self.values.put(node.id, result);
+    }
+
+    /// Emit Channel_Close: Close channel
+    /// inputs[0] = channel handle
+    fn emitChannelClose(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.InvalidChannelClose;
+
+        const channel_handle = self.values.get(node.inputs.items[0]) orelse return error.InvalidChannelHandle;
+
+        const close_fn = self.getOrDeclareExternFn(
+            "janus_channel_close_i64",
+            llvm.c.LLVMVoidTypeInContext(self.context),
+            &[_]llvm.Type{llvm.c.LLVMPointerTypeInContext(self.context, 0)},
+        );
+
+        _ = llvm.c.LLVMBuildCall2(
+            self.builder,
+            llvm.c.LLVMGlobalGetValueType(close_fn),
+            close_fn,
+            @constCast(&[_]llvm.Value{channel_handle}),
+            1,
+            "",
+        );
+    }
+
+    /// Emit Channel_TryRecv: Non-blocking receive
+    /// inputs[0] = channel handle
+    fn emitChannelTryRecv(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.InvalidChannelTryRecv;
+
+        const channel_handle = self.values.get(node.inputs.items[0]) orelse return error.InvalidChannelHandle;
+
+        // Allocate space for value_out parameter
+        const value_alloca = llvm.c.LLVMBuildAlloca(
+            self.builder,
+            llvm.c.LLVMInt64TypeInContext(self.context),
+            "value_out",
+        );
+
+        const try_recv_fn = self.getOrDeclareExternFn(
+            "janus_channel_try_recv_i64",
+            llvm.c.LLVMInt32TypeInContext(self.context), // returns i32 (1=received, 0=would block, -1=closed)
+            &[_]llvm.Type{
+                llvm.c.LLVMPointerTypeInContext(self.context, 0),
+                llvm.c.LLVMPointerTypeInContext(self.context, 0),
+            },
+        );
+
+        const result = llvm.c.LLVMBuildCall2(
+            self.builder,
+            llvm.c.LLVMGlobalGetValueType(try_recv_fn),
+            try_recv_fn,
+            @constCast(&[_]llvm.Value{ channel_handle, value_alloca }),
+            2,
+            "try_recv_result",
+        );
+
+        try self.values.put(node.id, result);
+    }
+
+    /// Emit Channel_TrySend: Non-blocking send
+    /// inputs[0] = channel handle, inputs[1] = value
+    fn emitChannelTrySend(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 2) return error.InvalidChannelTrySend;
+
+        const channel_handle = self.values.get(node.inputs.items[0]) orelse return error.InvalidChannelHandle;
+        const value = self.values.get(node.inputs.items[1]) orelse return error.InvalidValue;
+
+        const try_send_fn = self.getOrDeclareExternFn(
+            "janus_channel_try_send_i64",
+            llvm.c.LLVMInt32TypeInContext(self.context), // returns i32 (1=sent, 0=would block, -1=closed)
+            &[_]llvm.Type{
+                llvm.c.LLVMPointerTypeInContext(self.context, 0),
+                llvm.c.LLVMInt64TypeInContext(self.context),
+            },
+        );
+
+        const result = llvm.c.LLVMBuildCall2(
+            self.builder,
+            llvm.c.LLVMGlobalGetValueType(try_send_fn),
+            try_send_fn,
+            @constCast(&[_]llvm.Value{ channel_handle, value }),
+            2,
+            "try_send_result",
+        );
+
+        try self.values.put(node.id, result);
+    }
+
+    /// Emit Channel_IsClosed: Check if channel is closed
+    /// inputs[0] = channel handle
+    fn emitChannelIsClosed(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.InvalidChannelIsClosed;
+
+        const channel_handle = self.values.get(node.inputs.items[0]) orelse return error.InvalidChannelHandle;
+
+        const is_closed_fn = self.getOrDeclareExternFn(
+            "janus_channel_is_closed_i64",
+            llvm.c.LLVMInt32TypeInContext(self.context), // returns i32 (1=closed, 0=open)
+            &[_]llvm.Type{llvm.c.LLVMPointerTypeInContext(self.context, 0)},
+        );
+
+        const result = llvm.c.LLVMBuildCall2(
+            self.builder,
+            llvm.c.LLVMGlobalGetValueType(is_closed_fn),
+            is_closed_fn,
+            @constCast(&[_]llvm.Value{channel_handle}),
+            1,
+            "is_closed",
+        );
+
+        try self.values.put(node.id, result);
+    }
+
+    // ============================================================================
+    // Select Statement Operations (Phase 4)
+    // ============================================================================
+
+    /// Emit Select_Begin: Create select context
+    fn emitSelectBegin(self: *LLVMEmitter, node: *const IRNode) !void {
+        const create_fn = self.getOrDeclareExternFn(
+            "janus_select_create",
+            llvm.c.LLVMPointerTypeInContext(self.context, 0), // returns opaque ptr
+            &[_]llvm.Type{},
+        );
+
+        const result = llvm.c.LLVMBuildCall2(
+            self.builder,
+            llvm.c.LLVMGlobalGetValueType(create_fn),
+            create_fn,
+            null,
+            0,
+            "select_ctx",
+        );
+
+        try self.values.put(node.id, result);
+    }
+
+    /// Emit Select_Add_Recv: Add recv case to select
+    /// inputs[0] = select context, inputs[1] = channel handle
+    fn emitSelectAddRecv(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 2) return error.InvalidSelectAddRecv;
+
+        const select_ctx = self.values.get(node.inputs.items[0]) orelse return error.InvalidSelectContext;
+        const channel_handle = self.values.get(node.inputs.items[1]) orelse return error.InvalidChannelHandle;
+
+        const add_recv_fn = self.getOrDeclareExternFn(
+            "janus_select_add_recv",
+            llvm.c.LLVMInt32TypeInContext(self.context), // returns i32 (case index or -1)
+            &[_]llvm.Type{
+                llvm.c.LLVMPointerTypeInContext(self.context, 0),
+                llvm.c.LLVMPointerTypeInContext(self.context, 0),
+            },
+        );
+
+        const result = llvm.c.LLVMBuildCall2(
+            self.builder,
+            llvm.c.LLVMGlobalGetValueType(add_recv_fn),
+            add_recv_fn,
+            @constCast(&[_]llvm.Value{ select_ctx, channel_handle }),
+            2,
+            "case_index",
+        );
+
+        try self.values.put(node.id, result);
+    }
+
+    /// Emit Select_Add_Send: Add send case to select
+    /// inputs[0] = select context, inputs[1] = channel handle, inputs[2] = value
+    fn emitSelectAddSend(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 3) return error.InvalidSelectAddSend;
+
+        const select_ctx = self.values.get(node.inputs.items[0]) orelse return error.InvalidSelectContext;
+        const channel_handle = self.values.get(node.inputs.items[1]) orelse return error.InvalidChannelHandle;
+        const value = self.values.get(node.inputs.items[2]) orelse return error.InvalidValue;
+
+        const add_send_fn = self.getOrDeclareExternFn(
+            "janus_select_add_send",
+            llvm.c.LLVMInt32TypeInContext(self.context), // returns i32 (case index or -1)
+            &[_]llvm.Type{
+                llvm.c.LLVMPointerTypeInContext(self.context, 0),
+                llvm.c.LLVMPointerTypeInContext(self.context, 0),
+                llvm.c.LLVMInt64TypeInContext(self.context),
+            },
+        );
+
+        const result = llvm.c.LLVMBuildCall2(
+            self.builder,
+            llvm.c.LLVMGlobalGetValueType(add_send_fn),
+            add_send_fn,
+            @constCast(&[_]llvm.Value{ select_ctx, channel_handle, value }),
+            3,
+            "case_index",
+        );
+
+        try self.values.put(node.id, result);
+    }
+
+    /// Emit Select_Add_Timeout: Add timeout case to select
+    /// inputs[0] = select context, inputs[1] = timeout_ms
+    fn emitSelectAddTimeout(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 2) return error.InvalidSelectAddTimeout;
+
+        const select_ctx = self.values.get(node.inputs.items[0]) orelse return error.InvalidSelectContext;
+        const timeout_ms = self.values.get(node.inputs.items[1]) orelse return error.InvalidTimeout;
+
+        const add_timeout_fn = self.getOrDeclareExternFn(
+            "janus_select_add_timeout",
+            llvm.c.LLVMInt32TypeInContext(self.context), // returns i32 (case index or -1)
+            &[_]llvm.Type{
+                llvm.c.LLVMPointerTypeInContext(self.context, 0),
+                llvm.c.LLVMInt64TypeInContext(self.context),
+            },
+        );
+
+        const result = llvm.c.LLVMBuildCall2(
+            self.builder,
+            llvm.c.LLVMGlobalGetValueType(add_timeout_fn),
+            add_timeout_fn,
+            @constCast(&[_]llvm.Value{ select_ctx, timeout_ms }),
+            2,
+            "case_index",
+        );
+
+        try self.values.put(node.id, result);
+    }
+
+    /// Emit Select_Add_Default: Add default case to select
+    /// inputs[0] = select context
+    fn emitSelectAddDefault(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.InvalidSelectAddDefault;
+
+        const select_ctx = self.values.get(node.inputs.items[0]) orelse return error.InvalidSelectContext;
+
+        const add_default_fn = self.getOrDeclareExternFn(
+            "janus_select_add_default",
+            llvm.c.LLVMInt32TypeInContext(self.context), // returns i32 (case index or -1)
+            &[_]llvm.Type{llvm.c.LLVMPointerTypeInContext(self.context, 0)},
+        );
+
+        const result = llvm.c.LLVMBuildCall2(
+            self.builder,
+            llvm.c.LLVMGlobalGetValueType(add_default_fn),
+            add_default_fn,
+            @constCast(&[_]llvm.Value{select_ctx}),
+            1,
+            "case_index",
+        );
+
+        try self.values.put(node.id, result);
+    }
+
+    /// Emit Select_Wait: Wait for one case to become ready
+    /// inputs[0] = select context
+    fn emitSelectWait(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.InvalidSelectWait;
+
+        const select_ctx = self.values.get(node.inputs.items[0]) orelse return error.InvalidSelectContext;
+
+        const wait_fn = self.getOrDeclareExternFn(
+            "janus_select_wait",
+            llvm.c.LLVMInt32TypeInContext(self.context), // returns i32 (ready case index)
+            &[_]llvm.Type{llvm.c.LLVMPointerTypeInContext(self.context, 0)},
+        );
+
+        const result = llvm.c.LLVMBuildCall2(
+            self.builder,
+            llvm.c.LLVMGlobalGetValueType(wait_fn),
+            wait_fn,
+            @constCast(&[_]llvm.Value{select_ctx}),
+            1,
+            "ready_case",
+        );
+
+        try self.values.put(node.id, result);
+    }
+
+    /// Emit Select_Get_Value: Get received value from completed recv case
+    /// inputs[0] = select context, inputs[1] = case index
+    fn emitSelectGetValue(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 2) return error.InvalidSelectGetValue;
+
+        const select_ctx = self.values.get(node.inputs.items[0]) orelse return error.InvalidSelectContext;
+        const case_index = self.values.get(node.inputs.items[1]) orelse return error.InvalidCaseIndex;
+
+        const get_value_fn = self.getOrDeclareExternFn(
+            "janus_select_get_recv_value",
+            llvm.c.LLVMInt64TypeInContext(self.context), // returns i64 (received value)
+            &[_]llvm.Type{
+                llvm.c.LLVMPointerTypeInContext(self.context, 0),
+                llvm.c.LLVMInt32TypeInContext(self.context),
+            },
+        );
+
+        const result = llvm.c.LLVMBuildCall2(
+            self.builder,
+            llvm.c.LLVMGlobalGetValueType(get_value_fn),
+            get_value_fn,
+            @constCast(&[_]llvm.Value{ select_ctx, case_index }),
+            2,
+            "recv_value",
+        );
+
+        try self.values.put(node.id, result);
+    }
+
+    /// Emit Select_End: Cleanup select context
+    /// inputs[0] = select context
+    fn emitSelectEnd(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.InvalidSelectEnd;
+
+        const select_ctx = self.values.get(node.inputs.items[0]) orelse return error.InvalidSelectContext;
+
+        const destroy_fn = self.getOrDeclareExternFn(
+            "janus_select_destroy",
+            llvm.c.LLVMVoidTypeInContext(self.context),
+            &[_]llvm.Type{llvm.c.LLVMPointerTypeInContext(self.context, 0)},
+        );
+
+        _ = llvm.c.LLVMBuildCall2(
+            self.builder,
+            llvm.c.LLVMGlobalGetValueType(destroy_fn),
+            destroy_fn,
+            @constCast(&[_]llvm.Value{select_ctx}),
+            1,
+            "",
+        );
     }
 };

@@ -8,7 +8,9 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 > "The last programming language you need to learn."
 
 **Status:** Production-Ready — :core Profile Complete
+
 **License:** [Libertaria Suite](docs/legal/licensing-explained.md) (LCL-1.0 / LSL-1.0 / LUL-1.0)
+
 **Repository:** https://git.maiwald.work/Janus/janus-lang
 
 ---
@@ -68,7 +70,7 @@ Systems programming lost its way:
 *   **Python** — Easy but too slow for systems
 *   **C/C++** — Fast but unsafe, complex, memory leaks
 *   **Rust** — Safe but steep learning curve, slow iteration
-*   **Go** — Simple but hides too much, not for systems
+*   **Go** — Simple & procedural but hides too much, not for systems
 
 **Janus gives you all four virtues:**
 - **Easy** — Clean teaching syntax, progressive disclosure
@@ -180,7 +182,7 @@ Janus is **one language** with multiple capability sets. See **[SPEC-002: Profil
 
 *   **[:core](specs/SPEC-018-profile-core.md)** (🜏 The Monastery) — **COMPLETE** — Teaching, fundamentals, systems programming
 *   **:script** (The Bazaar) — Dynamic surface, REPL, rapid prototyping
-*   **:service** (The Backend) — Web services, structured concurrency
+*   **:service** (The Backend) — Web services, [structured concurrency](#-concurrency-model)
 *   **:cluster** (The Swarm) — Actor model, distributed systems
 *   **:compute** (The Accelerator) — NPU/GPU kernels, data-parallel computation
 *   **:sovereign** (The King) — Complete language, raw pointers, ultimate control
@@ -216,6 +218,54 @@ AI contributions are governed by the [**AI-Airlock Protocol**](docs/doctrines/AI
 - **[Contributing](CONTRIBUTING.md)** — How to contribute
 - **[AI Policy](docs/doctrines/AIRLOCK.md)** — AI contribution governance
 - **[AI Agents Guide](docs/meta/AGENTS.md)** — Development with AI assistance
+
+---
+
+## 🔄 Concurrency Model
+
+Janus has something that Go, Rust, Erlang, and Zig do **not** have:
+
+> **A first-class runtime root with explicit ownership of concurrency.**
+
+### The Problem with Other Languages
+
+```go
+// Go: Hidden runtime, implicit scheduler
+go func() { ... }()  // Where does this run? Magic!
+```
+
+```rust
+// Tokio: Global runtime, ambient authority
+tokio::spawn(async { ... });  // Which executor? The invisible one!
+```
+
+### The Janus Solution: Explicit Authority
+
+```janus
+// Janus: Explicit handles, visible authority
+nursery do
+    spawn task_a()  // Uses nursery's scheduler handle
+    spawn task_b()  // Same scheduler, visible relationship
+end
+```
+
+**Why this matters:**
+
+| Concern | Go/Rust/Erlang | Janus |
+|---------|----------------|-------|
+| Test isolation | ❌ Hard | ✅ Easy |
+| Multiple runtimes | ❌ Impossible | ✅ Natural |
+| Debugging | ❌ Magic | ✅ Explicit |
+| Embedding | ❌ Painful | ✅ Clean |
+
+### Key Principles
+
+1. **One Runtime Root** — Single global `Runtime`, not a hidden scheduler
+2. **Explicit Handles** — Nurseries store scheduler references, not callbacks
+3. **No Invisible Authority** — Even the scheduler must be passed explicitly
+4. **Budget-Driven Yielding** — Deterministic, not time-based
+
+**Learn more:** [Runtime Root Architecture](docs/architecture/RUNTIME-ROOT.md) | [SPEC-021: M:N Scheduler](specs/SPEC-021-scheduler.md)
 
 ---
 

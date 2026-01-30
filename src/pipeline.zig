@@ -45,6 +45,9 @@ pub const CompileOptions = struct {
     output_path: ?[]const u8 = null, // If null, derives from source_path
     emit_llvm_ir: bool = false, // Save LLVM IR to .ll file
     verbose: bool = false,
+    /// Path to runtime directory containing janus_rt.zig and scheduler/
+    /// If null, attempts to use embedded source (deprecated, won't work with scheduler)
+    runtime_dir: ?[]const u8 = null,
 };
 
 /// Compilation error types
@@ -209,11 +212,22 @@ pub const Pipeline = struct {
         const runtime_obj_path = try std.fs.path.join(allocator, &[_][]const u8{ tmp_path, "janus_rt.o" });
         defer allocator.free(runtime_obj_path);
 
-        // Write embedded Zig runtime to temporary file
-        const runtime_source_path = try std.fs.path.join(allocator, &[_][]const u8{ tmp_path, "janus_rt.zig" });
-        defer allocator.free(runtime_source_path);
+        // Determine runtime source path - prefer source tree for scheduler support
+        var runtime_source_path_owned: ?[]const u8 = null;
+        defer if (runtime_source_path_owned) |p| allocator.free(p);
 
-        try tmp_dir.dir.writeFile(.{ .sub_path = "janus_rt.zig", .data = RUNTIME_SOURCE_ZIG });
+        const runtime_source_path = if (self.options.runtime_dir) |runtime_dir| blk: {
+            // Use source tree path (supports scheduler imports)
+            const path = try std.fs.path.join(allocator, &[_][]const u8{ runtime_dir, "janus_rt.zig" });
+            runtime_source_path_owned = path;
+            break :blk path;
+        } else blk: {
+            // Fallback: write embedded source to temp (won't work with scheduler)
+            const path = try std.fs.path.join(allocator, &[_][]const u8{ tmp_path, "janus_rt.zig" });
+            runtime_source_path_owned = path;
+            try tmp_dir.dir.writeFile(.{ .sub_path = "janus_rt.zig", .data = RUNTIME_SOURCE_ZIG });
+            break :blk path;
+        };
 
         // Create the -femit-bin argument
         const emit_bin_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{runtime_obj_path});
@@ -243,6 +257,57 @@ pub const Pipeline = struct {
                 }
             },
             else => return CompileError.LinkFailed,
+        }
+
+        // ========== STAGE 6a: COMPILE CONTEXT SWITCH ASSEMBLY (CBC-MN) ==========
+        // The scheduler requires x86_64 assembly for fiber context switching
+        var asm_obj_path: ?[]const u8 = null;
+        defer if (asm_obj_path) |p| allocator.free(p);
+
+        if (self.options.runtime_dir) |runtime_dir| {
+            const asm_source_path = try std.fs.path.join(allocator, &[_][]const u8{ runtime_dir, "scheduler", "context_switch.s" });
+            defer allocator.free(asm_source_path);
+
+            // Check if assembly file exists
+            std.fs.cwd().access(asm_source_path, .{}) catch {
+                // Assembly file not found - scheduler fiber support disabled
+                if (self.options.verbose) {
+                    std.debug.print("Note: context_switch.s not found, fiber support disabled\n", .{});
+                }
+            };
+
+            // Compile assembly to object file
+            const asm_obj = try std.fs.path.join(allocator, &[_][]const u8{ tmp_path, "context_switch.o" });
+            asm_obj_path = asm_obj;
+
+            const asm_emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{asm_obj});
+            defer allocator.free(asm_emit_arg);
+
+            if (self.options.verbose) {
+                std.debug.print("Compiling context switch assembly...\n", .{});
+            }
+
+            const asm_compile_result = try std.process.Child.run(.{
+                .allocator = allocator,
+                .argv = &[_][]const u8{
+                    "zig",
+                    "build-obj",
+                    asm_source_path,
+                    asm_emit_arg,
+                },
+            });
+            defer allocator.free(asm_compile_result.stdout);
+            defer allocator.free(asm_compile_result.stderr);
+
+            switch (asm_compile_result.term) {
+                .Exited => |code| {
+                    if (code != 0) {
+                        std.debug.print("Assembly compilation failed:\n{s}\n", .{asm_compile_result.stderr});
+                        return CompileError.LinkFailed;
+                    }
+                },
+                else => return CompileError.LinkFailed,
+            }
         }
 
         // ========== STAGE 6b: COMPILE ZIG MODULES FROM `use zig` ==========
@@ -322,12 +387,16 @@ pub const Pipeline = struct {
             break :blk try allocator.dupe(u8, name_without_ext);
         };
 
-        // Build link arguments: main object + runtime + all zig modules
+        // Build link arguments: main object + runtime + asm + all zig modules
         var link_argv = std.ArrayListUnmanaged([]const u8){};
         defer link_argv.deinit(allocator);
         try link_argv.append(allocator, "cc");
         try link_argv.append(allocator, obj_file_path);
         try link_argv.append(allocator, runtime_obj_path);
+        // Include context switch assembly for CBC-MN scheduler fiber support
+        if (asm_obj_path) |asm_obj| {
+            try link_argv.append(allocator, asm_obj);
+        }
         for (zig_module_objs.items) |mod_obj| {
             try link_argv.append(allocator, mod_obj);
         }

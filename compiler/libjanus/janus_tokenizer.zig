@@ -74,6 +74,14 @@ pub const TokenType = enum {
     pub_, // Added pub keyword
     test_, // PROBATIO test keyword
 
+    // :service profile keywords
+    async_, // async func - asynchronous functions
+    await_, // await expr - wait for async result
+    nursery_, // nursery { } - structured concurrency scope
+    spawn_, // spawn task - launch concurrent task
+    select_, // select { } - CSP multi-channel wait
+    timeout_, // timeout(duration) - select timeout case
+
     // Error handling keywords (:core profile)
     error_, // error ErrorType { Variant } - error type declaration
     fail_, // fail ErrorType.Variant
@@ -793,6 +801,14 @@ pub const Tokenizer = struct {
             .{ "error", .error_ },
             .{ "fail", .fail_ },
             .{ "catch", .catch_ },
+
+            // :service profile keywords
+            .{ "async", .async_ },
+            .{ "await", .await_ },
+            .{ "nursery", .nursery_ },
+            .{ "spawn", .spawn_ },
+            .{ "select", .select_ },
+            .{ "timeout", .timeout_ },
         });
 
         return keywords.get(text) orelse .identifier;

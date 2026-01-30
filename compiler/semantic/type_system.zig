@@ -112,6 +112,7 @@ pub const FunctionInfo = struct {
     parameter_types: []TypeId,
     return_type: TypeId,
     calling_convention: CallingConvention,
+    is_async: bool, // :service profile - async function flag
 };
 
 /// Structure field information
@@ -385,6 +386,7 @@ pub const TypeSystem = struct {
         parameter_types: []const TypeId,
         return_type: TypeId,
         calling_convention: CallingConvention,
+        is_async: bool, // :service profile - async function flag
     ) !TypeId {
         // Always allocate parameter types first to ensure consistent hashing
         var param_list = ArrayList(TypeId).init(self.allocator);
@@ -398,6 +400,7 @@ pub const TypeSystem = struct {
                     .parameter_types = owned_params,
                     .return_type = return_type,
                     .calling_convention = calling_convention,
+                    .is_async = is_async,
                 },
             },
             .size = 8, // Function pointer size
@@ -910,8 +913,8 @@ test "type system O(1) performance" {
 
     // Test function type deduplication - should be O(1)
     const param_types = [_]TypeId{i32_type};
-    const func_type1 = try system.createFunctionType(&param_types, f64_type, .janus_call);
-    const func_type2 = try system.createFunctionType(&param_types, f64_type, .janus_call);
+    const func_type1 = try system.createFunctionType(&param_types, f64_type, .janus_call, false);
+    const func_type2 = try system.createFunctionType(&param_types, f64_type, .janus_call, false);
 
     // Should return same type ID due to deduplication
     try std.testing.expect(func_type1.id == func_type2.id);
