@@ -23,6 +23,10 @@ const BudgetCost = budget_mod.BudgetCost;
 
 const worker_mod = @import("worker.zig");
 
+const cancel_token_mod = @import("cancel_token.zig");
+const CancelToken = cancel_token_mod.CancelToken;
+const CancellationError = cancel_token_mod.CancellationError;
+
 // Forward declaration for explicit scheduler handle (SPEC-021 Section 2.4)
 // Using opaque pointer to avoid circular import while maintaining explicit ownership
 const SchedulerHandle = *anyopaque;
@@ -127,6 +131,12 @@ pub const Nursery = struct {
     /// Cleared when all children complete and task is requeued.
     waiting_task: ?*Task,
 
+    /// Cancellation token for this nursery (SPEC-019 Section 3.6)
+    /// - Automatically cancelled when any child fails
+    /// - Child nurseries inherit this token
+    /// - Tasks can check token.is_cancelled() for cooperative cancellation
+    cancel_token: CancelToken,
+
     /// Initialize a new nursery
     ///
     /// For scheduler-backed operation, use initWithScheduler().
@@ -151,6 +161,7 @@ pub const Nursery = struct {
             .scheduler_handle = null,
             .submit_fn = null,
             .waiting_task = null, // Set in awaitAll() when task yields
+            .cancel_token = CancelToken.init(allocator), // SPEC-019 Section 3.6
         };
     }
 
@@ -180,11 +191,15 @@ pub const Nursery = struct {
             .scheduler_handle = scheduler_handle,
             .submit_fn = submit_fn,
             .waiting_task = null, // Set in awaitAll() when task yields
+            .cancel_token = CancelToken.init(allocator), // SPEC-019 Section 3.6
         };
     }
 
     /// Deallocate nursery and remaining children
     pub fn deinit(self: *Self) void {
+        // Clean up cancellation token
+        self.cancel_token.deinit();
+
         // Clean up any remaining child tasks
         for (self.children.items) |task| {
             task.deinit();
@@ -337,6 +352,26 @@ pub const Nursery = struct {
         _ = self.state.cmpxchgStrong(.Open, .Closing, .acq_rel, .acquire);
     }
 
+    /// Get the nursery's cancellation token (SPEC-019 Section 3.6)
+    ///
+    /// Tasks can use this to:
+    /// - Check for cancellation: `if (token.is_cancelled()) return`
+    /// - Register callbacks: `token.onCancel(cleanup_fn)`
+    /// - Create child tokens: `CancelToken.initChild(allocator, token)`
+    ///
+    /// The token is automatically cancelled when:
+    /// - Any child task fails
+    /// - The nursery is explicitly cancelled
+    /// - The parent nursery is cancelled (if linked)
+    pub fn getToken(self: *Self) *CancelToken {
+        return &self.cancel_token;
+    }
+
+    /// Check if the nursery is cancelled (convenience wrapper)
+    pub fn isCancelled(self: *const Self) bool {
+        return self.cancel_token.is_cancelled();
+    }
+
     /// Cancel the nursery and all children
     ///
     /// State transitions:
@@ -366,6 +401,10 @@ pub const Nursery = struct {
 
     /// Internal: propagate cancellation to all children
     fn propagateCancellation(self: *Self) void {
+        // SPEC-019 Section 3.6: Cancel the nursery token
+        // This signals all token holders (sibling tasks, child nurseries)
+        self.cancel_token.cancel();
+
         // Mark all non-finished children as cancelled
         for (self.children.items) |task| {
             if (!task.isFinished()) {
@@ -389,8 +428,9 @@ pub const Nursery = struct {
     ///
     /// Called by workers when a child task finishes (success, error, or cancelled).
     /// When all children are complete, wakes the waiting task (Phase 9.3).
+    /// On first failure, cancels the nursery token for sibling notification (SPEC-019 Section 3.6).
     pub fn notifyChildComplete(self: *Self, task: *Task) void {
-        // Track first error
+        // Track first error and trigger cancellation
         if (self.first_error == null) {
             switch (task.result) {
                 .error_code => |code| {
@@ -398,12 +438,17 @@ pub const Nursery = struct {
                         .task_id = task.id,
                         .error_code = code,
                     };
+                    // SPEC-019 Section 3.6: Cancel token on first failure
+                    // This notifies all siblings to check for cancellation
+                    self.cancel_token.cancelFailure();
                 },
                 .panic => |_| {
                     self.first_error = .{
                         .task_id = task.id,
                         .error_code = -1, // Panic marker
                     };
+                    // SPEC-019 Section 3.6: Cancel token on panic
+                    self.cancel_token.cancelFailure();
                 },
                 else => {},
             }

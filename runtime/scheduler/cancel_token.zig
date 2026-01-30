@@ -166,16 +166,29 @@ pub const CancelToken = struct {
         }
     }
 
-    /// Deinitialize the token
+    /// Deinitialize the token (for stack-allocated tokens)
     pub fn deinit(self: *Self) void {
         const count = self.ref_count.fetchSub(1, .acq_rel);
         if (count == 1) {
-            // Last reference - clean up
+            // Last reference - clean up parent ref
             if (self.parent) |parent| {
                 _ = parent.ref_count.fetchSub(1, .acq_rel);
             }
-            // If this was heap-allocated as a child, free it
-            // Note: Root tokens are typically stack-allocated
+            // Note: Stack-allocated tokens don't need freeing
+            // Heap-allocated child tokens should use destroy()
+        }
+    }
+
+    /// Destroy a heap-allocated token (for child tokens from initChild)
+    pub fn destroy(self: *Self) void {
+        const allocator = self.allocator;
+        const count = self.ref_count.fetchSub(1, .acq_rel);
+        if (count == 1) {
+            // Last reference - clean up parent ref and free memory
+            if (self.parent) |parent| {
+                _ = parent.ref_count.fetchSub(1, .acq_rel);
+            }
+            allocator.destroy(self);
         }
     }
 
@@ -445,7 +458,7 @@ test "CancelToken: parent-child propagation" {
     defer parent.deinit();
 
     const child = try CancelToken.initChild(std.testing.allocator, &parent);
-    defer child.deinit();
+    defer child.destroy(); // Use destroy() for heap-allocated child
 
     try std.testing.expect(!parent.is_cancelled());
     try std.testing.expect(!child.is_cancelled());
@@ -499,7 +512,7 @@ test "CancelToken: already cancelled parent" {
     parent.cancel();
 
     const child = try CancelToken.initChild(std.testing.allocator, &parent);
-    defer child.deinit();
+    defer child.destroy(); // Use destroy() for heap-allocated child
 
     // Child should start cancelled
     try std.testing.expect(child.is_cancelled());
