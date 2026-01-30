@@ -664,11 +664,24 @@ pub fn main() !void {
                 if (!verbose_flag) {
                     std.debug.print("Compiling {s}...\n", .{source_path});
                 }
+
+                // Locate runtime directory for scheduler support
+                // Priority: JANUS_RUNTIME_DIR env > "runtime" relative to CWD
+                const runtime_dir: ?[]const u8 = std.process.getEnvVarOwned(allocator, "JANUS_RUNTIME_DIR") catch |err| blk: {
+                    if (err == error.EnvironmentVariableNotFound) {
+                        // Try relative path from CWD
+                        break :blk std.fs.cwd().realpathAlloc(allocator, "runtime") catch null;
+                    }
+                    break :blk null;
+                };
+                defer if (runtime_dir) |d| allocator.free(d);
+
                 var compiler = pipeline.Pipeline.init(allocator, .{
                     .source_path = source_path,
                     .output_path = output_path,
                     .emit_llvm_ir = emit_llvm,
                     .verbose = verbose_flag,
+                    .runtime_dir = runtime_dir,
                 });
 
                 var result = compiler.compile() catch |err| {
