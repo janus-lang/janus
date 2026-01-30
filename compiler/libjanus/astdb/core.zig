@@ -17,6 +17,7 @@ pub const NodeKind = enum {
     // Top-level items
     source_file,
     func_decl,
+    async_func_decl, // :service profile - async function
     struct_decl,
     union_decl,
     enum_decl,
@@ -40,6 +41,7 @@ pub const NodeKind = enum {
     continue_stmt,
     block_stmt,
     fail_stmt, // fail ErrorType.Variant
+    nursery_stmt, // :service profile - nursery { spawn tasks }
 
     // Expressions
     binary_expr,
@@ -51,6 +53,8 @@ pub const NodeKind = enum {
     paren_expr,
     catch_expr, // expr catch err { block }
     try_expr, // expr? (error propagation)
+    await_expr, // :service profile - await async_expr
+    spawn_expr, // :service profile - spawn task()
 
     // Literals
     integer_literal,

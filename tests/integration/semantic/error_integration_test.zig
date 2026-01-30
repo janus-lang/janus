@@ -132,7 +132,8 @@ test "Integration: Error union with function return type" {
     const func_type = try type_system.createFunctionType(
         &params,
         error_union_return,
-        .janus_call
+        .janus_call,
+        false // not async
     );
 
     const func_info = type_system.getTypeInfo(func_type);

@@ -62,13 +62,8 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
 
     const optimize = b.standardOptimizeOption(.{});
-    const enable_s0_gate = b.option(bool, "s0", "Enable S0 bootstrap gate (restricts to minimal Janus syntax)") orelse true;
-    const enable_s0_extended = b.option(bool, "enable-s0-extended", "Run extended S0 bootstrap tests") orelse false;
     const enable_full_suite = b.option(bool, "enable-full-tests", "Run full compiler/unit test suite") orelse false;
     const enable_qtjir_trace = b.option(bool, "trace-qtjir", "Enable QTJIR lowering trace output for debugging") orelse false;
-
-    const s0_options = b.addOptions();
-    s0_options.addOption(bool, "enable_s0", enable_s0_gate);
 
     const compiler_options = b.addOptions();
     compiler_options.addOption(bool, "trace_qtjir", enable_qtjir_trace);
@@ -78,13 +73,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-
-    const bootstrap_s0_mod = b.addModule("bootstrap_s0", .{
-        .root_source_file = b.path("src/bootstrap_s0.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    bootstrap_s0_mod.addOptions("s0_options", s0_options);
 
     // Note: astdb.zig is just a compatibility wrapper around core.zig
     // We use astdb_core directly to avoid module conflicts
@@ -102,14 +90,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     region_mod.addImport("astdb_core", astdb_core_mod);
-    region_mod.addImport("bootstrap_s0", bootstrap_s0_mod);
     region_mod.addImport("lexer", lexer_mod);
-
-    const capabilities_mod = b.addModule("capabilities", .{
-        .root_source_file = b.path("std/capabilities.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
 
     // Unified Compiler Errors Module
     const compiler_errors_mod = b.addModule("compiler_errors", .{
@@ -132,7 +113,6 @@ pub fn build(b: *std.Build) void {
     });
     libjanus_parser_mod.addImport("janus_tokenizer", tokenizer_mod);
     libjanus_parser_mod.addImport("astdb_core", astdb_core_mod);
-    libjanus_parser_mod.addImport("bootstrap_s0", bootstrap_s0_mod);
     libjanus_parser_mod.addImport("region", region_mod);
 
     const astdb_binder_mod = b.addModule("astdb_binder_only", .{
@@ -163,7 +143,6 @@ pub fn build(b: *std.Build) void {
     });
     lib_mod.addImport("astdb_core", astdb_core_mod);
     lib_mod.addImport("libjanus_astdb", libjanus_astdb_mod);
-    lib_mod.addImport("bootstrap_s0", bootstrap_s0_mod);
     lib_mod.addImport("janus_tokenizer", tokenizer_mod);
     lib_mod.addImport("janus_parser", libjanus_parser_mod);
     lib_mod.addImport("compiler_errors", compiler_errors_mod);
@@ -175,17 +154,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     semantic_mod.addImport("astdb", lib_mod);
-
-    const semantic_analyzer_mod = b.addModule("semantic_analyzer_only", .{
-        .root_source_file = b.path("compiler/semantic_analyzer.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    semantic_analyzer_mod.addImport("astdb", astdb_core_mod);
-    semantic_analyzer_mod.addImport("bootstrap_s0", bootstrap_s0_mod);
-    semantic_analyzer_mod.addImport("lexer", lexer_mod);
-    semantic_analyzer_mod.addImport("janus_parser", libjanus_parser_mod);
-    semantic_analyzer_mod.addImport("capabilities", capabilities_mod);
 
     // Zig Parser - For native Zig integration
     const zig_parser_mod = b.addModule("zig_parser", .{
@@ -217,11 +185,6 @@ pub fn build(b: *std.Build) void {
     });
     inspect_mod.addImport("astdb_core", astdb_core_mod);
     inspect_mod.addImport("libjanus", lib_mod);
-
-    // Now we can add the dependency to semantic_analyzer_mod
-
-    semantic_analyzer_mod.addImport("qtjir", qtjir_mod);
-    semantic_analyzer_mod.addImport("inspect", inspect_mod);
 
     // Note: Allocator Contexts implementation in std/mem/ctx.zig
     // .jan files in std/mem/ctx/ are specifications for future self-hosting
@@ -257,6 +220,13 @@ pub fn build(b: *std.Build) void {
     // Additional modules needed for CLI imports (Zig 0.15 module hygiene)
     const vfs_mod = b.addModule("vfs_adapter", .{
         .root_source_file = b.path("std/vfs_adapter.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Janus Runtime module - for tests that directly use Channel, etc.
+    const janus_rt_mod = b.addModule("janus_rt", .{
+        .root_source_file = b.path("runtime/janus_rt.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -387,6 +357,10 @@ pub fn build(b: *std.Build) void {
         .linkage = .static,
     });
     janus_runtime.linkLibC();
+    // Add x86_64 context switch assembly for fiber support (SPEC-021 Section 5.3)
+    if (target.result.cpu.arch == .x86_64) {
+        janus_runtime.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
+    }
     b.installArtifact(janus_runtime);
 
     // Also create an object file for direct linking (used by integration tests)
@@ -399,6 +373,10 @@ pub fn build(b: *std.Build) void {
         }),
     });
     janus_runtime_obj.linkLibC();
+    // Add x86_64 context switch assembly for fiber support (SPEC-021 Section 5.3)
+    if (target.result.cpu.arch == .x86_64) {
+        janus_runtime_obj.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
+    }
 
     // Install the object file to zig-out/obj/ for easy access
     const install_rt_obj = b.addInstallArtifact(janus_runtime_obj, .{
@@ -427,7 +405,6 @@ pub fn build(b: *std.Build) void {
     janus_cli.root_module.addImport("semantic", semantic_mod);
     janus_cli.root_module.addImport("vfs_adapter", vfs_mod);
     janus_cli.root_module.addImport("astdb_core", astdb_core_mod);
-    janus_cli.root_module.addImport("bootstrap_s0", bootstrap_s0_mod);
     janus_cli.root_module.addImport("qtjir", qtjir_mod); // For pipeline.zig
     janus_cli.root_module.addImport("inspect", inspect_mod); // For janus inspect
     janus_cli.root_module.addImport("jit_forge", jit_forge_mod);
@@ -451,7 +428,6 @@ pub fn build(b: *std.Build) void {
     // Run step
     const run_cmd = b.addRunArtifact(janus_cli);
     run_cmd.step.dependOn(b.getInstallStep());
-    run_cmd.setEnvironmentVariable("JANUS_BOOTSTRAP_S0", if (enable_s0_gate) "true" else "false");
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
@@ -607,22 +583,6 @@ pub fn build(b: *std.Build) void {
     // // const run_global_cache_tests = b.addRunArtifact(global_cache_tests);
     // // test_step.dependOn(&run_global_cache_tests.step); // Temporarily disabled due to FileNotFound error
 
-    const s0_smoke_tests = b.addTest(.{
-        .name = "s0_smoke_tests",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/specs/s0_smoke.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    s0_smoke_tests.root_module.addIncludePath(b.path("."));
-    s0_smoke_tests.root_module.addImport("semantic_analyzer_only", semantic_analyzer_mod);
-    s0_smoke_tests.root_module.addImport("astdb", astdb_core_mod);
-    s0_smoke_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
-    s0_smoke_tests.root_module.addImport("bootstrap_s0", bootstrap_s0_mod);
-    const run_s0_smoke_tests = b.addRunArtifact(s0_smoke_tests);
-    test_step.dependOn(&run_s0_smoke_tests.step);
-
     const grep_command_mod = b.createModule(.{
         .root_source_file = b.path("src/grep_command.zig"),
         .target = target,
@@ -640,22 +600,6 @@ pub fn build(b: *std.Build) void {
     grep_spec_tests.root_module.addImport("grep_command", grep_command_mod);
     const run_grep_spec_tests = b.addRunArtifact(grep_spec_tests);
     test_step.dependOn(&run_grep_spec_tests.step);
-
-    const s0_gate_tests = b.addTest(.{
-        .name = "s0_gate_tests",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/specs/s0_gate.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    s0_gate_tests.root_module.addIncludePath(b.path("."));
-    s0_gate_tests.root_module.addImport("bootstrap_s0", bootstrap_s0_mod);
-    s0_gate_tests.root_module.addImport("region", region_mod);
-    s0_gate_tests.root_module.addImport("semantic_analyzer_only", semantic_analyzer_mod);
-    s0_gate_tests.root_module.addImport("astdb", astdb_core_mod);
-    const run_s0_gate_tests = b.addRunArtifact(s0_gate_tests);
-    test_step.dependOn(&run_s0_gate_tests.step);
 
     const type_checking_tests = b.addTest(.{
         .name = "type_checking_tests",
@@ -768,99 +712,6 @@ pub fn build(b: *std.Build) void {
     test_identifier_inference_step.dependOn(&run_identifier_inference_tests.step);
     const run_arraylist_report_tests = b.addRunArtifact(arraylist_report_tests);
     test_step.dependOn(&run_arraylist_report_tests.step);
-
-    // Min Profile Constraints Tests (Epic 1.1)
-    const min_profile_constraints_tests = b.addTest(.{
-        .name = "min_profile_constraints_tests",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/specs/min_profile_constraints.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    min_profile_constraints_tests.root_module.addIncludePath(b.path("."));
-    min_profile_constraints_tests.root_module.addImport("semantic_analyzer_only", semantic_analyzer_mod);
-    min_profile_constraints_tests.root_module.addImport("astdb", astdb_core_mod);
-    min_profile_constraints_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
-
-    const run_min_profile_constraints_tests = b.addRunArtifact(min_profile_constraints_tests);
-    const test_min_profile_step = b.step("test-min-profile", "Run Min Profile constraints tests");
-    test_min_profile_step.dependOn(&run_min_profile_constraints_tests.step);
-    test_step.dependOn(&run_min_profile_constraints_tests.step);
-
-    // Type Checking Calls Tests (Epic 1.1)
-    const type_checking_calls_tests = b.addTest(.{
-        .name = "type_checking_calls_tests",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/specs/type_checking_calls.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    type_checking_calls_tests.root_module.addIncludePath(b.path("."));
-    type_checking_calls_tests.root_module.addImport("semantic_analyzer_only", semantic_analyzer_mod);
-    type_checking_calls_tests.root_module.addImport("astdb", astdb_core_mod);
-    type_checking_calls_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
-
-    const run_type_checking_calls_tests = b.addRunArtifact(type_checking_calls_tests);
-    const test_type_calls_step = b.step("test-type-calls", "Run Type Checking calls tests");
-    test_type_calls_step.dependOn(&run_type_checking_calls_tests.step);
-    test_step.dependOn(&run_type_checking_calls_tests.step);
-
-    const var_decl_tests = b.addTest(.{
-        .name = "var_decl_tests",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/specs/test_var_decl.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    var_decl_tests.root_module.addIncludePath(b.path("."));
-    var_decl_tests.root_module.addImport("semantic_analyzer_only", semantic_analyzer_mod);
-    var_decl_tests.root_module.addImport("astdb", astdb_core_mod);
-    var_decl_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
-
-    const run_var_decl_tests = b.addRunArtifact(var_decl_tests);
-    const test_var_decl_step = b.step("test-var-decl", "Run Variable Declaration tests");
-    test_var_decl_step.dependOn(&run_var_decl_tests.step);
-    test_step.dependOn(&run_var_decl_tests.step);
-
-    const if_stmt_tests = b.addTest(.{
-        .name = "if_stmt_tests",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/specs/test_if_stmt.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    if_stmt_tests.root_module.addIncludePath(b.path("."));
-    if_stmt_tests.root_module.addImport("semantic_analyzer_only", semantic_analyzer_mod);
-    if_stmt_tests.root_module.addImport("astdb", astdb_core_mod);
-    if_stmt_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
-
-    const run_if_stmt_tests = b.addRunArtifact(if_stmt_tests);
-    const test_if_stmt_step = b.step("test-if-stmt", "Run If Statement tests");
-    test_if_stmt_step.dependOn(&run_if_stmt_tests.step);
-
-    test_step.dependOn(&run_if_stmt_tests.step);
-
-    const while_stmt_tests = b.addTest(.{
-        .name = "while_stmt_tests",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/specs/test_while_stmt.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    while_stmt_tests.root_module.addIncludePath(b.path("."));
-    while_stmt_tests.root_module.addImport("semantic_analyzer_only", semantic_analyzer_mod);
-    while_stmt_tests.root_module.addImport("astdb", astdb_core_mod);
-    while_stmt_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
-
-    const run_while_stmt_tests = b.addRunArtifact(while_stmt_tests);
-    const test_while_stmt_step = b.step("test-while-stmt", "Run While Statement tests");
-    test_while_stmt_step.dependOn(&run_while_stmt_tests.step);
-    test_step.dependOn(&run_while_stmt_tests.step);
 
     // Error Handling Syntax Tests (:core profile)
     const error_syntax_tests = b.addTest(.{
@@ -1002,6 +853,8 @@ pub fn build(b: *std.Build) void {
     qtjir_lower_extended_tests.root_module.addImport("astdb_core", astdb_core_mod);
     qtjir_lower_extended_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     qtjir_lower_extended_tests.root_module.addImport("zig_parser", zig_parser_mod);
+    qtjir_lower_extended_tests.root_module.addImport("semantic", semantic_mod);
+    qtjir_lower_extended_tests.root_module.addImport("qtjir", qtjir_mod);
 
     const run_qtjir_lower_extended_tests = b.addRunArtifact(qtjir_lower_extended_tests);
     const test_lower_extended_step = b.step("test-lower-extended", "Run QTJIR extended lowering tests");
@@ -1020,29 +873,128 @@ pub fn build(b: *std.Build) void {
     range_lower_tests.root_module.addImport("astdb_core", astdb_core_mod);
     range_lower_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     range_lower_tests.root_module.addImport("zig_parser", zig_parser_mod);
+    range_lower_tests.root_module.addImport("semantic", semantic_mod);
+    range_lower_tests.root_module.addImport("qtjir", qtjir_mod);
 
     const run_range_lower_tests = b.addRunArtifact(range_lower_tests);
     const test_range_lower_step = b.step("test-range-lower", "Run Range Lowering tests");
     test_range_lower_step.dependOn(&run_range_lower_tests.step);
     test_step.dependOn(&run_range_lower_tests.step);
 
-    // Range Semantic Tests
-    const range_semantic_tests = b.addTest(.{
-        .name = "range_semantic_tests",
+    // Nursery/Spawn Correctness Property Tests
+    const nursery_correctness_tests = b.addTest(.{
+        .name = "nursery_correctness_tests",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/specs/test_range_semantic.zig"),
+            .root_source_file = b.path("tests/specs/test_nursery_spawn_correctness.zig"),
             .target = target,
             .optimize = optimize,
         }),
     });
-    range_semantic_tests.root_module.addImport("astdb", astdb_core_mod);
-    range_semantic_tests.root_module.addImport("semantic_analyzer_only", semantic_analyzer_mod);
-    range_semantic_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    nursery_correctness_tests.root_module.addImport("astdb", astdb_core_mod);
+    nursery_correctness_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    nursery_correctness_tests.root_module.addImport("qtjir", qtjir_mod);
+    nursery_correctness_tests.root_module.addImport("semantic", semantic_mod);
 
-    const run_range_semantic_tests = b.addRunArtifact(range_semantic_tests);
-    const test_range_semantic_step = b.step("test-range-semantic", "Run Range Semantic tests");
-    test_range_semantic_step.dependOn(&run_range_semantic_tests.step);
-    test_step.dependOn(&run_range_semantic_tests.step);
+    const run_nursery_correctness_tests = b.addRunArtifact(nursery_correctness_tests);
+    const test_nursery_correctness_step = b.step("test-nursery-correctness", "Run Nursery/Spawn correctness property tests");
+    test_nursery_correctness_step.dependOn(&run_nursery_correctness_tests.step);
+    test_step.dependOn(&run_nursery_correctness_tests.step);
+
+    // Context Switch Tests (SPEC-021 Section 5.3)
+    // Tests x86_64 assembly context switch for fiber support
+    const context_switch_tests = b.addTest(.{
+        .name = "context_switch_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("runtime/scheduler/test_context_switch.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    // Link assembly file for x86_64 context switch
+    if (target.result.cpu.arch == .x86_64) {
+        context_switch_tests.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
+    }
+
+    const run_context_switch_tests = b.addRunArtifact(context_switch_tests);
+    const test_context_switch_step = b.step("test-context-switch", "Run x86_64 context switch tests (SPEC-021)");
+    test_context_switch_step.dependOn(&run_context_switch_tests.step);
+    test_step.dependOn(&run_context_switch_tests.step);
+
+    // Worker Integration Tests (SPEC-021 Phase 7)
+    // Tests full task execution through worker loop with context switching
+    const worker_integration_tests = b.addTest(.{
+        .name = "worker_integration_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("runtime/scheduler/test_worker_integration.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    // Link assembly file for x86_64 context switch
+    if (target.result.cpu.arch == .x86_64) {
+        worker_integration_tests.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
+    }
+
+    const run_worker_integration_tests = b.addRunArtifact(worker_integration_tests);
+    const test_worker_integration_step = b.step("test-worker-integration", "Run worker integration tests (SPEC-021 Phase 7)");
+    test_worker_integration_step.dependOn(&run_worker_integration_tests.step);
+    test_step.dependOn(&run_worker_integration_tests.step);
+
+    // Multi-Worker Tests (SPEC-021 Phase 8)
+    // Tests work stealing and load balancing across multiple workers
+    const multiworker_tests = b.addTest(.{
+        .name = "multiworker_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("runtime/scheduler/test_multiworker.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    // Link assembly file for x86_64 context switch
+    if (target.result.cpu.arch == .x86_64) {
+        multiworker_tests.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
+    }
+
+    const run_multiworker_tests = b.addRunArtifact(multiworker_tests);
+    const test_multiworker_step = b.step("test-multiworker", "Run multi-worker work-stealing tests (SPEC-021 Phase 8)");
+    test_multiworker_step.dependOn(&run_multiworker_tests.step);
+    test_step.dependOn(&run_multiworker_tests.step);
+
+    // Nursery Integration Tests (SPEC-021 Phase 9)
+    const nursery_integration_tests = b.addTest(.{
+        .name = "nursery_integration_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("runtime/scheduler/test_nursery_integration.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    if (target.result.cpu.arch == .x86_64) {
+        nursery_integration_tests.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
+    }
+
+    const run_nursery_integration_tests = b.addRunArtifact(nursery_integration_tests);
+    const test_nursery_integration_step = b.step("test-nursery-integration", "Run nursery + scheduler integration tests (SPEC-021 Phase 9)");
+    test_nursery_integration_step.dependOn(&run_nursery_integration_tests.step);
+    test_step.dependOn(&run_nursery_integration_tests.step);
+
+    // Scheduler Unit Tests (SPEC-021)
+    const scheduler_tests = b.addTest(.{
+        .name = "scheduler_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("runtime/scheduler/scheduler.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    if (target.result.cpu.arch == .x86_64) {
+        scheduler_tests.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
+    }
+
+    const run_scheduler_tests = b.addRunArtifact(scheduler_tests);
+    const test_scheduler_step = b.step("test-scheduler", "Run scheduler unit tests (SPEC-021)");
+    test_scheduler_step.dependOn(&run_scheduler_tests.step);
+    test_step.dependOn(&run_scheduler_tests.step);
 
     // For Loop Lowering Tests
     const for_lower_tests = b.addTest(.{
@@ -1057,6 +1009,7 @@ pub fn build(b: *std.Build) void {
     for_lower_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     for_lower_tests.root_module.addImport("qtjir", qtjir_mod);
     for_lower_tests.root_module.addImport("zig_parser", zig_parser_mod);
+    for_lower_tests.root_module.addImport("semantic", semantic_mod);
 
     const run_for_lower_tests = b.addRunArtifact(for_lower_tests);
     const test_for_lower_step = b.step("test-for-lower", "Run For Loop Lowering tests");
@@ -1076,11 +1029,32 @@ pub fn build(b: *std.Build) void {
     array_lower_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     array_lower_tests.root_module.addImport("qtjir", qtjir_mod);
     array_lower_tests.root_module.addImport("zig_parser", zig_parser_mod);
+    array_lower_tests.root_module.addImport("semantic", semantic_mod);
 
     const run_array_lower_tests = b.addRunArtifact(array_lower_tests);
     const test_array_lower_step = b.step("test-array-lower", "Run Array Literal Lowering tests");
     test_array_lower_step.dependOn(&run_array_lower_tests.step);
     test_step.dependOn(&run_array_lower_tests.step);
+
+    // :service Profile - Async/Await Lowering Tests
+    const async_lower_tests = b.addTest(.{
+        .name = "async_lower_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("compiler/qtjir/test_async_lower.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    async_lower_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    async_lower_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    async_lower_tests.root_module.addImport("qtjir", qtjir_mod);
+    async_lower_tests.root_module.addImport("zig_parser", zig_parser_mod);
+    async_lower_tests.root_module.addImport("semantic", semantic_mod);
+
+    const run_async_lower_tests = b.addRunArtifact(async_lower_tests);
+    const test_async_lower_step = b.step("test-async-lower", "Run :service profile async/await lowering tests");
+    test_async_lower_step.dependOn(&run_async_lower_tests.step);
+    test_step.dependOn(&run_async_lower_tests.step);
 
     // QTJIR Tensor/SSM Lowering Tests (Phase 2 - AI-First Runtime)
     const qtjir_lower_tensor_ssm_tests = b.addTest(.{
@@ -2007,38 +1981,58 @@ pub fn build(b: *std.Build) void {
     test_compound_assignment_e2e_step.dependOn(&run_compound_assignment_e2e_tests.step);
     test_step.dependOn(&run_compound_assignment_e2e_tests.step);
 
-    if (enable_s0_extended) {
-        const s0_neg = b.addTest(.{
-            .name = "s0_negative_tests",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("tests/specs/s0_negative.zig"),
-                .target = target,
-                .optimize = optimize,
-            }),
-        });
-        s0_neg.root_module.addIncludePath(b.path("."));
-        s0_neg.root_module.addImport("astdb", astdb_core_mod);
+    // Async/Await End-to-End Integration Test (:service profile)
+    const async_await_e2e_tests = b.addTest(.{
+        .name = "async_await_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/async_await_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    async_await_e2e_tests.linkLibC();
+    async_await_e2e_tests.linkSystemLibrary("LLVM-21");
+    async_await_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    async_await_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    async_await_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    async_await_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_async_await_e2e_tests = b.addRunArtifact(async_await_e2e_tests);
 
-        s0_neg.root_module.addImport("region", region_mod);
+    const test_async_await_e2e_step = b.step("test-async-await-e2e", "Run Async/Await end-to-end integration test (:service profile)");
+    test_async_await_e2e_step.dependOn(&run_async_await_e2e_tests.step);
+    test_step.dependOn(&run_async_await_e2e_tests.step);
 
-        const run_s0_neg = b.addRunArtifact(s0_neg);
-        test_step.dependOn(&run_s0_neg.step);
-    }
+    // Channel Integration Tests - Phase 3 (:service profile)
+    const channel_tests = b.addTest(.{
+        .name = "channel_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/channel_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    channel_tests.linkLibC();
+    channel_tests.root_module.addImport("janus_rt", janus_rt_mod);
+    const run_channel_tests = b.addRunArtifact(channel_tests);
 
-    // S0 binder tests
-    const s0_binder = b.addTest(.{
-        .name = "s0_binder_tests",
+    const test_channels_step = b.step("test-channels", "Run Channel integration tests (:service profile Phase 3)");
+    test_channels_step.dependOn(&run_channel_tests.step);
+    test_step.dependOn(&run_channel_tests.step);
+
+    // Binder tests (AST binding infrastructure)
+    const binder_tests = b.addTest(.{
+        .name = "binder_tests",
         .root_module = b.createModule(.{
             .root_source_file = b.path("tests/specs/s0_binder.zig"),
             .target = target,
             .optimize = optimize,
         }),
     });
-    s0_binder.root_module.addIncludePath(b.path("."));
-    s0_binder.root_module.addImport("astdb", astdb_core_mod);
-    s0_binder.root_module.addImport("astdb_binder_only", astdb_binder_mod);
-    const run_s0_binder = b.addRunArtifact(s0_binder);
-    test_step.dependOn(&run_s0_binder.step);
+    binder_tests.root_module.addIncludePath(b.path("."));
+    binder_tests.root_module.addImport("astdb", astdb_core_mod);
+    binder_tests.root_module.addImport("astdb_binder_only", astdb_binder_mod);
+    const run_binder_tests = b.addRunArtifact(binder_tests);
+    test_step.dependOn(&run_binder_tests.step);
 
     if (enable_daemon) {
         // UTCP ManualBuilder unit tests
@@ -2432,6 +2426,24 @@ pub fn build(b: *std.Build) void {
     const test_postfix_guards_step = b.step("test-postfix-guards", "Run postfix guard clauses integration tests");
     test_postfix_guards_step.dependOn(&run_postfix_guards_tests.step);
     test_step.dependOn(&run_postfix_guards_tests.step);
+
+    // Async/Await Basic Parser Tests (:service profile)
+    const async_basic_tests = b.addTest(.{
+        .name = "async_basic_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/async_basic_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    async_basic_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    async_basic_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    async_basic_tests.root_module.addImport("semantic", semantic_mod);
+    const run_async_basic_tests = b.addRunArtifact(async_basic_tests);
+
+    const test_async_basic_step = b.step("test-async-basic", "Run async/await basic parser tests");
+    test_async_basic_step.dependOn(&run_async_basic_tests.step);
+    test_step.dependOn(&run_async_basic_tests.step);
 
     // Postfix Guard Parser Unit Tests
     const postfix_guards_parser_tests = b.addTest(.{

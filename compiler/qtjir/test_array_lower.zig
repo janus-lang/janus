@@ -4,8 +4,9 @@
 const std = @import("std");
 const astdb_core = @import("astdb_core");
 const janus_parser = @import("janus_parser");
-const qtjir_lower = @import("../qtjir/lower.zig");
-const qtjir_graph = @import("../qtjir/graph.zig");
+const qtjir = @import("qtjir");
+const qtjir_lower = qtjir.lower;
+const qtjir_graph = qtjir.graph;
 
 test "QTJIR: Array literal lowering - basic" {
     const allocator = std.testing.allocator;

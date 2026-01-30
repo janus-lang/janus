@@ -108,12 +108,15 @@ test "Epic 1.4.1: Compile and Execute Hello World end-to-end" {
 
     std.debug.print("=== Object file generated: {s} ===\\n", .{obj_file_path});
 
-    // ========== STEP 6: Link with Runtime (Compile Zig Runtime) ==========
+    // ========== STEP 6: Link with Runtime (Compile Zig Runtime + Assembly) ==========
     const exe_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "hello" });
     defer allocator.free(exe_file_path);
 
     const rt_obj_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "janus_rt.o" });
     defer allocator.free(rt_obj_path);
+
+    const asm_obj_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "context_switch.o" });
+    defer allocator.free(asm_obj_path);
 
     const emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{rt_obj_path});
     defer allocator.free(emit_arg);
@@ -134,7 +137,6 @@ test "Epic 1.4.1: Compile and Execute Hello World end-to-end" {
 
     if (zig_build_result.term.Exited != 0) {
         std.debug.print("RUNTIME COMPILATION FAILED: {s}\n", .{zig_build_result.stderr});
-        // Print CWD for debug
         var buf: [1024]u8 = undefined;
         if (std.process.getCwd(&buf)) |cwd| {
             std.debug.print("CWD: {s}\n", .{cwd});
@@ -142,13 +144,35 @@ test "Epic 1.4.1: Compile and Execute Hello World end-to-end" {
         return error.RuntimeCompilationFailed;
     }
 
-    // Use cc to link object file with runtime
+    // Compile context switch assembly (CBC-MN scheduler fiber support)
+    const asm_emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{asm_obj_path});
+    defer allocator.free(asm_emit_arg);
+
+    const asm_build_result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &[_][]const u8{
+            "zig",
+            "build-obj",
+            "runtime/scheduler/context_switch.s",
+            asm_emit_arg,
+        },
+    });
+    defer allocator.free(asm_build_result.stdout);
+    defer allocator.free(asm_build_result.stderr);
+
+    if (asm_build_result.term.Exited != 0) {
+        std.debug.print("ASSEMBLY COMPILATION FAILED: {s}\n", .{asm_build_result.stderr});
+        return error.AssemblyCompilationFailed;
+    }
+
+    // Use cc to link object file with runtime and assembly
     const link_result = try std.process.Child.run(.{
         .allocator = allocator,
         .argv = &[_][]const u8{
             "cc",
             obj_file_path,
             rt_obj_path,
+            asm_obj_path,
             "-o",
             exe_file_path,
         },

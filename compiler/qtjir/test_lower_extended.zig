@@ -7,8 +7,9 @@ const std = @import("std");
 const testing = std.testing;
 const astdb = @import("astdb_core");
 const parser = @import("janus_parser");
-const lower = @import("lower.zig");
-const graph = @import("graph.zig");
+const qtjir = @import("qtjir");
+const lower = qtjir.lower;
+const graph = qtjir.graph;
 
 // TODO: Fix AST structure expectations - binary_expr nodes are flat in function body
 // The lowerer works but the test expectations don't match current parser output

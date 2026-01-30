@@ -25,6 +25,10 @@ pub const CoreProfileValidator = @import("core_profile_validator.zig").CoreProfi
 pub const CoreValidationResult = @import("core_profile_validator.zig").CoreValidationResult;
 pub const CoreProfileType = @import("core_profile_validator.zig").CoreProfileType;
 
+// Semantic Validator (full validation engine with :service profile support)
+pub const SemanticValidator = @import("semantic_validator.zig").SemanticValidator;
+pub const ValidationError = @import("semantic_validator.zig").ValidationError;
+
 // Arena allocation components
 pub const ArenaValidationContext = @import("validation_engine_arena.zig").ArenaValidationContext;
 pub const ArenaValidation = @import("validation_engine_arena.zig").ArenaValidation;
