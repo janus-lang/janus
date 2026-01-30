@@ -835,6 +835,33 @@ export fn janus_nursery_task_count() callconv(.c) i32 {
     return @intCast(handle.nursery.activeChildCount());
 }
 
+/// Get the cancel token for the current nursery (SPEC-019 Section 3.6)
+/// Returns null if no active nursery
+export fn janus_nursery_get_token() callconv(.c) ?*scheduler.CancelToken {
+    if (rt_nursery_stack.items.len == 0) return null;
+
+    const handle = rt_nursery_stack.items[rt_nursery_stack.items.len - 1];
+    return handle.nursery.getToken();
+}
+
+/// Check if current nursery is cancelled (SPEC-019 Section 3.6)
+/// Returns true if cancelled OR if no active nursery (fail-safe)
+export fn janus_nursery_is_cancelled() callconv(.c) bool {
+    if (rt_nursery_stack.items.len == 0) return true; // No nursery = treat as cancelled
+
+    const handle = rt_nursery_stack.items[rt_nursery_stack.items.len - 1];
+    return handle.nursery.isCancelled();
+}
+
+/// Cancel the current nursery (SPEC-019 Section 3.6)
+/// No-op if no active nursery
+export fn janus_nursery_cancel() callconv(.c) void {
+    if (rt_nursery_stack.items.len == 0) return;
+
+    const handle = rt_nursery_stack.items[rt_nursery_stack.items.len - 1];
+    handle.nursery.getToken().cancel();
+}
+
 // ============================================================================
 // Channel API - Phase 3: CSP-style Message Passing
 // ============================================================================
