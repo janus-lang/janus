@@ -1,13 +1,150 @@
 // SPDX-License-Identifier: LSL-1.0
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
-// Janus Pure Zig Runtime (v0.1.1)
+// Janus Pure Zig Runtime (v0.2.0)
 // "Runtime Sovereignty" - Zig implementation using minimal libc
 //
 // This replaces the C shim with Zig, using std.c for libc functions
 // to maintain compatibility while being written in Zig.
+//
+// v0.2.0: CBC-MN Scheduler integration (M:N fiber-based concurrency)
 
 const std = @import("std");
+
+// CBC-MN Scheduler (Capability-Budgeted Cooperative M:N)
+const scheduler = @import("scheduler.zig");
+
+// ============================================================================
+// Runtime Root Architecture (SPEC-021 Section 2)
+// ============================================================================
+// The Runtime is the single global root. It owns the scheduler.
+// No invisible authority - all handles are explicit.
+// Subsystems MUST NOT access GLOBAL_RT directly.
+
+/// Runtime configuration
+pub const RuntimeConfig = extern struct {
+    /// Number of worker threads (0 = auto-detect CPU count)
+    worker_count: u32 = 0,
+    /// Deterministic seed for reproducible tests (0 = non-deterministic)
+    deterministic_seed: u64 = 0,
+};
+
+/// The Runtime - single root that owns all subsystems (SPEC-021 Section 2.2.1)
+///
+/// This is the only permitted global. Subsystems access it via explicit handles.
+pub const Runtime = struct {
+    const Self = @This();
+
+    /// M:N task scheduler
+    sched: *scheduler.Scheduler,
+    /// Memory allocator
+    allocator: std.mem.Allocator,
+    /// Configuration used to create this runtime
+    config: RuntimeConfig,
+
+    /// Initialize a new runtime
+    pub fn init(allocator: std.mem.Allocator, config: RuntimeConfig) !*Self {
+        const self = try allocator.create(Self);
+        errdefer allocator.destroy(self);
+
+        const worker_count: usize = if (config.worker_count == 0)
+            std.Thread.getCpuCount() catch 4
+        else
+            @intCast(config.worker_count);
+
+        self.* = Self{
+            .sched = try scheduler.Scheduler.init(allocator, worker_count),
+            .allocator = allocator,
+            .config = config,
+        };
+
+        return self;
+    }
+
+    /// Cleanup and deallocate runtime
+    pub fn deinit(self: *Self) void {
+        self.sched.deinit();
+        self.allocator.destroy(self);
+    }
+
+    /// Start the runtime (spawn worker threads)
+    pub fn start(self: *Self) !void {
+        try self.sched.start();
+    }
+
+    /// Stop the runtime (signal shutdown, wait for workers)
+    pub fn stop(self: *Self) void {
+        self.sched.stop();
+    }
+
+    /// Create a nursery backed by this runtime's scheduler
+    pub fn createNursery(self: *Self, budget: scheduler.Budget) scheduler.Nursery {
+        return self.sched.createNursery(budget);
+    }
+
+    /// Check if runtime is running
+    pub fn isRunning(self: *const Self) bool {
+        return self.sched.isRunning();
+    }
+};
+
+/// The ONLY global (SPEC-021 Section 2.2.2)
+/// This is the runtime root, not a scheduler singleton.
+var GLOBAL_RT: ?*Runtime = null;
+
+/// Initialize the Janus runtime
+///
+/// Creates the Runtime root with the given configuration.
+/// This MUST be called before any concurrency operations.
+///
+/// Returns: 0 on success, -1 on failure
+export fn janus_rt_init(config: RuntimeConfig) callconv(.c) i32 {
+    if (GLOBAL_RT != null) {
+        // Already initialized
+        return -1;
+    }
+
+    const allocator = gpa.allocator();
+    GLOBAL_RT = Runtime.init(allocator, config) catch return -1;
+    GLOBAL_RT.?.start() catch {
+        GLOBAL_RT.?.deinit();
+        GLOBAL_RT = null;
+        return -1;
+    };
+
+    return 0;
+}
+
+/// Initialize runtime with defaults (auto-detect workers)
+export fn janus_rt_init_default() callconv(.c) i32 {
+    return janus_rt_init(RuntimeConfig{});
+}
+
+/// Shutdown the Janus runtime
+///
+/// Stops the scheduler and frees all resources.
+/// After this call, no concurrency operations are valid.
+export fn janus_rt_shutdown() callconv(.c) void {
+    if (GLOBAL_RT) |rt| {
+        rt.stop();
+        rt.deinit();
+        GLOBAL_RT = null;
+    }
+}
+
+/// Check if runtime is initialized and running
+export fn janus_rt_is_running() callconv(.c) bool {
+    if (GLOBAL_RT) |rt| {
+        return rt.isRunning();
+    }
+    return false;
+}
+
+/// Get current runtime (internal use only - not exported)
+/// Subsystems should receive scheduler handles explicitly, not via this function.
+fn getCurrentRuntime() ?*Runtime {
+    return GLOBAL_RT;
+}
 
 // ============================================================================
 // String API
@@ -315,6 +452,48 @@ export fn janus_slice_get_u8(slice: JanusSliceU8, index: usize) callconv(.c) u8 
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
+// ============================================================================
+// CBC-MN Scheduler API (Delegating to Runtime Root)
+// ============================================================================
+// These exports delegate to the Runtime Root. The global_scheduler singleton
+// has been removed - all scheduler access goes through GLOBAL_RT.
+
+/// Initialize the M:N scheduler with specified worker count
+/// Call this at program start for :service profile
+/// worker_count: 0 = auto-detect CPU cores
+export fn janus_scheduler_init(worker_count: u32) callconv(.c) i32 {
+    return janus_rt_init(RuntimeConfig{
+        .worker_count = worker_count,
+        .deterministic_seed = 0,
+    });
+}
+
+/// Shutdown the scheduler and wait for all workers to stop
+/// Call this at program exit
+export fn janus_scheduler_shutdown() callconv(.c) void {
+    janus_rt_shutdown();
+}
+
+/// Get scheduler statistics (for debugging/monitoring)
+export fn janus_scheduler_stats() callconv(.c) u64 {
+    if (GLOBAL_RT) |rt| {
+        const stats = rt.sched.getStats();
+        return stats.tasks_executed;
+    }
+    return 0;
+}
+
+/// Check if scheduler is running (internal)
+fn ensureSchedulerRunning() bool {
+    if (GLOBAL_RT == null) {
+        // Auto-initialize with default config
+        if (janus_rt_init_default() != 0) {
+            return false;
+        }
+    }
+    return GLOBAL_RT != null and GLOBAL_RT.?.isRunning();
+}
+
 export fn janus_readFile(path: [*:0]const u8) callconv(.c) ?[*:0]u8 {
     const allocator = gpa.allocator();
     const path_slice = std.mem.span(path);
@@ -498,4 +677,773 @@ export fn janus_string_free(handle: ?*anyopaque, allocator_handle: ?*anyopaque) 
 
     str.deinit(allocator);
     allocator.destroy(str);
+}
+
+// ============================================================================
+// :service Profile - Structured Concurrency (CBC-MN Scheduler-Backed)
+// ============================================================================
+// Nursery exports backed by the CBC-MN scheduler via the Runtime Root.
+// Tasks run as lightweight fibers in the M:N scheduler, not OS threads.
+//
+// MIGRATION: The thread-per-task JanusNursery has been replaced with
+// scheduler.Nursery backed by GLOBAL_RT. Same C API, fiber implementation.
+
+/// Task function signature: takes opaque argument, returns i64 result
+pub const TaskFn = *const fn (?*anyopaque) callconv(.c) i64;
+
+/// No-argument task function signature (common case)
+/// Note: Returns i64 for compatibility with scheduler task system
+pub const NoArgTaskFn = *const fn () callconv(.c) i64;
+
+/// C ABI Adapter for scheduler.Nursery (SPEC-021 Section 3.2)
+///
+/// This is the boundary gasket that translates Janus runtime semantics
+/// into the C ABI without leaking impurity inward.
+///
+/// IS: An opaque handle for C, an adapter, a lifetime owner
+/// IS NOT: A scheduler, a policy object, part of Janus semantics
+const RtNursery = struct {
+    nursery: scheduler.Nursery,
+    allocator: std.mem.Allocator, // For adapter lifecycle only
+};
+
+/// Thread-local nursery stack (SPEC-021 Section 3.3)
+///
+/// TLS is allowed ONLY to support the legacy C ABI illusion:
+/// "There is a current nursery."
+///
+/// Containment rules:
+/// - TLS lives ONLY in this file (janus_rt.zig)
+/// - TLS is NEVER visible to scheduler code
+/// - TLS stack stores RtNursery pointers only
+///
+/// This is ABI glue, not architecture.
+threadlocal var rt_nursery_stack: std.ArrayListUnmanaged(*RtNursery) = .{};
+
+/// Create a new nursery scope
+/// Uses the Runtime Root's scheduler for M:N fiber scheduling
+export fn janus_nursery_create() callconv(.c) ?*anyopaque {
+    const allocator = gpa.allocator();
+
+    // Ensure runtime is initialized
+    if (!ensureSchedulerRunning()) {
+        std.debug.print("ERROR: Runtime not initialized for nursery\n", .{});
+        return null;
+    }
+
+    const rt = GLOBAL_RT.?;
+
+    // Create nursery handle
+    const handle = allocator.create(RtNursery) catch return null;
+    handle.* = RtNursery{
+        .nursery = rt.createNursery(scheduler.Budget.serviceDefault()),
+        .allocator = allocator,
+    };
+
+    // Push onto nursery stack
+    rt_nursery_stack.append(allocator, handle) catch {
+        handle.nursery.deinit();
+        allocator.destroy(handle);
+        return null;
+    };
+
+    return @ptrCast(handle);
+}
+
+/// Spawn a task in the current nursery
+/// func: function pointer (TaskFn signature)
+/// arg: opaque argument to pass to function
+export fn janus_nursery_spawn(func: TaskFn, arg: ?*anyopaque) callconv(.c) i32 {
+    // Get current nursery from stack
+    if (rt_nursery_stack.items.len == 0) {
+        std.debug.print("ERROR: spawn called outside of nursery\n", .{});
+        return -1;
+    }
+
+    const handle = rt_nursery_stack.items[rt_nursery_stack.items.len - 1];
+
+    // Spawn task via scheduler nursery
+    const task = handle.nursery.spawn(func, arg);
+    if (task == null) {
+        std.debug.print("ERROR: failed to spawn task (budget exhausted?)\n", .{});
+        return -1;
+    }
+
+    return 0;
+}
+
+/// Spawn a no-argument function in the current nursery
+/// func: function pointer returning i32 (common Janus function signature)
+export fn janus_nursery_spawn_noarg(func: NoArgTaskFn) callconv(.c) i32 {
+    // Get current nursery from stack
+    if (rt_nursery_stack.items.len == 0) {
+        std.debug.print("ERROR: spawn called outside of nursery\n", .{});
+        return -1;
+    }
+
+    const handle = rt_nursery_stack.items[rt_nursery_stack.items.len - 1];
+
+    // Spawn no-arg task via scheduler nursery
+    const task = handle.nursery.spawnNoArg(func);
+    if (task == null) {
+        std.debug.print("ERROR: failed to spawn task (budget exhausted?)\n", .{});
+        return -1;
+    }
+
+    return 0;
+}
+
+/// Wait for all tasks in nursery to complete and cleanup
+/// Returns 0 on success, error code on failure
+export fn janus_nursery_await_all() callconv(.c) i64 {
+    const allocator = gpa.allocator();
+
+    // Pop nursery from stack
+    if (rt_nursery_stack.items.len == 0) {
+        std.debug.print("ERROR: nursery_await_all called without active nursery\n", .{});
+        return -1;
+    }
+
+    // Manual pop: get last item and shrink
+    const idx = rt_nursery_stack.items.len - 1;
+    const handle = rt_nursery_stack.items[idx];
+    rt_nursery_stack.items.len = idx;
+
+    // Wait for all tasks via scheduler nursery
+    const result = handle.nursery.awaitAll();
+
+    // Convert NurseryResult to i64
+    const error_code: i64 = switch (result) {
+        .success => 0,
+        .child_failed => |err| err.error_code,
+        .cancelled => -2,
+        .pending => -3, // Should not happen after awaitAll
+    };
+
+    // Cleanup
+    handle.nursery.deinit();
+    allocator.destroy(handle);
+
+    return error_code;
+}
+
+/// Get the number of active tasks in current nursery (for debugging)
+export fn janus_nursery_task_count() callconv(.c) i32 {
+    if (rt_nursery_stack.items.len == 0) return 0;
+
+    const handle = rt_nursery_stack.items[rt_nursery_stack.items.len - 1];
+    return @intCast(handle.nursery.activeChildCount());
+}
+
+// ============================================================================
+// Channel API - Phase 3: CSP-style Message Passing
+// ============================================================================
+//
+// Channels provide type-safe, thread-safe communication between tasks.
+// Design: Zig generic internally, C-compatible exports for LLVM interop.
+//
+// Key properties:
+// - Non-nullable (no nil channel trap like Go)
+// - Buffered or unbuffered
+// - Close semantics: recv drains buffer, then returns error
+// - Thread-safe via mutex + condition variables
+
+/// Generic Channel implementation
+/// T must be a simple type that can be copied (no pointers for now)
+pub fn Channel(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        // Ring buffer for buffered channels (capacity 0 = unbuffered)
+        buffer: []T,
+        head: usize, // Read position
+        tail: usize, // Write position
+        count: usize, // Current items in buffer
+        capacity: usize,
+
+        // Synchronization
+        mutex: std.Thread.Mutex,
+        not_empty: std.Thread.Condition, // Signaled when data available
+        not_full: std.Thread.Condition, // Signaled when space available
+
+        // State
+        closed: std.atomic.Value(bool),
+        allocator: std.mem.Allocator,
+
+        /// Create unbuffered channel (synchronous rendezvous)
+        pub fn init(allocator: std.mem.Allocator) !*Self {
+            return try initBuffered(allocator, 0);
+        }
+
+        /// Create buffered channel with given capacity
+        pub fn initBuffered(allocator: std.mem.Allocator, capacity: usize) !*Self {
+            const self = try allocator.create(Self);
+            errdefer allocator.destroy(self);
+
+            // For unbuffered (capacity=0), we still need 1 slot for handoff
+            const actual_capacity = if (capacity == 0) 1 else capacity;
+            const buffer = try allocator.alloc(T, actual_capacity);
+
+            self.* = Self{
+                .buffer = buffer,
+                .head = 0,
+                .tail = 0,
+                .count = 0,
+                .capacity = capacity, // Store original (0 = unbuffered)
+                .mutex = .{},
+                .not_empty = .{},
+                .not_full = .{},
+                .closed = std.atomic.Value(bool).init(false),
+                .allocator = allocator,
+            };
+
+            return self;
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.allocator.free(self.buffer);
+            self.allocator.destroy(self);
+        }
+
+        /// Send value to channel (blocks until receiver ready or buffer has space)
+        /// Returns error.ChannelClosed if channel is closed
+        pub fn send(self: *Self, value: T) !void {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            // Wait for space (or unbuffered handoff)
+            while (self.isFull() and !self.closed.load(.acquire)) {
+                self.not_full.wait(&self.mutex);
+            }
+
+            if (self.closed.load(.acquire)) {
+                return error.ChannelClosed;
+            }
+
+            // Write to buffer
+            self.buffer[self.tail] = value;
+            self.tail = (self.tail + 1) % self.buffer.len;
+            self.count += 1;
+
+            // Signal waiting receivers
+            self.not_empty.signal();
+
+            // For unbuffered: wait for receiver to take value
+            if (self.capacity == 0) {
+                while (self.count > 0 and !self.closed.load(.acquire)) {
+                    self.not_full.wait(&self.mutex);
+                }
+            }
+        }
+
+        /// Receive value from channel (blocks until value available)
+        /// Returns error.ChannelClosed if channel is closed AND empty
+        pub fn recv(self: *Self) !T {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            // Wait for data
+            while (self.count == 0 and !self.closed.load(.acquire)) {
+                self.not_empty.wait(&self.mutex);
+            }
+
+            // If empty and closed, return error
+            if (self.count == 0) {
+                return error.ChannelClosed;
+            }
+
+            // Read from buffer
+            const value = self.buffer[self.head];
+            self.head = (self.head + 1) % self.buffer.len;
+            self.count -= 1;
+
+            // Signal waiting senders
+            self.not_full.signal();
+
+            return value;
+        }
+
+        /// Non-blocking send
+        /// Returns true if sent, false if would block
+        pub fn trySend(self: *Self, value: T) !bool {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            if (self.closed.load(.acquire)) {
+                return error.ChannelClosed;
+            }
+
+            if (self.isFull()) {
+                return false; // Would block
+            }
+
+            self.buffer[self.tail] = value;
+            self.tail = (self.tail + 1) % self.buffer.len;
+            self.count += 1;
+
+            self.not_empty.signal();
+            return true;
+        }
+
+        /// Non-blocking receive
+        /// Returns null if would block, value if available
+        pub fn tryRecv(self: *Self) !?T {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            if (self.count == 0) {
+                if (self.closed.load(.acquire)) {
+                    return error.ChannelClosed;
+                }
+                return null; // Would block
+            }
+
+            const value = self.buffer[self.head];
+            self.head = (self.head + 1) % self.buffer.len;
+            self.count -= 1;
+
+            self.not_full.signal();
+            return value;
+        }
+
+        /// Close the channel
+        /// Idempotent: multiple closes are no-op
+        pub fn close(self: *Self) void {
+            self.closed.store(true, .release);
+
+            // Wake all waiters
+            self.mutex.lock();
+            self.not_empty.broadcast();
+            self.not_full.broadcast();
+            self.mutex.unlock();
+        }
+
+        /// Check if channel is closed
+        pub fn isClosed(self: *Self) bool {
+            return self.closed.load(.acquire);
+        }
+
+        /// Check if buffer is full (internal)
+        fn isFull(self: *Self) bool {
+            if (self.capacity == 0) {
+                // Unbuffered: full if any item waiting
+                return self.count > 0;
+            }
+            return self.count >= self.capacity;
+        }
+
+        /// Get current count of items in buffer
+        pub fn len(self: *Self) usize {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+            return self.count;
+        }
+    };
+}
+
+// ============================================================================
+// C-Compatible Channel Exports (for LLVM interop)
+// ============================================================================
+// We export typed channels for common types: i64, f64, ptr
+// The opaque handle is a pointer to the channel struct
+
+/// i64 Channel - most common case for integer values
+const ChannelI64 = Channel(i64);
+
+/// Create a new i64 channel
+/// capacity = 0 for unbuffered (synchronous)
+/// capacity > 0 for buffered (async up to capacity)
+/// Returns opaque handle, or null on allocation failure
+pub export fn janus_channel_create_i64(capacity: i32) callconv(.c) ?*anyopaque {
+    const allocator = gpa.allocator();
+    const cap: usize = if (capacity < 0) 0 else @intCast(capacity);
+
+    const ch = ChannelI64.initBuffered(allocator, cap) catch return null;
+    return @ptrCast(ch);
+}
+
+/// Destroy an i64 channel
+pub export fn janus_channel_destroy_i64(handle: ?*anyopaque) callconv(.c) void {
+    if (handle) |h| {
+        const ch: *ChannelI64 = @ptrCast(@alignCast(h));
+        ch.deinit();
+    }
+}
+
+/// Send i64 value to channel (blocking)
+/// Returns 0 on success, -1 if channel closed
+pub export fn janus_channel_send_i64(handle: ?*anyopaque, value: i64) callconv(.c) i32 {
+    if (handle == null) return -1;
+
+    const ch: *ChannelI64 = @ptrCast(@alignCast(handle.?));
+    ch.send(value) catch return -1;
+    return 0;
+}
+
+/// Receive i64 value from channel (blocking)
+/// Returns value on success
+/// On error (closed channel), returns min_i64 and sets *error_out to -1
+pub export fn janus_channel_recv_i64(handle: ?*anyopaque, error_out: ?*i32) callconv(.c) i64 {
+    if (handle == null) {
+        if (error_out) |e| e.* = -1;
+        return std.math.minInt(i64);
+    }
+
+    const ch: *ChannelI64 = @ptrCast(@alignCast(handle.?));
+    const value = ch.recv() catch {
+        if (error_out) |e| e.* = -1;
+        return std.math.minInt(i64);
+    };
+
+    if (error_out) |e| e.* = 0;
+    return value;
+}
+
+/// Non-blocking send
+/// Returns 1 if sent, 0 if would block, -1 if closed
+pub export fn janus_channel_try_send_i64(handle: ?*anyopaque, value: i64) callconv(.c) i32 {
+    if (handle == null) return -1;
+
+    const ch: *ChannelI64 = @ptrCast(@alignCast(handle.?));
+    const sent = ch.trySend(value) catch return -1;
+    return if (sent) 1 else 0;
+}
+
+/// Non-blocking receive
+/// Returns 1 if received (value in *value_out), 0 if would block, -1 if closed
+pub export fn janus_channel_try_recv_i64(handle: ?*anyopaque, value_out: ?*i64) callconv(.c) i32 {
+    if (handle == null) return -1;
+    if (value_out == null) return -1;
+
+    const ch: *ChannelI64 = @ptrCast(@alignCast(handle.?));
+    const maybe_value = ch.tryRecv() catch return -1;
+
+    if (maybe_value) |v| {
+        value_out.?.* = v;
+        return 1;
+    }
+    return 0; // Would block
+}
+
+/// Close a channel
+pub export fn janus_channel_close_i64(handle: ?*anyopaque) callconv(.c) void {
+    if (handle) |h| {
+        const ch: *ChannelI64 = @ptrCast(@alignCast(h));
+        ch.close();
+    }
+}
+
+/// Check if channel is closed
+pub export fn janus_channel_is_closed_i64(handle: ?*anyopaque) callconv(.c) i32 {
+    if (handle == null) return 1; // Null is considered closed
+
+    const ch: *ChannelI64 = @ptrCast(@alignCast(handle.?));
+    return if (ch.isClosed()) 1 else 0;
+}
+
+/// Get number of items currently in channel buffer
+pub export fn janus_channel_len_i64(handle: ?*anyopaque) callconv(.c) i32 {
+    if (handle == null) return 0;
+
+    const ch: *ChannelI64 = @ptrCast(@alignCast(handle.?));
+    return @intCast(ch.len());
+}
+
+// ============================================================================
+// Select API - Phase 4: CSP-style Multi-Channel Wait
+// ============================================================================
+//
+// Select enables waiting on multiple channel operations simultaneously.
+// Semantics match Go's select:
+// - Multiple cases: first ready case is chosen
+// - Default case: non-blocking, chosen if no other case ready
+// - Timeout case: chosen after specified duration
+//
+// Implementation: Polling with exponential backoff
+// Future optimization: Use proper condition variable waiting
+
+/// Maximum number of cases in a select statement
+const MAX_SELECT_CASES = 16;
+
+/// Select case types
+pub const SelectCaseType = enum(i32) {
+    recv = 0,
+    send = 1,
+    timeout = 2,
+    default = 3,
+};
+
+/// Select case descriptor
+pub const SelectCase = struct {
+    case_type: SelectCaseType,
+    channel: ?*ChannelI64, // null for timeout/default
+    value: i64, // value to send, or storage for received value
+    timeout_ns: u64, // timeout in nanoseconds (for timeout case)
+    ready: bool, // set to true when case completes
+};
+
+/// Select context - manages multiple cases
+pub const SelectContext = struct {
+    cases: [MAX_SELECT_CASES]SelectCase,
+    case_count: usize,
+    has_default: bool,
+    has_timeout: bool,
+    timeout_deadline: u64, // absolute deadline in nanoseconds
+    allocator: std.mem.Allocator,
+
+    fn init(allocator: std.mem.Allocator) SelectContext {
+        return SelectContext{
+            .cases = undefined,
+            .case_count = 0,
+            .has_default = false,
+            .has_timeout = false,
+            .timeout_deadline = 0,
+            .allocator = allocator,
+        };
+    }
+
+    /// Add a receive case
+    fn addRecv(self: *SelectContext, channel: ?*anyopaque) i32 {
+        if (self.case_count >= MAX_SELECT_CASES) return -1;
+        if (channel == null) return -1;
+
+        self.cases[self.case_count] = SelectCase{
+            .case_type = .recv,
+            .channel = @ptrCast(@alignCast(channel.?)),
+            .value = 0,
+            .timeout_ns = 0,
+            .ready = false,
+        };
+        const idx: i32 = @intCast(self.case_count);
+        self.case_count += 1;
+        return idx;
+    }
+
+    /// Add a send case
+    fn addSend(self: *SelectContext, channel: ?*anyopaque, value: i64) i32 {
+        if (self.case_count >= MAX_SELECT_CASES) return -1;
+        if (channel == null) return -1;
+
+        self.cases[self.case_count] = SelectCase{
+            .case_type = .send,
+            .channel = @ptrCast(@alignCast(channel.?)),
+            .value = value,
+            .timeout_ns = 0,
+            .ready = false,
+        };
+        const idx: i32 = @intCast(self.case_count);
+        self.case_count += 1;
+        return idx;
+    }
+
+    /// Add a timeout case
+    fn addTimeout(self: *SelectContext, timeout_ms: i64) i32 {
+        if (self.case_count >= MAX_SELECT_CASES) return -1;
+
+        const timeout_ns: u64 = if (timeout_ms < 0) 0 else @as(u64, @intCast(timeout_ms)) * 1_000_000;
+
+        self.cases[self.case_count] = SelectCase{
+            .case_type = .timeout,
+            .channel = null,
+            .value = 0,
+            .timeout_ns = timeout_ns,
+            .ready = false,
+        };
+        const idx: i32 = @intCast(self.case_count);
+        self.case_count += 1;
+        self.has_timeout = true;
+        return idx;
+    }
+
+    /// Add a default case
+    fn addDefault(self: *SelectContext) i32 {
+        if (self.case_count >= MAX_SELECT_CASES) return -1;
+
+        self.cases[self.case_count] = SelectCase{
+            .case_type = .default,
+            .channel = null,
+            .value = 0,
+            .timeout_ns = 0,
+            .ready = false,
+        };
+        const idx: i32 = @intCast(self.case_count);
+        self.case_count += 1;
+        self.has_default = true;
+        return idx;
+    }
+
+    /// Wait for one case to become ready
+    /// Returns the index of the ready case, or -1 on error
+    fn wait(self: *SelectContext) i32 {
+        // Record start time for timeout handling
+        const start_time = std.time.nanoTimestamp();
+
+        // Find maximum timeout and set deadline
+        var max_timeout_ns: u64 = 0;
+        for (self.cases[0..self.case_count]) |c| {
+            if (c.case_type == .timeout and c.timeout_ns > max_timeout_ns) {
+                max_timeout_ns = c.timeout_ns;
+            }
+        }
+        if (self.has_timeout) {
+            self.timeout_deadline = @as(u64, @intCast(start_time)) + max_timeout_ns;
+        }
+
+        // Polling loop with exponential backoff
+        var sleep_ns: u64 = 1000; // Start at 1 microsecond
+        const max_sleep_ns: u64 = 10_000_000; // Cap at 10ms
+
+        while (true) {
+            // Check each case
+            for (self.cases[0..self.case_count], 0..) |*c, i| {
+                switch (c.case_type) {
+                    .recv => {
+                        if (c.channel) |ch| {
+                            const maybe_value = ch.tryRecv() catch {
+                                // Channel closed - mark ready with error indication
+                                c.ready = true;
+                                c.value = std.math.minInt(i64);
+                                return @intCast(i);
+                            };
+                            if (maybe_value) |v| {
+                                c.ready = true;
+                                c.value = v;
+                                return @intCast(i);
+                            }
+                        }
+                    },
+                    .send => {
+                        if (c.channel) |ch| {
+                            const sent = ch.trySend(c.value) catch {
+                                // Channel closed - mark as error
+                                c.ready = true;
+                                return @intCast(i);
+                            };
+                            if (sent) {
+                                c.ready = true;
+                                return @intCast(i);
+                            }
+                        }
+                    },
+                    .timeout => {
+                        const now: u64 = @intCast(std.time.nanoTimestamp());
+                        const elapsed = now -| @as(u64, @intCast(start_time));
+                        if (elapsed >= c.timeout_ns) {
+                            c.ready = true;
+                            return @intCast(i);
+                        }
+                    },
+                    .default => {
+                        // Default is only taken if no other case is immediately ready
+                        // We do one pass first, then take default
+                    },
+                }
+            }
+
+            // If we have a default case and no other case was ready, take default
+            if (self.has_default) {
+                for (self.cases[0..self.case_count], 0..) |*c, i| {
+                    if (c.case_type == .default) {
+                        c.ready = true;
+                        return @intCast(i);
+                    }
+                }
+            }
+
+            // Check timeout deadline
+            if (self.has_timeout) {
+                const now: u64 = @intCast(std.time.nanoTimestamp());
+                if (now >= self.timeout_deadline) {
+                    // Find and return timeout case
+                    for (self.cases[0..self.case_count], 0..) |*c, i| {
+                        if (c.case_type == .timeout) {
+                            c.ready = true;
+                            return @intCast(i);
+                        }
+                    }
+                }
+            }
+
+            // Sleep with exponential backoff
+            std.Thread.sleep(sleep_ns);
+            sleep_ns = @min(sleep_ns * 2, max_sleep_ns);
+        }
+    }
+
+    /// Get received value from a completed recv case
+    fn getRecvValue(self: *SelectContext, case_index: i32) i64 {
+        if (case_index < 0 or @as(usize, @intCast(case_index)) >= self.case_count) {
+            return 0;
+        }
+        return self.cases[@intCast(case_index)].value;
+    }
+};
+
+// ============================================================================
+// C-Compatible Select Exports (for LLVM interop)
+// ============================================================================
+
+/// Create a new select context
+/// Returns opaque handle, or null on allocation failure
+pub export fn janus_select_create() callconv(.c) ?*anyopaque {
+    const allocator = gpa.allocator();
+    const ctx = allocator.create(SelectContext) catch return null;
+    ctx.* = SelectContext.init(allocator);
+    return @ptrCast(ctx);
+}
+
+/// Destroy a select context
+pub export fn janus_select_destroy(handle: ?*anyopaque) callconv(.c) void {
+    if (handle) |h| {
+        const ctx: *SelectContext = @ptrCast(@alignCast(h));
+        ctx.allocator.destroy(ctx);
+    }
+}
+
+/// Add a receive case to select
+/// Returns case index (0-based), or -1 on error
+pub export fn janus_select_add_recv(handle: ?*anyopaque, channel: ?*anyopaque) callconv(.c) i32 {
+    if (handle == null) return -1;
+    const ctx: *SelectContext = @ptrCast(@alignCast(handle.?));
+    return ctx.addRecv(channel);
+}
+
+/// Add a send case to select
+/// Returns case index (0-based), or -1 on error
+pub export fn janus_select_add_send(handle: ?*anyopaque, channel: ?*anyopaque, value: i64) callconv(.c) i32 {
+    if (handle == null) return -1;
+    const ctx: *SelectContext = @ptrCast(@alignCast(handle.?));
+    return ctx.addSend(channel, value);
+}
+
+/// Add a timeout case to select (in milliseconds)
+/// Returns case index (0-based), or -1 on error
+pub export fn janus_select_add_timeout(handle: ?*anyopaque, timeout_ms: i64) callconv(.c) i32 {
+    if (handle == null) return -1;
+    const ctx: *SelectContext = @ptrCast(@alignCast(handle.?));
+    return ctx.addTimeout(timeout_ms);
+}
+
+/// Add a default case to select
+/// Returns case index (0-based), or -1 on error
+pub export fn janus_select_add_default(handle: ?*anyopaque) callconv(.c) i32 {
+    if (handle == null) return -1;
+    const ctx: *SelectContext = @ptrCast(@alignCast(handle.?));
+    return ctx.addDefault();
+}
+
+/// Wait for one case to become ready
+/// Returns the index of the ready case (0-based), or -1 on error
+pub export fn janus_select_wait(handle: ?*anyopaque) callconv(.c) i32 {
+    if (handle == null) return -1;
+    const ctx: *SelectContext = @ptrCast(@alignCast(handle.?));
+    return ctx.wait();
+}
+
+/// Get the received value from a completed recv case
+/// Only valid after janus_select_wait returns the recv case index
+pub export fn janus_select_get_recv_value(handle: ?*anyopaque, case_index: i32) callconv(.c) i64 {
+    if (handle == null) return 0;
+    const ctx: *SelectContext = @ptrCast(@alignCast(handle.?));
+    return ctx.getRecvValue(case_index);
 }

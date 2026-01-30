@@ -174,6 +174,7 @@ pub const TypeInference = struct {
             .array_lit, .array_literal => try self.inferArrayLiteral(node_id),
             .let_stmt, .var_stmt => try self.inferVariableDeclaration(node_id),
             .func_decl => try self.inferFunctionDeclaration(node_id),
+            .async_func_decl => try self.inferFunctionDeclaration(node_id), // :service profile
             .return_stmt => try self.inferReturnStatement(node_id),
             .match_stmt => try self.inferMatchStatement(node_id),
             .postfix_when => try self.inferPostfixWhen(node_id),
@@ -537,7 +538,10 @@ pub const TypeInference = struct {
 
         // Create function type
         const owned_params = try self.allocator.dupe(TypeId, param_types.items);
-        const func_type = try self.type_system.createFunctionType(owned_params, return_type, .janus_call);
+        // Check if this is an async function (:service profile)
+        const node = self.astdb.getNode(self.unit_id, node_id) orelse return error.InvalidNode;
+        const is_async = (node.kind == .async_func_decl);
+        const func_type = try self.type_system.createFunctionType(owned_params, return_type, .janus_call, is_async);
         try self.setNodeType(node_id, func_type);
 
         // Infer function body if present

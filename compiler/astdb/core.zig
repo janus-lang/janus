@@ -104,6 +104,14 @@ pub const Token = struct {
         fail_,    // fail ErrorType.Variant
         catch_,   // expr catch err { ... }
 
+        // Keywords - :service profile additions (async/await)
+        async_,   // async func - asynchronous functions
+        await_,   // await expr - wait for async result
+        nursery_, // nursery { } - structured concurrency scope
+        spawn_,   // spawn task - launch concurrent task
+        select_,  // select { } - CSP multi-channel wait
+        timeout_, // timeout(duration) - select timeout case
+
         // Additional keywords from syntax spec
         type_,
         enum_,
@@ -250,6 +258,7 @@ pub const AstNode = struct {
         // Top-level items
         source_file,
         func_decl,
+        async_func_decl, // :service profile - async function
         extern_func, // External function declaration (no body)
         struct_decl,
         union_decl,
@@ -283,6 +292,11 @@ pub const AstNode = struct {
         continue_stmt,
         block_stmt,
         fail_stmt, // Error handling: fail ErrorType.Variant (:core profile)
+        nursery_stmt, // :service profile - nursery { spawn tasks }
+        select_stmt,  // :service profile - select { case ch.recv() ... }
+        select_case,  // :service profile - case in select (recv/send)
+        select_timeout, // :service profile - timeout case in select
+        select_default, // :service profile - default case in select
         match_stmt,
         match_arm,
         postfix_when,
@@ -302,6 +316,8 @@ pub const AstNode = struct {
         range_exclusive_expr, // Range: start..<end (exclusive)
         catch_expr, // Error handling: expr catch err { ... } (:core profile)
         try_expr, // Error handling: expr? (:core profile)
+        await_expr, // :service profile - await async_expr
+        spawn_expr, // :service profile - spawn task()
 
         // Literals
         integer_literal,

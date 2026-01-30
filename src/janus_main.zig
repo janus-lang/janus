@@ -12,7 +12,6 @@
 const std = @import("std");
 const janus = @import("janus_lib");
 const version_info = @import("version.zig");
-const bootstrap_s0 = @import("bootstrap_s0");
 
 // Import the revolutionary command modules
 const BuildCommand = @import("build_command.zig");
@@ -55,9 +54,6 @@ pub fn main() !void {
     for (args, 0..) |arg, i| {
         const_args[i] = arg;
     }
-
-    const s0_enabled = detectBootstrapS0(const_args);
-    bootstrap_s0.set(s0_enabled);
 
     // Detect profile from CLI args and environment
     const profile = profiles.ProfileDetector.detectProfile(const_args);
@@ -107,7 +103,6 @@ pub fn main() !void {
         const verbose = args.len >= 3 and std.mem.eql(u8, args[2], "--verbose");
         std.debug.print("Janus Language Compiler v{s}\n", .{version_info.version});
         std.debug.print("Active profile: {s}\n", .{profile.toString()});
-        std.debug.print("Bootstrap S0 gate: {s}\n", .{if (bootstrap_s0.isEnabled()) "enabled" else "disabled"});
         std.debug.print("Features:\n", .{});
         std.debug.print("  - Incremental compilation with content-addressed builds\n", .{});
         std.debug.print("  - Semantic analysis and query tools\n", .{});
@@ -669,11 +664,24 @@ pub fn main() !void {
                 if (!verbose_flag) {
                     std.debug.print("Compiling {s}...\n", .{source_path});
                 }
+
+                // Locate runtime directory for scheduler support
+                // Priority: JANUS_RUNTIME_DIR env > "runtime" relative to CWD
+                const runtime_dir: ?[]const u8 = std.process.getEnvVarOwned(allocator, "JANUS_RUNTIME_DIR") catch |err| blk: {
+                    if (err == error.EnvironmentVariableNotFound) {
+                        // Try relative path from CWD
+                        break :blk std.fs.cwd().realpathAlloc(allocator, "runtime") catch null;
+                    }
+                    break :blk null;
+                };
+                defer if (runtime_dir) |d| allocator.free(d);
+
                 var compiler = pipeline.Pipeline.init(allocator, .{
                     .source_path = source_path,
                     .output_path = output_path,
                     .emit_llvm_ir = emit_llvm,
                     .verbose = verbose_flag,
+                    .runtime_dir = runtime_dir,
                 });
 
                 var result = compiler.compile() catch |err| {
@@ -2344,30 +2352,4 @@ fn freeSource(source: janus.Manifest.PackageRef.Source, allocator: std.mem.Alloc
             allocator.free(path.path);
         },
     }
-}
-
-fn detectBootstrapS0(args: [][]const u8) bool {
-    var override: ?bool = null;
-    const prefix = "--bootstrap-s0=";
-    for (args) |arg| {
-        if (std.mem.eql(u8, arg, "--bootstrap-s0")) {
-            override = true;
-            continue;
-        }
-
-        if (std.mem.startsWith(u8, arg, prefix)) {
-            override = bootstrap_s0.parse(arg[prefix.len..], true);
-            continue;
-        }
-
-        if (std.mem.eql(u8, arg, "--no-bootstrap-s0")) {
-            override = false;
-            continue;
-        }
-    }
-
-    if (override) |value| {
-        return value;
-    }
-    return bootstrap_s0.detectFromEnv();
 }

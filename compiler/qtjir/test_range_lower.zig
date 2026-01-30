@@ -5,8 +5,9 @@ const std = @import("std");
 const testing = std.testing;
 const astdb = @import("astdb_core");
 const parser = @import("janus_parser");
-const lower = @import("lower.zig");
-const graph = @import("graph.zig");
+const qtjir = @import("qtjir");
+const lower = qtjir.lower;
+const graph = qtjir.graph;
 
 test "Lower: Inclusive Range" {
     const allocator = testing.allocator;

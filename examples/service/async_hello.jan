@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// :service profile - async/await example (Phase 1)
+// This tests that the parser recognizes async function syntax
+
+async func greet(name: []const u8) !void do
+    println("Hello, ", name, "!")
+end
+
+async func main() !void do
+    await greet("World")
+    await greet("Janus")
+    println("Done!")
+end

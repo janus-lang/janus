@@ -39,13 +39,6 @@ pub const Inspector = struct {
         var parser = janus_parser.Parser.init(self.allocator);
         defer parser.deinit();
 
-        // Enable full syntax for inspection (disable S0 gate restrictions if necessary)
-        // Check if ScopedS0Gate exists (it was in the file preview)
-        // Prime the gate to ensure 'enabled' is not null before scoping
-        _ = janus_parser.isS0GateEnabled();
-        var s0_gate = janus_parser.ScopedS0Gate.init(false);
-        defer s0_gate.deinit();
-
         var error_name: ?[]const u8 = null;
 
         var snapshot = parser.parseIntoAstDB(&astdb, "inspect.jan", source) catch |err| blk: {
