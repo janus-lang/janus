@@ -357,6 +357,10 @@ pub fn build(b: *std.Build) void {
         .linkage = .static,
     });
     janus_runtime.linkLibC();
+    // Add x86_64 context switch assembly for fiber support (SPEC-021 Section 5.3)
+    if (target.result.cpu.arch == .x86_64) {
+        janus_runtime.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
+    }
     b.installArtifact(janus_runtime);
 
     // Also create an object file for direct linking (used by integration tests)
@@ -369,6 +373,10 @@ pub fn build(b: *std.Build) void {
         }),
     });
     janus_runtime_obj.linkLibC();
+    // Add x86_64 context switch assembly for fiber support (SPEC-021 Section 5.3)
+    if (target.result.cpu.arch == .x86_64) {
+        janus_runtime_obj.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
+    }
 
     // Install the object file to zig-out/obj/ for easy access
     const install_rt_obj = b.addInstallArtifact(janus_runtime_obj, .{
@@ -891,6 +899,102 @@ pub fn build(b: *std.Build) void {
     const test_nursery_correctness_step = b.step("test-nursery-correctness", "Run Nursery/Spawn correctness property tests");
     test_nursery_correctness_step.dependOn(&run_nursery_correctness_tests.step);
     test_step.dependOn(&run_nursery_correctness_tests.step);
+
+    // Context Switch Tests (SPEC-021 Section 5.3)
+    // Tests x86_64 assembly context switch for fiber support
+    const context_switch_tests = b.addTest(.{
+        .name = "context_switch_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("runtime/scheduler/test_context_switch.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    // Link assembly file for x86_64 context switch
+    if (target.result.cpu.arch == .x86_64) {
+        context_switch_tests.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
+    }
+
+    const run_context_switch_tests = b.addRunArtifact(context_switch_tests);
+    const test_context_switch_step = b.step("test-context-switch", "Run x86_64 context switch tests (SPEC-021)");
+    test_context_switch_step.dependOn(&run_context_switch_tests.step);
+    test_step.dependOn(&run_context_switch_tests.step);
+
+    // Worker Integration Tests (SPEC-021 Phase 7)
+    // Tests full task execution through worker loop with context switching
+    const worker_integration_tests = b.addTest(.{
+        .name = "worker_integration_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("runtime/scheduler/test_worker_integration.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    // Link assembly file for x86_64 context switch
+    if (target.result.cpu.arch == .x86_64) {
+        worker_integration_tests.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
+    }
+
+    const run_worker_integration_tests = b.addRunArtifact(worker_integration_tests);
+    const test_worker_integration_step = b.step("test-worker-integration", "Run worker integration tests (SPEC-021 Phase 7)");
+    test_worker_integration_step.dependOn(&run_worker_integration_tests.step);
+    test_step.dependOn(&run_worker_integration_tests.step);
+
+    // Multi-Worker Tests (SPEC-021 Phase 8)
+    // Tests work stealing and load balancing across multiple workers
+    const multiworker_tests = b.addTest(.{
+        .name = "multiworker_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("runtime/scheduler/test_multiworker.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    // Link assembly file for x86_64 context switch
+    if (target.result.cpu.arch == .x86_64) {
+        multiworker_tests.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
+    }
+
+    const run_multiworker_tests = b.addRunArtifact(multiworker_tests);
+    const test_multiworker_step = b.step("test-multiworker", "Run multi-worker work-stealing tests (SPEC-021 Phase 8)");
+    test_multiworker_step.dependOn(&run_multiworker_tests.step);
+    test_step.dependOn(&run_multiworker_tests.step);
+
+    // Nursery Integration Tests (SPEC-021 Phase 9)
+    const nursery_integration_tests = b.addTest(.{
+        .name = "nursery_integration_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("runtime/scheduler/test_nursery_integration.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    if (target.result.cpu.arch == .x86_64) {
+        nursery_integration_tests.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
+    }
+
+    const run_nursery_integration_tests = b.addRunArtifact(nursery_integration_tests);
+    const test_nursery_integration_step = b.step("test-nursery-integration", "Run nursery + scheduler integration tests (SPEC-021 Phase 9)");
+    test_nursery_integration_step.dependOn(&run_nursery_integration_tests.step);
+    test_step.dependOn(&run_nursery_integration_tests.step);
+
+    // Scheduler Unit Tests (SPEC-021)
+    const scheduler_tests = b.addTest(.{
+        .name = "scheduler_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("runtime/scheduler/scheduler.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    if (target.result.cpu.arch == .x86_64) {
+        scheduler_tests.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
+    }
+
+    const run_scheduler_tests = b.addRunArtifact(scheduler_tests);
+    const test_scheduler_step = b.step("test-scheduler", "Run scheduler unit tests (SPEC-021)");
+    test_scheduler_step.dependOn(&run_scheduler_tests.step);
+    test_step.dependOn(&run_scheduler_tests.step);
 
     // For Loop Lowering Tests
     const for_lower_tests = b.addTest(.{

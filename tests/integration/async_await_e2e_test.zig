@@ -205,6 +205,9 @@ test ":service profile: Async function E2E execution (blocking model)" {
     const rt_obj_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "janus_rt.o" });
     defer allocator.free(rt_obj_path);
 
+    const asm_obj_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "context_switch.o" });
+    defer allocator.free(asm_obj_path);
+
     const emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{rt_obj_path});
     defer allocator.free(emit_arg);
 
@@ -226,13 +229,35 @@ test ":service profile: Async function E2E execution (blocking model)" {
         return error.RuntimeCompilationFailed;
     }
 
-    // Link
+    // Compile assembly file for context switching (CBC-MN scheduler)
+    const asm_emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{asm_obj_path});
+    defer allocator.free(asm_emit_arg);
+
+    const asm_build_result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &[_][]const u8{
+            "zig",
+            "build-obj",
+            "runtime/scheduler/context_switch.s",
+            asm_emit_arg,
+        },
+    });
+    defer allocator.free(asm_build_result.stdout);
+    defer allocator.free(asm_build_result.stderr);
+
+    if (asm_build_result.term.Exited != 0) {
+        std.debug.print("ASM COMPILATION FAILED: {s}\n", .{asm_build_result.stderr});
+        return error.RuntimeCompilationFailed;
+    }
+
+    // Link (including assembly object for fiber support)
     const link_result = try std.process.Child.run(.{
         .allocator = allocator,
         .argv = &[_][]const u8{
             "cc",
             obj_file_path,
             rt_obj_path,
+            asm_obj_path,
             "-o",
             exe_file_path,
         },
@@ -607,6 +632,9 @@ test ":service profile: Multiple spawns E2E execution (Phase 2.5)" {
     const rt_obj_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "janus_rt.o" });
     defer allocator.free(rt_obj_path);
 
+    const asm_obj_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "context_switch.o" });
+    defer allocator.free(asm_obj_path);
+
     const emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{rt_obj_path});
     defer allocator.free(emit_arg);
 
@@ -628,13 +656,35 @@ test ":service profile: Multiple spawns E2E execution (Phase 2.5)" {
         return error.RuntimeCompilationFailed;
     }
 
-    // Link
+    // Compile assembly file for context switching (CBC-MN scheduler)
+    const asm_emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{asm_obj_path});
+    defer allocator.free(asm_emit_arg);
+
+    const asm_build_result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &[_][]const u8{
+            "zig",
+            "build-obj",
+            "runtime/scheduler/context_switch.s",
+            asm_emit_arg,
+        },
+    });
+    defer allocator.free(asm_build_result.stdout);
+    defer allocator.free(asm_build_result.stderr);
+
+    if (asm_build_result.term.Exited != 0) {
+        std.debug.print("ASM COMPILATION FAILED: {s}\n", .{asm_build_result.stderr});
+        return error.RuntimeCompilationFailed;
+    }
+
+    // Link (including assembly object for fiber support)
     const link_result = try std.process.Child.run(.{
         .allocator = allocator,
         .argv = &[_][]const u8{
             "cc",
             obj_file_path,
             rt_obj_path,
+            asm_obj_path,
             "-o",
             exe_file_path,
         },
@@ -828,6 +878,9 @@ test ":service profile: Await E2E execution (Phase 2.6)" {
     const rt_obj_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "janus_rt.o" });
     defer allocator.free(rt_obj_path);
 
+    const asm_obj_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "context_switch.o" });
+    defer allocator.free(asm_obj_path);
+
     const emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{rt_obj_path});
     defer allocator.free(emit_arg);
 
@@ -849,13 +902,35 @@ test ":service profile: Await E2E execution (Phase 2.6)" {
         return error.RuntimeCompilationFailed;
     }
 
-    // Link
+    // Compile assembly file for context switching (CBC-MN scheduler)
+    const asm_emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{asm_obj_path});
+    defer allocator.free(asm_emit_arg);
+
+    const asm_build_result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &[_][]const u8{
+            "zig",
+            "build-obj",
+            "runtime/scheduler/context_switch.s",
+            asm_emit_arg,
+        },
+    });
+    defer allocator.free(asm_build_result.stdout);
+    defer allocator.free(asm_build_result.stderr);
+
+    if (asm_build_result.term.Exited != 0) {
+        std.debug.print("ASM COMPILATION FAILED: {s}\n", .{asm_build_result.stderr});
+        return error.RuntimeCompilationFailed;
+    }
+
+    // Link (including assembly object for fiber support)
     const link_result = try std.process.Child.run(.{
         .allocator = allocator,
         .argv = &[_][]const u8{
             "cc",
             obj_file_path,
             rt_obj_path,
+            asm_obj_path,
             "-o",
             exe_file_path,
         },
@@ -997,6 +1072,9 @@ test ":service profile: Error propagation in nursery (Phase 2.7)" {
     const rt_obj_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "janus_rt.o" });
     defer allocator.free(rt_obj_path);
 
+    const asm_obj_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "context_switch.o" });
+    defer allocator.free(asm_obj_path);
+
     const emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{rt_obj_path});
     defer allocator.free(emit_arg);
 
@@ -1018,13 +1096,35 @@ test ":service profile: Error propagation in nursery (Phase 2.7)" {
         return error.RuntimeCompilationFailed;
     }
 
-    // Link
+    // Compile assembly file for context switching (CBC-MN scheduler)
+    const asm_emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{asm_obj_path});
+    defer allocator.free(asm_emit_arg);
+
+    const asm_build_result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &[_][]const u8{
+            "zig",
+            "build-obj",
+            "runtime/scheduler/context_switch.s",
+            asm_emit_arg,
+        },
+    });
+    defer allocator.free(asm_build_result.stdout);
+    defer allocator.free(asm_build_result.stderr);
+
+    if (asm_build_result.term.Exited != 0) {
+        std.debug.print("ASM COMPILATION FAILED: {s}\n", .{asm_build_result.stderr});
+        return error.RuntimeCompilationFailed;
+    }
+
+    // Link (including assembly object for fiber support)
     const link_result = try std.process.Child.run(.{
         .allocator = allocator,
         .argv = &[_][]const u8{
             "cc",
             obj_file_path,
             rt_obj_path,
+            asm_obj_path,
             "-o",
             exe_file_path,
         },

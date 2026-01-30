@@ -41,7 +41,317 @@ This specification covers:
 
 ---
 
-## 2. Terminology
+## 2. Runtime Root Architecture
+
+### 2.1 Design Principle
+
+[SCHED:2.1.1] **No Invisible Authority**: Even the scheduler MUST be passed or owned explicitly. Janus does NOT do:
+- Hidden TLS (thread-local storage)
+- Ambient globals
+- Magical callbacks
+- Implicit state
+
+[SCHED:2.1.2] **Single Runtime Root**: There SHALL be exactly ONE global root: the `Runtime`. The scheduler is a subsystem of Runtime, not a standalone global.
+
+```
+CORRECT:    GLOBAL_RT: ?*Runtime  (one global)
+FORBIDDEN:  GLOBAL_SCHEDULER: ?*Scheduler  (hidden authority)
+```
+
+### 2.2 Runtime Structure
+
+[SCHED:2.2.1] The Runtime SHALL own all subsystems:
+
+```zig
+pub const Runtime = struct {
+    scheduler:   *Scheduler,     // M:N task scheduler
+    allocator:   Allocator,      // Memory allocation
+    // Future subsystems:
+    // io_context:  *IoContext,  // Event loop
+    // cap_context: *CapContext, // Capability store
+    // profiler:    *Profiler,   // Runtime profiling
+};
+```
+
+[SCHED:2.2.2] Only ONE global variable is permitted:
+
+```zig
+var GLOBAL_RT: ?*Runtime = null;  // The ONLY global
+```
+
+[SCHED:2.2.3] **Scope Clarification**: The global Runtime is a convenience for the default embedding. Alternative runtimes MAY exist (for testing, embedding, sandboxing) and MUST NOT rely on `GLOBAL_RT`. The global is optional infrastructure, not mandatory architecture.
+
+[SCHED:2.2.4] **Reach-Around Prohibition**: Subsystems MUST NOT access `GLOBAL_RT` directly. All access SHALL be via explicit parameters or derived handles. This prevents hidden coupling and maintains the explicit authority principle.
+
+```zig
+// FORBIDDEN: Direct global access from subsystem
+fn nurserySpawn(...) {
+    GLOBAL_RT.?.scheduler.spawn(...);  // NO! Hidden authority
+}
+
+// REQUIRED: Explicit parameter
+fn nurserySpawn(scheduler: *Scheduler, ...) {
+    scheduler.spawn(...);  // YES! Explicit
+}
+```
+
+### 2.3 Scheduler as Subsystem
+
+[SCHED:2.3.1] The scheduler is NOT special. It is a subsystem like any other, owned by Runtime.
+
+[SCHED:2.3.2] Benefits of this architecture:
+
+| Concern | Global Scheduler | Runtime Root (required) |
+|---------|------------------|-------------------------|
+| Test isolation | ❌ Hard | ✅ Easy |
+| Multiple runtimes | ❌ Impossible | ✅ Natural |
+| Embedding Janus | ❌ Painful | ✅ Clean |
+| Capability routing | ❌ Implicit | ✅ Explicit |
+| Future IO integration | ❌ Tangled | ✅ Layered |
+
+### 2.4 Nursery-Scheduler Binding
+
+[SCHED:2.4.1] Nurseries SHALL store an explicit scheduler handle, NOT use callbacks:
+
+```zig
+// CORRECT: Explicit handle
+pub const Nursery = struct {
+    scheduler: *Scheduler,      // Explicit reference
+    parent_task: ?TaskId,       // Structured concurrency
+    budget: Budget,             // Resource limits
+};
+
+// FORBIDDEN: Callback-based
+// spawn_callback: *const fn (*Task) bool  // NO!
+```
+
+[SCHED:2.4.2] Nursery creation SHALL derive scheduler from Runtime:
+
+```zig
+pub fn nurseryEnter(rt: *Runtime) Nursery {
+    return Nursery{
+        .scheduler = rt.scheduler,
+        .parent_task = rt.scheduler.currentTask(),
+        .budget = Budget.default(),
+    };
+}
+```
+
+### 2.5 Task Submission
+
+[SCHED:2.5.1] Task submission SHALL be a direct method call, NOT a callback:
+
+```zig
+// CORRECT: Direct method
+pub fn spawn(self: *Nursery, entry: TaskFn, arg: ?*anyopaque) !TaskId {
+    return self.scheduler.spawn(.{
+        .entry = entry,
+        .arg = arg,
+        .parent = self.parent_task,
+        .budget = self.budget.childBudget(),
+    });
+}
+
+// FORBIDDEN: Callback indirection
+// self.spawn_callback(task)  // NO!
+```
+
+### 2.6 Runtime Lifecycle
+
+[SCHED:2.6.1] Runtime lifecycle exports:
+
+```c
+// Initialize runtime (creates scheduler, etc.)
+void janus_rt_init(RuntimeConfig config);
+
+// Shutdown runtime (stops scheduler, frees resources)
+void janus_rt_shutdown(void);
+
+// Get runtime reference (for internal use)
+Runtime* janus_rt_get(void);
+```
+
+[SCHED:2.6.2] Scheduler-specific exports SHALL NOT exist at the public API level. All scheduling operations go through Runtime or Nursery interfaces.
+
+### 2.7 Testing Support
+
+[SCHED:2.7.1] The architecture SHALL support isolated test runtimes:
+
+```zig
+test "isolated scheduler test" {
+    // Create isolated runtime for this test
+    var test_rt = try Runtime.init(test_allocator, .{
+        .worker_count = 1,
+        .deterministic_seed = 42,
+    });
+    defer test_rt.deinit();
+
+    // Test uses isolated runtime, no global state
+    var nursery = test_rt.createNursery(Budget.default());
+    _ = nursery.spawn(&testTask, null);
+    const result = nursery.awaitAll();
+    try testing.expectEqual(.success, result);
+}
+```
+
+[SCHED:2.7.2] Single-threaded scheduler variant SHALL be provided for deterministic tests:
+
+```zig
+const scheduler_impl = switch (builtin.mode) {
+    .Debug => SingleThreadScheduler,  // Deterministic for tests
+    else => WorkStealingScheduler,    // Full M:N
+};
+```
+
+---
+
+## 3. C ABI Adapter Layer (RtNursery Contract)
+
+### 3.1 Purpose and Scope
+
+[SCHED:3.1.1] The C ABI Adapter Layer exists for exactly ONE reason: **translate Janus runtime semantics into a hostile C ABI without leaking impurity inward.**
+
+[SCHED:3.1.2] The adapter layer:
+- **IS**: An opaque handle for C, an adapter between scheduler.Nursery and C exports, a lifetime owner
+- **IS NOT**: A scheduler, a policy object, a concurrency abstraction, part of Janus semantics
+
+[SCHED:3.1.3] If someone tries to "extend" RtNursery, they are violating this specification.
+
+### 3.2 RtNursery Structure
+
+[SCHED:3.2.1] The adapter structure SHALL be minimal:
+
+```zig
+const RtNursery = struct {
+    nursery: scheduler.Nursery,
+};
+```
+
+[SCHED:3.2.2] The adapter SHALL NOT contain:
+- Callbacks
+- TLS fields
+- Error state
+- Bookkeeping beyond the wrapped nursery
+
+**Rationale:** scheduler.Nursery already encodes structured concurrency. The adapter only exists to own it and translate results.
+
+### 3.3 Thread-Local Storage Containment
+
+[SCHED:3.3.1] TLS is allowed **ONLY** to support the legacy C ABI illusion: "There is a current nursery."
+
+[SCHED:3.3.2] TLS containment rules (INVARIANT):
+- TLS lives **ONLY** in `janus_rt.zig`
+- TLS is **NEVER** visible to scheduler code
+- TLS stack stores **RtNursery pointers only**
+
+[SCHED:3.3.3] Canonical TLS form:
+
+```zig
+threadlocal var rt_nursery_stack: std.ArrayListUnmanaged(*RtNursery) = .{};
+```
+
+[SCHED:3.3.4] This is **ABI glue**, not architecture. Janus code never sees this. Scheduler never sees this. Only C exports do.
+
+### 3.4 Task Function Signatures
+
+[SCHED:3.4.1] **Scheduler owns the type.** The gasket adapts.
+
+[SCHED:3.4.2] Canonical scheduler task type:
+
+```zig
+pub const TaskFn = *const fn (?*anyopaque) callconv(.c) i64;
+pub const NoArgTaskFn = *const fn () callconv(.c) i64;
+```
+
+[SCHED:3.4.3] The C ABI may use different return types (e.g., `i32`). The adapter is responsible for widening/narrowing at the boundary:
+
+```zig
+// C function returns i32
+extern fn c_task_fn(arg: ?*anyopaque) callconv(.c) i32;
+
+// Adapter widens to i64
+fn wrappedTask(arg: ?*anyopaque) callconv(.c) i64 {
+    const rc: i32 = c_task_fn(arg);
+    return @as(i64, rc);
+}
+```
+
+**Rationale:** Never let a foreign ABI dictate internal invariants. Scheduler semantics must remain uniform.
+
+### 3.5 C Export Contracts (Frozen)
+
+[SCHED:3.5.1] These exports are NOT negotiable. Everything else adapts to them.
+
+#### Creation
+
+```c
+void* janus_nursery_create(void);
+```
+
+**Semantics:**
+1. Fetch `GLOBAL_RT` (auto-initialize if needed)
+2. Create `scheduler.Nursery` via Runtime
+3. Wrap in `RtNursery`
+4. Push pointer onto TLS stack
+5. Return opaque pointer
+
+Failure → return `NULL`
+
+#### Spawn
+
+```c
+int janus_nursery_spawn(TaskFn fn, void* arg);
+```
+
+**Semantics:**
+1. Lookup top of TLS stack
+2. Call `RtNursery.nursery.spawn(...)`
+3. Map: success → `0`, failure → `-1`
+
+No allocation here. No threading. No blocking.
+
+#### Await
+
+```c
+long janus_nursery_await_all(void);
+```
+
+**Semantics:**
+1. Pop RtNursery from TLS stack
+2. Call `nursery.awaitAll()`
+3. Destroy RtNursery
+4. Return status code
+
+This is the **only synchronization point**.
+
+### 3.6 Error Mapping (Canonical)
+
+[SCHED:3.6.1] Error mapping SHALL be explicit and boring:
+
+| Scheduler Result     | C Return |
+|---------------------|----------|
+| `.success`          | `0`      |
+| `.cancelled`        | `-1`     |
+| `.child_failed`     | error_code from child (negative) |
+| `.panic`            | `-2`     |
+| `.budget_exceeded`  | `-3`     |
+| `.pending`          | `-4` (should never happen after awaitAll) |
+
+[SCHED:3.6.2] This table SHALL NOT change without a major version bump.
+
+### 3.7 Architectural Leverage
+
+[SCHED:3.7.1] Once this contract is frozen:
+- The scheduler can change internally
+- The nursery implementation can evolve
+- Zig async can replace stackful continuations
+- The M:N engine can be swapped
+
+**Without touching the C ABI. Without touching janus_rt exports. Without breaking compiler output.**
+
+---
+
+## 4. Terminology
 
 | Term | Definition |
 |------|------------|
@@ -51,14 +361,15 @@ This specification covers:
 | **Budget** | Abstract resource units that gate task execution |
 | **Deque** | Double-ended queue supporting owner push/pop and stealer steal |
 | **Nursery** | Structured concurrency scope that owns spawned tasks |
+| **RtNursery** | C ABI adapter wrapping scheduler.Nursery (Section 3) |
 
 ---
 
-## 3. Budget Model
+## 5. Budget Model
 
-### 3.1 Budget Structure
+### 5.1 Budget Structure
 
-[SCHED:3.1.1] Every task SHALL have an associated budget with the following components:
+[SCHED:5.1.1] Every task SHALL have an associated budget with the following components:
 
 ```
 Budget := {
@@ -70,13 +381,13 @@ Budget := {
 }
 ```
 
-[SCHED:3.1.2] Budget components MUST be non-negative integers. A component value of 0 indicates exhaustion.
+[SCHED:5.1.2] Budget components MUST be non-negative integers. A component value of 0 indicates exhaustion.
 
-### 3.2 Budget Exhaustion
+### 5.2 Budget Exhaustion
 
-[SCHED:3.2.1] When any budget component reaches 0, the task MUST yield to the scheduler.
+[SCHED:5.2.1] When any budget component reaches 0, the task MUST yield to the scheduler.
 
-[SCHED:3.2.2] A task with exhausted budget SHALL be marked `BudgetExhausted` and MUST NOT resume until its budget is recharged.
+[SCHED:5.2.2] A task with exhausted budget SHALL be marked `BudgetExhausted` and MUST NOT resume until its budget is recharged.
 
 [SCHED:3.2.3] Budget recharge mechanisms:
 - **Parent recharge**: Parent nursery may grant additional budget
@@ -100,7 +411,7 @@ Budget := {
 
 ---
 
-## 4. Yield Points
+## 5. Yield Points
 
 ### 4.1 Compiler-Inserted Yield Checks
 
@@ -145,7 +456,7 @@ fn yield_check():
 
 ---
 
-## 5. Task Model
+## 6. Task Model
 
 ### 5.1 Task Structure
 
@@ -200,11 +511,18 @@ Task := {
 [SCHED:5.3.1] Phase 1 implementation SHALL use stackful fibers:
 
 ```
-Continuation := {
-    stack:     []align(16) u8,  // Dedicated stack memory
-    sp:        usize,           // Stack pointer
-    ip:        usize,           // Instruction pointer
-    registers: SavedRegisters,  // Callee-saved registers
+Context := {
+    sp:   usize,           // Stack pointer (offset 0)
+    regs: SavedRegisters,  // Callee-saved registers (offset 8)
+}
+
+SavedRegisters := {  // 48 bytes, must match assembly
+    rbx: u64,        // offset 0  (Context offset 8)
+    rbp: u64,        // offset 8  (Context offset 16)
+    r12: u64,        // offset 16 (Context offset 24)
+    r13: u64,        // offset 24 (Context offset 32)
+    r14: u64,        // offset 32 (Context offset 40)
+    r15: u64,        // offset 40 (Context offset 48)
 }
 ```
 
@@ -214,9 +532,41 @@ Continuation := {
 
 [SCHED:5.3.4] Future optimization MAY use stackless coroutines (state machine transformation) when Zig 0.16+ async is available.
 
+### 5.4 Context Switch (x86_64 Assembly)
+
+[SCHED:5.4.1] Context switch SHALL be implemented in external assembly (`context_switch.s`).
+
+[SCHED:5.4.2] The `janus_context_switch(from, to)` function SHALL:
+- Save callee-saved registers (rbx, rbp, r12-r15) to `from->regs`
+- Save stack pointer to `from->sp`
+- Restore stack pointer from `to->sp`
+- Restore callee-saved registers from `to->regs`
+- Return via `ret` (pops return address from new stack)
+
+[SCHED:5.4.3] The `janus_fiber_entry` trampoline SHALL:
+- Read entry function pointer from r12
+- Read argument pointer from r13
+- Call `entry_fn(arg)` with proper calling convention
+- Return (pops cleanup function from stack)
+
+[SCHED:5.4.4] Invariants document: See `CONTEXT-SWITCH-INVARIANTS.md` for:
+- What MUST be preserved (callee-saved registers)
+- What MAY be clobbered (caller-saved registers, flags)
+- Stack ownership rules
+- Allowed callers
+- Initialization invariants
+- Safety guarantees
+
+[SCHED:5.4.5] New fiber initialization SHALL:
+- Push cleanup function address to stack
+- Push `janus_fiber_entry` address to stack
+- Set r12 = entry function pointer
+- Set r13 = argument pointer
+- Set sp to 16-byte aligned stack position
+
 ---
 
-## 6. Worker Model
+## 7. Worker Model
 
 ### 6.1 Worker Structure
 
@@ -269,9 +619,38 @@ fn worker_loop(scheduler):
         scheduler.work_available.wait()
 ```
 
+### 6.4 Thread-Local Yield Mechanism
+
+[SCHED:6.4.1] Each worker thread SHALL maintain thread-local pointers for yield:
+
+```
+threadlocal tls_worker_context: ?*Context  // Worker's saved context
+threadlocal tls_task_context:   ?*Context  // Current task's context
+threadlocal tls_current_task:   ?*Task     // Currently executing task
+```
+
+[SCHED:6.4.2] Before switching to a task, worker SHALL:
+1. Set `tls_worker_context` to address of worker's context
+2. Set `tls_task_context` to address of task's context
+3. Set `tls_current_task` to the task pointer
+
+[SCHED:6.4.3] After task yields back, worker SHALL:
+1. Clear all thread-local pointers to null
+2. Save task's updated context (sp, registers)
+3. Handle task state transition
+
+[SCHED:6.4.4] The `yield()` function SHALL:
+1. Read worker context from `tls_worker_context`
+2. Read task context from `tls_task_context`
+3. Call `switchContext(task_ctx, worker_ctx)`
+
+[SCHED:6.4.5] The `yieldComplete(result)` function SHALL:
+1. Mark current task as completed with result
+2. Call `yield()` to switch back to worker
+
 ---
 
-## 7. Work-Stealing Algorithm
+## 8. Work-Stealing Algorithm
 
 ### 7.1 Deque Structure (Chase-Lev)
 
@@ -335,7 +714,7 @@ fn try_steal(scheduler) -> ?*Task:
 
 ---
 
-## 8. Nursery Integration
+## 9. Nursery Integration
 
 ### 8.1 Nursery-Scheduler Binding
 
@@ -385,7 +764,7 @@ pool.memory -= child_budget.memory
 
 ---
 
-## 9. Determinism Guarantees
+## 10. Determinism Guarantees
 
 ### 9.1 Reproducibility Requirements
 
@@ -417,7 +796,7 @@ const config = SchedulerConfig{
 
 ---
 
-## 10. Profile Integration
+## 11. Profile Integration
 
 ### 10.1 Profile Behavior Matrix
 
@@ -440,7 +819,7 @@ const config = SchedulerConfig{
 
 ---
 
-## 11. QTJIR Integration
+## 12. QTJIR Integration
 
 ### 11.1 New Opcodes
 
@@ -460,7 +839,7 @@ const config = SchedulerConfig{
 
 ---
 
-## 12. Runtime Interface
+## 13. Runtime Interface
 
 ### 12.1 C-Compatible Exports
 
@@ -482,7 +861,7 @@ int janus_budget_recharge(Budget amount);
 
 ---
 
-## 13. Performance Requirements
+## 14. Performance Requirements
 
 ### 13.1 Benchmarks
 
@@ -504,7 +883,7 @@ int janus_budget_recharge(Budget amount);
 
 ---
 
-## 14. Error Handling
+## 15. Error Handling
 
 ### 14.1 Scheduler Errors
 
@@ -520,7 +899,7 @@ int janus_budget_recharge(Budget amount);
 
 ---
 
-## 15. Security Considerations
+## 16. Security Considerations
 
 ### 15.1 DoS Prevention
 
@@ -536,7 +915,7 @@ int janus_budget_recharge(Budget amount);
 
 ---
 
-## 16. Future Work
+## 17. Future Work
 
 ### 16.1 Stackless Coroutines
 

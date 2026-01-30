@@ -1,13 +1,150 @@
 // SPDX-License-Identifier: LSL-1.0
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
-// Janus Pure Zig Runtime (v0.1.1)
+// Janus Pure Zig Runtime (v0.2.0)
 // "Runtime Sovereignty" - Zig implementation using minimal libc
 //
 // This replaces the C shim with Zig, using std.c for libc functions
 // to maintain compatibility while being written in Zig.
+//
+// v0.2.0: CBC-MN Scheduler integration (M:N fiber-based concurrency)
 
 const std = @import("std");
+
+// CBC-MN Scheduler (Capability-Budgeted Cooperative M:N)
+const scheduler = @import("scheduler.zig");
+
+// ============================================================================
+// Runtime Root Architecture (SPEC-021 Section 2)
+// ============================================================================
+// The Runtime is the single global root. It owns the scheduler.
+// No invisible authority - all handles are explicit.
+// Subsystems MUST NOT access GLOBAL_RT directly.
+
+/// Runtime configuration
+pub const RuntimeConfig = extern struct {
+    /// Number of worker threads (0 = auto-detect CPU count)
+    worker_count: u32 = 0,
+    /// Deterministic seed for reproducible tests (0 = non-deterministic)
+    deterministic_seed: u64 = 0,
+};
+
+/// The Runtime - single root that owns all subsystems (SPEC-021 Section 2.2.1)
+///
+/// This is the only permitted global. Subsystems access it via explicit handles.
+pub const Runtime = struct {
+    const Self = @This();
+
+    /// M:N task scheduler
+    sched: *scheduler.Scheduler,
+    /// Memory allocator
+    allocator: std.mem.Allocator,
+    /// Configuration used to create this runtime
+    config: RuntimeConfig,
+
+    /// Initialize a new runtime
+    pub fn init(allocator: std.mem.Allocator, config: RuntimeConfig) !*Self {
+        const self = try allocator.create(Self);
+        errdefer allocator.destroy(self);
+
+        const worker_count: usize = if (config.worker_count == 0)
+            std.Thread.getCpuCount() catch 4
+        else
+            @intCast(config.worker_count);
+
+        self.* = Self{
+            .sched = try scheduler.Scheduler.init(allocator, worker_count),
+            .allocator = allocator,
+            .config = config,
+        };
+
+        return self;
+    }
+
+    /// Cleanup and deallocate runtime
+    pub fn deinit(self: *Self) void {
+        self.sched.deinit();
+        self.allocator.destroy(self);
+    }
+
+    /// Start the runtime (spawn worker threads)
+    pub fn start(self: *Self) !void {
+        try self.sched.start();
+    }
+
+    /// Stop the runtime (signal shutdown, wait for workers)
+    pub fn stop(self: *Self) void {
+        self.sched.stop();
+    }
+
+    /// Create a nursery backed by this runtime's scheduler
+    pub fn createNursery(self: *Self, budget: scheduler.Budget) scheduler.Nursery {
+        return self.sched.createNursery(budget);
+    }
+
+    /// Check if runtime is running
+    pub fn isRunning(self: *const Self) bool {
+        return self.sched.isRunning();
+    }
+};
+
+/// The ONLY global (SPEC-021 Section 2.2.2)
+/// This is the runtime root, not a scheduler singleton.
+var GLOBAL_RT: ?*Runtime = null;
+
+/// Initialize the Janus runtime
+///
+/// Creates the Runtime root with the given configuration.
+/// This MUST be called before any concurrency operations.
+///
+/// Returns: 0 on success, -1 on failure
+export fn janus_rt_init(config: RuntimeConfig) callconv(.c) i32 {
+    if (GLOBAL_RT != null) {
+        // Already initialized
+        return -1;
+    }
+
+    const allocator = gpa.allocator();
+    GLOBAL_RT = Runtime.init(allocator, config) catch return -1;
+    GLOBAL_RT.?.start() catch {
+        GLOBAL_RT.?.deinit();
+        GLOBAL_RT = null;
+        return -1;
+    };
+
+    return 0;
+}
+
+/// Initialize runtime with defaults (auto-detect workers)
+export fn janus_rt_init_default() callconv(.c) i32 {
+    return janus_rt_init(RuntimeConfig{});
+}
+
+/// Shutdown the Janus runtime
+///
+/// Stops the scheduler and frees all resources.
+/// After this call, no concurrency operations are valid.
+export fn janus_rt_shutdown() callconv(.c) void {
+    if (GLOBAL_RT) |rt| {
+        rt.stop();
+        rt.deinit();
+        GLOBAL_RT = null;
+    }
+}
+
+/// Check if runtime is initialized and running
+export fn janus_rt_is_running() callconv(.c) bool {
+    if (GLOBAL_RT) |rt| {
+        return rt.isRunning();
+    }
+    return false;
+}
+
+/// Get current runtime (internal use only - not exported)
+/// Subsystems should receive scheduler handles explicitly, not via this function.
+fn getCurrentRuntime() ?*Runtime {
+    return GLOBAL_RT;
+}
 
 // ============================================================================
 // String API
@@ -315,6 +452,48 @@ export fn janus_slice_get_u8(slice: JanusSliceU8, index: usize) callconv(.c) u8 
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
+// ============================================================================
+// CBC-MN Scheduler API (Delegating to Runtime Root)
+// ============================================================================
+// These exports delegate to the Runtime Root. The global_scheduler singleton
+// has been removed - all scheduler access goes through GLOBAL_RT.
+
+/// Initialize the M:N scheduler with specified worker count
+/// Call this at program start for :service profile
+/// worker_count: 0 = auto-detect CPU cores
+export fn janus_scheduler_init(worker_count: u32) callconv(.c) i32 {
+    return janus_rt_init(RuntimeConfig{
+        .worker_count = worker_count,
+        .deterministic_seed = 0,
+    });
+}
+
+/// Shutdown the scheduler and wait for all workers to stop
+/// Call this at program exit
+export fn janus_scheduler_shutdown() callconv(.c) void {
+    janus_rt_shutdown();
+}
+
+/// Get scheduler statistics (for debugging/monitoring)
+export fn janus_scheduler_stats() callconv(.c) u64 {
+    if (GLOBAL_RT) |rt| {
+        const stats = rt.sched.getStats();
+        return stats.tasks_executed;
+    }
+    return 0;
+}
+
+/// Check if scheduler is running (internal)
+fn ensureSchedulerRunning() bool {
+    if (GLOBAL_RT == null) {
+        // Auto-initialize with default config
+        if (janus_rt_init_default() != 0) {
+            return false;
+        }
+    }
+    return GLOBAL_RT != null and GLOBAL_RT.?.isRunning();
+}
+
 export fn janus_readFile(path: [*:0]const u8) callconv(.c) ?[*:0]u8 {
     const allocator = gpa.allocator();
     const path_slice = std.mem.span(path);
@@ -501,156 +680,74 @@ export fn janus_string_free(handle: ?*anyopaque, allocator_handle: ?*anyopaque) 
 }
 
 // ============================================================================
-// :service Profile - Structured Concurrency (Phase 2)
+// :service Profile - Structured Concurrency (CBC-MN Scheduler-Backed)
 // ============================================================================
-// Thread-based implementation of nursery/spawn for concurrent task execution.
-// Each spawned task runs in a separate OS thread, managed by the nursery.
+// Nursery exports backed by the CBC-MN scheduler via the Runtime Root.
+// Tasks run as lightweight fibers in the M:N scheduler, not OS threads.
+//
+// MIGRATION: The thread-per-task JanusNursery has been replaced with
+// scheduler.Nursery backed by GLOBAL_RT. Same C API, fiber implementation.
 
 /// Task function signature: takes opaque argument, returns i64 result
 pub const TaskFn = *const fn (?*anyopaque) callconv(.c) i64;
 
-/// No-argument task function signature (Phase 2.3 - common case)
-pub const NoArgTaskFn = *const fn () callconv(.c) i32;
+/// No-argument task function signature (common case)
+/// Note: Returns i64 for compatibility with scheduler task system
+pub const NoArgTaskFn = *const fn () callconv(.c) i64;
 
-/// Task context for thread execution
-const TaskContext = struct {
-    func: TaskFn,
-    arg: ?*anyopaque,
-    result: i64,
-    has_error: bool,
+/// C ABI Adapter for scheduler.Nursery (SPEC-021 Section 3.2)
+///
+/// This is the boundary gasket that translates Janus runtime semantics
+/// into the C ABI without leaking impurity inward.
+///
+/// IS: An opaque handle for C, an adapter, a lifetime owner
+/// IS NOT: A scheduler, a policy object, part of Janus semantics
+const RtNursery = struct {
+    nursery: scheduler.Nursery,
+    allocator: std.mem.Allocator, // For adapter lifecycle only
 };
 
-/// No-argument task context (Phase 2.3)
-const NoArgTaskContext = struct {
-    func: NoArgTaskFn,
-    result: i64,
-    has_error: bool,
-};
-
-/// Nursery - manages structured concurrency scope
-/// All spawned tasks MUST complete before nursery exits
-const JanusNursery = struct {
-    threads: std.ArrayListUnmanaged(std.Thread),
-    contexts: std.ArrayListUnmanaged(*TaskContext),
-    noarg_contexts: std.ArrayListUnmanaged(*NoArgTaskContext), // Phase 2.3
-    allocator: std.mem.Allocator,
-    has_error: bool,
-
-    fn init(allocator: std.mem.Allocator) JanusNursery {
-        return JanusNursery{
-            .threads = .{},
-            .contexts = .{},
-            .noarg_contexts = .{},
-            .allocator = allocator,
-            .has_error = false,
-        };
-    }
-
-    fn deinit(self: *JanusNursery) void {
-        // Free all task contexts
-        for (self.contexts.items) |ctx| {
-            self.allocator.destroy(ctx);
-        }
-        self.contexts.deinit(self.allocator);
-        // Free no-arg task contexts (Phase 2.3)
-        for (self.noarg_contexts.items) |ctx| {
-            self.allocator.destroy(ctx);
-        }
-        self.noarg_contexts.deinit(self.allocator);
-        self.threads.deinit(self.allocator);
-    }
-
-    fn spawn(self: *JanusNursery, func: TaskFn, arg: ?*anyopaque) !void {
-        // Create task context
-        const ctx = try self.allocator.create(TaskContext);
-        ctx.* = TaskContext{
-            .func = func,
-            .arg = arg,
-            .result = 0,
-            .has_error = false,
-        };
-        try self.contexts.append(self.allocator, ctx);
-
-        // Spawn thread
-        const thread = try std.Thread.spawn(.{}, taskRunner, .{ctx});
-        try self.threads.append(self.allocator, thread);
-    }
-
-    /// Spawn a no-argument function (Phase 2.3 - common case)
-    fn spawnNoArg(self: *JanusNursery, func: NoArgTaskFn) !void {
-        // Create task context
-        const ctx = try self.allocator.create(NoArgTaskContext);
-        ctx.* = NoArgTaskContext{
-            .func = func,
-            .result = 0,
-            .has_error = false,
-        };
-        try self.noarg_contexts.append(self.allocator, ctx);
-
-        // Spawn thread
-        const thread = try std.Thread.spawn(.{}, noArgTaskRunner, .{ctx});
-        try self.threads.append(self.allocator, thread);
-    }
-
-    fn awaitAll(self: *JanusNursery) i64 {
-        // Join all threads (wait for completion)
-        for (self.threads.items) |thread| {
-            thread.join();
-        }
-
-        // Check for errors and collect results from regular contexts
-        var first_error: i64 = 0;
-        for (self.contexts.items) |ctx| {
-            if (ctx.has_error and first_error == 0) {
-                first_error = ctx.result;
-                self.has_error = true;
-            }
-        }
-
-        // Check for errors from no-arg contexts (Phase 2.3)
-        for (self.noarg_contexts.items) |ctx| {
-            if (ctx.has_error and first_error == 0) {
-                first_error = ctx.result;
-                self.has_error = true;
-            }
-        }
-
-        return first_error;
-    }
-};
-
-/// Thread entry point - executes task and stores result
-fn taskRunner(ctx: *TaskContext) void {
-    ctx.result = ctx.func(ctx.arg);
-    // Result < 0 indicates error in Janus convention
-    ctx.has_error = (ctx.result < 0);
-}
-
-/// Thread entry point for no-argument tasks (Phase 2.3)
-fn noArgTaskRunner(ctx: *NoArgTaskContext) void {
-    const result_i32 = ctx.func();
-    ctx.result = @intCast(result_i32);
-    // Result < 0 indicates error in Janus convention
-    ctx.has_error = (ctx.result < 0);
-}
-
-/// Thread-local nursery stack for nested nurseries
-threadlocal var nursery_stack: std.ArrayListUnmanaged(*JanusNursery) = .{};
+/// Thread-local nursery stack (SPEC-021 Section 3.3)
+///
+/// TLS is allowed ONLY to support the legacy C ABI illusion:
+/// "There is a current nursery."
+///
+/// Containment rules:
+/// - TLS lives ONLY in this file (janus_rt.zig)
+/// - TLS is NEVER visible to scheduler code
+/// - TLS stack stores RtNursery pointers only
+///
+/// This is ABI glue, not architecture.
+threadlocal var rt_nursery_stack: std.ArrayListUnmanaged(*RtNursery) = .{};
 
 /// Create a new nursery scope
+/// Uses the Runtime Root's scheduler for M:N fiber scheduling
 export fn janus_nursery_create() callconv(.c) ?*anyopaque {
     const allocator = gpa.allocator();
 
-    const nursery = allocator.create(JanusNursery) catch return null;
-    nursery.* = JanusNursery.init(allocator);
+    // Ensure runtime is initialized
+    if (!ensureSchedulerRunning()) {
+        std.debug.print("ERROR: Runtime not initialized for nursery\n", .{});
+        return null;
+    }
+
+    const rt = GLOBAL_RT.?;
+
+    // Create nursery handle
+    const handle = allocator.create(RtNursery) catch return null;
+    handle.* = RtNursery{
+        .nursery = rt.createNursery(scheduler.Budget.serviceDefault()),
+        .allocator = allocator,
+    };
 
     // Push onto nursery stack
-    nursery_stack.append(allocator, nursery) catch {
-        allocator.destroy(nursery);
+    rt_nursery_stack.append(allocator, handle) catch {
+        handle.nursery.deinit();
+        allocator.destroy(handle);
         return null;
     };
 
-    return @ptrCast(nursery);
+    return @ptrCast(handle);
 }
 
 /// Spawn a task in the current nursery
@@ -658,35 +755,40 @@ export fn janus_nursery_create() callconv(.c) ?*anyopaque {
 /// arg: opaque argument to pass to function
 export fn janus_nursery_spawn(func: TaskFn, arg: ?*anyopaque) callconv(.c) i32 {
     // Get current nursery from stack
-    if (nursery_stack.items.len == 0) {
+    if (rt_nursery_stack.items.len == 0) {
         std.debug.print("ERROR: spawn called outside of nursery\n", .{});
         return -1;
     }
 
-    const nursery = nursery_stack.items[nursery_stack.items.len - 1];
-    nursery.spawn(func, arg) catch {
-        std.debug.print("ERROR: failed to spawn task\n", .{});
+    const handle = rt_nursery_stack.items[rt_nursery_stack.items.len - 1];
+
+    // Spawn task via scheduler nursery
+    const task = handle.nursery.spawn(func, arg);
+    if (task == null) {
+        std.debug.print("ERROR: failed to spawn task (budget exhausted?)\n", .{});
         return -1;
-    };
+    }
 
     return 0;
 }
 
-/// Spawn a no-argument function in the current nursery (Phase 2.3)
+/// Spawn a no-argument function in the current nursery
 /// func: function pointer returning i32 (common Janus function signature)
-/// Runtime handles thread spawning and result collection
 export fn janus_nursery_spawn_noarg(func: NoArgTaskFn) callconv(.c) i32 {
     // Get current nursery from stack
-    if (nursery_stack.items.len == 0) {
+    if (rt_nursery_stack.items.len == 0) {
         std.debug.print("ERROR: spawn called outside of nursery\n", .{});
         return -1;
     }
 
-    const nursery = nursery_stack.items[nursery_stack.items.len - 1];
-    nursery.spawnNoArg(func) catch {
-        std.debug.print("ERROR: failed to spawn task\n", .{});
+    const handle = rt_nursery_stack.items[rt_nursery_stack.items.len - 1];
+
+    // Spawn no-arg task via scheduler nursery
+    const task = handle.nursery.spawnNoArg(func);
+    if (task == null) {
+        std.debug.print("ERROR: failed to spawn task (budget exhausted?)\n", .{});
         return -1;
-    };
+    }
 
     return 0;
 }
@@ -696,33 +798,41 @@ export fn janus_nursery_spawn_noarg(func: NoArgTaskFn) callconv(.c) i32 {
 export fn janus_nursery_await_all() callconv(.c) i64 {
     const allocator = gpa.allocator();
 
-    // Pop nursery from stack manually
-    if (nursery_stack.items.len == 0) {
+    // Pop nursery from stack
+    if (rt_nursery_stack.items.len == 0) {
         std.debug.print("ERROR: nursery_await_all called without active nursery\n", .{});
         return -1;
     }
 
     // Manual pop: get last item and shrink
-    const idx = nursery_stack.items.len - 1;
-    const nursery = nursery_stack.items[idx];
-    nursery_stack.items.len = idx;
+    const idx = rt_nursery_stack.items.len - 1;
+    const handle = rt_nursery_stack.items[idx];
+    rt_nursery_stack.items.len = idx;
 
-    // Wait for all tasks
-    const result = nursery.awaitAll();
+    // Wait for all tasks via scheduler nursery
+    const result = handle.nursery.awaitAll();
+
+    // Convert NurseryResult to i64
+    const error_code: i64 = switch (result) {
+        .success => 0,
+        .child_failed => |err| err.error_code,
+        .cancelled => -2,
+        .pending => -3, // Should not happen after awaitAll
+    };
 
     // Cleanup
-    nursery.deinit();
-    allocator.destroy(nursery);
+    handle.nursery.deinit();
+    allocator.destroy(handle);
 
-    return result;
+    return error_code;
 }
 
 /// Get the number of active tasks in current nursery (for debugging)
 export fn janus_nursery_task_count() callconv(.c) i32 {
-    if (nursery_stack.items.len == 0) return 0;
+    if (rt_nursery_stack.items.len == 0) return 0;
 
-    const nursery = nursery_stack.items[nursery_stack.items.len - 1];
-    return @intCast(nursery.threads.items.len);
+    const handle = rt_nursery_stack.items[rt_nursery_stack.items.len - 1];
+    return @intCast(handle.nursery.activeChildCount());
 }
 
 // ============================================================================
