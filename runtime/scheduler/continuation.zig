@@ -23,23 +23,35 @@ const SavedRegisters = task_mod.SavedRegisters;
 // ============================================================================
 // External Assembly Functions (context_switch.s)
 // ============================================================================
+//
+// These functions are implemented in assembly for production builds.
+// For standalone :core profile compilation (no assembly linked), we provide
+// weak stub implementations that the linker will use as fallbacks.
+// :core is synchronous and should never invoke fiber context switching.
 
-/// External context switch implemented in assembly.
-/// See context_switch.s for implementation.
-///
-/// Context layout (must match):
-///   offset 0:  sp   (stack pointer)
-///   offset 8:  rbx
-///   offset 16: rbp
-///   offset 24: r12
-///   offset 32: r13
-///   offset 40: r14
-///   offset 48: r15
-extern fn janus_context_switch(from: *Context, to: *const Context) void;
+/// Stub for context switch - exported as weak symbol
+/// Assembly version overrides this when linked
+fn janus_context_switch_stub(_: *Context, _: *const Context) callconv(.c) void {
+    @panic("janus_context_switch: Fiber context switching requires assembly. Link runtime/scheduler/context_switch.s");
+}
 
-/// External fiber entry trampoline.
-/// Reads entry_fn from r12, arg from r13, calls entry_fn(arg).
-extern fn janus_fiber_entry() void;
+/// Stub for fiber entry - exported as weak symbol
+/// Assembly version overrides this when linked
+fn janus_fiber_entry_stub() callconv(.c) void {
+    @panic("janus_fiber_entry: Fiber context switching requires assembly. Link runtime/scheduler/context_switch.s");
+}
+
+// Export weak symbols - assembly overrides when linked
+comptime {
+    @export(&janus_context_switch_stub, .{ .name = "janus_context_switch", .linkage = .weak });
+    @export(&janus_fiber_entry_stub, .{ .name = "janus_fiber_entry", .linkage = .weak });
+}
+
+/// Context switch function pointer - uses the symbol (either stub or assembly)
+const janus_context_switch: *const fn (*Context, *const Context) callconv(.c) void = @extern(*const fn (*Context, *const Context) callconv(.c) void, .{ .name = "janus_context_switch" });
+
+/// Fiber entry function pointer - uses the symbol (either stub or assembly)
+const janus_fiber_entry: *const fn () callconv(.c) void = @extern(*const fn () callconv(.c) void, .{ .name = "janus_fiber_entry" });
 
 // ============================================================================
 // Context Structure
@@ -140,7 +152,9 @@ pub fn initFiberContext(
     // Reserve space for janus_fiber_entry (assembly trampoline)
     // First switch to this context will "ret" to janus_fiber_entry
     sp -= @sizeOf(usize);
-    @as(*usize, @ptrFromInt(sp)).* = @intFromPtr(&janus_fiber_entry);
+    // Note: janus_fiber_entry is already a function pointer, so we use it directly
+    // (not &janus_fiber_entry which would be address of the pointer variable)
+    @as(*usize, @ptrFromInt(sp)).* = @intFromPtr(janus_fiber_entry);
 
     // Store entry function, argument, and cleanup in callee-saved registers
     // janus_fiber_entry reads r12 (entry_fn), r13 (arg), r14 (cleanup_fn)
