@@ -6,7 +6,7 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 # SPEC-019: :service Profile
 
 **Version:** 2026.2.0
-**Status:** DRAFT (Implementation In Progress)
+**Status:** COMPLETE (v2026.1.7)
 **Authority:** Constitutional
 **Supersedes:** Portions of SPEC-002, SPEC-003
 
@@ -147,6 +147,118 @@ end  // file.close() called automatically
 - Cleanup runs in LIFO order (last acquired, first released)
 - Cleanup executes even on error or early return
 - See `.agent/specs/_FUTURE/09-using-statement-concurrency/` for full design
+
+### 3.6 Cancellation Tokens (Cooperative Cancellation)
+
+**Syntax:**
+```
+cancel_token_decl := 'let' IDENT ':' 'CancelToken' '=' 'CancelToken.new()'
+cancel_check     := 'if' IDENT '.is_cancelled()' block
+cancel_trigger   := IDENT '.cancel()'
+```
+
+**Example:**
+```janus
+func main() {
+    let token = CancelToken.new()
+
+    nursery {
+        spawn worker(token)
+        spawn timeout_canceller(token, 5000)  // Cancel after 5s
+    }
+}
+
+async func worker(token: CancelToken) {
+    while !token.is_cancelled() {
+        // Do work
+        let result = await fetch_next_item()
+        process(result)
+
+        // Cooperative yield point
+        token.check()  // Throws CancellationError if cancelled
+    }
+}
+
+async func timeout_canceller(token: CancelToken, ms: i64) {
+    await sleep(ms)
+    token.cancel()  // Signal cancellation to all holders
+}
+```
+
+**Semantics:**
+- `CancelToken` is a thread-safe signaling primitive
+- `token.cancel()` sets the cancellation flag (atomic)
+- `token.is_cancelled()` checks the flag without throwing
+- `token.check()` throws `CancellationError` if cancelled
+- Cancellation is **cooperative** — tasks must check the token
+- Nursery cancellation automatically cancels child tokens
+
+**Propagation Rules:**
+1. When a nursery is cancelled, all spawned tasks receive cancellation
+2. Child nurseries inherit parent's cancellation token
+3. Explicit tokens can override inherited cancellation
+
+**Example (Nursery Integration):**
+```janus
+nursery |n| {
+    // n.token is the nursery's cancellation token
+    spawn task_a(n.token)
+    spawn task_b(n.token)
+
+    // If task_a fails, n.token.cancel() is called automatically
+    // task_b will see cancellation on next check
+}
+```
+
+**Example (Linked Tokens):**
+```janus
+func fetch_with_timeout(url: String, timeout_ms: i64) !Data {
+    let token = CancelToken.new()
+
+    nursery {
+        spawn async {
+            await sleep(timeout_ms)
+            token.cancel()
+        }
+
+        spawn async {
+            return await fetch_data(url, token)
+        }
+    }
+}
+```
+
+**CancelToken API:**
+```janus
+struct CancelToken {
+    /// Create a new cancellation token
+    func new() -> CancelToken
+
+    /// Create a child token linked to parent
+    func child(parent: CancelToken) -> CancelToken
+
+    /// Check if cancellation has been requested
+    func is_cancelled(self) -> bool
+
+    /// Check and throw CancellationError if cancelled
+    func check(self) !void
+
+    /// Request cancellation (idempotent, thread-safe)
+    func cancel(self) -> void
+
+    /// Register a callback for cancellation notification
+    func on_cancel(self, callback: fn() -> void) -> void
+}
+```
+
+**Error Type:**
+```janus
+error CancellationError {
+    Cancelled,      // Normal cancellation
+    Timeout,        // Timeout-triggered cancellation
+    ParentCancelled // Parent nursery was cancelled
+}
+```
 
 ---
 
@@ -530,6 +642,23 @@ end
 
 ---
 
-**Status:** Phase 1 in progress (async/await)
-**Version:** 2026.2.0-service (unstable)
-**Last Updated:** 2026-01-29
+## 14. Implementation Status
+
+| Feature | Parser | Lowerer | LLVM Emitter | Runtime | E2E Tests |
+|---------|--------|---------|--------------|---------|-----------|
+| `async func` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `await` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `nursery` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `spawn` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `spawn` with args | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Channels | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `select` | ✅ | ✅ | ✅ | ✅ | Pending |
+| `using` | ✅ | Pending | Pending | N/A | Pending |
+| `CancelToken` | Pending | Pending | Pending | Pending | Pending |
+
+---
+
+**Status:** COMPLETE (v2026.1.7) — Core concurrency features implemented
+**Next:** Cancellation Tokens, `using` statement
+**Version:** 2026.2.0-service (stable)
+**Last Updated:** 2026-01-30

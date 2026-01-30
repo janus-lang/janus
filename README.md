@@ -7,7 +7,7 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 
 > "The last programming language you need to learn."
 
-**Status:** Production-Ready — :core Profile Complete
+**Status:** Production-Ready — :core + :service Profiles Complete
 
 **License:** [Libertaria Suite](docs/legal/licensing-explained.md) (LCL-1.0 / LSL-1.0 / LUL-1.0)
 
@@ -117,9 +117,45 @@ Systems programming lost its way:
 *   Try operator: `let result = divide(10, 0)?` (propagate errors)
 *   Type-safe, explicit, no exceptions
 
+### 🚀 Concurrency (:service Profile — NEW in v2026.1.7)
+
+**CBC-MN Scheduler: Capability-Budgeted Cooperative M:N Scheduling**
+
+```janus
+// Structured concurrency with nurseries
+func main() {
+    nursery {
+        spawn fetch_user(1)
+        spawn fetch_user(2)
+        spawn fetch_user(3)
+    }
+    // All tasks complete here - no leaked goroutines!
+    println("All users fetched")
+}
+
+async func fetch_user(id: i32) -> User {
+    let data = await http.get("/users/" + id)
+    return User.from_json(data)
+}
+```
+
+**What you get:**
+- ✅ **M:N Fibers** — Lightweight stackful fibers with work-stealing
+- ✅ **Structured Concurrency** — Nurseries guarantee all children complete
+- ✅ **async/await** — Clean syntax for asynchronous operations
+- ✅ **spawn** — Launch tasks in current nursery scope
+- ✅ **Channels** — CSP-style message passing
+- ✅ **select** — Multi-channel wait with timeout
+- ✅ **Budget-driven scheduling** — DoS immunity at language level
+- ✅ **No GC** — Deterministic performance, zero runtime overhead
+
+**Learn more:** [SPEC-021: M:N Scheduler](specs/SPEC-021-scheduler.md) | [SPEC-019: :service Profile](specs/SPEC-019-profile-service.md)
+
 ### 📖 **Start Learning: [The Monastery](docs/teaching/README.md)**
 
 The :core profile is **100% complete** and ready for teaching systems programming from fundamentals to production.
+
+The :service profile is **100% complete** for building concurrent, high-performance backend services.
 
 ---
 
@@ -182,7 +218,7 @@ Janus is **one language** with multiple capability sets. See **[SPEC-002: Profil
 
 *   **[:core](specs/SPEC-018-profile-core.md)** (🜏 The Monastery) — **COMPLETE** — Teaching, fundamentals, systems programming
 *   **:script** (The Bazaar) — Dynamic surface, REPL, rapid prototyping
-*   **:service** (The Backend) — Web services, [structured concurrency](#-concurrency-model)
+*   **[:service](specs/SPEC-019-profile-service.md)** (The Backend) — **COMPLETE** — M:N fibers, [structured concurrency](#-concurrency-service-profile--new-in-v202617), async/await
 *   **:cluster** (The Swarm) — Actor model, distributed systems
 *   **:compute** (The Accelerator) — NPU/GPU kernels, data-parallel computation
 *   **:sovereign** (The King) — Complete language, raw pointers, ultimate control
@@ -210,8 +246,10 @@ AI contributions are governed by the [**AI-Airlock Protocol**](docs/doctrines/AI
 
 ### For Developers
 - **[SPEC-018: :core Profile](specs/SPEC-018-profile-core.md)** — Complete technical specification
+- **[SPEC-019: :service Profile](specs/SPEC-019-profile-service.md)** — Concurrency & async specification
+- **[SPEC-021: M:N Scheduler](specs/SPEC-021-scheduler.md)** — CBC-MN scheduler architecture
 - **[SPEC-002: Profiles System](specs/SPEC-002-profiles.md)** — Understanding the capability ladder
-- **[Integration Tests](tests/integration/)** — 477/478 tests passing
+- **[Integration Tests](tests/integration/)** — 130+ E2E tests passing
 - **[Example Programs](examples/)** — Real code samples
 
 ### For Contributors
@@ -280,6 +318,8 @@ end
 5. **Zero rewrites** — Code written in week 1 runs in production
 6. **Explicit everything** — Memory, errors, costs — all visible
 7. **Profile system** — Start simple (:core), grow to (:sovereign)
+8. **M:N Concurrency** — Structured concurrency, work-stealing, no leaked tasks
+9. **DoS immunity** — Budget-driven scheduling at the language level
 
 **From "Hello World" to distributed systems. One language. Zero compromises.**
 
