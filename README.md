@@ -36,10 +36,12 @@ Janus **compiles natively through Zig**, giving you the entire Zig standard libr
 
 ```janus
 // Week 1: Learn fundamentals with clean, honest syntax
-func factorial(n: i32) -> i32 {
-    if n <= 1 { return 1 }
+func factorial(n: i32) -> i32 do
+    if n <= 1 do
+        return 1
+    end
     return n * factorial(n - 1)
-}
+end
 
 // Week 2: Access production-grade Zig stdlib natively
 use zig "std/ArrayList"
@@ -123,20 +125,20 @@ Systems programming lost its way:
 
 ```janus
 // Structured concurrency with nurseries
-func main() {
-    nursery {
+func main() do
+    nursery do
         spawn fetch_user(1)
         spawn fetch_user(2)
         spawn fetch_user(3)
-    }
+    end
     // All tasks complete here - no leaked goroutines!
     println("All users fetched")
-}
+end
 
-async func fetch_user(id: i32) -> User {
+async func fetch_user(id: i32) -> User do
     let data = await http.get("/users/" + id)
     return User.from_json(data)
-}
+end
 ```
 
 **What you get:**
@@ -183,20 +185,20 @@ Hello, Janus!
 ```janus
 error DivisionError { DivisionByZero }
 
-func divide(a: i32, b: i32) -> i32 ! DivisionError {
-    if b == 0 {
+func divide(a: i32, b: i32) -> i32 ! DivisionError do
+    if b == 0 do
         fail DivisionError.DivisionByZero
-    }
+    end
     a / b
-}
+end
 
-func main() {
-    let result = divide(10, 2) catch err {
+func main() do
+    let result = divide(10, 2) catch err do
         println("Error caught!")
         return
-    }
+    end
     println(result)  // Prints: 5
-}
+end
 ```
 
 **This compiles to native code. This is production-ready.**
