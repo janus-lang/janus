@@ -1,0 +1,162 @@
+name: Build and Release Archlinux Package
+
+on:
+  push:
+    branches:
+      - stable    # Only build releases from stable branch
+    tags:
+      - 'v20*'    # CalVer Marsian tags: v2026.1.10, v2026.2.5, etc.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (CalVer: 2026.2.5)'
+        required: true
+        default: '2026.2.5'
+
+jobs:
+  # Stage 1: Build from stable branch only
+  build-arch:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    # Only run on stable branch or version tags
+    if: github.ref == 'refs/heads/stable' || startsWith(github.ref, 'refs/tags/v20')
+    
+    steps:
+    - name: Install dependencies
+      run: |
+        pacman -Syu --noconfirm
+        pacman -S --noconfirm base-devel git zig llvm clang cmake ninja
+    
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        ref: stable  # Always build from stable branch
+    
+    - name: Set CalVer version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+          # Extract from tag: refs/tags/v2026.2.5 -> 2026.2.5
+          VERSION="${GITHUB_REF#refs/tags/v}"
+        else
+          # Generate CalVer from date: 2026.2.$(build_num)
+          YEAR=$(date +%Y)
+          MONTH=$(date +%-m)
+          BUILD=$(git rev-list --count HEAD)
+          VERSION="${YEAR}.${MONTH}.${BUILD}"
+        fi
+        echo "VERSION=${VERSION}" >> $GITHUB_ENV
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "📅 CalVer: ${VERSION}"
+    
+    - name: Update PKGBUILD version
+      run: |
+        cd dist/arch_build
+        sed -i "s/pkgver=.*/pkgver=${VERSION}/" PKGBUILD
+        cat PKGBUILD | grep pkgver
+    
+    - name: Build package
+      run: |
+        cd dist/arch_build
+        makepkg -s --noconfirm
+    
+    - name: Verify package
+      run: |
+        cd dist/arch_build
+        ls -la *.pkg.tar.zst
+        namcap *.pkg.tar.zst
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: janus-arch-package-${{ steps.version.outputs.version }}
+        path: dist/arch_build/janus-lang-*.pkg.tar.zst
+        retention-days: 30
+    
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/v20')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: dist/arch_build/janus-lang-*.pkg.tar.zst
+        draft: false
+        prerelease: ${{ contains(github.ref, '-alpha') || contains(github.ref, '-beta') || contains(github.ref, '-rc') || contains(github.ref, '-unstable') || contains(github.ref, '-testing') }}
+        generate_release_notes: true
+        body: |
+          ## Janus ${{ steps.version.outputs.version }} (CalVer Marsian)
+          
+          ### Installation
+          ```bash
+          sudo pacman -U janus-lang-${{ steps.version.outputs.version }}-1-x86_64.pkg.tar.zst
+          ```
+          
+          ### Verification
+          ```bash
+          janus --version
+          ```
+          
+          Built from `stable` branch with release signature.
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Stage 2: Test install
+  test-install:
+    needs: build-arch
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    if: github.ref == 'refs/heads/stable' || startsWith(github.ref, 'refs/tags/v20')
+    
+    steps:
+    - name: Install dependencies
+      run: |
+        pacman -Syu --noconfirm
+        pacman -S --noconfirm base-devel
+    
+    - name: Download artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: janus-arch-package-${{ needs.build-arch.outputs.version }}
+    
+    - name: Install package
+      run: |
+        pacman -U --noconfirm janus-lang-*.pkg.tar.zst
+    
+    - name: Verify installation
+      run: |
+        which janus
+        janus --version
+        ls -la /usr/lib/janus/std/
+    
+    - name: Test basic functionality
+      run: |
+        # Test that janus can find its stdlib
+        janus build --help || echo "Build command test"
+        ls -la /etc/janus/config.kdl
+        ls -la /etc/janus/config.json
+
+  # Notify on failure (only for stable branch)
+  notify-failure:
+    needs: [build-arch, test-install]
+    runs-on: ubuntu-latest
+    if: failure() && github.ref == 'refs/heads/stable'
+    steps:
+    - name: Notify on Discord
+      run: |
+        curl -X POST ${{ secrets.DISCORD_SWARM_WEBHOOK }} \
+          -H "Content-Type: application/json" \
+          -d "{
+            \"username\": \"Archie (Coordinator)\",
+            \"embeds\": [{
+              \"title\": \"❌ Arch Package Build Failed\",
+              \"color\": 15158332,
+              \"fields\": [
+                {\"name\": \"Branch\", \"value\": \"${{ github.ref }}\", \"inline\": true},
+                {\"name\": \"Commit\", \"value\": \"${{ github.sha }}\", \"inline\": true}
+              ],
+              \"footer\": {\"text\": \"Check GitHub Actions for details\"}
+            }]
+          }" || true

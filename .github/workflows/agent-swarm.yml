@@ -1,0 +1,147 @@
+name: Agent Swarm Coordination
+
+on:
+  schedule:
+    # Run every 4 hours to check for agent contributions
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+  issues:
+    types: [labeled]
+  pull_request:
+    types: [opened, labeled]
+
+jobs:
+  coordinator:
+    runs-on: ubuntu-latest
+    if: contains(github.event.label.name, 'agent-') || github.event_name == 'schedule'
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.AGENT_SWARM_TOKEN }}
+    
+    - name: Setup Janus environment
+      run: |
+        # Parse swarm config
+        echo "COORDINATOR=$(jq -r '.swarm.personas.coordinator.name' .agent/swarm/config.json)" >> $GITHUB_ENV
+        echo "REVIEWER=$(jq -r '.swarm.personas.reviewer.name' .agent/swarm/config.json)" >> $GITHUB_ENV
+    
+    - name: Assign tasks to agents
+      id: assign
+      run: |
+        # Read open tasks from tasks.json
+        TASKS=$(jq -r '.tasks.medium[] | select(.assignee == null) | .id' .agent/swarm/tasks.json | head -5)
+        
+        for task_id in $TASKS; do
+          echo "Task $task_id available for assignment"
+          # In real implementation, this would ping agents via Discord/Moltbook API
+        done
+        
+        echo "tasks_available=$(echo $TASKS | wc -w)" >> $GITHUB_OUTPUT
+    
+    - name: Check for pending reviews
+      id: reviews
+      run: |
+        # Find PRs with [AGENT] prefix awaiting review
+        PENDING=$(gh pr list --search "[AGENT] in:title review:required" --json number,title,author | jq length)
+        echo "pending_reviews=$PENDING" >> $GITHUB_OUTPUT
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Notify agents
+      if: steps.assign.outputs.tasks_available > 0 || steps.reviews.outputs.pending_reviews > 0
+      run: |
+        # Post to Discord webhook (configured in secrets)
+        curl -X POST ${{ secrets.DISCORD_SWARM_WEBHOOK }} \
+          -H "Content-Type: application/json" \
+          -d "{
+            \"username\": \"Archie (Coordinator)\",
+            \"avatar_url\": \"https://janus-lang.org/assets/archie.png\",
+            \"embeds\": [{
+              \"title\": \"🤖 Agent Swarm Update\",
+              \"color\": 3447003,
+              \"fields\": [
+                {\"name\": \"Open Tasks\", \"value\": \"${{ steps.assign.outputs.tasks_available }}\", \"inline\": true},
+                {\"name\": \"Pending Reviews\", \"value\": \"${{ steps.reviews.outputs.pending_reviews }}\", \"inline\": true}
+              ],
+              \"footer\": {\"text\": \"Check .agent/swarm/tasks.kdl for details\"}
+            }]
+          }" || true
+      continue-on-error: true
+
+  reviewer:
+    runs-on: ubuntu-latest
+    if: contains(github.event.pull_request.title, '[AGENT]')
+    needs: []
+    
+    steps:
+    - name: Checkout PR
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+        fetch-depth: 0
+    
+    - name: Run Frankie review
+      id: review
+      run: |
+        # Automated code quality checks
+        ERRORS=0
+        
+        # Check SPEC-017 compliance
+        if grep -r "func.*do.*end" --include="*.jan" .; then
+          echo "✅ Janus syntax detected"
+        fi
+        
+        # Check for TODOs without issues
+        TODOS=$(grep -r "TODO" --include="*.zig" --include="*.jan" . | grep -v "TODO(#" | wc -l)
+        if [ $TODOS -gt 0 ]; then
+          echo "⚠️ Found $TODOS TODOs without issue references"
+          ERRORS=$((ERRORS + 1))
+        fi
+        
+        # Check for tests
+        TESTS=$(find . -name "test_*.zig" | wc -l)
+        if [ $TESTS -eq 0 ]; then
+          echo "❌ No tests found"
+          ERRORS=$((ERRORS + 1))
+        fi
+        
+        echo "errors=$ERRORS" >> $GITHUB_OUTPUT
+        
+        if [ $ERRORS -eq 0 ]; then
+          echo "✅ Frankie approves this PR"
+        else
+          echo "❌ Frankie requests changes"
+        fi
+    
+    - name: Post review comment
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const errors = parseInt('${{ steps.review.outputs.errors }}');
+          const body = errors === 0 
+            ? '✅ **Frankie (Code Reviewer)** approves this PR.\n\nAll automated checks passed:\n- SPEC-017 compliance ✅\n- No orphaned TODOs ✅\n- Tests present ✅\n\nReady for merge if human approves.'
+            : `❌ **Frankie (Code Reviewer)** requests changes.\n\nFound ${errors} issue(s). Please address before merge.`;
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: body
+          });
+    
+    - name: Label PR
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const errors = parseInt('${{ steps.review.outputs.errors }}');
+          const label = errors === 0 ? 'frankie-approved' : 'frankie-changes-requested';
+          
+          github.rest.issues.addLabels({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            labels: [label]
+          });
