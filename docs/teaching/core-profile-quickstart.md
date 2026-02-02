@@ -20,7 +20,7 @@ Think of it as **"C with training wheels"** or **"Zig for beginners"**.
 
 ```bash
 # Clone Janus
-git clone https://git.maiwald.work/Janus/janus-lang
+git clone https://github.com/janus-lang/janus
 cd janus-lang
 
 # Build compiler

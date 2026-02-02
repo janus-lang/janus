@@ -243,7 +243,7 @@ Once you've mastered :core, explore:
 
 ### Official Documentation
 - **Website:** https://janus-lang.org
-- **GitHub:** https://git.maiwald.work/Janus/janus-lang
+- **GitHub:** https://github.com/janus-lang/janus
 - **Specs:** `janus-lang/specs/`
 
 ### Learning Resources

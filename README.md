@@ -11,7 +11,7 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 
 **License:** [Libertaria Suite](docs/legal/licensing-explained.md) (LCL-1.0 / LSL-1.0 / LUL-1.0)
 
-**Repository:** https://git.maiwald.work/Janus/janus-lang
+**Repository:** https://github.com/janus-lang/janus
 
 ---
 
@@ -167,7 +167,7 @@ You are an engineer. You know what to do.
 
 ```bash
 # Clone and build
-git clone https://git.maiwald.work/Janus/janus-lang.git
+git clone https://github.com/janus-lang/janus.git
 cd janus-lang
 make build
 
@@ -333,6 +333,6 @@ end
 
 ---
 
-**Issues:** https://git.maiwald.work/Janus/janus-lang/issues
+**Issues:** https://github.com/janus-lang/janus/issues
 **Community:** https://janus-lang.org (coming soon)
 **License:** [Libertaria Suite](docs/legal/licensing-explained.md)
