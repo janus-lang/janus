@@ -107,7 +107,8 @@ Systems programming lost its way:
 *   Write Janus syntax, get Zig performance and stdlib
 
 **Compilation Pipeline (✅ Production-Grade):**
-*   Source → Parser → ASTDB → Symbol Table → Type System → QTJIR → LLVM → Native Binary
+*   Source → Parser → **ASTDB** → Symbol Table → Type System → QTJIR → LLVM → Native Binary
+*   **🜏 ASTDB Revolution** — Semantic query engine inside the compiler. Query code structure, relationships, and types programmatically.
 *   Full semantic validation with pedagogical error messages
 *   Profile enforcement (:core, :script, :service, :cluster, :compute, :sovereign)
 *   Complete end-to-end compilation tested

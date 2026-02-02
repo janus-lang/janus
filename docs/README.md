@@ -13,7 +13,7 @@ This directory contains the comprehensive documentation for the Janus programmin
 
 ## Quick Links
 
-- **[License Header Templates](LICENSE-HEADERS.md)** - Mandatory license headers for all source files
+- **[License Header Templates](legal/license-headers.md)** - Mandatory license headers for all source files
 - **[Complete Licensing Guide](../licensing.md)** - Tiered licensing model and compliance information
 
 ## Documentation Structure
@@ -41,4 +41,4 @@ All new source files must include appropriate license headers based on their dom
 - **Standard Library**: Apache-2.0
 - **Community Packages**: CC0-1.0
 
-See [LICENSE-HEADERS.md](LICENSE-HEADERS.md) for complete templates and guidelines.
+See [license-headers.md](legal/license-headers.md) for complete templates and guidelines.
