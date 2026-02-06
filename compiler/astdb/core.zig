@@ -109,6 +109,7 @@ pub const Token = struct {
         await_,   // await expr - wait for async result
         nursery_, // nursery { } - structured concurrency scope
         spawn_,   // spawn task - launch concurrent task
+        shared_,  // using shared resource - shared resource management
         select_,  // select { } - CSP multi-channel wait
         timeout_, // timeout(duration) - select timeout case
 
@@ -169,6 +170,7 @@ pub const Token = struct {
         assign, // =
         equal, // = (for compatibility with existing code)
         walrus_assign, // :=
+        colon_equal, // := (alias for walrus_assign for :service profile)
         plus_assign, // +=
         minus_assign, // -=
         star_assign, // *=
@@ -293,6 +295,8 @@ pub const AstNode = struct {
         block_stmt,
         fail_stmt, // Error handling: fail ErrorType.Variant (:core profile)
         nursery_stmt, // :service profile - nursery { spawn tasks }
+        using_resource_stmt, // :service profile - using resource = open() do ... end
+        using_shared_stmt, // :service profile - using shared resource = open() do ... end
         select_stmt,  // :service profile - select { case ch.recv() ... }
         select_case,  // :service profile - case in select (recv/send)
         select_timeout, // :service profile - timeout case in select

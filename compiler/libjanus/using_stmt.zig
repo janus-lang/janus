@@ -218,6 +218,7 @@ pub const UsingStmt = struct {
     }
 
     fn validateCloseMethodSignature(self: *UsingStmt, sema_ctx: *SemanticContext, close_method: CID) !void {
+        _ = self;
         const method_sig = try sema_ctx.getMethodSignature(close_method);
 
         // Close method must take only self parameter
@@ -287,6 +288,9 @@ pub const UsingStmt = struct {
         if (!sema_ctx.isShareableType(resource_type)) {
             return sema_ctx.reportError(.non_shareable_type, self.binding.span, "Type '{}' cannot be used with 'using shared' (not shareable)", .{resource_type});
         }
+        
+        _ = share_cap;
+        _ = close_shared_cap;
     }
 };
 
@@ -446,7 +450,7 @@ pub const SemanticContext = struct {
 test "UsingStmt creation and basic properties" {
     const allocator = std.testing.allocator;
 
-    const span = Span{ .start_byte = 0, .end_byte = 10, .start_line = 1, .start_col = 1, .end_line = 1, .end_col = 11 };
+    const span = Span{ .start = 0, .end = 10, .line = 1, .column = 1 };
     const flags = UsingStmt.UsingFlags{ .is_shared = false };
     const binding = UsingStmt.Binding{
         .name = "file",
@@ -465,7 +469,7 @@ test "UsingStmt creation and basic properties" {
 }
 
 test "Profile validation" {
-    const span = Span{ .start_byte = 0, .end_byte = 10, .start_line = 1, .start_col = 1, .end_line = 1, .end_col = 11 };
+    const span = Span{ .start = 0, .end = 10, .line = 1, .column = 1 };
     const binding = UsingStmt.Binding{
         .name = "resource",
         .span = span,
@@ -508,7 +512,7 @@ test "Profile validation" {
 test "Desugared defer generation" {
     const allocator = std.testing.allocator;
 
-    const span = Span{ .start_byte = 0, .end_byte = 10, .start_line = 1, .start_col = 1, .end_line = 1, .end_col = 11 };
+    const span = Span{ .start = 0, .end = 10, .line = 1, .column = 1 };
     const flags = UsingStmt.UsingFlags{ .is_shared = false, .is_infallible = false };
     const binding = UsingStmt.Binding{
         .name = "file",

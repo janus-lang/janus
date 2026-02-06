@@ -464,6 +464,7 @@ fn convertTokenType(janus_type: tokenizer.TokenType) TokenKind {
         .await_ => .await_,
         .nursery_ => .nursery_,
         .spawn_ => .spawn_,
+        .shared_ => .shared_,
         .select_ => .select_,
         .timeout_ => .timeout_,
 
@@ -506,6 +507,7 @@ fn convertTokenType(janus_type: tokenizer.TokenType) TokenKind {
         .question => .question, // Question mark for optional types (i32?)
         .optional_chain => .optional_chain,
         .null_coalesce => .null_coalesce,
+        .colon_equal => .colon_equal, // := walrus operator for :service profile using statements
 
         // Bitwise
         .bitwise_xor => .bitwise_xor,
@@ -1002,12 +1004,45 @@ fn parseImportStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
     };
 }
 
-/// Parse using statement: using module.path;
-fn parseUsingStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) !astdb_core.AstNode {
+/// Parse using statement:
+/// - using module.path;  (module import)
+/// - using [shared] binding [: type] = open_expr do ... end  (resource management :service profile)
+fn parseUsingStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) error{UnexpectedToken, OutOfMemory}!astdb_core.AstNode {
     const start_token = parser.current;
 
     _ = try parser.consume(.using);
 
+    // Check if this is resource management form: using [shared] binding = expr do
+    // vs module import form: using module.path
+    const is_resource_management = blk: {
+        // Look ahead: if we see [shared] identifier followed by =, :=, or : (type), it's resource management
+        const save_pos = parser.current;
+        
+        // Skip optional 'shared' keyword
+        if (parser.match(.shared_)) {
+            _ = parser.advance(); // consume 'shared'
+        }
+        
+        // Now check for identifier
+        if (parser.match(.identifier)) {
+            _ = parser.advance(); // consume identifier
+            // Check for: =  OR  :=  OR  : (type annotation before =)
+            // This handles: using file = expr, using file := expr, using file: Type = expr
+            // NOTE: .equal from tokenizer is remapped to .assign in post-processing!
+            const is_res = parser.match(.assign) or parser.match(.colon_equal) or parser.match(.colon);
+            parser.current = save_pos; // restore position
+            break :blk is_res;
+        }
+        
+        parser.current = save_pos; // restore position
+        break :blk false;
+    };
+
+    if (is_resource_management) {
+        return try parseUsingResourceStatement(parser, nodes, start_token);
+    }
+
+    // Module import form: using module.path;
     const children_start = @as(u32, @intCast(nodes.items.len));
 
     // Parse module path (e.g., std.core)
@@ -1046,6 +1081,103 @@ fn parseUsingStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.As
         .last_token = @enumFromInt(parser.current - 1),
         .child_lo = children_start,
         .child_hi = @as(u32, @intCast(nodes.items.len)),
+    };
+}
+
+/// Parse resource management using statement:
+/// using [shared] binding [: type] = open_expr do ... end
+/// :service profile feature - deterministic resource cleanup
+fn parseUsingResourceStatement(
+    parser: *ParserState,
+    nodes: *std.ArrayList(astdb_core.AstNode),
+    start_token: usize,
+) !astdb_core.AstNode {
+    // Nodes contain: binding, [type], open_expr, [body statements...]
+    // Edges contain: indices to all children for the using statement
+    const edges_start = @as(u32, @intCast(parser.edges.items.len));
+
+    // Optional 'shared' keyword
+    const is_shared = parser.match(.shared_);
+    if (is_shared) {
+        _ = parser.advance(); // consume 'shared'
+    }
+
+    // Parse binding name
+    _ = try parser.consume(.identifier);
+    const binding_node = astdb_core.AstNode{
+        .kind = .identifier,
+        .first_token = @enumFromInt(parser.current - 1),
+        .last_token = @enumFromInt(parser.current - 1),
+        .child_lo = 0,
+        .child_hi = 0,
+    };
+    const binding_idx = @as(u32, @intCast(nodes.items.len));
+    try nodes.append(parser.allocator, binding_node);
+    try parser.edges.append(parser.allocator, @enumFromInt(binding_idx));
+
+    // Optional type annotation: : Type
+    // NOTE: Check for `:=` (walrus) - tokenizer may emit : and = as separate tokens!
+    if (parser.match(.colon)) {
+        // Lookahead: if next is =, this is actually := (walrus), not type annotation
+        const is_walrus = parser.tokens.len > parser.current + 1 and 
+                          parser.tokens[parser.current + 1].kind == .assign;
+        if (is_walrus) {
+            // This is := walrus operator, not type annotation
+            // Don't consume anything here, let the assignment parsing handle it
+        } else {
+            // This is actually a type annotation : Type
+            _ = parser.advance(); // consume ':'
+            // Parse type name (simple identifier for now)
+            _ = try parser.consume(.identifier);
+            const type_node = astdb_core.AstNode{
+                .kind = .identifier, // Using identifier node for type name
+                .first_token = @enumFromInt(parser.current - 1),
+                .last_token = @enumFromInt(parser.current - 1),
+                .child_lo = 0,
+                .child_hi = 0,
+            };
+            const type_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, type_node);
+            try parser.edges.append(parser.allocator, @enumFromInt(type_idx));
+        }
+    }
+
+    // Assignment operator: = or :=
+    // NOTE: .equal from tokenizer is remapped to .assign in post-processing!
+    // NOTE: `:=` may be tokenized as separate `:` and `=` tokens!
+    if (parser.match(.colon_equal)) {
+        _ = parser.advance(); // consume ':=', single token
+    } else if (parser.match(.colon) and parser.tokens.len > parser.current + 1 and parser.tokens[parser.current + 1].kind == .assign) {
+        // `:=` as two separate tokens
+        _ = parser.advance(); // consume ':'
+        _ = parser.advance(); // consume '='
+    } else {
+        _ = try parser.consume(.assign); // consume '='
+    }
+
+    // Parse open expression (the resource acquisition)
+    const open_expr = try parseExpression(parser, nodes, .assignment);
+    const open_expr_idx = @as(u32, @intCast(nodes.items.len - 1)); // Expression was just appended
+    try parser.edges.append(parser.allocator, @enumFromInt(open_expr_idx));
+    _ = open_expr;
+
+    // Parse 'do' keyword
+    _ = try parser.consume(.do_);
+
+    // Parse block body statements - their indices are appended to parser.edges
+    try parseBlockStatements(parser, nodes, &parser.edges);
+    
+    // Consume 'end'
+    _ = try parser.consume(.end);
+
+    const edges_end = @as(u32, @intCast(parser.edges.items.len));
+
+    return astdb_core.AstNode{
+        .kind = if (is_shared) .using_shared_stmt else .using_resource_stmt,
+        .first_token = @enumFromInt(start_token),
+        .last_token = @enumFromInt(parser.current - 1),
+        .child_lo = edges_start,
+        .child_hi = edges_end,
     };
 }
 
@@ -1093,7 +1225,7 @@ fn parseUseStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstN
         };
     }
 
-    // Branch 1: graft form — alias = origin "module" [;]
+    // Branch 1: graft form - alias = origin "module" [;]
     if (parser.peek()) |t1| {
         if (t1.kind == .identifier) {
             // Lookahead for '=' assign to detect graft form
@@ -1585,56 +1717,56 @@ fn parseBlockStatements(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
 
         if (parser.match(.return_)) {
             const return_stmt = try parseReturnStatement(parser, nodes);
-            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
-            try parser.nodes.append(parser.allocator, return_stmt);
+            const stmt_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, return_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
             supports_postfix_when = true;
         } else if (parser.match(.fail_)) {
             const fail_stmt = try parseFailStatement(parser, nodes);
-            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
-            try parser.nodes.append(parser.allocator, fail_stmt);
+            const stmt_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, fail_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
             supports_postfix_when = true;
         } else if (parser.match(.requires)) {
             const req_stmt = try parseRequiresStatement(parser, nodes);
-            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
-            try parser.nodes.append(parser.allocator, req_stmt);
+            const stmt_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, req_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
         } else if (parser.match(.ensures)) {
             const ens_stmt = try parseEnsuresStatement(parser, nodes);
-            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
-            try parser.nodes.append(parser.allocator, ens_stmt);
+            const stmt_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, ens_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
         } else if (parser.match(.invariant)) {
             const inv_stmt = try parseInvariantStatement(parser, nodes);
-            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
-            try parser.nodes.append(parser.allocator, inv_stmt);
+            const stmt_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, inv_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
         } else if (parser.match(.let)) {
             const let_stmt = try parseLetStatement(parser);
-            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
-            try parser.nodes.append(parser.allocator, let_stmt);
+            const stmt_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, let_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
         } else if (parser.match(.var_)) {
             const var_stmt = try parseVarStatement(parser, nodes);
-            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
-            try parser.nodes.append(parser.allocator, var_stmt);
+            const stmt_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, var_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
         } else if (parser.match(.defer_)) {
             const defer_stmt = try parseDeferStatement(parser, nodes);
-            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
-            try parser.nodes.append(parser.allocator, defer_stmt);
+            const stmt_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, defer_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
         } else if (parser.match(.for_)) {
             const for_stmt = try parseForStatement(parser, nodes);
-            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
-            try parser.nodes.append(parser.allocator, for_stmt);
+            const stmt_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, for_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
         } else if (parser.match(.identifier) or parser.match(.string_literal) or parser.match(.integer_literal) or parser.match(.float_literal) or parser.match(.true_) or parser.match(.false_) or parser.match(.left_paren) or parser.match(.spawn_) or parser.match(.await_)) {
             // Parse full expression (handles method calls, assignments, pipeline chains, spawn/await, etc.)
             const expr = try parseExpression(parser, nodes, .none);
-            const expr_index = @as(u32, @intCast(parser.nodes.items.len));
-            try parser.nodes.append(parser.allocator, expr);
+            const expr_index = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, expr);
 
             const child_lo = @as(u32, @intCast(parser.edges.items.len));
             try parser.edges.append(parser.allocator, @enumFromInt(expr_index));
@@ -1647,39 +1779,45 @@ fn parseBlockStatements(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
                 .child_lo = child_lo,
                 .child_hi = child_hi,
             };
-            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
-            try parser.nodes.append(parser.allocator, expr_stmt);
+            const stmt_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, expr_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
             supports_postfix_when = true;
         } else if (parser.match(.if_)) {
             // Handle if statements
             const if_stmt = try parseIfStatement(parser, nodes);
-            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
-            try parser.nodes.append(parser.allocator, if_stmt);
+            const stmt_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, if_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
         } else if (parser.match(.while_)) {
             // Handle while statements in do/end form
             const while_stmt = try parseWhileStatement(parser, nodes);
-            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
-            try parser.nodes.append(parser.allocator, while_stmt);
+            const stmt_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, while_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
         } else if (parser.match(.match)) {
             // Handle match statements
             const match_stmt = try parseMatchStatement(parser, nodes);
-            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
-            try parser.nodes.append(parser.allocator, match_stmt);
+            const stmt_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, match_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
         } else if (parser.match(.nursery_)) {
             // :service profile - Handle nursery do ... end (structured concurrency)
             const nursery_stmt = try parseNurseryStatement(parser, nodes);
-            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
-            try parser.nodes.append(parser.allocator, nursery_stmt);
+            const stmt_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, nursery_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
         } else if (parser.match(.select_)) {
             // :service profile - Handle select do ... end (CSP multi-channel wait)
             const select_stmt = try parseSelectStatement(parser, nodes);
-            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
-            try parser.nodes.append(parser.allocator, select_stmt);
+            const stmt_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, select_stmt);
+            try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
+        } else if (parser.match(.using)) {
+            // :service profile - Handle using [shared] resource = expr do ... end (resource management)
+            const using_stmt = try parseUsingStatement(parser, nodes);
+            const stmt_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, using_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
         } else if (parser.match(.break_)) {
             // Handle break statement
@@ -1692,8 +1830,8 @@ fn parseBlockStatements(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
                 .child_lo = 0,
                 .child_hi = 0,
             };
-            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
-            try parser.nodes.append(parser.allocator, break_stmt);
+            const stmt_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, break_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
         } else if (parser.match(.continue_)) {
             // Handle continue statement
@@ -1706,8 +1844,8 @@ fn parseBlockStatements(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
                 .child_lo = 0,
                 .child_hi = 0,
             };
-            const stmt_idx = @as(u32, @intCast(parser.nodes.items.len));
-            try parser.nodes.append(parser.allocator, continue_stmt);
+            const stmt_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, continue_stmt);
             try out_children.append(parser.allocator, @enumFromInt(stmt_idx));
         } else {
             // Skip unknown tokens for now

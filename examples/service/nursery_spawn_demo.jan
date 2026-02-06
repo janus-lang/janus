@@ -1,0 +1,160 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// :service Profile - Structured Concurrency Demo
+// Shows nursery/spawn pattern with error handling and cancellation
+
+profile :service
+
+use janus "std/log"
+use janus "std/time"
+
+// Main: Demonstrates concurrent task execution with nursery
+async func main() !void do
+    log.info("=== Nursery/Spawn Demo ===")
+    
+    // Example 1: Basic concurrent tasks
+    log.info("\\n1. Basic concurrent tasks:")
+    nursery do
+        spawn task_a()
+        spawn task_b()
+        spawn task_c()
+    end  // Waits for all three tasks to complete
+    log.info("All basic tasks completed")
+    
+    // Example 2: Tasks with return values
+    log.info("\\n2. Tasks with return values:")
+    nursery do
+        let handle1 = spawn compute_value(10)
+        let handle2 = spawn compute_value(20)
+        let handle3 = spawn compute_value(30)
+        
+        // Await results
+        let result1 = await handle1
+        let result2 = await handle2
+        let result3 = await handle3
+        
+        log.info("Results: {result1}, {result2}, {result3}")
+    end
+    
+    // Example 3: Error handling - nursery aggregates errors
+    log.info("\\n3. Error handling:")
+    let result = nursery do
+        spawn may_fail(false)   // Succeeds
+        spawn may_fail(true)    // Fails - propagates to nursery result
+    end
+    
+    match result {
+        ok -> log.info("All tasks succeeded"),
+        error -> log.info("At least one task failed (expected)")
+    }
+    
+    // Example 4: Resource management with using
+    log.info("\\n4. Resource management with using:")
+    using resource := acquire_resource("demo") do
+        nursery do
+            spawn use_resource(resource, 1)
+            spawn use_resource(resource, 2)
+        end
+    end  // resource.release() called automatically after nursery completes
+    
+    // Example 5: Nested nurseries (hierarchical structured concurrency)
+    log.info("\\n5. Nested nurseries:")
+    nursery do  // Outer nursery
+        spawn outer_task()
+        
+        // Inner nursery - children are tracked separately
+        nursery do
+            spawn inner_task(1)
+            spawn inner_task(2)
+        end  // Inner completes first
+        
+        spawn outer_task_2()
+    end  // Outer waits for all: outer_task, inner_nursery children, outer_task_2
+    
+    log.info("\\n=== Demo Complete ===")
+end
+
+// Simple task with no return value
+async func task_a() -> void do
+    await sleep_ms(100)
+    log.info("  Task A completed")
+end
+
+async func task_b() -> void do
+    await sleep_ms(50)
+    log.info("  Task B completed")
+end
+
+async func task_c() -> void do
+    await sleep_ms(150)
+    log.info("  Task C completed")
+end
+
+// Task that computes and returns a value
+async func compute_value(input: i32) -> i32 do
+    await sleep_ms(50)
+    let result = input * 2
+    log.info("  Computed {input} * 2 = {result}")
+    return result
+end
+
+// Task that may fail
+async func may_fail(should_fail: bool) -> void ! error do
+    await sleep_ms(25)
+    if should_fail do
+        return error.task_failed
+    end
+    log.info("  Task succeeded")
+end
+
+enum error {
+    task_failed,
+    resource_unavailable
+}
+
+// Resource management demonstration
+struct resource {
+    name: []const u8,
+    in_use: bool
+}
+
+func acquire_resource(name: []const u8) -> resource do
+    log.info("  Acquiring resource: {name}")
+    return resource { name = name, in_use = true }
+end
+
+func release_resource(r: resource) -> void do
+    log.info("  Releasing resource: {r.name}")
+    r.in_use = false
+end
+
+async func use_resource(r: resource, id: i32) -> void do
+    log.info("  Using resource {r.name} from task {id}")
+    await sleep_ms(50)
+    log.info("  Done with resource from task {id}")
+end
+
+// Nested nursery tasks
+async func outer_task() -> void do
+    await sleep_ms(30)
+    log.info("  Outer task 1 completed")
+end
+
+async func outer_task_2() -> void do
+    await sleep_ms(30)
+    log.info("  Outer task 2 completed")
+end
+
+async func inner_task(id: i32) -> void do
+    await sleep_ms(20)
+    log.info("  Inner task {id} completed")
+end
+
+// Utility: Sleep for milliseconds (async)
+// In real implementation, this would yield to scheduler
+async func sleep_ms(ms: i32) -> void do
+    // Placeholder - would integrate with scheduler
+    // For now, this is a no-op to demonstrate syntax
+    _ = ms
+end

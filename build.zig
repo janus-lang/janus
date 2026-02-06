@@ -2002,6 +2002,27 @@ pub fn build(b: *std.Build) void {
     test_async_await_e2e_step.dependOn(&run_async_await_e2e_tests.step);
     test_step.dependOn(&run_async_await_e2e_tests.step);
 
+    // Using Statement End-to-End Integration Test (:service profile)
+    const using_e2e_tests = b.addTest(.{
+        .name = "using_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/using_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    using_e2e_tests.linkLibC();
+    using_e2e_tests.linkSystemLibrary("LLVM-21");
+    using_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    using_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    using_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    using_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_using_e2e_tests = b.addRunArtifact(using_e2e_tests);
+
+    const test_using_e2e_step = b.step("test-using-e2e", "Run Using Statement end-to-end integration test (:service profile)");
+    test_using_e2e_step.dependOn(&run_using_e2e_tests.step);
+    test_step.dependOn(&run_using_e2e_tests.step);
+
     // Channel Integration Tests - Phase 3 (:service profile)
     const channel_tests = b.addTest(.{
         .name = "channel_tests",

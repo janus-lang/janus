@@ -132,6 +132,10 @@ pub const OpCode = enum {
     Select_Wait, // Wait for one case to become ready (returns case index)
     Select_Get_Value, // Get received value from completed recv case
     Select_End, // End select statement (cleanup select context)
+
+    // --- :service Profile - Resource Management (Phase 3) ---
+    Using_Begin, // Begin using statement (acquire resource)
+    Using_End, // End using statement (cleanup resource)
 };
 
 /// Data types supported by tensor operations

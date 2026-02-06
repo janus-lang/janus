@@ -38,7 +38,7 @@ const IRBuilder = graph.IRBuilder;
 const OpCode = graph.OpCode;
 const GateType = graph.GateType;
 
-pub const LowerError = error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable };
+pub const LowerError = error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable, InvalidUsingBegin, InvalidUsingEnd };
 
 pub const LoweringContext = struct {
     allocator: std.mem.Allocator,
@@ -723,7 +723,7 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
             var last_stmt_child: ?NodeId = null;
             for (func_children) |child_id| {
                 const child = ctx.snapshot.getNode(child_id) orelse continue;
-                if (child.kind != .parameter and child.kind != .error_union_type) {
+                if (child.kind != .parameter and !isTypeAnnotation(child.kind)) {
                     last_stmt_child = child_id;
                 }
             }
@@ -742,7 +742,7 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
             var last_expr_id: ?NodeId = null;
             for (func_children) |child_id| {
                 const child = ctx.snapshot.getNode(child_id) orelse continue;
-                if (child.kind == .parameter or child.kind == .error_union_type) continue;
+                if (child.kind == .parameter or isTypeAnnotation(child.kind)) continue;
 
                 // Check if this is the last statement
                 const is_last = blk: {
@@ -751,7 +751,7 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
                     for (func_children) |check_id| {
                         if (check_after) {
                             const check_node = ctx.snapshot.getNode(check_id) orelse continue;
-                            if (check_node.kind != .parameter and check_node.kind != .error_union_type) {
+                            if (check_node.kind != .parameter and !isTypeAnnotation(check_node.kind)) {
                                 found_after = true;
                                 break;
                             }
@@ -796,7 +796,7 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
                 // Find last non-parameter/non-type statement
                 for (func_children) |child_id| {
                     const child = ctx.snapshot.getNode(child_id) orelse continue;
-                    if (child.kind != .parameter and child.kind != .error_union_type) {
+                    if (child.kind != .parameter and !isTypeAnnotation(child.kind)) {
                         if (child.kind == .expr_stmt) {
                             last_expr_stmt_id = child_id;
                         } else {
@@ -810,7 +810,7 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
             // Lower all but potentially last expression
             for (func_children) |child_id| {
                 const child = ctx.snapshot.getNode(child_id) orelse continue;
-                if (child.kind == .parameter or child.kind == .error_union_type) continue;
+                if (child.kind == .parameter or isTypeAnnotation(child.kind)) continue;
 
                 // If this is the last expr_stmt, handle it specially
                 if (last_expr_stmt_id) |last_id| {
@@ -836,6 +836,24 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
         var actions = try ctx.popScope();
         try ctx.emitDefersForScope(&actions);
     }
+}
+
+/// Check if a node kind represents a type annotation (not a statement)
+fn isTypeAnnotation(kind: NodeKind) bool {
+    return switch (kind) {
+        .identifier, // Type names like "String", "File"
+        .primitive_type, // i32, bool, etc.
+        .named_type, // Named types
+        .pointer_type, // *T
+        .array_type, // [N]T
+        .slice_type, // []T
+        .slice_inclusive_expr, // [..] inclusive slice type
+        .slice_exclusive_expr, // [..<] exclusive slice type
+        .optional_type, // ?T
+        .error_union_type, // T!E
+        => true,
+        else => false,
+    };
 }
 
 fn lowerBlock(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
@@ -966,7 +984,21 @@ fn lowerStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) 
             try lowerSelectStatement(ctx, node_id, node);
         },
 
-        else => {},
+        // :service profile - Resource Management (Phase 3)
+        .using_resource_stmt, .using_shared_stmt => {
+            std.log.err("lowerStatement: using statement detected, kind={s}", .{@tagName(node.kind)});
+            try lowerUsingStatement(ctx, node_id, node);
+        },
+
+        // Module import - no lowering needed (handled at top level)
+        .using_decl => {
+            // Module import using statement - no code generation needed
+            // This is a compile-time only construct
+        },
+
+        else => {
+            std.log.err("lowerStatement: UNHANDLED node kind {s}", .{@tagName(node.kind)});
+        },
     }
 }
 
@@ -1441,7 +1473,7 @@ fn lowerSliceForStatement(ctx: *LoweringContext, var_name: []const u8, slice_val
     try ctx.emitDefersForScope(&actions);
 }
 
-fn lowerArrayAccess(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable }!u32 {
+fn lowerArrayAccess(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!u32 {
     _ = node;
     const children = ctx.snapshot.getChildren(node_id);
     if (children.len < 2) return error.InvalidNode;
@@ -1509,7 +1541,7 @@ fn lowerSliceExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode, 
     return slice_node_id;
 }
 
-fn lowerExpression(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable }!u32 {
+fn lowerExpression(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable, InvalidUsingBegin, InvalidUsingEnd }!u32 {
     // Check cache
     if (ctx.node_map.get(node_id)) |id| return id;
 
@@ -1704,7 +1736,7 @@ fn lowerBoolLiteral(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode
     return try ctx.builder.createConstant(.{ .boolean = val });
 }
 
-fn lowerCallExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable }!u32 {
+fn lowerCallExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!u32 {
     const scope = trace.trace("lowerCallExpr", "");
     defer scope.end();
 
@@ -2485,6 +2517,7 @@ fn lowerLValue(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Low
                     return error.InvalidCall; // Cannot assign to non-alloca
                 }
             } else {
+                std.log.err("lowerLValue: UndefinedVariable '{s}'", .{name});
                 return error.UndefinedVariable;
             }
         },
@@ -2551,7 +2584,7 @@ fn lowerRangeExpr(
     return range_node;
 }
 
-fn lowerBinaryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable }!u32 {
+fn lowerBinaryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!u32 {
     _ = node;
     const children = ctx.snapshot.getChildren(node_id);
     if (children.len != 2) return error.InvalidBinaryExpr;
@@ -3953,4 +3986,88 @@ fn lowerSelectDefault(ctx: *LoweringContext, node_id: NodeId, node: *const AstNo
     var add_default_node = &ctx.builder.graph.nodes.items[add_default_id];
     try add_default_node.inputs.append(ctx.allocator, select_begin_id);
     return add_default_id;
+}
+
+/// Lower a using statement (:service profile - Phase 3)
+/// Syntax: using [shared] binding [: type] = open_expr do ... end
+/// For now: creates resource, executes body, then cleans up
+fn lowerUsingStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
+    _ = node;
+    const children = ctx.snapshot.getChildren(node_id);
+    std.log.err("lowerUsingStatement: node_id={d}, children.len={d}", .{@intFromEnum(node_id), children.len});
+    if (children.len < 3) {
+        std.log.err("lowerUsingStatement: ERROR - children.len < 3", .{});
+        return error.InvalidNode;
+    }
+
+    // Children layout:
+    // [0] = binding name (identifier)
+    // [1] = optional type annotation OR open expression
+    // [2] = open expression (if type annotation present) OR first body statement
+    // [...] = remaining body statements
+    
+    // Children layout depends on whether type annotation is present:
+    // Without type: [0]=binding, [1]=open_expr, [2..]=body
+    // With type:    [0]=binding, [1]=type, [2]=open_expr, [3..]=body
+    var open_expr_index: usize = 1;
+    var body_start_index: usize = 2;
+    
+    // Heuristic: if children.len >= 4, there's likely a type annotation
+    if (children.len >= 4) {
+        open_expr_index = 2;
+        body_start_index = 3;
+    }
+
+    // 1. Evaluate the open expression to get the resource
+    const open_expr_id = children[open_expr_index];
+    const open_expr_node = ctx.snapshot.getNode(open_expr_id) orelse return error.InvalidNode;
+    const resource_val = try lowerExpression(ctx, open_expr_id, open_expr_node);
+
+    // 2. Create Using_Begin node (marks resource acquisition)
+    const using_begin_id = try ctx.builder.createNode(.Using_Begin);
+    var using_begin_node = &ctx.builder.graph.nodes.items[using_begin_id];
+    try using_begin_node.inputs.append(ctx.allocator, resource_val);
+
+    // 3. Bind the resource to the binding name in current scope
+    // Create an Alloca for the resource variable so it can be referenced
+    // in the body and properly tracked as an L-Value
+    const binding_id = children[0];
+    const binding_node = ctx.snapshot.getNode(binding_id) orelse return error.InvalidNode;
+
+    if (binding_node.kind == .identifier) {
+        const binding_token = ctx.snapshot.getToken(binding_node.first_token) orelse return error.InvalidNode;
+        const binding_name = if (binding_token.str) |sid| ctx.snapshot.astdb.str_interner.getString(sid) else "resource";
+
+        // Create Alloca for the resource variable
+        const alloca_id = try ctx.builder.createNode(.Alloca);
+        ctx.builder.graph.nodes.items[alloca_id].data = .{ .string = try ctx.dupeForGraph(binding_name) };
+
+        // Store the resource value into the Alloca
+        const store_id = try ctx.builder.createNode(.Store);
+        var store_node = &ctx.builder.graph.nodes.items[store_id];
+        try store_node.inputs.append(ctx.allocator, alloca_id);
+        try store_node.inputs.append(ctx.allocator, resource_val);
+
+        // Put the Alloca (not the value) in scope so it can be loaded/stored
+        // CRITICAL: Must dupe the string to ensure it lives long enough in the scope
+        const name_duped = try ctx.allocator.dupe(u8, binding_name);
+        try ctx.scope.put(name_duped, alloca_id);
+        std.log.err("lowerUsingStatement: Added '{s}' to scope", .{binding_name});
+    } else {
+        std.log.err("lowerUsingStatement: binding_node.kind={s}, expected identifier", .{@tagName(binding_node.kind)});
+    }
+
+    // 4. Lower the body statements
+    if (children.len > body_start_index) {
+        for (children[body_start_index..]) |stmt_id| {
+            const stmt_node = ctx.snapshot.getNode(stmt_id) orelse continue;
+            try lowerStatement(ctx, stmt_id, stmt_node);
+        }
+    }
+
+    // 5. Create Using_End node (marks cleanup point - will call close())
+    const using_end_id = try ctx.builder.createNode(.Using_End);
+    var using_end_node = &ctx.builder.graph.nodes.items[using_end_id];
+    try using_end_node.inputs.append(ctx.allocator, using_begin_id);
+    try using_end_node.inputs.append(ctx.allocator, resource_val);
 }

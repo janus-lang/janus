@@ -315,6 +315,10 @@ pub const LLVMEmitter = struct {
             .Select_Get_Value => try self.emitSelectGetValue(node),
             .Select_End => try self.emitSelectEnd(node),
 
+            // :service profile - Resource Management (Phase 3)
+            .Using_Begin => try self.emitUsingBegin(node),
+            .Using_End => try self.emitUsingEnd(node),
+
             // Tensor / Quantum (Placeholder)
             .Tensor_Contract => {
                 std.debug.print("Warning: Unimplemented Tensor_Contract\n", .{});
@@ -2599,5 +2603,35 @@ pub const LLVMEmitter = struct {
             1,
             "",
         );
+    }
+
+    /// Emit Using_Begin: Begin using statement (acquire resource)
+    /// inputs[0] = resource value from open expression
+    fn emitUsingBegin(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.InvalidUsingBegin;
+
+        const resource_val = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        // For now, just register the resource value
+        // Full implementation will track resource for cleanup
+        try self.values.put(node.id, resource_val);
+    }
+
+    /// Emit Using_End: End using statement (cleanup resource)
+    /// inputs[0] = Using_Begin node id
+    /// inputs[1] = resource value
+    fn emitUsingEnd(self: *LLVMEmitter, node: *const IRNode) !void {
+        _ = self;
+        if (node.inputs.items.len < 2) return error.InvalidUsingEnd;
+
+        // In the full implementation, this would call resource.close()
+        // For now, this is a placeholder that ensures proper LLVM generation
+        // The actual cleanup code generation will be added in Phase 3 completion
+
+        // Mark this node as processed (no LLVM code generated yet for cleanup)
+        // The resource cleanup will be implemented when we have:
+        // 1. Runtime support for resource registry
+        // 2. LIFO cleanup ordering
+        // 3. Error aggregation during cleanup
     }
 };

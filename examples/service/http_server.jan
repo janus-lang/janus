@@ -1,0 +1,243 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// :service Profile HTTP Server Example
+// Demonstrates async/await, nursery/spawn, and using statement
+//
+// Features:
+// - Async request handling with structured concurrency
+// - Resource management with `using` statement
+// - Concurrent connection handling via nursery/spawn
+// - Graceful shutdown with cancellation tokens
+
+profile :service
+
+use janus "std/net"
+use janus "std/io"
+use janus "std/log"
+
+// Configuration
+const DEFAULT_HOST = "127.0.0.1"
+const DEFAULT_PORT = 8080
+const MAX_CONNECTIONS = 1000
+
+// Main entry point - sets up the HTTP server
+async func main() !void do
+    using allocator := std.heap.page_allocator() do
+        // Create server socket with resource management
+        using server := try net.tcp_listener_bind(
+            DEFAULT_HOST,
+            DEFAULT_PORT,
+            .{ .reuse_address = true }
+        ) do
+            log.info("HTTP server listening on http://{DEFAULT_HOST}:{DEFAULT_PORT}")
+            log.info("Press Ctrl+C to shutdown gracefully")
+            
+            // Main accept loop with structured concurrency
+            nursery do
+                var connection_count: u32 = 0
+                
+                while connection_count < MAX_CONNECTIONS do
+                    // Accept new connection (async, non-blocking)
+                    let conn = await server.accept()
+                    connection_count = connection_count + 1
+                    
+                    // Spawn handler task - runs concurrently
+                    // Nursery ensures all spawned tasks complete before exit
+                    spawn handle_connection(conn, connection_count)
+                end
+            end  // Waits for all connection handlers to complete
+            
+            log.info("Server shutdown complete")
+        end  // server.close() called automatically
+    end  // allocator cleanup
+end
+
+// Handle a single HTTP connection
+async func handle_connection(conn: net.tcp_connection, id: u32) !void do
+    using buffer := io.buffer_with_capacity(4096) do
+        log.debug("Connection {id} established")
+        
+        // Read HTTP request
+        let bytes_read = await conn.read(buffer)
+        if bytes_read == 0 do
+            log.debug("Connection {id} closed by client")
+            return
+        end
+        
+        // Parse and route request
+        let request = try http.parse_request(buffer.slice(0, bytes_read))
+        let response = route_request(request)
+        
+        // Send response
+        let response_bytes = http.serialize_response(response)
+        await conn.write_all(response_bytes)
+        
+        log.info("{request.method} {request.path} -> {response.status}")
+    end  // buffer cleanup
+    
+    // Connection closed automatically by `using` in caller or here
+    log.debug("Connection {id} handled")
+end
+
+// Route HTTP request to appropriate handler
+func route_request(req: http.request) -> http.response do
+    match req.path {
+        "/" -> return handle_root(req),
+        "/health" -> return handle_health(req),
+        "/api/status" -> return handle_api_status(req),
+        path -> {
+            // Static file serving
+            if http.path_starts_with(path, "/static/") do
+                return handle_static_file(req, path)
+            end
+            return handle_not_found(req)
+        }
+    }
+end
+
+// Handler: Root endpoint
+func handle_root(req: http.request) -> http.response do
+    _ = req  // Unused parameter
+    
+    let body = 
+        "<!DOCTYPE html>\\n" ++
+        "<html>\\n" ++
+        "<head><title>Janus :service</title></head>\\n" ++
+        "<body>\\n" ++
+        "<h1>⚡ Janus :service Profile</h1>\\n" ++
+        "<p>Structured concurrency + Resource safety</p>\\n" ++
+        "<ul>\\n" ++
+        "<li><a href=\\"/health\\">Health Check</a></li>\\n" ++
+        "<li><a href=\\"/api/status\\">API Status</a></li>\\n" ++
+        "</ul>\\n" ++
+        "</body>\\n" ++
+        "</html>\\n"
+    
+    return http.response {
+        status = 200,
+        headers = ["Content-Type: text/html"],
+        body = body
+    }
+end
+
+// Handler: Health check endpoint
+func handle_health(req: http.request) -> http.response do
+    _ = req
+    
+    return http.response {
+        status = 200,
+        headers = ["Content-Type: application/json"],
+        body = '{"status":"healthy","profile":"service"}'
+    }
+end
+
+// Handler: API status endpoint
+func handle_api_status(req: http.request) -> http.response do
+    _ = req
+    
+    let body = 
+        '{"status":"ok",' ++
+        '"profile":"service",' ++
+        '"features":[' ++
+        '"async/await",' ++
+        '"structured-concurrency",' ++
+        '"resource-safety"' ++
+        ']}'
+    
+    return http.response {
+        status = 200,
+        headers = ["Content-Type: application/json"],
+        body = body
+    }
+end
+
+// Handler: Static file serving
+func handle_static_file(req: http.request, path: []const u8) -> http.response do
+    _ = req
+    
+    // Remove "/static/" prefix to get file path
+    let file_path = path.slice(8)  // Skip "/static/"
+    
+    // For demo purposes, return mock content
+    // In production, this would read actual files with `using` for resource management
+    return http.response {
+        status = 200,
+        headers = ["Content-Type: text/plain"],
+        body = "Static file: " ++ file_path
+    }
+end
+
+// Handler: 404 Not Found
+func handle_not_found(req: http.request) -> http.response do
+    return http.response {
+        status = 404,
+        headers = ["Content-Type: text/html"],
+        body = 
+            "<!DOCTYPE html>\\n" ++
+            "<html><head><title>404</title></head>\\n" ++
+            "<body><h1>404 Not Found</h1>\\n" ++
+            "<p>The path '" ++ req.path ++ "' was not found.</p>\\n" ++
+            "</body></html>\\n"
+    }
+end
+
+// ============================================================================
+// HTTP Types (would normally be in std/net/http)
+// ============================================================================
+
+struct http.request {
+    method: []const u8,     // "GET", "POST", etc.
+    path: []const u8,       // "/index.html"
+    headers: [][]const u8,  // ["Content-Type: text/html", ...]
+    body: []const u8
+}
+
+struct http.response {
+    status: u16,            // 200, 404, etc.
+    headers: [][]const u8,
+    body: []const u8
+}
+
+// HTTP parsing utilities
+namespace http {
+    func parse_request(buffer: []const u8) -> http.request ! parse_error do
+        // Parse "METHOD PATH HTTP/VERSION\\r\\n"
+        // Followed by headers and optional body
+        // Simplified implementation for example
+        return http.request {
+            method = "GET",
+            path = "/",
+            headers = [],
+            body = []
+        }
+    end
+    
+    func serialize_response(resp: http.response) -> []const u8 do
+        // Serialize HTTP response to bytes
+        // "HTTP/1.1 STATUS\\r\\nHeaders\\r\\n\\r\\nBody"
+        return "HTTP/1.1 " ++ u16_to_string(resp.status) ++ " OK\\r\\n\\r\\n" ++ resp.body
+    end
+    
+    func path_starts_with(path: []const u8, prefix: []const u8) -> bool do
+        if path.len < prefix.len do
+            return false
+        end
+        return path.slice(0, prefix.len) == prefix
+    end
+}
+
+// Error type for HTTP parsing
+enum parse_error {
+    invalid_method,
+    invalid_path,
+    malformed_headers
+}
+
+// Utility: Convert u16 to string
+func u16_to_string(n: u16) -> []const u8 do
+    // Simplified - would use proper itoa in production
+    if n == 200 do return "200" end
+    if n == 404 do return "404" end
+    return "???"
+end

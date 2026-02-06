@@ -79,6 +79,7 @@ pub const TokenType = enum {
     await_, // await expr - wait for async result
     nursery_, // nursery { } - structured concurrency scope
     spawn_, // spawn task - launch concurrent task
+    shared_, // using shared resource - shared resource management
     select_, // select { } - CSP multi-channel wait
     timeout_, // timeout(duration) - select timeout case
 
@@ -807,6 +808,7 @@ pub const Tokenizer = struct {
             .{ "await", .await_ },
             .{ "nursery", .nursery_ },
             .{ "spawn", .spawn_ },
+            .{ "shared", .shared_ },
             .{ "select", .select_ },
             .{ "timeout", .timeout_ },
         });

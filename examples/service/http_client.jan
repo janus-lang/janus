@@ -1,0 +1,453 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// :service Profile HTTP Client Example
+// Demonstrates async/await, error propagation, and resource management
+//
+// Features:
+// - Async HTTP requests with timeout handling
+// - Error propagation with `!` (no panics, no exceptions)
+// - Resource management with `using` statement
+// - Connection reuse and pooling
+// - Graceful error recovery
+
+profile :service
+
+use janus "std/net"
+use janus "std/io"
+use janus "std/log"
+use janus "std/time"
+
+// HTTP Client configuration
+const DEFAULT_TIMEOUT_MS = 30000  // 30 seconds
+const MAX_REDIRECTS = 5
+const USER_AGENT = "JanusHTTP/1.0"
+
+// HTTP Methods
+enum HttpMethod do
+    Get,
+    Post,
+    Put,
+    Delete,
+    Patch,
+    Head,
+    Options
+end
+
+// HTTP Response structure
+struct HttpResponse do
+    status_code: u16,
+    status_text: []u8,
+    headers: HeaderMap,
+    body: []u8,
+    content_type: ?[]u8,
+end
+
+// Header map for HTTP headers
+struct HeaderMap do
+    entries: Map<[]u8, []u8>,
+    
+    func get(self, key: []u8) ?[]u8 do
+        return self.entries.get(key)
+    end
+    
+    func set(self, key: []u8, value: []u8) !void do
+        try self.entries.put(key, value)
+    end
+end
+
+// HTTP Client with connection pooling
+struct HttpClient do
+    timeout_ms: u32,
+    follow_redirects: bool,
+    max_redirects: u32,
+    default_headers: HeaderMap,
+    connection_pool: ConnectionPool,
+end
+
+// Connection pool for reuse
+struct ConnectionPool do
+    // Simplified: In production, this would manage multiple connections
+    cached_connections: List<TcpConnection>,
+    max_connections: u32,
+end
+
+// HTTP Request builder
+struct HttpRequest do
+    method: HttpMethod,
+    url: []u8,
+    headers: HeaderMap,
+    body: ?[]u8,
+    timeout_ms: u32,
+end
+
+// Initialize a new HTTP client
+func http_client_new(allocator: Allocator) !HttpClient do
+    var client: HttpClient
+    client.timeout_ms = DEFAULT_TIMEOUT_MS
+    client.follow_redirects = true
+    client.max_redirects = MAX_REDIRECTS
+    client.default_headers = try header_map_new(allocator)
+    
+    // Set default headers
+    try client.default_headers.set("User-Agent", USER_AGENT)
+    try client.default_headers.set("Accept", "*/*")
+    try client.default_headers.set("Connection", "keep-alive")
+    
+    client.connection_pool = connection_pool_new(allocator, 10)
+    
+    return client
+end
+
+// Main entry point - demonstrates various HTTP client operations
+async func main() !void do
+    using allocator := std.heap.page_allocator() do
+        log.info("Janus HTTP Client Example")
+        log.info("=========================")
+        
+        // Create HTTP client with resource management
+        using client := try http_client_new(allocator) do
+            
+            // Example 1: Simple GET request
+            log.info("\n[1] Simple GET request to httpbin.org")
+            match try await http_get(client, "http://httpbin.org/get") do
+                case Ok(response) do
+                    log.info("Status: {response.status_code}")
+                    log.info("Body length: {response.body.len} bytes")
+                    // Body is automatically freed by `using` in make_request
+                end
+                case Err(e) do
+                    log.error("GET request failed: {e}")
+                    // Error propagated - no panic, clean shutdown
+                end
+            end
+            
+            // Example 2: POST request with JSON body
+            log.info("\n[2] POST request with JSON body")
+            let json_body = "{\"name\": \"Janus\", \"version\": \"0.1.0\"}"
+            
+            var post_request = try http_request_builder(allocator, HttpMethod.Post, "http://httpbin.org/post")
+            try post_request.headers.set("Content-Type", "application/json")
+            post_request.body = json_body
+            
+            match try await http_execute(client, post_request) do
+                case Ok(response) do
+                    log.info("POST Status: {response.status_code}")
+                    if response.status_code == 200 do
+                        log.info("POST successful!")
+                    end
+                end
+                case Err(e) do
+                    log.error("POST failed: {e}")
+                end
+            end
+            
+            // Example 3: Concurrent requests with nursery
+            log.info("\n[3] Concurrent requests with structured concurrency")
+            
+            nursery do
+                // Spawn multiple concurrent requests
+                spawn fetch_with_timeout(client, "http://httpbin.org/delay/1", 5000)
+                spawn fetch_with_timeout(client, "http://httpbin.org/uuid", 5000)
+                spawn fetch_with_timeout(client, "http://httpbin.org/headers", 5000)
+            end
+            // All requests complete before nursery exits
+            
+            // Example 4: Error handling demonstration
+            log.info("\n[4] Error handling demonstration")
+            
+            // This will fail (404) - demonstrating error propagation
+            match try await http_get(client, "http://httpbin.org/status/404") do
+                case Ok(response) do
+                    log.info("Unexpected success: {response.status_code}")
+                end
+                case Err(HttpError.NotFound) do
+                    log.info("Got expected 404 - error handled correctly!")
+                end
+                case Err(e) do
+                    log.error("Unexpected error: {e}")
+                end
+            end
+            
+            // Example 5: Timeout handling
+            log.info("\n[5] Timeout handling")
+            match try await fetch_with_timeout(client, "http://httpbin.org/delay/10", 2000) do
+                case Ok(response) do
+                    log.info("Response received")
+                end
+                case Err(HttpError.Timeout) do
+                    log.info("Request timed out as expected (2s timeout vs 10s delay)")
+                end
+                case Err(e) do
+                    log.error("Other error: {e}")
+                end
+            end
+            
+            log.info("\n=========================")
+            log.info("HTTP Client example complete!")
+            
+        end  // client cleanup
+    end  // allocator cleanup
+end
+
+// Simple GET request helper
+async func http_get(client: HttpClient, url: []u8) !HttpResponse do
+    let request = try http_request_builder(client.allocator, HttpMethod.Get, url)
+    return try await http_execute(client, request)
+end
+
+// Execute HTTP request with full error handling
+async func http_execute(client: HttpClient, request: HttpRequest) !HttpResponse do
+    using socket := try net.tcp_connect(parse_host(request.url), parse_port(request.url)) do
+        
+        // Build HTTP request string
+        let request_line = try format_request_line(request)
+        let headers = try format_headers(request.headers)
+        
+        // Send request
+        try await socket.send_all(request_line)
+        try await socket.send_all(headers)
+        
+        if request.body do
+            try await socket.send_all(request.body.?)
+        end
+        
+        // Read response with timeout
+        using response_buffer := try allocator.alloc(8192) do
+            let bytes_read = try await socket.receive_with_timeout(
+                response_buffer,
+                request.timeout_ms
+            )
+            
+            // Parse response
+            let response = try parse_http_response(
+                response_buffer[0..bytes_read],
+                client.allocator
+            )
+            
+            return response
+        end
+        
+    end  // socket auto-closes
+end
+
+// Fetch with explicit timeout handling
+async func fetch_with_timeout(
+    client: HttpClient,
+    url: []u8,
+    timeout_ms: u32
+) !HttpResponse do
+    using timeout_timer := time.timer_start(timeout_ms) do
+        
+        let result = try await http_get(client, url)
+        
+        if timeout_timer.expired() do
+            return Err(HttpError.Timeout)
+        end
+        
+        log.info("Fetched {url} in {timeout_timer.elapsed()}ms")
+        return result
+        
+    end
+end
+
+// Error types for HTTP operations
+enum HttpError do
+    ConnectionFailed,
+    Timeout,
+    InvalidUrl,
+    NotFound,           // 404
+    ServerError,        // 5xx
+    InvalidResponse,
+    RedirectLimit,      // Too many redirects
+    BodyTooLarge,
+end
+
+// Parse URL (simplified - production would use proper URL parsing)
+func parse_host(url: []u8) ![]u8 do
+    // Extract host from http://host:port/path
+    // Simplified implementation
+    if url.starts_with("http://") do
+        let rest = url[7..]
+        let path_start = rest.find('/').? ?? rest.len
+        let host_port = rest[0..path_start]
+        
+        if host_port.contains(':') do
+            let colon_idx = host_port.find(':').?
+            return host_port[0..colon_idx]
+        end
+        return host_port
+    end
+    return Err(HttpError.InvalidUrl)
+end
+
+func parse_port(url: []u8) !u16 do
+    // Default HTTP port
+    let DEFAULT_HTTP_PORT: u16 = 80
+    
+    if url.contains(":") do
+        let rest = url[7..]  // Skip http://
+        let path_start = rest.find('/').? ?? rest.len
+        let host_port = rest[0..path_start]
+        
+        if host_port.contains(':') do
+            let colon_idx = host_port.find(':').?
+            let port_str = host_port[colon_idx + 1..]
+            return try std.parse_int<u16>(port_str)
+        end
+    end
+    
+    return DEFAULT_HTTP_PORT
+end
+
+// Format HTTP request line
+func format_request_line(request: HttpRequest) ![]u8 do
+    let method_str = match request.method do
+        case Get do "GET" end
+        case Post do "POST" end
+        case Put do "PUT" end
+        case Delete do "DELETE" end
+        case Patch do "PATCH" end
+        case Head do "HEAD" end
+        case Options do "OPTIONS" end
+    end
+    
+    let path = parse_path(request.url)
+    return try std.format("{method_str} {path} HTTP/1.1\r\n")
+end
+
+// Format headers
+func format_headers(headers: HeaderMap) ![]u8 do
+    var result: []u8 = ""
+    
+    for entry in headers.entries do
+        let line = try std.format("{entry.key}: {entry.value}\r\n")
+        result = result.concat(line)
+    end
+    
+    result = result.concat("\r\n")  // Empty line to end headers
+    return result
+end
+
+// Parse HTTP response from buffer
+func parse_http_response(buffer: []u8, allocator: Allocator) !HttpResponse do
+    // Find end of status line
+    let first_line_end = buffer.find("\r\n").?
+    let status_line = buffer[0..first_line_end]
+    
+    // Parse status code
+    let status_code = try parse_status_code(status_line)
+    
+    // Find headers/body separator
+    let header_end = buffer.find("\r\n\r\n").?
+    let headers_text = buffer[first_line_end + 2..header_end]
+    
+    // Parse headers
+    let headers = try parse_headers(headers_text, allocator)
+    
+    // Body starts after headers
+    let body_start = header_end + 4
+    let body = buffer[body_start..]
+    
+    return HttpResponse{
+        status_code: status_code,
+        status_text: status_line,  // Simplified
+        headers: headers,
+        body: body,
+        content_type: headers.get("Content-Type"),
+    }
+end
+
+// Parse status code from status line (e.g., "HTTP/1.1 200 OK")
+func parse_status_code(status_line: []u8) !u16 do
+    // Find second space (after HTTP/1.1)
+    let first_space = status_line.find(' ').?
+    let code_start = first_space + 1
+    let second_space = status_line[code_start..].find(' ').? + code_start
+    
+    let code_str = status_line[code_start..second_space]
+    return try std.parse_int<u16>(code_str)
+end
+
+// Parse headers from text
+func parse_headers(text: []u8, allocator: Allocator) !HeaderMap do
+    var map = try header_map_new(allocator)
+    
+    var remaining = text
+    while remaining.len > 0 do
+        let line_end = remaining.find("\r\n").? ?? remaining.len
+        let line = remaining[0..line_end]
+        
+        if line.contains(':') do
+            let colon_idx = line.find(':').?
+            let key = line[0..colon_idx]
+            let value = line[colon_idx + 1..].trim_left()
+            try map.set(key, value)
+        end
+        
+        if line_end >= remaining.len do
+            break
+        end
+        remaining = remaining[line_end + 2..]
+    end
+    
+    return map
+end
+
+// Extract path from URL
+func parse_path(url: []u8) []u8 do
+    let rest = url[7..]  // Skip http://
+    let path_start = rest.find('/').?
+    
+    if path_start do
+        return rest[path_start.?..]
+    end
+    return "/"
+end
+
+// Helper: Create header map
+func header_map_new(allocator: Allocator) !HeaderMap do
+    return HeaderMap{
+        entries: try Map<[]u8, []u8>.new(allocator),
+    }
+end
+
+// Helper: Create connection pool
+func connection_pool_new(allocator: Allocator, max_size: u32) ConnectionPool do
+    return ConnectionPool{
+        cached_connections: List<TcpConnection>.new(allocator),
+        max_connections: max_size,
+    }
+end
+
+// Request builder
+func http_request_builder(
+    allocator: Allocator,
+    method: HttpMethod,
+    url: []u8
+) !HttpRequest do
+    return HttpRequest{
+        method: method,
+        url: url,
+        headers: try header_map_new(allocator),
+        body: null,
+        timeout_ms: DEFAULT_TIMEOUT_MS,
+    }
+end
+
+// Cleanup functions for `using` statement
+func HttpClient.cleanup(self) void do
+    self.connection_pool.cleanup()
+    self.default_headers.entries.cleanup()
+end
+
+func ConnectionPool.cleanup(self) void do
+    for conn in self.cached_connections do
+        conn.close()
+    end
+    self.cached_connections.cleanup()
+end
+
+func HeaderMap.cleanup(self) void do
+    self.entries.cleanup()
+end
