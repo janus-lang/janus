@@ -986,7 +986,7 @@ fn lowerStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) 
 
         // :service profile - Resource Management (Phase 3)
         .using_resource_stmt, .using_shared_stmt => {
-            std.log.err("lowerStatement: using statement detected, kind={s}", .{@tagName(node.kind)});
+            std.log.debug("lowerStatement: using statement detected, kind={s}", .{@tagName(node.kind)});
             try lowerUsingStatement(ctx, node_id, node);
         },
 
@@ -997,7 +997,7 @@ fn lowerStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) 
         },
 
         else => {
-            std.log.err("lowerStatement: UNHANDLED node kind {s}", .{@tagName(node.kind)});
+            std.log.debug("lowerStatement: UNHANDLED node kind {s}", .{@tagName(node.kind)});
         },
     }
 }
@@ -3994,9 +3994,9 @@ fn lowerSelectDefault(ctx: *LoweringContext, node_id: NodeId, node: *const AstNo
 fn lowerUsingStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
     _ = node;
     const children = ctx.snapshot.getChildren(node_id);
-    std.log.err("lowerUsingStatement: node_id={d}, children.len={d}", .{@intFromEnum(node_id), children.len});
+    std.log.debug("lowerUsingStatement: node_id={d}, children.len={d}", .{@intFromEnum(node_id), children.len});
     if (children.len < 3) {
-        std.log.err("lowerUsingStatement: ERROR - children.len < 3", .{});
+        std.log.debug("lowerUsingStatement: ERROR - children.len < 3", .{});
         return error.InvalidNode;
     }
 
@@ -4049,12 +4049,11 @@ fn lowerUsingStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstN
         try store_node.inputs.append(ctx.allocator, resource_val);
 
         // Put the Alloca (not the value) in scope so it can be loaded/stored
-        // CRITICAL: Must dupe the string to ensure it lives long enough in the scope
-        const name_duped = try ctx.allocator.dupe(u8, binding_name);
-        try ctx.scope.put(name_duped, alloca_id);
-        std.log.err("lowerUsingStatement: Added '{s}' to scope", .{binding_name});
+        // NOTE: binding_name comes from the string interner and lives as long as the snapshot
+        try ctx.scope.put(binding_name, alloca_id);
+        std.log.debug("lowerUsingStatement: Added '{s}' to scope", .{binding_name});
     } else {
-        std.log.err("lowerUsingStatement: binding_node.kind={s}, expected identifier", .{@tagName(binding_node.kind)});
+        std.log.debug("lowerUsingStatement: binding_node.kind={s}, expected identifier", .{@tagName(binding_node.kind)});
     }
 
     // 4. Lower the body statements

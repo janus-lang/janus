@@ -47,6 +47,31 @@ The string module eliminates entire classes of encoding bugs through design:
 - **Zero-Copy Operations**: Slicing and iteration without unnecessary allocation
 - **String Building**: Explicit allocator control for dynamic construction
 
+### `std/time.jan` - Time and Duration Operations
+
+The time module provides essential time utilities for the :core profile:
+
+- **System Time**: Unix timestamps in seconds, milliseconds, microseconds, nanoseconds
+- **Monotonic Time**: High-resolution clocks that never go backwards (for benchmarking)
+- **Sleep Operations**: Pause execution for specified durations
+- **Duration Calculations**: Convert between time units, calculate elapsed time
+- **Calendar Functions**: Leap year detection, days in month, year extraction
+- **Constants**: Common time units (MS_PER_SECOND, SECS_PER_DAY, etc.)
+
+**Example Usage**:
+```janus
+import std.core.time
+
+func benchmarkExample() do
+    let start = time.monotonic_millis()
+    
+    // ... some work ...
+    
+    let elapsed = time.elapsed_millis(start, time.monotonic_millis())
+    io.println("Operation took: " + convert.toString(elapsed) + " ms")
+end
+```
+
 ## Design Principles
 
 ### Allocator Sovereignty

@@ -27,6 +27,7 @@ pub const string = @import("string.zig");
 pub const convert = @import("convert.zig");
 pub const array = @import("array.zig");
 pub const context = @import("context.zig");
+pub const time = @import("time.zig");
 
 // =============================================================================
 // CORE PROFILE TYPES
@@ -120,6 +121,7 @@ pub const profile = struct {
             "strings",
             "file_io",
             "console_io",
+            "time",
         };
 
         for (supported) |f| {
