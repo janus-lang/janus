@@ -1,7 +1,7 @@
 # RFC-023: GrainStore (stdlib) v0.1 — Minimal LSM KV for :cluster
 
-**Version:** 0.1.0-DRAFT  
-**Status:** APPROVED  
+**Version:** 1.0.0-MINIMAL  
+**Status:** APPROVED (LOCKED SCOPE)  
 **Date:** 2026-02-09  
 **Author:** Janus + Markus  
 **Depends On:** RFC-021 (:cluster), RFC-022 (LSM Tree)  
