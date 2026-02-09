@@ -12,8 +12,8 @@ pub const BloomFilter = struct {
     num_hashes: comptime_int = 7,
     bits_per_key: f64 = 10.0,
 
-    pub fn init(allocator: std.mem.Allocator, expected_items: usize) !Self {
-        const bits_needed = @intFromFloat(expected_items * self.bits_per_key);
+    pub fn init(allocator: std.mem.Allocator, expected_items: usize, bits_per_key: f64) !Self {
+        const bits_needed = @as(usize, @intFromFloat(@as(f64, @floatFromInt(expected_items)) * bits_per_key));
         const bytes_needed = (bits_needed + 7) / 8;
         const bits = try allocator.alloc(u8, bytes_needed);
         @memset(bits, 0);
@@ -21,6 +21,7 @@ pub const BloomFilter = struct {
         return .{ 
             .bits = bits,
             .num_hashes = 7,
+            .bits_per_key = bits_per_key,
         };
     }
 
@@ -32,7 +33,9 @@ pub const BloomFilter = struct {
         inline for (0..self.num_hashes) |i| {
             const hash = std.hash.Wyhash.hash(i, key);
             const bit_idx = hash % (self.bits.len * 8);
-            self.bits[@intFromEnum(bit_idx / 8)] |= 1 << @intFromEnum(bit_idx % 8);
+            const byte_idx = bit_idx / 8;
+            const bit_offset = @as(u3, @intCast(bit_idx % 8));
+            self.bits[byte_idx] |= @as(u8, 1) << bit_offset;
         }
     }
 
@@ -40,7 +43,9 @@ pub const BloomFilter = struct {
         inline for (0..self.num_hashes) |i| {
             const hash = std.hash.Wyhash.hash(i, key);
             const bit_idx = hash % (self.bits.len * 8);
-            if ((self.bits[@intFromEnum(bit_idx / 8)] & (1 << @intFromEnum(bit_idx % 8))) == 0) {
+            const byte_idx = bit_idx / 8;
+            const bit_offset = @as(u3, @intCast(bit_idx % 8));
+            if ((self.bits[byte_idx] & (@as(u8, 1) << bit_offset)) == 0) {
                 return false;
             }
         }

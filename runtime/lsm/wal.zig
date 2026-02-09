@@ -55,22 +55,29 @@ pub const WAL = struct {
 
     pub fn recover(self: Self, allocator: Allocator, path: []const u8) !MemTable {
         var memtable = try MemTable.init(allocator, 1024 * 1024);
+        errdefer memtable.deinit();
+
         const file = try std.fs.cwd().openFile(path, .{});
         defer file.close();
 
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+
+        const temp_alloc = arena.allocator();
         var reader = file.reader();
+
         while (true) {
             var entry: WALEntry = undefined;
             const read_len = try reader.readStruct(WALEntry, &entry);
             if (read_len == 0) break;
 
-            const key = try allocator.alloc(u8, entry.key_len);
-            const value = try allocator.alloc(u8, entry.value_len);
+            const key = try temp_alloc.alloc(u8, entry.key_len);
+            const value = try temp_alloc.alloc(u8, entry.value_len);
 
             try reader.readNoEof(key);
             try reader.readNoEof(value);
 
-            const computed_crc = std.hash.Crc32.hash(key ++ value);
+            const computed_crc = std.hash.Crc32.hash(key) ^ std.hash.Crc32.hash(value);
             if (entry.crc32 != computed_crc) return error.CorruptedWAL;
 
             try memtable.put(key, value);
