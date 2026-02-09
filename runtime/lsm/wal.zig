@@ -30,7 +30,7 @@ pub const WAL = struct {
         self.file.close();
     }
 
-    pub fn append(self: *Self, key: []const u8, value: []const u8) !void {
+    pub fn append(self: *Self, key: []const u8, value: []const u8, batch_ms: u64) !void {
         const entry = WALEntry{
             .len = @intCast(key.len + value.len + 8),
             .key_len = @intCast(key.len),
@@ -40,6 +40,16 @@ pub const WAL = struct {
         try self.file.writer().writeStruct(entry);
         try self.file.writer().writeAll(key);
         try self.file.writer().writeAll(value);
+        if (batch_ms == 0) {
+            try self.file.sync();
+        } else {
+            // Defer fsync: WAL batching window
+            std.time.sleep(batch_ms * std.time.ns_per_ms);
+            try self.file.sync();
+        }
+    }
+
+    pub fn flush(self: *Self) !void {
         try self.file.sync();
     }
 
