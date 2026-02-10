@@ -572,6 +572,26 @@ pub fn build(b: *std.Build) void {
     const run_rsp1_tests = b.addRunArtifact(rsp1_tests);
     test_step.dependOn(&run_rsp1_tests.step);
 
+    // UTCP Transport BDD tests (requires daemon modules)
+    if (enable_daemon) {
+        const utcp_transport_bdd_tests = b.addTest(.{
+            .name = "utcp_transport_bdd_tests",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("tests/unit/test_utcp_transport_bdd.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        utcp_transport_bdd_tests.linkLibC();
+        utcp_transport_bdd_tests.linkLibrary(blake3_lib);
+        utcp_transport_bdd_tests.root_module.addIncludePath(b.path("third_party/blake3/c"));
+        utcp_transport_bdd_tests.root_module.addImport("std_utcp", utcp_registry_mod.?);
+        utcp_transport_bdd_tests.root_module.addImport("janusd_utcp", janusd_main_mod.?);
+        utcp_transport_bdd_tests.root_module.addImport("rsp1_crypto", rsp1_mod);
+        const run_utcp_transport_bdd_tests = b.addRunArtifact(utcp_transport_bdd_tests);
+        test_step.dependOn(&run_utcp_transport_bdd_tests.step);
+    }
+
     // const global_cache_tests = b.addTest(.{
     //     .name = "global_cache_layout_tests",
     //     .root_module = b.createModule(.{
