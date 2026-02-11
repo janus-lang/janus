@@ -47,6 +47,22 @@ The `:core` profile is:
    - Week-by-week milestones
    - Final project ideas
 
+### 🚀 :service Profile — Async/Await
+
+**Phase 3 Complete!** Learn structured concurrency:
+
+1. **[Async/Await Tutorial](async-await-tutorial.md)** 🔥 **NEW**
+   - 45-minute student guide
+   - Parallel processing patterns
+   - Cancellation and error handling
+   - Complete web scraper example
+   
+2. **[Lab 5: Async Web Server](labs/lab5-async-server.md)** 🔥 **NEW**
+   - 2-hour hands-on lab
+   - Build concurrent HTTP server
+   - Stress testing challenge
+   - Evaluation rubric included
+
 ### 📚 Reference Materials
 
 - **[SPEC-018: :core Profile](../../specs/SPEC-018-profile-core.md)** — Complete technical specification
