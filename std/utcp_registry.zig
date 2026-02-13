@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
-const rsp1 = @import("rsp1_crypto.zig");
-pub const cluster = @import("rsp1_cluster.zig");
+const rsp1 = @import("rsp1");
+pub const cluster = @import("rsp1_cluster");
 
 pub const WriteCapability = struct {};
 pub const MaintenanceCapability = struct {}; // optional, if you want to gate maint ops separately
@@ -206,7 +206,11 @@ pub fn UtcpRegistryNsSyncLease(comptime UseSpinLock: bool) type {
         pub fn getMetrics(self: *Self) BackpressureMetrics {
             self.lock();
             defer self.unlock();
+            return self.getMetricsUnlocked();
+        }
 
+        /// Internal: compute metrics assuming lock is held
+        fn getMetricsUnlocked(self: *Self) BackpressureMetrics {
             var total_entries: usize = 0;
             var total_ttl_remaining: i128 = 0;
             const now = Self.nowNs();
@@ -532,29 +536,29 @@ pub fn UtcpRegistryNsSyncLease(comptime UseSpinLock: bool) type {
             const w = out.writer(alloc);
 
             const now = Self.nowNs();
-            const metrics = self.getMetrics();
+            const metrics = self.getMetricsUnlocked();
 
             try w.writeAll("{\"utcp_version\":\"1.0.0\",\"registry_time_ns\":");
-            try w.writeAll(try std.fmt.allocPrint(alloc, "{}", .{now}));
+            try std.fmt.format(w, "{}", .{now});
             try w.writeAll(",\"backpressure_metrics\":{");
 
             // Add metrics to output
             try w.writeAll("\"total_entries\":");
-            try w.writeAll(try std.fmt.allocPrint(alloc, "{}", .{metrics.total_entries}));
+            try std.fmt.format(w, "{}", .{metrics.total_entries});
             try w.writeAll(",\"purged_since_reset\":");
-            try w.writeAll(try std.fmt.allocPrint(alloc, "{}", .{metrics.purged_since_reset}));
+            try std.fmt.format(w, "{}", .{metrics.purged_since_reset});
             try w.writeAll(",\"total_heartbeats\":");
-            try w.writeAll(try std.fmt.allocPrint(alloc, "{}", .{metrics.total_heartbeats}));
+            try std.fmt.format(w, "{}", .{metrics.total_heartbeats});
             try w.writeAll(",\"failed_heartbeats\":");
-            try w.writeAll(try std.fmt.allocPrint(alloc, "{}", .{metrics.failed_heartbeats}));
+            try std.fmt.format(w, "{}", .{metrics.failed_heartbeats});
             try w.writeAll(",\"avg_ttl_remaining_ns\":");
-            try w.writeAll(try std.fmt.allocPrint(alloc, "{}", .{metrics.avg_ttl_remaining_ns}));
+            try std.fmt.format(w, "{}", .{metrics.avg_ttl_remaining_ns});
             try w.writeAll(",\"max_ttl_remaining_ns\":");
-            try w.writeAll(try std.fmt.allocPrint(alloc, "{}", .{metrics.max_ttl_remaining_ns}));
+            try std.fmt.format(w, "{}", .{metrics.max_ttl_remaining_ns});
             try w.writeAll(",\"min_ttl_remaining_ns\":");
-            try w.writeAll(try std.fmt.allocPrint(alloc, "{}", .{metrics.min_ttl_remaining_ns}));
+            try std.fmt.format(w, "{}", .{metrics.min_ttl_remaining_ns});
             try w.writeAll(",\"metrics_reset_time_ns\":");
-            try w.writeAll(try std.fmt.allocPrint(alloc, "{}", .{metrics.metrics_reset_time_ns}));
+            try std.fmt.format(w, "{}", .{metrics.metrics_reset_time_ns});
             try w.writeAll("},\"groups\":{");
 
             var first_group = true;
@@ -585,12 +589,12 @@ pub fn UtcpRegistryNsSyncLease(comptime UseSpinLock: bool) type {
                         // Remove the closing brace temporarily
                         try w.writeByte(',');
                         try w.writeAll("\"lease_deadline\":");
-                        try w.writeAll(try std.fmt.allocPrint(alloc, "{}", .{e.deadline_ns}));
+                        try std.fmt.format(w, "{}", .{e.deadline_ns});
                         try w.writeAll(",\"heartbeat_count\":");
-                        try w.writeAll(try std.fmt.allocPrint(alloc, "{}", .{e.heartbeat_count}));
+                        try std.fmt.format(w, "{}", .{e.heartbeat_count});
                         try w.writeAll(",\"signature\":\"");
                         for (e.signature) |b| {
-                            try w.writeAll(try std.fmt.allocPrint(alloc, "{x:0>2}", .{b}));
+                            try std.fmt.format(w, "{x:0>2}", .{b});
                         }
                         try w.writeAll("\"}");
                     }

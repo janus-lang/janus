@@ -4,7 +4,7 @@
 const std = @import("std");
 const utcp = @import("std_utcp");
 const utcp_manual = @import("janusd_utcp");
-const rsp1 = @import("rsp1_crypto");
+const rsp1 = @import("rsp1");
 
 // UTCP Transport BDD Test Suite
 // These tests follow the Gherkin scenarios in features/transport/utcp_transport.feature
@@ -24,7 +24,7 @@ test "UTCP Transport: Client requests manual from janusd" {
     defer manual_json.deinit(allocator);
 
     try utcp_manual.writeManualJSON(manual_json.writer(allocator), .{});
-    const json_bytes = try manual_json.toOwnedSlice();
+    const json_bytes = try manual_json.toOwnedSlice(allocator);
     defer allocator.free(json_bytes);
 
     var parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_bytes, .{});
@@ -57,7 +57,7 @@ test "UTCP Transport: Manual contains tool definitions with capabilities" {
     defer manual_json.deinit(allocator);
 
     try utcp_manual.writeManualJSON(manual_json.writer(allocator), .{});
-    const json_bytes = try manual_json.toOwnedSlice();
+    const json_bytes = try manual_json.toOwnedSlice(allocator);
     defer allocator.free(json_bytes);
 
     var parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_bytes, .{});
@@ -133,7 +133,7 @@ test "UTCP Transport: Client calls tool with required capabilities" {
         struct {
             fn call(ctx: *const anyopaque, alloc: std.mem.Allocator) ![]const u8 {
                 const p = @as(*const TestCompileUnit, @ptrCast(@alignCast(ctx)));
-                return p.utcpManual(p, alloc);
+                return p.utcpManual(alloc);
             }
         }.call,
         60,
@@ -163,7 +163,7 @@ test "UTCP Transport: Client calls tool without required capabilities - E1403_CA
 
     // Without WriteCapability, operations should be blocked at compile time
     // This test validates the capability-based API design
-    _ = registry;
+    // Registry is used via defer deinit
 }
 
 // ============================================================================
@@ -200,7 +200,7 @@ test "UTCP Transport: Client registers a lease for UTCP entry" {
         struct {
             fn call(ctx: *const anyopaque, alloc: std.mem.Allocator) ![]const u8 {
                 const p = @as(*const TestEntry, @ptrCast(@alignCast(ctx)));
-                return p.utcpManual(p, alloc);
+                return p.utcpManual(alloc);
             }
         }.call,
         60,
@@ -244,7 +244,7 @@ test "UTCP Transport: Client extends lease via heartbeat" {
         struct {
             fn call(ctx: *const anyopaque, alloc: std.mem.Allocator) ![]const u8 {
                 const p = @as(*const TestEntry, @ptrCast(@alignCast(ctx)));
-                return p.utcpManual(p, alloc);
+                return p.utcpManual(alloc);
             }
         }.call,
         5,
@@ -277,7 +277,7 @@ test "UTCP Transport: Heartbeat fails with invalid signature" {
     const allocator = gpa.allocator();
 
     var secret_key: [32]u8 = undefined;
-    @memcpy(&secret_key, "test-sigfail-key-1234567890!!!!!!");
+    @memcpy(&secret_key, "test-sigfail-key-1234567890!!!!!");
 
     var registry = utcp.Registry.init(allocator, secret_key);
     defer registry.deinit();
@@ -298,7 +298,7 @@ test "UTCP Transport: Heartbeat fails with invalid signature" {
         struct {
             fn call(ctx: *const anyopaque, alloc: std.mem.Allocator) ![]const u8 {
                 const p = @as(*const TestEntry, @ptrCast(@alignCast(ctx)));
-                return p.utcpManual(p, alloc);
+                return p.utcpManual(alloc);
             }
         }.call,
         60,
@@ -356,7 +356,7 @@ test "UTCP Transport: Client queries registry state" {
         struct {
             fn call(ctx: *const anyopaque, alloc: std.mem.Allocator) ![]const u8 {
                 const p = @as(*const TestEntry, @ptrCast(@alignCast(ctx)));
-                return p.utcpManual(p, alloc);
+                return p.utcpManual(alloc);
             }
         }.call,
         60,
@@ -382,7 +382,7 @@ test "UTCP Transport: Admin sets namespace quota" {
     const allocator = gpa.allocator();
 
     var secret_key: [32]u8 = undefined;
-    @memcpy(&secret_key, "test-quota-key-1234567890!!!!!!!!");
+    @memcpy(&secret_key, "test-quota-key-1234567890!!!!!!!");
 
     var registry = utcp.Registry.init(allocator, secret_key);
     defer registry.deinit();
@@ -408,7 +408,7 @@ test "UTCP Transport: Admin sets namespace quota" {
             struct {
                 fn call(ctx: *const anyopaque, alloc: std.mem.Allocator) ![]const u8 {
                     const p = @as(*const TestEntry, @ptrCast(@alignCast(ctx)));
-                    return p.utcpManual(p, alloc);
+                    return p.utcpManual(alloc);
                 }
             }.call,
             60,
@@ -425,7 +425,7 @@ test "UTCP Transport: Admin sets namespace quota" {
         struct {
             fn call(ctx: *const anyopaque, alloc: std.mem.Allocator) ![]const u8 {
                 const p = @as(*const TestEntry, @ptrCast(@alignCast(ctx)));
-                return p.utcpManual(p, alloc);
+                return p.utcpManual(alloc);
             }
         }.call,
         60,
@@ -441,7 +441,7 @@ test "UTCP Transport: Quota enforcement prevents overflow" {
     const allocator = gpa.allocator();
 
     var secret_key: [32]u8 = undefined;
-    @memcpy(&secret_key, "test-quota2-key-1234567890!!!!!!!");
+    @memcpy(&secret_key, "test-quota2-key-1234567890!!!!!!");
 
     var registry = utcp.Registry.init(allocator, secret_key);
     defer registry.deinit();
@@ -474,7 +474,7 @@ fn makeAdapter(comptime T: type) utcp.ManualFn {
     return struct {
         fn call(ctx: *const anyopaque, alloc: std.mem.Allocator) ![]const u8 {
             const p = @as(*const T, @ptrCast(@alignCast(ctx)));
-            return p.utcpManual(p, alloc);
+            return p.utcpManual(alloc);
         }
     }.call;
 }
@@ -489,7 +489,7 @@ test "UTCP Transport: Admin rotates epoch key" {
     const allocator = gpa.allocator();
 
     var k1: [32]u8 = undefined;
-    @memcpy(&k1, "epoch-key-aaaaaaaaaaaaaaaaaaaaaaaa");
+    @memcpy(&k1, "epoch-key-aaaaaaaaaaaaaaaaaaaaaa");
 
     var registry = utcp.Registry.init(allocator, k1);
     defer registry.deinit();
@@ -515,7 +515,7 @@ test "UTCP Transport: Admin rotates epoch key" {
 
     // Rotate to new key
     var k2: [32]u8 = undefined;
-    @memcpy(&k2, "epoch-key-bbbbbbbbbbbbbbbbbbbbbbbb");
+    @memcpy(&k2, "epoch-key-bbbbbbbbbbbbbbbbbbbbbb");  // 32 bytes
     registry.rotateKey(.{ .key = k2, .id = 2 });
 
     // Old lease should still be valid (grace period)

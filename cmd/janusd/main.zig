@@ -15,6 +15,10 @@ const lsp = @import("lsp_server");
 const janus_lib = @import("janus_lib");
 const cl = utcp.cluster;
 
+// Re-export manual functions for testing
+pub const writeManualJSON = manual.writeManualJSON;
+pub const Options = manual.Options;
+
 const LeaseContainer = struct {
     name: []const u8,
     pub fn utcpManual(self: *const LeaseContainer, alloc: std.mem.Allocator) ![]const u8 {

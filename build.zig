@@ -569,6 +569,19 @@ pub fn build(b: *std.Build) void {
     rsp1_tests.root_module.addIncludePath(b.path("third_party/blake3/c"));
     const rsp1_mod = b.addModule("rsp1", .{ .root_source_file = b.path("std/rsp1_crypto.zig"), .target = target, .optimize = optimize });
     rsp1_tests.root_module.addImport("rsp1", rsp1_mod);
+    
+    // Add rsp1 import to utcp_registry_mod for proper module resolution
+    if (utcp_registry_mod) |um| {
+        um.addImport("rsp1", rsp1_mod);
+        // rsp1_cluster is imported by utcp_registry.zig - create module for it
+        const rsp1_cluster_mod = b.addModule("rsp1_cluster", .{ 
+            .root_source_file = b.path("std/rsp1_cluster.zig"), 
+            .target = target, 
+            .optimize = optimize 
+        });
+        um.addImport("rsp1_cluster", rsp1_cluster_mod);
+    }
+    
     const run_rsp1_tests = b.addRunArtifact(rsp1_tests);
     test_step.dependOn(&run_rsp1_tests.step);
 
@@ -587,10 +600,27 @@ pub fn build(b: *std.Build) void {
         utcp_transport_bdd_tests.root_module.addIncludePath(b.path("third_party/blake3/c"));
         utcp_transport_bdd_tests.root_module.addImport("std_utcp", utcp_registry_mod.?);
         utcp_transport_bdd_tests.root_module.addImport("janusd_utcp", janusd_main_mod.?);
-        utcp_transport_bdd_tests.root_module.addImport("rsp1_crypto", rsp1_mod);
+        utcp_transport_bdd_tests.root_module.addImport("rsp1", rsp1_mod);
         const run_utcp_transport_bdd_tests = b.addRunArtifact(utcp_transport_bdd_tests);
         test_step.dependOn(&run_utcp_transport_bdd_tests.step);
     }
+
+        // LWF Frame BDD tests
+        const lwf_frame_bdd_tests = b.addTest(.{
+            .name = "lwf_frame_bdd_tests",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("tests/unit/test_lwf_frame_bdd.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        lwf_frame_bdd_tests.root_module.addImport("lwf", b.createModule(.{
+            .root_source_file = b.path("src/service/ns_msg/lwf.zig"),
+            .target = target,
+            .optimize = optimize,
+        }));
+        const run_lwf_frame_bdd_tests = b.addRunArtifact(lwf_frame_bdd_tests);
+        test_step.dependOn(&run_lwf_frame_bdd_tests.step);
 
     // const global_cache_tests = b.addTest(.{
     //     .name = "global_cache_layout_tests",
