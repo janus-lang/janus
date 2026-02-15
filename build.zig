@@ -622,6 +622,23 @@ pub fn build(b: *std.Build) void {
         const run_lwf_frame_bdd_tests = b.addRunArtifact(lwf_frame_bdd_tests);
         test_step.dependOn(&run_lwf_frame_bdd_tests.step);
 
+        // MIMIC_HTTPS Transport BDD tests
+        const mimic_https_bdd_tests = b.addTest(.{
+            .name = "mimic_https_bdd_tests",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("tests/unit/test_mimic_https_bdd.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        mimic_https_bdd_tests.root_module.addImport("mimic_https", b.createModule(.{
+            .root_source_file = b.path("src/service/ns_msg/mimic_https.zig"),
+            .target = target,
+            .optimize = optimize,
+        }));
+        const run_mimic_https_bdd_tests = b.addRunArtifact(mimic_https_bdd_tests);
+        test_step.dependOn(&run_mimic_https_bdd_tests.step);
+
     // const global_cache_tests = b.addTest(.{
     //     .name = "global_cache_layout_tests",
     //     .root_module = b.createModule(.{
