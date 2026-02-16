@@ -551,7 +551,7 @@ test "MemoryTransport send and receive" {
     defer transport.deinit();
 
     const payload = "Test message payload";
-    var header: lwf.Header = .{ .service_type = 0xFF00, .frame_class = .Standard };
+    const header: lwf.Header = .{ .service_type = 0xFF00, .frame_class = .Standard };
     const frame = try lwf.encodeFrame(allocator, header, payload, null);
     defer allocator.free(frame);
 
@@ -576,7 +576,7 @@ test "Transport union dispatch" {
     var transport = Transport{ .memory = &mem_transport };
 
     const payload = "Test via union";
-    var header: lwf.Header = .{ .service_type = 0xFF00, .frame_class = .Standard };
+    const header: lwf.Header = .{ .service_type = 0xFF00, .frame_class = .Standard };
     const frame = try lwf.encodeFrame(allocator, header, payload, null);
     defer allocator.free(frame);
 

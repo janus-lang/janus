@@ -5,6 +5,11 @@
 //!
 //! Pattern-based routing for namespace messaging.
 //! Supports wildcards: `app.*`, `service.*.backend`, `sensor.+.reading`
+//!
+//! Retained Values (RFC-0500 §3.5):
+//! - MQTT-style last-known-value delivery
+//! - Lamport clock-based conflict resolution
+//! - LRU eviction with configurable limits
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -16,6 +21,11 @@ const Path = types.Path;
 const Pattern = types.Pattern;
 const Segment = types.Segment;
 const Transport = transport.Transport;
+const RetainedValueCache = types.RetainedValueCache;
+const PublishOptions = types.PublishOptions;
+
+/// Default max retained values per namespace
+pub const DEFAULT_MAX_RETAINED = 1000;
 
 /// Route entry mapping pattern to transport
 pub const Route = struct {
@@ -40,7 +50,35 @@ pub const Route = struct {
     }
 };
 
-/// Router for namespace messages
+/// Subscription entry with retained value delivery support
+pub const Subscription = struct {
+    const Self = @This();
+
+    pattern: Pattern,
+    callback: *const fn (*anyopaque, Path, []const u8) void,
+    context: *anyopaque,
+    wants_retained: bool,
+
+    pub fn init(
+        pattern: Pattern,
+        callback: *const fn (*anyopaque, Path, []const u8) void,
+        context: *anyopaque,
+        wants_retained: bool,
+    ) Self {
+        return .{
+            .pattern = pattern,
+            .callback = callback,
+            .context = context,
+            .wants_retained = wants_retained,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.pattern.deinit();
+    }
+};
+
+/// Router for namespace messages with retained value support
 pub const Router = struct {
     const Self = @This();
 
@@ -48,14 +86,24 @@ pub const Router = struct {
     local_routes: std.ArrayList(Route),
     network_routes: std.ArrayList(Route),
     default_transport: ?*Transport,
+    retained_cache: RetainedValueCache,
+    subscriptions: std.ArrayList(Subscription),
+    lamport_clock: std.atomic.Value(u64),
     mutex: std.Thread.Mutex,
 
     pub fn init(allocator: Allocator) Self {
+        return initWithCapacity(allocator, DEFAULT_MAX_RETAINED);
+    }
+
+    pub fn initWithCapacity(allocator: Allocator, max_retained: usize) Self {
         return .{
             .allocator = allocator,
             .local_routes = .empty,
             .network_routes = .empty,
             .default_transport = null,
+            .retained_cache = RetainedValueCache.init(allocator, max_retained),
+            .subscriptions = .empty,
+            .lamport_clock = std.atomic.Value(u64).init(0),
             .mutex = .{},
         };
     }
@@ -73,6 +121,18 @@ pub const Router = struct {
             rt.pattern.deinit();
         }
         self.network_routes.deinit(self.allocator);
+
+        for (self.subscriptions.items) |*sub| {
+            sub.deinit();
+        }
+        self.subscriptions.deinit(self.allocator);
+
+        self.retained_cache.deinit();
+    }
+
+    /// Get next Lamport clock value
+    pub fn nextLamportClock(self: *Self) u64 {
+        return self.lamport_clock.fetchAdd(1, .monotonic);
     }
 
     /// Add a local route (same-process)
@@ -141,6 +201,137 @@ pub const Router = struct {
                 return a.priority > b.priority;
             }
         }.lessThan);
+    }
+
+    // =========================================================================
+    // Retained Value Support (RFC-0500 §3.5)
+    // =========================================================================
+
+    /// Publish with options including retain flag and Lamport clock
+    pub fn publishWithOptions(
+        self: *Self,
+        path: Path,
+        envelope_data: []const u8,
+        opts: PublishOptions,
+    ) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        // Update Lamport clock if provided, otherwise use internal
+        const clock = if (opts.lamport_clock > 0) opts.lamport_clock else self.nextLamportClock();
+
+        // Store retained value if retain flag is set
+        if (opts.retain) {
+            try self.retained_cache.updateRetained(
+                path,
+                envelope_data,
+                clock,
+                opts.ttl_seconds,
+            );
+        }
+
+        // Notify matching subscribers (mutex is held, notifySubscribers will unlock/lock)
+        try self.notifySubscribers(path, envelope_data);
+    }
+
+    /// Subscribe to a pattern with optional immediate retained value delivery
+    /// RFC-0500 §3.5: "Subscribe delivers retained values immediately"
+    pub fn subscribeWithRetained(
+        self: *Self,
+        pattern: Pattern,
+        callback: *const fn (*anyopaque, Path, []const u8) void,
+        context: *anyopaque,
+    ) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        // Create subscription
+        const sub = Subscription.init(pattern, callback, context, true);
+        try self.subscriptions.append(self.allocator, sub);
+
+        // Deliver matching retained values immediately
+        try self.deliverRetainedValues(pattern, callback, context);
+    }
+
+    /// Subscribe without retained value delivery
+    pub fn subscribe(self: *Self, pattern: Pattern, callback: *const fn (*anyopaque, Path, []const u8) void, context: *anyopaque) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const sub = Subscription.init(pattern, callback, context, false);
+        try self.subscriptions.append(self.allocator, sub);
+    }
+
+    /// Deliver retained values matching pattern to a callback
+    fn deliverRetainedValues(
+        self: *Self,
+        pattern: Pattern,
+        callback: *const fn (*anyopaque, Path, []const u8) void,
+        context: *anyopaque,
+    ) !void {
+        // Unlock during callback to avoid deadlock
+        self.mutex.unlock();
+        defer self.mutex.lock();
+
+        const retained_values = try self.retained_cache.matching(pattern, self.allocator);
+        defer {
+            for (retained_values) |*rv| {
+                rv.deinit(self.allocator);
+            }
+            self.allocator.free(retained_values);
+        }
+
+        for (retained_values) |rv| {
+            // Clone path for the callback (callback takes ownership)
+            const path_str = try rv.path.toString(self.allocator);
+            const path_clone = try Path.parse(self.allocator, path_str);
+
+            callback(context, path_clone, rv.envelope_data);
+        }
+    }
+
+    /// Notify all subscribers matching a path
+    fn notifySubscribers(self: *Self, path: Path, envelope_data: []const u8) !void {
+        // Unlock during callbacks
+        self.mutex.unlock();
+        defer self.mutex.lock();
+
+        for (self.subscriptions.items) |sub| {
+            if (sub.pattern.matchesPath(path)) {
+                // Clone path for callback
+                const path_str = try path.toString(self.allocator);
+                const path_clone = try Path.parse(self.allocator, path_str);
+                errdefer path_clone.deinit();
+
+                sub.callback(sub.context, path_clone, envelope_data);
+            }
+        }
+    }
+
+    /// Get a retained value by path (returns null if not found or expired)
+    pub fn getRetained(self: *Self, path: Path) ?types.RetainedValue {
+        return self.retained_cache.getOrEvict(path);
+    }
+
+    /// Update a retained value directly (for external Lamport clock sources)
+    pub fn updateRetained(
+        self: *Self,
+        path: Path,
+        envelope_data: []const u8,
+        lamport_clock: u64,
+        ttl_seconds: ?u64,
+    ) !void {
+        try self.retained_cache.updateRetained(path, envelope_data, lamport_clock, ttl_seconds);
+    }
+
+    /// Remove a retained value
+    pub fn removeRetained(self: *Self, path: Path) void {
+        self.retained_cache.remove(path);
+    }
+
+    /// Get count of retained values
+    pub fn retainedCount(self: *Self) usize {
+        return self.retained_cache.count();
     }
 };
 
@@ -214,7 +405,46 @@ pub const PatternMatcher = struct {
     }
 };
 
+// =========================================================================
+// Test Callback Types and Contexts
+// =========================================================================
+
+const TestDeliveryContext = struct {
+    allocator: Allocator,
+    received: std.ArrayList(DeliveryRecord),
+
+    const DeliveryRecord = struct {
+        path: Path,
+        data: []const u8,
+    };
+
+    fn init(allocator: Allocator) @This() {
+        return .{
+            .allocator = allocator,
+            .received = .empty,
+        };
+    }
+
+    fn deinit(self: *@This()) void {
+        for (self.received.items) |*item| {
+            item.path.deinit();
+            self.allocator.free(item.data);
+        }
+        self.received.deinit(self.allocator);
+    }
+
+    fn callback(ctx: *anyopaque, path: Path, data: []const u8) void {
+        const self = @as(*@This(), @ptrCast(@alignCast(ctx)));
+        const path_clone = path;
+        const data_copy = self.allocator.dupe(u8, data) catch return;
+        self.received.append(self.allocator, .{ .path = path_clone, .data = data_copy }) catch return;
+    }
+};
+
+// =========================================================================
 // Tests
+// =========================================================================
+
 const testing = std.testing;
 
 test "Pattern matching - exact match" {
@@ -321,4 +551,229 @@ test "Router - priority ordering" {
     const result = router.route(path);
     try testing.expect(result != null);
     try testing.expect(result == &trans2);
+}
+
+// =========================================================================
+// Retained Value Tests (RFC-0500 §3.5)
+// =========================================================================
+
+test "Router - publishWithOptions retains value" {
+    const allocator = testing.allocator;
+
+    var router = Router.init(allocator);
+    defer router.deinit();
+
+    var path = try Path.parse(allocator, "sensor/berlin/temp");
+    defer path.deinit();
+
+    const payload = "temperature: 22.5";
+
+    // Publish with retain flag
+    try router.publishWithOptions(path, payload, .{
+        .retain = true,
+        .lamport_clock = 5,
+    });
+
+    // Verify retained
+    try testing.expectEqual(@as(usize, 1), router.retainedCount());
+
+    // Retrieve retained value
+    var retained = router.getRetained(path);
+    try testing.expect(retained != null);
+    if (retained) |*rv| {
+        try testing.expectEqualStrings(payload, rv.envelope_data);
+        try testing.expectEqual(@as(u64, 5), rv.lamport_clock);
+        rv.deinit(allocator);
+    }
+}
+
+test "Router - publish without retain does not store" {
+    const allocator = testing.allocator;
+
+    var router = Router.init(allocator);
+    defer router.deinit();
+
+    var path = try Path.parse(allocator, "sensor/berlin/temp");
+    defer path.deinit();
+
+    // Publish without retain flag
+    try router.publishWithOptions(path, "temp: 20", .{
+        .retain = false,
+    });
+
+    try testing.expectEqual(@as(usize, 0), router.retainedCount());
+}
+
+test "Router - subscribeWithRetained delivers immediately" {
+    const allocator = testing.allocator;
+
+    var router = Router.init(allocator);
+    defer router.deinit();
+
+    // First, publish a retained value
+    var path = try Path.parse(allocator, "sensor/berlin/temp");
+    defer path.deinit();
+    try router.publishWithOptions(path, "temp: 25.0", .{
+        .retain = true,
+        .lamport_clock = 1,
+    });
+
+    var ctx = TestDeliveryContext.init(allocator);
+    defer ctx.deinit();
+
+    // Subscribe with pattern matching the retained value
+    // Note: pattern ownership is transferred to subscription, don't deinit
+    const pattern = try Pattern.parse(allocator, "sensor/+/temp");
+    try router.subscribeWithRetained(pattern, TestDeliveryContext.callback, &ctx);
+
+    // Should have received the retained value immediately
+    try testing.expectEqual(@as(usize, 1), ctx.received.items.len);
+    try testing.expectEqualStrings("temp: 25.0", ctx.received.items[0].data);
+}
+
+test "Router - subscribeWithRetained delivers multiple matching values" {
+    const allocator = testing.allocator;
+
+    var router = Router.init(allocator);
+    defer router.deinit();
+
+    // Publish multiple retained values
+    var path1 = try Path.parse(allocator, "sensor/berlin/temp");
+    defer path1.deinit();
+    try router.publishWithOptions(path1, "temp: 20", .{ .retain = true, .lamport_clock = 1 });
+
+    var path2 = try Path.parse(allocator, "sensor/berlin/humidity");
+    defer path2.deinit();
+    try router.publishWithOptions(path2, "hum: 60", .{ .retain = true, .lamport_clock = 1 });
+
+    var path3 = try Path.parse(allocator, "sensor/london/temp");
+    defer path3.deinit();
+    try router.publishWithOptions(path3, "temp: 15", .{ .retain = true, .lamport_clock = 1 });
+
+    var ctx = TestDeliveryContext.init(allocator);
+    defer ctx.deinit();
+
+    // Subscribe to all Berlin sensors
+    // Note: pattern ownership is transferred to subscription, don't deinit
+    const pattern = try Pattern.parse(allocator, "sensor/berlin/+");
+    try router.subscribeWithRetained(pattern, TestDeliveryContext.callback, &ctx);
+
+    // Should have received 2 values (berlin/temp and berlin/humidity)
+    try testing.expectEqual(@as(usize, 2), ctx.received.items.len);
+}
+
+test "Router - Lamport clock auto-increment" {
+    const allocator = testing.allocator;
+
+    var router = Router.init(allocator);
+    defer router.deinit();
+
+    const clock1 = router.nextLamportClock();
+    const clock2 = router.nextLamportClock();
+    const clock3 = router.nextLamportClock();
+
+    try testing.expect(clock2 > clock1);
+    try testing.expect(clock3 > clock2);
+}
+
+test "Router - Lamport clock conflict resolution" {
+    const allocator = testing.allocator;
+
+    var router = Router.init(allocator);
+    defer router.deinit();
+
+    var path = try Path.parse(allocator, "sensor/berlin/temp");
+    defer path.deinit();
+
+    // Update with clock 10
+    try router.updateRetained(path, "temp: 20", 10, null);
+
+    // Try to update with lower clock (should be rejected - value stays at temp: 20)
+    try router.updateRetained(path, "temp: 30", 5, null);
+
+    var retained = router.getRetained(path);
+    try testing.expect(retained != null);
+    if (retained) |*rv| {
+        try testing.expectEqualStrings("temp: 20", rv.envelope_data);
+        try testing.expectEqual(@as(u64, 10), rv.lamport_clock);
+        rv.deinit(allocator);
+    }
+
+    // Update with higher clock (should succeed)
+    try router.updateRetained(path, "temp: 25", 15, null);
+
+    var retained2 = router.getRetained(path);
+    try testing.expect(retained2 != null);
+    if (retained2) |*rv| {
+        try testing.expectEqualStrings("temp: 25", rv.envelope_data);
+        try testing.expectEqual(@as(u64, 15), rv.lamport_clock);
+        rv.deinit(allocator);
+    }
+}
+
+test "Router - remove retained value" {
+    const allocator = testing.allocator;
+
+    var router = Router.init(allocator);
+    defer router.deinit();
+
+    var path = try Path.parse(allocator, "sensor/berlin/temp");
+    defer path.deinit();
+
+    try router.updateRetained(path, "temp: 20", 1, null);
+    try testing.expectEqual(@as(usize, 1), router.retainedCount());
+
+    router.removeRetained(path);
+    try testing.expectEqual(@as(usize, 0), router.retainedCount());
+
+    // Verify retained value is gone
+    try testing.expect(router.getRetained(path) == null);
+}
+
+test "Router - max retained limit enforced" {
+    const allocator = testing.allocator;
+
+    // Create router with max 3 retained values
+    var router = Router.initWithCapacity(allocator, 3);
+    defer router.deinit();
+
+    // Add 5 values
+    for (0..5) |i| {
+        var buf: [32]u8 = undefined;
+        const path_str = std.fmt.bufPrint(&buf, "sensor/{d}", .{i}) catch continue;
+        var path = try Path.parse(allocator, path_str);
+        defer path.deinit();
+        try router.updateRetained(path, "data", @intCast(i), null);
+    }
+
+    // Should only have 3 (most recent due to LRU eviction)
+    try testing.expectEqual(@as(usize, 3), router.retainedCount());
+}
+
+test "Router - getOrEvict updates access time" {
+    const allocator = testing.allocator;
+
+    var router = Router.initWithCapacity(allocator, 2);
+    defer router.deinit();
+
+    var path1 = try Path.parse(allocator, "sensor/a");
+    defer path1.deinit();
+    var path2 = try Path.parse(allocator, "sensor/b");
+    defer path2.deinit();
+
+    try router.updateRetained(path1, "data1", 1, null);
+    try router.updateRetained(path2, "data2", 2, null);
+
+    // Access path1 to make it more recent
+    _ = router.getRetained(path1);
+
+    // Add path3 - should evict path2 (least recently used)
+    var path3 = try Path.parse(allocator, "sensor/c");
+    defer path3.deinit();
+    try router.updateRetained(path3, "data3", 3, null);
+
+    // path1 should still be there, path2 should be evicted
+    try testing.expect(router.getRetained(path1) != null);
+    try testing.expect(router.getRetained(path2) == null);
+    try testing.expect(router.getRetained(path3) != null);
 }
