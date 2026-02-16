@@ -6,6 +6,11 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 # SPEC-019: :service Profile
 
 **Version:** 2026.2.0
+
+## Normative Language (RFC 2119)
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC 2119](https://tools.ietf.org/html/rfc2119).
+
 **Status:** DRAFT (Implementation In Progress)
 **Authority:** Constitutional
 **Supersedes:** Portions of SPEC-002, SPEC-003
