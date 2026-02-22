@@ -30,8 +30,8 @@ pub const RegionLexer = struct {
     str_interner: *StrInterner,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8, str_interner: *StrInterner) !Self {
-        const tokens = ArrayList(Token).empty;
-        const trivia = ArrayList(Trivia).empty;
+        const tokens = ArrayList(Token).init(allocator);
+        const trivia = ArrayList(Trivia).init(allocator);
         return Self{
             .allocator = allocator,
             .source = source,

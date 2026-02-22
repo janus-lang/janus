@@ -156,7 +156,7 @@ pub const ErrorManager = struct {
     pub fn init(allocator: Allocator) ErrorManager {
         return ErrorManager{
             .allocator = allocator,
-            .diagnostics = .empty,
+            .diagnostics = ArrayList(Diagnostic).init(allocator),
             .max_errors = 100, // Stop after 100 errors
             .error_count = 0,
         };
@@ -228,7 +228,7 @@ pub const ErrorManager = struct {
         span: SourceSpan,
         suggestions: []const []const u8,
     ) !bool {
-        var diagnostic_suggestions: ArrayList(DiagnosticSuggestion) = .empty;
+        var diagnostic_suggestions: ArrayList(DiagnosticSuggestion) = ArrayList(DiagnosticSuggestion).init(self.allocator);
         defer diagnostic_suggestions.deinit();
 
         for (suggestions) |suggestion| {
@@ -283,13 +283,13 @@ pub const ErrorManager = struct {
         context: InferenceContext,
         extra_note: ?[]const u8,
     ) !bool {
-        var secondary_spans: ArrayList(SourceSpan) = .empty;
+        var secondary_spans: ArrayList(SourceSpan) = ArrayList(SourceSpan).init(self.allocator);
         defer secondary_spans.deinit();
 
-        var notes: ArrayList([]const u8) = .empty;
+        var notes: ArrayList([]const u8) = ArrayList([]const u8).init(self.allocator);
         defer notes.deinit();
 
-        var suggestions: ArrayList(DiagnosticSuggestion) = .empty;
+        var suggestions: ArrayList(DiagnosticSuggestion) = ArrayList(DiagnosticSuggestion).init(self.allocator);
         defer suggestions.deinit();
 
         // Add declaration span if provided
@@ -390,7 +390,7 @@ pub const ErrorManager = struct {
         usage_span: SourceSpan,
         declaration_span: ?SourceSpan,
     ) !bool {
-        var secondary_spans: ArrayList(SourceSpan) = .empty;
+        var secondary_spans: ArrayList(SourceSpan) = ArrayList(SourceSpan).init(self.allocator);
         defer secondary_spans.deinit();
 
         if (declaration_span) |decl_span| {
@@ -426,7 +426,7 @@ pub const ErrorManager = struct {
             }
         };
 
-        var suggestions: ArrayList(SuggestionCandidate) = .empty;
+        var suggestions: ArrayList(SuggestionCandidate) = ArrayList(SuggestionCandidate).init(self.allocator);
         defer suggestions.deinit();
 
         for (available_symbols) |symbol| {
@@ -439,7 +439,7 @@ pub const ErrorManager = struct {
 
         std.sort.insertion(SuggestionCandidate, suggestions.items, {}, SuggestionCandidate.lessThan);
 
-        var result: ArrayList([]const u8) = .empty;
+        var result: ArrayList([]const u8) = ArrayList([]const u8).init(self.allocator);
         const count = @min(suggestions.items.len, max_suggestions);
         for (suggestions.items[0..count]) |candidate| {
             try result.append(try self.allocator.dupe(u8, candidate.symbol));
@@ -450,7 +450,7 @@ pub const ErrorManager = struct {
 
     /// Format diagnostic with source context
     pub fn formatDiagnostic(self: *ErrorManager, diagnostic: *const Diagnostic, source_text: []const u8) ![]const u8 {
-        var output: ArrayList(u8) = .empty;
+        var output: ArrayList(u8) = ArrayList(u8).init(self.allocator);
         const writer = output.writer();
 
         // Write diagnostic header
