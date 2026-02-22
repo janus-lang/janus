@@ -74,6 +74,7 @@ test "Recursion Execution (Factorial)" {
         .allocator = allocator,
         .argv = &[_][]const u8{
             "llc",
+            "-opaque-pointers",
             "-filetype=obj",
             ir_file_path,
             "-o",

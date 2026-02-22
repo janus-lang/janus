@@ -54,7 +54,7 @@ fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name: []
 
     const llc_result = try std.process.Child.run(.{
         .allocator = allocator,
-        .argv = &[_][]const u8{ "llc", "-filetype=obj", ir_file_path, "-o", obj_file_path },
+        .argv = &[_][]const u8{ "llc", "-opaque-pointers", "-filetype=obj", ir_file_path, "-o", obj_file_path },
     });
     defer allocator.free(llc_result.stdout);
     defer allocator.free(llc_result.stderr);

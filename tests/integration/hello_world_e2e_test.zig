@@ -87,6 +87,7 @@ test "Epic 1.4.1: Compile and Execute Hello World end-to-end" {
         .allocator = allocator,
         .argv = &[_][]const u8{
             "llc",
+            "-opaque-pointers",
             "-filetype=obj",
             ir_file_path,
             "-o",

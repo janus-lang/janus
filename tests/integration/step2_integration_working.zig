@@ -24,7 +24,7 @@ test "Step 2: Comptime VM Integration - Working Test" {
     std.debug.print("📋 Testing integration contract structures\n", .{});
 
     // Test contract validation works
-    var deps = std.ArrayList(astdb.NodeId).init(allocator);
+    var deps: std.ArrayList(astdb.NodeId) = .empty;
     defer deps.deinit();
     try deps.append(@enumFromInt(1));
 

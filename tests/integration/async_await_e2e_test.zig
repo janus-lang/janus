@@ -179,6 +179,7 @@ test ":service profile: Async function E2E execution (blocking model)" {
         .allocator = allocator,
         .argv = &[_][]const u8{
             "llc",
+            "-opaque-pointers",
             "-filetype=obj",
             ir_file_path,
             "-o",
@@ -606,6 +607,7 @@ test ":service profile: Multiple spawns E2E execution (Phase 2.5)" {
         .allocator = allocator,
         .argv = &[_][]const u8{
             "llc",
+            "-opaque-pointers",
             "-filetype=obj",
             ir_file_path,
             "-o",
@@ -852,6 +854,7 @@ test ":service profile: Await E2E execution (Phase 2.6)" {
         .allocator = allocator,
         .argv = &[_][]const u8{
             "llc",
+            "-opaque-pointers",
             "-filetype=obj",
             ir_file_path,
             "-o",
@@ -1046,6 +1049,7 @@ test ":service profile: Error propagation in nursery (Phase 2.7)" {
         .allocator = allocator,
         .argv = &[_][]const u8{
             "llc",
+            "-opaque-pointers",
             "-filetype=obj",
             ir_file_path,
             "-o",
