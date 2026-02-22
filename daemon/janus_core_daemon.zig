@@ -735,7 +735,7 @@ const CoreDaemon = struct {
         };
 
         // Collect references
-        var references = std.ArrayList(protocol.Reference).init(self.allocator);
+        var references: std.ArrayList(protocol.Reference) = .empty;
         defer references.deinit();
 
         // Optionally include the declaration itself

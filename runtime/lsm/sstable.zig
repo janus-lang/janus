@@ -82,7 +82,7 @@ pub const SSTable = struct {
 
 fn parseIndex(allocator: Allocator, bytes: []const u8) ![]IndexEntry {
     // Parse sparse index from bytes
-    var list = std.ArrayList(IndexEntry).init(allocator);
+    var list: std.ArrayList(IndexEntry) = .empty;
     errdefer list.deinit();
 
     var reader = std.io.fixedBufferStream(bytes).reader();

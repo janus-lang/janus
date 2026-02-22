@@ -531,7 +531,7 @@ pub const FileWatcher = struct {
     /// Check if any watched files have changed
     /// Returns list of changed files
     pub fn checkChanges(self: FileWatcher) ![]const []const u8 {
-        var changed_files = std.ArrayList([]const u8).init(self.allocator);
+        var changed_files: std.ArrayList([]const u8) = .empty;
         defer changed_files.deinit();
 
         // TODO: Implement actual file change detection
@@ -539,7 +539,7 @@ pub const FileWatcher = struct {
         // Would iterate through self.watched_paths and check modification times
         _ = self; // Placeholder - would use self.watched_paths in real implementation
 
-        return changed_files.toOwnedSlice();
+        return try changed_files.toOwnedSlice(alloc);
     }
 
     /// Stop watching a file

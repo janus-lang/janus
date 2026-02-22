@@ -172,9 +172,9 @@ fn mem_deleteFile(store: *MemoryStore, path: []const u8) !void {
 }
 
 fn mem_deleteTree(store: *MemoryStore, path: []const u8) !void {
-    var to_del_files = std.ArrayList([]const u8).init(store.allocator);
+    var to_del_files: std.ArrayList([]const u8) = .empty;
     defer to_del_files.deinit();
-    var to_del_dirs = std.ArrayList([]const u8).init(store.allocator);
+    var to_del_dirs: std.ArrayList([]const u8) = .empty;
     defer to_del_dirs.deinit();
     var fit = store.files.keyIterator();
     while (fit.next()) |k_ptr| {

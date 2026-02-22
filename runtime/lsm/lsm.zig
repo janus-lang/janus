@@ -46,7 +46,7 @@ pub const GrainStore = struct {
         const expiry = if (ttl) |t| now + @as(i64, @intCast(t)) else 0;
 
         // Encode: [expiry (i64)][value]
-        var buf = std.ArrayList(u8).init(self.allocator);
+        var buf: std.ArrayList(u8) = .empty;
         defer buf.deinit();
         try buf.writer().writeIntLittle(i64, expiry);
         try buf.writer().writeAll(value);

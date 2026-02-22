@@ -39,7 +39,7 @@ pub const CapabilityContext = struct {
     pub fn init(allocator: std.mem.Allocator) CapabilityContext {
         return CapabilityContext{
             .allocator = allocator,
-            .grants = std.ArrayList(CapabilityGrant).init(allocator),
+            .grants = .empty,
         };
     }
 
@@ -132,7 +132,7 @@ pub const CapabilityChecker = struct {
 
     /// Check what capabilities are required for a command
     pub fn checkCommand(self: *CapabilityChecker, command: types.Command) !std.ArrayList(types.Capability) {
-        var required_caps = std.ArrayList(types.Capability).init(std.heap.page_allocator);
+        var required_caps: std.ArrayList(types.Capability) = .empty;
 
         switch (command) {
             .simple => |simple| {

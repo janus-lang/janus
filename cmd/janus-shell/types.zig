@@ -234,7 +234,7 @@ pub const JobTable = struct {
     pub fn init(allocator: std.mem.Allocator) JobTable {
         return JobTable{
             .allocator = allocator,
-            .jobs = std.ArrayList(Job).init(allocator),
+            .jobs = .empty,
         };
     }
 

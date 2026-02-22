@@ -96,7 +96,7 @@ pub const DispatchTracer = struct {
     pub fn init(allocator: Allocator, config: TracingConfig) !Self {
         return Self{
             .allocator = allocator,
-            .trace_buffer = ArrayList(TraceEntry).init(allocator),
+            .trace_buffer = .empty,
             .active_traces = HashMap(u64, *ActiveTrace, std.hash_map.AutoContext(u64), std.hash_map.default_max_load_percentage).init(allocator),
             .performance_counters = PerformanceCounters{
                 .total_dispatches = 0,
@@ -138,7 +138,7 @@ pub const DispatchTracer = struct {
                 .start_time = std.time.nanoTimestamp(),
                 .function_name = try self.allocator.dupe(u8, function_name),
                 .argument_types = try self.duplicateStringArray(argument_types),
-                .resolution_steps = ArrayList(ActiveTrace.ResolutionStep).init(self.allocator),
+                .resolution_steps = .empty,
             };
 
             try self.active_traces.put(call_id, active_trace);

@@ -193,7 +193,7 @@ fn executePurityTest(allocator: std.mem.Allocator, config: DiagConfig) !Diagnost
     var query_engine = libjanus.QueryEngine.init(allocator, parsed_snapshot);
     defer query_engine.deinit();
 
-    var errors = std.ArrayList(DiagnosticResult.DiagnosticError).init(allocator);
+    var errors: std.ArrayList(DiagnosticResult.DiagnosticError) = .empty;
     defer errors.deinit();
 
     // REAL INTEGRATION: Execute queries that should violate purity
@@ -382,7 +382,7 @@ fn writeDiagJSON(allocator: std.mem.Allocator, result: DiagnosticResult, output_
     const file = try std.fs.cwd().createFile(output_file, .{});
     defer file.close();
 
-    var json_output = std.ArrayList(u8).init(allocator);
+    var json_output: std.ArrayList(u8) = .empty;
     defer json_output.deinit();
 
     try json.stringify(result, .{ .whitespace = .indent_2 }, json_output.writer());

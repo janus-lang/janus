@@ -83,7 +83,7 @@ pub fn normalizePathBuf(buf: *PathBuf) !void {
     const has_drive_letter = is_windows and path.len >= 2 and
         std.ascii.isAlphabetic(path[0]) and path[1] == ':';
 
-    var components = std.ArrayList([]const u8).init(buf.allocator);
+    var components: std.ArrayList([]const u8) = .empty;
     defer components.deinit();
 
     // Split path into components
@@ -119,7 +119,7 @@ pub fn normalizePathBuf(buf: *PathBuf) !void {
     }
 
     // Normalize components (resolve . and ..)
-    var normalized = std.ArrayList([]const u8).init(buf.allocator);
+    var normalized: std.ArrayList([]const u8) = .empty;
     defer normalized.deinit();
 
     for (components.items) |component| {
@@ -141,7 +141,7 @@ pub fn normalizePathBuf(buf: *PathBuf) !void {
     }
 
     // Rebuild path
-    var result = std.ArrayList(u8).init(buf.allocator);
+    var result: std.ArrayList(u8) = .empty;
     defer result.deinit();
 
     // Add drive letter back if present
@@ -229,7 +229,7 @@ pub fn canonicalizePath(
     defer allocator.free(normalized);
 
     // Start canonicalization from current directory or absolute path
-    var current_path = std.ArrayList(u8).init(allocator);
+    var current_path: std.ArrayList(u8) = .empty;
     defer current_path.deinit();
 
     var remaining_path = normalized;
@@ -242,7 +242,7 @@ pub fn canonicalizePath(
 
     // Process each component
     var components = std.mem.split(u8, remaining_path, "/");
-    var path_parts = std.ArrayList([]const u8).init(allocator);
+    var path_parts: std.ArrayList([]const u8) = .empty;
     defer path_parts.deinit();
 
     while (components.next()) |component| {
@@ -275,7 +275,7 @@ pub fn canonicalizePath(
 fn buildPathFromParts(parts: [][]const u8, allocator: Allocator) ![]u8 {
     if (parts.len == 0) return allocator.dupe(u8, ".");
 
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .empty;
     defer result.deinit();
 
     for (parts, 0..) |part, i| {
@@ -283,7 +283,7 @@ fn buildPathFromParts(parts: [][]const u8, allocator: Allocator) ![]u8 {
         try result.appendSlice(part);
     }
 
-    return result.toOwnedSlice();
+    return try result.toOwnedSlice(alloc);
 }
 
 // =============================================================================

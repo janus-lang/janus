@@ -81,7 +81,7 @@ pub fn main() !void {
     try text_document.object.put("uri", json.Value{ .string = "file://test_fibonacci.jan" });
     try text_document.object.put("version", json.Value{ .integer = 1 });
 
-    var content_changes_arr = std.ArrayList(json.Value).init(allocator);
+    var content_changes_arr: std.ArrayList(json.Value) = .empty;
     const content_changes = json.Value{ .array = content_changes_arr };
 
     var change_map = std.json.ObjectMap.init(allocator);

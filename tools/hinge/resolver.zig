@@ -65,7 +65,7 @@ pub const Resolver = struct {
             // Mock implementation - in real version would fetch from registry
             const mock_digest = try std.fmt.allocPrint(self.allocator, "blake3-256:mock_{s}_{s}", .{ name, version });
 
-            var deps = std.ArrayList([]const u8).init(self.allocator);
+            var deps: std.ArrayList([]const u8) = .empty;
             defer deps.deinit();
 
             // Add some mock dependencies for testing
@@ -126,7 +126,7 @@ pub const Resolver = struct {
             .manifest = manifest,
             .registry_client = .{ .allocator = allocator },
             .resolved_packages = std.StringHashMap(*ResolvedPackage).init(allocator),
-            .resolution_order = std.ArrayList([]const u8).init(allocator),
+            .resolution_order = .empty,
         };
     }
 
@@ -161,7 +161,7 @@ pub const Resolver = struct {
             self.allocator.free(name);
         }
         self.resolution_order.deinit();
-        self.resolution_order = std.ArrayList([]const u8).init(self.allocator);
+        self.resolution_order = .empty;
 
         // Resolve all dependencies from manifest
         var dep_iter = self.manifest.dependencies.iterator();
@@ -170,7 +170,7 @@ pub const Resolver = struct {
         }
 
         // Build lockfile from resolved packages
-        var packages = std.ArrayList(Lockfile.Package).init(self.allocator);
+        var packages: std.ArrayList(Lockfile.Package) = .empty;
         defer packages.deinit();
 
         for (self.resolution_order.items) |pkg_name| {

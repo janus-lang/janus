@@ -437,7 +437,7 @@ test "TempFile collision resistance" {
     const allocator = testing.allocator;
 
     // Create multiple temp files to test collision resistance
-    var temp_files = std.ArrayList(TempFile).init(allocator);
+    var temp_files: std.ArrayList(TempFile) = .empty;
     defer {
         for (temp_files.items) |*temp_file| {
             temp_file.deinit();

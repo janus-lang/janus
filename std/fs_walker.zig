@@ -216,7 +216,7 @@ pub const Walker = struct {
         var visited_paths = std.StringHashMap(void).init(allocator);
         errdefer visited_paths.deinit();
 
-        var path_stack = std.ArrayList([]const u8).init(allocator);
+        var path_stack: std.ArrayList([]const u8) = .empty;
         errdefer path_stack.deinit();
 
         // Duplicate root path
@@ -429,7 +429,7 @@ pub const Walker = struct {
         defer iter.deinit();
 
         // Collect entries first, then reverse for depth-first traversal
-        var entries = std.ArrayList([]const u8).init(self.allocator);
+        var entries: std.ArrayList([]const u8) = .empty;
         defer {
             for (entries.items) |entry| {
                 self.allocator.free(entry);
@@ -747,7 +747,7 @@ pub fn utcpManual() []const u8 {
         \\var walker = try Walker.init("/search/path", options, allocator);
         \\defer walker.deinit();
         \\
-        \\var found_files = std.ArrayList([]const u8).init(allocator);
+        \\var found_files: std.ArrayList([]const u8) = .empty;
         \\defer found_files.deinit();
         \\
         \\try walker.walk(struct {

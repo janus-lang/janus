@@ -148,7 +148,7 @@ fn parseArgs(allocator: std.mem.Allocator, args: [][:0]u8) !RebuildTraceConfig {
         .source_files = &[_][]const u8{},
     };
 
-    var source_files = std.ArrayList([]const u8).init(allocator);
+    var source_files: std.ArrayList([]const u8) = .empty;
     defer source_files.deinit();
 
     var i: usize = 1; // Skip program name
@@ -187,7 +187,7 @@ fn parseArgs(allocator: std.mem.Allocator, args: [][:0]u8) !RebuildTraceConfig {
 }
 
 fn performRebuildTrace(allocator: std.mem.Allocator, config: RebuildTraceConfig) !RebuildTrace {
-    var runs = std.ArrayList(BuildRun).init(allocator);
+    var runs: std.ArrayList(BuildRun) = .empty;
     defer runs.deinit();
 
     // Perform two build runs
@@ -427,7 +427,7 @@ fn writeTraceJSON(allocator: std.mem.Allocator, trace: RebuildTrace, output_file
     const file = try std.fs.cwd().createFile(output_file, .{});
     defer file.close();
 
-    var json_output = std.ArrayList(u8).init(allocator);
+    var json_output: std.ArrayList(u8) = .empty;
     defer json_output.deinit();
 
     try json.stringify(trace, .{ .whitespace = .indent_2 }, json_output.writer());

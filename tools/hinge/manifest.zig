@@ -148,7 +148,7 @@ pub const Manifest = struct {
     }
 
     fn parseCapabilities(allocator: std.mem.Allocator, caps_str: []const u8) ![]const []const u8 {
-        var caps = std.ArrayList([]const u8).init(allocator);
+        var caps: std.ArrayList([]const u8) = .empty;
         defer caps.deinit();
 
         var caps_iter = std.mem.splitSequence(u8, caps_str, ",");
@@ -397,7 +397,7 @@ pub const Lockfile = struct {
 
     /// Serialize lockfile using our high-performance serde framework
     pub fn writeToFileWithSerde(self: *const Lockfile, path: []const u8) !void {
-        var buffer = std.ArrayList(u8).init(self.allocator);
+        var buffer: std.ArrayList(u8) = .empty;
         defer buffer.deinit();
 
         // Use our high-performance serde framework for serialization

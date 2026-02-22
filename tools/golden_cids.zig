@@ -71,7 +71,7 @@ pub fn main() !void {
     print("Output: {s}\n\n", .{config.output_file});
 
     // Process each source file and compute CIDs
-    var cid_outputs = std.ArrayList(CIDOutput).init(allocator);
+    var cid_outputs: std.ArrayList(CIDOutput) = .empty;
     defer {
         for (cid_outputs.items) |*output| {
             allocator.free(output.unit);
@@ -205,7 +205,7 @@ fn processSourceFile(allocator: std.mem.Allocator, source_file: []const u8, conf
     var query_engine = libjanus.QueryEngine.init(allocator, parsed_snapshot);
     defer query_engine.deinit();
 
-    var items = std.ArrayList(CIDOutput.ItemCID).init(allocator);
+    var items: std.ArrayList(CIDOutput.ItemCID) = .empty;
     defer items.deinit();
 
     // Find all function declarations using real ASTDB query
@@ -298,7 +298,7 @@ fn writeOutputJSON(allocator: std.mem.Allocator, outputs: []const CIDOutput, out
     defer file.close();
 
     // Create JSON structure
-    var json_output = std.ArrayList(u8).init(allocator);
+    var json_output: std.ArrayList(u8) = .empty;
     defer json_output.deinit();
 
     try json.stringify(outputs, .{ .whitespace = .indent_2 }, json_output.writer());

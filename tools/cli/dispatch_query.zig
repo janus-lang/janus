@@ -418,7 +418,7 @@ pub const DispatchQueryCLI = struct {
     fn suggestSimilarSymbols(self: *Self, symbol: []const u8) !void {
         print("\n💡 Did you mean one of these?\n", .{});
 
-        var suggestions = ArrayList([]const u8).init(self.allocator);
+        var suggestions: ArrayList([]const u8) = .empty;
         defer suggestions.deinit();
 
         var iterator = self.dispatch_families.iterator();
@@ -538,7 +538,7 @@ pub const DispatchQueryCLI = struct {
     // Placeholder implementations for missing functions
     fn findMatchingCandidates(self: *Self, family: *DispatchFamily, arg_types: []const []const u8) !ArrayList(DispatchFamily.Implementation) {
         _ = arg_types;
-        var candidates = ArrayList(DispatchFamily.Implementation).init(self.allocator);
+        var candidates: ArrayList(DispatchFamily.Implementation) = .empty;
 
         // For demo, return all implementations
         for (family.implementations.items) |impl| {
@@ -582,7 +582,7 @@ pub const DispatchQueryCLI = struct {
     }
 
     fn getSortedImplementations(self: *Self, family: *DispatchFamily) !ArrayList(DispatchFamily.Implementation) {
-        var sorted = ArrayList(DispatchFamily.Implementation).init(self.allocator);
+        var sorted: ArrayList(DispatchFamily.Implementation) = .empty;
 
         for (family.implementations.items) |impl| {
             try sorted.append(impl);

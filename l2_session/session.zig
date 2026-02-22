@@ -189,7 +189,7 @@ pub const SessionManager = struct {
 
     /// Clean up closed sessions
     pub fn cleanupClosedSessions(self: *SessionManager) void {
-        var to_remove = std.ArrayList([32]u8).init(self.allocator);
+        var to_remove: std.ArrayList([32]u8) = .empty;
         defer to_remove.deinit();
         
         var iter = self.sessions.iterator();

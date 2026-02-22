@@ -52,7 +52,7 @@ pub const Shell = struct {
             .capability_checker = capabilities.CapabilityChecker.init(&capability_context),
             .cwd = try std.process.getCwdAlloc(allocator),
             .env = std.StringHashMap([]u8).init(allocator),
-            .history = std.ArrayList([]u8).init(allocator),
+            .history = .empty,
             .jobs = null,
         };
 

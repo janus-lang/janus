@@ -182,7 +182,7 @@ pub const JanusDispatchCLI = struct {
         const args_str = expr[args_start..close_paren];
 
         // Simple argument type inference (very basic for demo)
-        var arg_types = ArrayList([]const u8).init(self.allocator);
+        var arg_types: ArrayList([]const u8) = .empty;
         defer arg_types.deinit();
 
         if (args_str.len > 0) {

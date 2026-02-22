@@ -299,7 +299,7 @@ pub fn format(
     args: []const FormatArg,
 ) StringError!String {
     // Simple format implementation - replace {} with arguments
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .empty;
     defer result.deinit();
 
     var template_pos: usize = 0;
@@ -362,7 +362,7 @@ pub const StringBuilder = struct {
 
     pub fn init(allocator: std.mem.Allocator) StringBuilder {
         return StringBuilder{
-            .buffer = std.ArrayList(u8).init(allocator),
+            .buffer = .empty,
             .allocator = allocator,
         };
     }
@@ -398,7 +398,7 @@ pub fn split(
     string: String,
     delimiter: []const u8,
 ) StringError![]String {
-    var parts = std.ArrayList(String).init(allocator);
+    var parts: std.ArrayList(String) = .empty;
     defer parts.deinit();
 
     var start: usize = 0;
@@ -425,7 +425,7 @@ pub fn split(
         }
     }
 
-    return parts.toOwnedSlice() catch StringError.OutOfMemory;
+    return try parts.toOwnedSlice(alloc) catch StringError.OutOfMemory;
 }
 
 /// Join strings with delimiter

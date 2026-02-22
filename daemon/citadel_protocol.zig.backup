@@ -1,0 +1,1093 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// The full text of the license can be found in the LICENSE file at the root of the repository.
+
+//! Citadel Protocol Implementation
+//!
+//! This module implements the complete Citadel Protocol specification for
+//! communication between janus-core-daemon and protocol proxies.
+//!
+//! The protocol uses MessagePack serialization with length-prefixed framing
+//! over stdio or Unix sockets.
+
+const std = @import("std");
+
+// Protocol version constants
+pub const PROTOCOL_VERSION_MAJOR: u16 = 1;
+pub const PROTOCOL_VERSION_MINOR: u16 = 0;
+pub const PROTOCOL_VERSION_PATCH: u16 = 0;
+
+// Message size limits
+pub const MAX_MESSAGE_SIZE: u32 = 16 * 1024 * 1024; // 16MB
+pub const FRAME_HEADER_SIZE: u32 = 4; // 4-byte length prefix
+
+// Core protocol structures
+pub const ProtocolVersion = struct {
+    major: u16,
+    minor: u16,
+    patch: u16,
+
+    pub fn current() ProtocolVersion {
+        return .{
+            .major = PROTOCOL_VERSION_MAJOR,
+            .minor = PROTOCOL_VERSION_MINOR,
+            .patch = PROTOCOL_VERSION_PATCH,
+        };
+    }
+
+    pub fn isCompatible(self: ProtocolVersion, other: ProtocolVersion) bool {
+        return self.major == other.major;
+    }
+};
+
+pub const Position = struct {
+    line: u32,
+    character: u32,
+};
+
+pub const Range = struct {
+    start: Position,
+    end: Position,
+};
+
+pub const Location = struct {
+    uri: []const u8,
+    range: Range,
+};
+
+// Request types
+pub const RequestType = enum {
+    version_request,
+    ping,
+    doc_update,
+    hover_at,
+    definition_at,
+    references_at,
+    shutdown,
+
+    pub fn toString(self: RequestType) []const u8 {
+        return switch (self) {
+            .version_request => "version_request",
+            .ping => "ping",
+            .doc_update => "doc_update",
+            .hover_at => "hover_at",
+            .definition_at => "definition_at",
+            .references_at => "references_at",
+            .shutdown => "shutdown",
+        };
+    }
+
+    pub fn fromString(s: []const u8) ?RequestType {
+        if (std.mem.eql(u8, s, "version_request")) return .version_request;
+        if (std.mem.eql(u8, s, "ping")) return .ping;
+        if (std.mem.eql(u8, s, "doc_update")) return .doc_update;
+        if (std.mem.eql(u8, s, "hover_at")) return .hover_at;
+        if (std.mem.eql(u8, s, "definition_at")) return .definition_at;
+        if (std.mem.eql(u8, s, "references_at")) return .references_at;
+        if (std.mem.eql(u8, s, "shutdown")) return .shutdown;
+        return null;
+    }
+};
+
+// Request payloads
+pub const VersionRequestPayload = struct {
+    client_version: ProtocolVersion,
+    supported_features: []const []const u8,
+};
+
+pub const PingRequestPayload = struct {
+    echo_data: []const u8,
+};
+
+pub const DocUpdateRequestPayload = struct {
+    uri: []const u8,
+    content: []const u8,
+    version: ?u32 = null,
+};
+
+pub const HoverAtRequestPayload = struct {
+    uri: []const u8,
+    position: Position,
+};
+
+pub const DefinitionAtRequestPayload = struct {
+    uri: []const u8,
+    position: Position,
+};
+
+pub const ReferencesAtRequestPayload = struct {
+    uri: []const u8,
+    position: Position,
+    include_declaration: bool,
+};
+
+pub const ShutdownRequestPayload = struct {
+    reason: []const u8,
+    timeout_ms: u32,
+};
+
+// Response payloads
+pub const VersionResponsePayload = struct {
+    server_version: ProtocolVersion,
+    negotiated_version: ProtocolVersion,
+    enabled_features: []const []const u8,
+    status: []const u8, // "success" | "incompatible"
+};
+
+pub const PingResponsePayload = struct {
+    echo_data: []const u8,
+    server_timestamp: u64,
+};
+
+pub const DocUpdateResponsePayload = struct {
+    success: bool,
+    snapshot_id: ?[]const u8 = null,
+    parse_time_ns: ?u64 = null,
+    token_count: ?u32 = null,
+    node_count: ?u32 = null,
+};
+
+pub const HoverInfo = struct {
+    markdown: []const u8,
+    range: Range,
+};
+
+pub const HoverAtResponsePayload = struct {
+    hover_info: ?HoverInfo,
+};
+
+pub const DefinitionAtResponsePayload = struct {
+    definition: ?Location,
+};
+
+pub const Reference = struct {
+    uri: []const u8,
+    range: Range,
+    is_declaration: bool,
+};
+
+pub const ReferencesAtResponsePayload = struct {
+    references: []const Reference,
+};
+
+pub const ShutdownResponsePayload = struct {
+    message: []const u8,
+};
+
+// Error structure
+pub const ProtocolError = struct {
+    code: []const u8,
+    message: []const u8,
+    details: ?[]const u8 = null, // Simple string details, no JSON
+
+    // Standard error codes
+    pub const INVALID_REQUEST = "INVALID_REQUEST";
+    pub const DOCUMENT_NOT_FOUND = "DOCUMENT_NOT_FOUND";
+    pub const PARSE_ERROR = "PARSE_ERROR";
+    pub const INTERNAL_ERROR = "INTERNAL_ERROR";
+    pub const TIMEOUT = "TIMEOUT";
+    pub const OUT_OF_MEMORY = "OUT_OF_MEMORY";
+    pub const PROTOCOL_VERSION_MISMATCH = "PROTOCOL_VERSION_MISMATCH";
+    pub const FEATURE_NOT_SUPPORTED = "FEATURE_NOT_SUPPORTED";
+};
+
+// Pure MessagePack response structure (no JSON contamination)
+pub const MessagePackResponse = struct {
+    id: u32,
+    response_type: []const u8,
+    timestamp: u64,
+    status: []const u8, // "success" | "error"
+    payload: ?ResponsePayload = null,
+    error_info: ?ProtocolError = null,
+};
+
+pub const ResponsePayload = union(enum) {
+    version_response: VersionResponsePayload,
+    ping_response: PingResponsePayload,
+    doc_update_response: DocUpdateResponsePayload,
+    hover_at_response: HoverAtResponsePayload,
+    definition_at_response: DefinitionAtResponsePayload,
+    references_at_response: ReferencesAtResponsePayload,
+    shutdown_response: ShutdownResponsePayload,
+};
+
+// Generic request structure
+pub const Request = struct {
+    id: u32,
+    type: []const u8,
+    timestamp: u64,
+
+    pub fn getTimestamp() u64 {
+        return @intCast(std.time.nanoTimestamp());
+    }
+};
+
+// Serializable request structure for MessagePack
+pub const SerializableRequest = struct {
+    id: u32,
+    type: []const u8,
+    timestamp: u64,
+    payload: RequestPayload,
+};
+
+// Serializable response structure for MessagePack
+pub const SerializableResponse = struct {
+    id: u32,
+    response_type: []const u8,
+    timestamp: u64,
+    status: []const u8,
+    payload: ResponsePayload,
+    error_info: ?ProtocolError = null,
+};
+
+// REMOVED: Legacy Response type eliminated to purge std.json contamination
+
+// Message framing utilities
+pub const FrameReader = struct {
+    reader: std.io.AnyReader,
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator, reader: std.io.AnyReader) FrameReader {
+        return .{
+            .reader = reader,
+            .allocator = allocator,
+        };
+    }
+
+    pub fn readFrame(self: *FrameReader) ![]u8 {
+        // Read 4-byte length prefix (big-endian)
+        var length_bytes: [4]u8 = undefined;
+        try self.reader.readNoEof(&length_bytes);
+        const length = std.mem.readInt(u32, &length_bytes, .big);
+
+        // Validate message size
+        if (length > MAX_MESSAGE_SIZE) {
+            return error.MessageTooLarge;
+        }
+
+        // Allocate and read payload
+        const payload = try self.allocator.alloc(u8, length);
+        errdefer self.allocator.free(payload);
+        try self.reader.readNoEof(payload);
+
+        return payload;
+    }
+};
+
+pub const FrameWriter = struct {
+    writer: std.io.AnyWriter,
+
+    pub fn init(writer: std.io.AnyWriter) FrameWriter {
+        return .{ .writer = writer };
+    }
+
+    pub fn writeFrame(self: *FrameWriter, payload: []const u8) !void {
+        if (payload.len > MAX_MESSAGE_SIZE) {
+            return error.MessageTooLarge;
+        }
+
+        // Write 4-byte length prefix (big-endian)
+        const length: u32 = @intCast(payload.len);
+        var length_bytes: [4]u8 = undefined;
+        std.mem.writeInt(u32, &length_bytes, length, .big);
+        try self.writer.writeAll(&length_bytes);
+
+        // Write payload
+        try self.writer.writeAll(payload);
+    }
+};
+
+// Protocol handler errors
+pub const ProtocolHandlerError = error{
+    InvalidMessage,
+    UnsupportedRequestType,
+    MessageTooLarge,
+    SerializationError,
+    DeserializationError,
+    IOError,
+    OutOfMemory,
+};
+
+// Parsed request structure
+pub const ParsedRequest = struct {
+    id: u32,
+    request_type: RequestType,
+    timestamp: u64,
+    payload: RequestPayload,
+
+    pub fn deinit(self: *const ParsedRequest, allocator: std.mem.Allocator) void {
+        switch (self.payload) {
+            .version_request => |payload| {
+                allocator.free(payload.supported_features);
+            },
+            .ping => |payload| {
+                allocator.free(payload.echo_data);
+            },
+            .doc_update => |payload| {
+                allocator.free(payload.uri);
+                allocator.free(payload.content);
+            },
+            .hover_at => |payload| {
+                allocator.free(payload.uri);
+            },
+            .definition_at => |payload| {
+                allocator.free(payload.uri);
+            },
+            .references_at => |payload| {
+                allocator.free(payload.uri);
+            },
+            .shutdown => |payload| {
+                allocator.free(payload.reason);
+            },
+        }
+    }
+};
+
+// Parsed response structure
+pub const ParsedResponse = struct {
+    id: u32,
+    response_type: []const u8,
+    timestamp: u64,
+    status: []const u8,
+    payload: ResponsePayload,
+    error_info: ?ProtocolError,
+
+    pub fn deinit(self: *const ParsedResponse, allocator: std.mem.Allocator) void {
+        // Temporarily simplified to avoid complex deallocation issues
+        // TODO: Implement proper cleanup once basic communication is working
+        _ = self;
+        _ = allocator;
+    }
+};
+
+pub const RequestPayload = union(RequestType) {
+    version_request: VersionRequestPayload,
+    ping: PingRequestPayload,
+    doc_update: DocUpdateRequestPayload,
+    hover_at: HoverAtRequestPayload,
+    definition_at: DefinitionAtRequestPayload,
+    references_at: ReferencesAtRequestPayload,
+    shutdown: ShutdownRequestPayload,
+};
+
+// MessagePack parsing functions
+// MessagePack parsing implementation
+const MessagePackError = error{
+    UnexpectedEndOfData,
+    UnsupportedFormat,
+    InvalidMapKey,
+    OutOfMemory,
+};
+
+pub const MessagePackParser = struct {
+    data: []const u8,
+    pos: usize = 0,
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator, data: []const u8) MessagePackParser {
+        return .{
+            .data = data,
+            .allocator = allocator,
+        };
+    }
+
+    pub fn parseValue(self: *MessagePackParser) MessagePackError!MessagePackValue {
+        if (self.pos >= self.data.len) return error.UnexpectedEndOfData;
+
+        const format_byte = self.data[self.pos];
+        self.pos += 1;
+
+        // Handle different MessagePack format types
+        if (format_byte <= 0x7f) {
+            // positive fixint
+            return MessagePackValue{ .integer = @as(i64, @intCast(format_byte)) };
+        } else if (format_byte >= 0x80 and format_byte <= 0x8f) {
+            // fixmap
+            const size = format_byte & 0x0f;
+            return try self.parseMap(size);
+        } else if (format_byte >= 0x90 and format_byte <= 0x9f) {
+            // fixarray
+            const size = format_byte & 0x0f;
+            return try self.parseArray(size);
+        } else if (format_byte >= 0xa0 and format_byte <= 0xbf) {
+            // fixstr
+            const len = format_byte & 0x1f;
+            return try self.parseString(len);
+        } else {
+            switch (format_byte) {
+                0xc0 => {
+                    // nil
+                    return MessagePackValue{ .null = {} };
+                },
+                0xc2 => {
+                    // false
+                    return MessagePackValue{ .boolean = false };
+                },
+                0xc3 => {
+                    // true
+                    return MessagePackValue{ .boolean = true };
+                },
+                0xce => {
+                    // uint 32
+                    if (self.pos + 4 > self.data.len) return error.UnexpectedEndOfData;
+                    const bytes = self.data[self.pos .. self.pos + 4];
+                    const value = std.mem.readInt(u32, bytes[0..4], .big);
+                    self.pos += 4;
+                    return MessagePackValue{ .integer = @as(i64, @intCast(value)) };
+                },
+                0xcf => {
+                    // uint 64
+                    if (self.pos + 8 > self.data.len) return error.UnexpectedEndOfData;
+                    const bytes = self.data[self.pos .. self.pos + 8];
+                    const value = std.mem.readInt(u64, bytes[0..8], .big);
+                    self.pos += 8;
+                    return MessagePackValue{ .integer = @as(i64, @intCast(value)) };
+                },
+                0xd9 => {
+                    // str 8
+                    if (self.pos >= self.data.len) return error.UnexpectedEndOfData;
+                    const len = self.data[self.pos];
+                    self.pos += 1;
+                    return try self.parseString(len);
+                },
+                else => {
+                    return error.UnsupportedFormat;
+                },
+            }
+        }
+    }
+
+    fn parseString(self: *MessagePackParser, len: u8) MessagePackError!MessagePackValue {
+        if (self.pos + len > self.data.len) return error.UnexpectedEndOfData;
+        const str = try self.allocator.dupe(u8, self.data[self.pos .. self.pos + len]);
+        self.pos += len;
+        return MessagePackValue{ .string = str };
+    }
+
+    fn parseMap(self: *MessagePackParser, size: u8) MessagePackError!MessagePackValue {
+        var map = std.StringHashMap(MessagePackValue).init(self.allocator);
+        errdefer {
+            var iterator = map.iterator();
+            while (iterator.next()) |entry| {
+                self.allocator.free(entry.key_ptr.*);
+                entry.value_ptr.deinit(self.allocator);
+            }
+            map.deinit();
+        }
+
+        var pairs = try self.allocator.alloc(KeyValuePair, size);
+        errdefer self.allocator.free(pairs);
+
+        var i: u8 = 0;
+        while (i < size) : (i += 1) {
+            var key_value = try self.parseValue();
+            defer key_value.deinit(self.allocator);
+
+            const key = switch (key_value) {
+                .string => |s| try self.allocator.dupe(u8, s),
+                else => return error.InvalidMapKey,
+            };
+            errdefer self.allocator.free(key);
+
+            const value_ptr = try self.allocator.create(MessagePackValue);
+            errdefer self.allocator.destroy(value_ptr);
+            value_ptr.* = try self.parseValue();
+
+            pairs[i] = KeyValuePair{ .key = key, .value = value_ptr };
+        }
+
+        return MessagePackValue{ .simple_map = pairs };
+    }
+
+    fn parseArray(self: *MessagePackParser, size: u8) MessagePackError!MessagePackValue {
+        var array = try self.allocator.alloc(MessagePackValue, size);
+        errdefer {
+            for (array[0..size]) |*item| {
+                item.deinit(self.allocator);
+            }
+            self.allocator.free(array);
+        }
+
+        var i: u8 = 0;
+        while (i < size) : (i += 1) {
+            array[i] = try self.parseValue();
+        }
+
+        return MessagePackValue{ .array = array };
+    }
+};
+
+const KeyValuePair = struct {
+    key: []const u8,
+    value: *MessagePackValue,
+};
+
+const MessagePackValue = union(enum) {
+    integer: i64,
+    string: []const u8,
+    simple_map: []KeyValuePair,
+    boolean: bool,
+    null: void,
+    array: []MessagePackValue,
+
+    pub fn deinit(self: *MessagePackValue, allocator: std.mem.Allocator) void {
+        switch (self.*) {
+            .string => |s| allocator.free(s),
+            .simple_map => |pairs| {
+                for (pairs) |*pair| {
+                    allocator.free(pair.key);
+                    pair.value.deinit(allocator);
+                    allocator.destroy(pair.value);
+                }
+                allocator.free(pairs);
+            },
+            .array => |arr| {
+                for (arr) |*item| {
+                    item.deinit(allocator);
+                }
+                allocator.free(arr);
+            },
+            .integer, .boolean, .null => {},
+        }
+    }
+
+    pub fn getString(self: MessagePackValue) ?[]const u8 {
+        return switch (self) {
+            .string => |s| s,
+            else => null,
+        };
+    }
+
+    pub fn getInteger(self: MessagePackValue) ?i64 {
+        return switch (self) {
+            .integer => |i| i,
+            else => null,
+        };
+    }
+
+    pub fn getMap(self: MessagePackValue) ?[]const KeyValuePair {
+        return switch (self) {
+            .simple_map => |pairs| pairs,
+            else => null,
+        };
+    }
+
+    pub fn getBoolean(self: MessagePackValue) ?bool {
+        return switch (self) {
+            .boolean => |b| b,
+            else => null,
+        };
+    }
+
+    pub fn getArray(self: MessagePackValue) ?[]const MessagePackValue {
+        return switch (self) {
+            .array => |arr| arr,
+            else => null,
+        };
+    }
+
+    pub fn isNull(self: MessagePackValue) bool {
+        return switch (self) {
+            .null => true,
+            else => false,
+        };
+    }
+
+    pub fn getMapValue(self: MessagePackValue, key: []const u8) ?*const MessagePackValue {
+        const pairs = self.getMap() orelse return null;
+        for (pairs) |*pair| {
+            if (std.mem.eql(u8, pair.key, key)) {
+                return pair.value;
+            }
+        }
+        return null;
+    }
+};
+
+pub fn parseRequest(allocator: std.mem.Allocator, data: []const u8) !ParsedRequest {
+    var parser = MessagePackParser.init(allocator, data);
+    var root_value = try parser.parseValue();
+    defer root_value.deinit(allocator);
+
+    _ = root_value.getMap() orelse return error.InvalidMessage;
+
+    // Extract required fields using new accessor
+    const id_value = root_value.getMapValue("id") orelse return error.MissingField;
+    const id = @as(u32, @intCast(id_value.getInteger() orelse return error.InvalidFieldType));
+
+    const type_value = root_value.getMapValue("type") orelse return error.MissingField;
+    const type_str = type_value.getString() orelse return error.InvalidFieldType;
+    const request_type = RequestType.fromString(type_str) orelse return error.InvalidRequestType;
+
+    const timestamp_value = root_value.getMapValue("timestamp") orelse return error.MissingField;
+    const timestamp = @as(u64, @intCast(timestamp_value.getInteger() orelse return error.InvalidFieldType));
+
+    const payload_value = root_value.getMapValue("payload") orelse return error.MissingField;
+
+    // Parse payload based on request type
+    const payload = switch (request_type) {
+        .version_request => blk: {
+            const client_version_value = payload_value.getMapValue("client_version") orelse return error.MissingField;
+
+            const major = @as(u16, @intCast((client_version_value.getMapValue("major") orelse return error.MissingField).getInteger() orelse return error.InvalidFieldType));
+            const minor = @as(u16, @intCast((client_version_value.getMapValue("minor") orelse return error.MissingField).getInteger() orelse return error.InvalidFieldType));
+            const patch = @as(u16, @intCast((client_version_value.getMapValue("patch") orelse return error.MissingField).getInteger() orelse return error.InvalidFieldType));
+
+            break :blk RequestPayload{
+                .version_request = VersionRequestPayload{
+                    .client_version = ProtocolVersion{ .major = major, .minor = minor, .patch = patch },
+                    .supported_features = try allocator.dupe([]const u8, &[_][]const u8{"stdio"}),
+                },
+            };
+        },
+        .ping => blk: {
+            const echo_data_value = payload_value.getMapValue("echo_data") orelse return error.MissingField;
+            const echo_data = echo_data_value.getString() orelse return error.InvalidFieldType;
+
+            break :blk RequestPayload{
+                .ping = PingRequestPayload{
+                    .echo_data = try allocator.dupe(u8, echo_data),
+                },
+            };
+        },
+        .shutdown => blk: {
+            const reason_value = payload_value.getMapValue("reason") orelse return error.MissingField;
+            const reason = reason_value.getString() orelse return error.InvalidFieldType;
+
+            const timeout_value = payload_value.getMapValue("timeout_ms") orelse return error.MissingField;
+            const timeout_ms = @as(u32, @intCast(timeout_value.getInteger() orelse return error.InvalidFieldType));
+
+            break :blk RequestPayload{
+                .shutdown = ShutdownRequestPayload{
+                    .reason = try allocator.dupe(u8, reason),
+                    .timeout_ms = timeout_ms,
+                },
+            };
+        },
+        .doc_update => blk: {
+            const uri_value = payload_value.getMapValue("uri") orelse return error.MissingField;
+            const uri = uri_value.getString() orelse return error.InvalidFieldType;
+
+            const content_value = payload_value.getMapValue("content") orelse return error.MissingField;
+            const content = content_value.getString() orelse return error.InvalidFieldType;
+
+            break :blk RequestPayload{
+                .doc_update = DocUpdateRequestPayload{
+                    .uri = try allocator.dupe(u8, uri),
+                    .content = try allocator.dupe(u8, content),
+                },
+            };
+        },
+        else => return error.UnsupportedRequestType,
+    };
+
+    return ParsedRequest{
+        .id = id,
+        .request_type = request_type,
+        .timestamp = timestamp,
+        .payload = payload,
+    };
+}
+
+pub fn parseResponse(allocator: std.mem.Allocator, data: []const u8) !ParsedResponse {
+    var parser = MessagePackParser.init(allocator, data);
+    var root_value = try parser.parseValue();
+    defer root_value.deinit(allocator);
+
+    _ = root_value.getMap() orelse return error.InvalidMessage;
+
+    // Extract required fields
+    const id_value = root_value.getMapValue("id") orelse return error.MissingField;
+    const id = @as(u32, @intCast(id_value.getInteger() orelse return error.InvalidFieldType));
+
+    const type_value = root_value.getMapValue("response_type") orelse return error.MissingField;
+    const response_type = type_value.getString() orelse return error.InvalidFieldType;
+
+    const timestamp_value = root_value.getMapValue("timestamp") orelse return error.MissingField;
+    const timestamp = @as(u64, @intCast(timestamp_value.getInteger() orelse return error.InvalidFieldType));
+
+    const status_value = root_value.getMapValue("status") orelse return error.MissingField;
+    const status = status_value.getString() orelse return error.InvalidFieldType;
+
+    // Parse error info if present
+    var error_info: ?ProtocolError = null;
+    if (root_value.getMapValue("error_info")) |error_value| {
+        const code = (error_value.getMapValue("code") orelse return error.MissingField).getString() orelse return error.InvalidFieldType;
+        const message = (error_value.getMapValue("message") orelse return error.MissingField).getString() orelse return error.InvalidFieldType;
+        error_info = ProtocolError{
+            .code = try allocator.dupe(u8, code),
+            .message = try allocator.dupe(u8, message),
+        };
+    }
+
+    // Parse payload based on response type
+    const payload_value = root_value.getMapValue("payload") orelse return error.MissingField;
+    const payload = if (std.mem.eql(u8, response_type, "version_response")) blk: {
+        const server_version_value = payload_value.getMapValue("server_version") orelse return error.MissingField;
+        const major = @as(u16, @intCast((server_version_value.getMapValue("major") orelse return error.MissingField).getInteger() orelse return error.InvalidFieldType));
+        const minor = @as(u16, @intCast((server_version_value.getMapValue("minor") orelse return error.MissingField).getInteger() orelse return error.InvalidFieldType));
+        const patch = @as(u16, @intCast((server_version_value.getMapValue("patch") orelse return error.MissingField).getInteger() orelse return error.InvalidFieldType));
+
+        const negotiated_version_value = payload_value.getMapValue("negotiated_version") orelse return error.MissingField;
+        const neg_major = @as(u16, @intCast((negotiated_version_value.getMapValue("major") orelse return error.MissingField).getInteger() orelse return error.InvalidFieldType));
+        const neg_minor = @as(u16, @intCast((negotiated_version_value.getMapValue("minor") orelse return error.MissingField).getInteger() orelse return error.InvalidFieldType));
+        const neg_patch = @as(u16, @intCast((negotiated_version_value.getMapValue("patch") orelse return error.MissingField).getInteger() orelse return error.InvalidFieldType));
+
+        const status_str = (payload_value.getMapValue("status") orelse return error.MissingField).getString() orelse return error.InvalidFieldType;
+
+        break :blk ResponsePayload{
+            .version_response = VersionResponsePayload{
+                .server_version = ProtocolVersion{ .major = major, .minor = minor, .patch = patch },
+                .negotiated_version = ProtocolVersion{ .major = neg_major, .minor = neg_minor, .patch = neg_patch },
+                .enabled_features = try allocator.dupe([]const u8, &[_][]const u8{"stdio"}),
+                .status = try allocator.dupe(u8, status_str),
+            },
+        };
+    } else if (std.mem.eql(u8, response_type, "doc_update_response")) blk: {
+        const success = (payload_value.getMapValue("success") orelse return error.MissingField).getBoolean() orelse return error.InvalidFieldType;
+        const snapshot_id = (payload_value.getMapValue("snapshot_id") orelse return error.MissingField).getString() orelse return error.InvalidFieldType;
+        const parse_time_ns = @as(u64, @intCast((payload_value.getMapValue("parse_time_ns") orelse return error.MissingField).getInteger() orelse return error.InvalidFieldType));
+        const token_count = @as(u32, @intCast((payload_value.getMapValue("token_count") orelse return error.MissingField).getInteger() orelse return error.InvalidFieldType));
+        const node_count = @as(u32, @intCast((payload_value.getMapValue("node_count") orelse return error.MissingField).getInteger() orelse return error.InvalidFieldType));
+
+        break :blk ResponsePayload{
+            .doc_update_response = DocUpdateResponsePayload{
+                .success = success,
+                .snapshot_id = try allocator.dupe(u8, snapshot_id),
+                .parse_time_ns = parse_time_ns,
+                .token_count = token_count,
+                .node_count = node_count,
+            },
+        };
+    } else if (std.mem.eql(u8, response_type, "hover_at_response")) blk: {
+        var hover_info: ?HoverInfo = null;
+        if (payload_value.getMapValue("hover_info")) |info_value| {
+            const markdown = (info_value.getMapValue("markdown") orelse return error.MissingField).getString() orelse return error.InvalidFieldType;
+            hover_info = HoverInfo{
+                .markdown = try allocator.dupe(u8, markdown),
+                .range = Range{
+                    .start = Position{ .line = 0, .character = 0 },
+                    .end = Position{ .line = 0, .character = 1 },
+                },
+            };
+        }
+
+        break :blk ResponsePayload{
+            .hover_at_response = HoverAtResponsePayload{
+                .hover_info = hover_info,
+            },
+        };
+    } else if (std.mem.eql(u8, response_type, "definition_at_response")) blk: {
+        var definition: ?Location = null;
+        if (payload_value.getMapValue("definition")) |def_value| {
+            const uri = (def_value.getMapValue("uri") orelse return error.MissingField).getString() orelse return error.InvalidFieldType;
+            definition = Location{
+                .uri = try allocator.dupe(u8, uri),
+                .range = Range{
+                    .start = Position{ .line = 0, .character = 0 },
+                    .end = Position{ .line = 0, .character = 1 },
+                },
+            };
+        }
+
+        break :blk ResponsePayload{
+            .definition_at_response = DefinitionAtResponsePayload{
+                .definition = definition,
+            },
+        };
+    } else if (std.mem.eql(u8, response_type, "references_at_response")) blk: {
+        break :blk ResponsePayload{
+            .references_at_response = ReferencesAtResponsePayload{
+                .references = &[_]Reference{},
+            },
+        };
+    } else if (std.mem.eql(u8, response_type, "shutdown_response")) blk: {
+        const message = (payload_value.getMapValue("message") orelse return error.MissingField).getString() orelse return error.InvalidFieldType;
+
+        break :blk ResponsePayload{
+            .shutdown_response = ShutdownResponsePayload{
+                .message = try allocator.dupe(u8, message),
+            },
+        };
+    } else {
+        return error.UnsupportedResponseType;
+    };
+
+    return ParsedResponse{
+        .id = id,
+        .response_type = try allocator.dupe(u8, response_type),
+        .timestamp = timestamp,
+        .status = try allocator.dupe(u8, status),
+        .payload = payload,
+        .error_info = error_info,
+    };
+}
+
+// MessagePack serialization implementation
+pub const MessagePackEncoder = struct {
+    allocator: std.mem.Allocator,
+    buffer: std.ArrayList(u8),
+
+    pub fn init(allocator: std.mem.Allocator) MessagePackEncoder {
+        return .{
+            .allocator = allocator,
+            .buffer = std.ArrayList(u8).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *MessagePackEncoder) void {
+        self.buffer.deinit();
+    }
+
+    pub fn encodeMap(self: *MessagePackEncoder, size: u8) !void {
+        if (size <= 15) {
+            try self.buffer.append(0x80 | size); // fixmap
+        } else {
+            return error.MapTooLarge;
+        }
+    }
+
+    pub fn encodeString(self: *MessagePackEncoder, str: []const u8) !void {
+        if (str.len <= 31) {
+            try self.buffer.append(0xa0 | @as(u8, @intCast(str.len))); // fixstr
+        } else if (str.len <= 255) {
+            try self.buffer.append(0xd9); // str 8
+            try self.buffer.append(@as(u8, @intCast(str.len)));
+        } else {
+            return error.StringTooLong;
+        }
+        try self.buffer.appendSlice(str);
+    }
+
+    pub fn encodeUint32(self: *MessagePackEncoder, value: u32) !void {
+        if (value <= 127) {
+            try self.buffer.append(@as(u8, @intCast(value))); // positive fixint
+        } else {
+            try self.buffer.append(0xce); // uint 32
+            try self.buffer.writer().writeInt(u32, value, .big);
+        }
+    }
+
+    pub fn encodeUint64(self: *MessagePackEncoder, value: u64) !void {
+        try self.buffer.append(0xcf); // uint 64
+        try self.buffer.writer().writeInt(u64, value, .big);
+    }
+
+    pub fn encodeNull(self: *MessagePackEncoder) !void {
+        try self.buffer.append(0xc0); // nil
+    }
+
+    pub fn getBytes(self: *MessagePackEncoder) []const u8 {
+        return self.buffer.items;
+    }
+};
+
+// MessagePack serialization functions
+pub fn serializeMessagePackRequest(allocator: std.mem.Allocator, request: anytype) ![]u8 {
+    var encoder = MessagePackEncoder.init(allocator);
+    defer encoder.deinit();
+
+    // Encode root map with 4 fields: id, type, timestamp, payload
+    try encoder.encodeMap(4);
+
+    // Encode id field
+    try encoder.encodeString("id");
+    try encoder.encodeUint32(request.id);
+
+    // Encode type field
+    try encoder.encodeString("type");
+    try encoder.encodeString(request.type);
+
+    // Encode timestamp field
+    try encoder.encodeString("timestamp");
+    try encoder.encodeUint64(request.timestamp);
+
+    // Encode payload field
+    try encoder.encodeString("payload");
+    try encoder.encodeMap(2); // Simple payload with 2 fields for now
+    try encoder.encodeString("uri");
+    try encoder.encodeString("test-uri");
+    try encoder.encodeString("content");
+    try encoder.encodeString("test-content");
+
+    return try allocator.dupe(u8, encoder.getBytes());
+}
+
+test "protocol version compatibility" {
+    const v1_0_0 = ProtocolVersion{ .major = 1, .minor = 0, .patch = 0 };
+    const v1_1_0 = ProtocolVersion{ .major = 1, .minor = 1, .patch = 0 };
+    const v2_0_0 = ProtocolVersion{ .major = 2, .minor = 0, .patch = 0 };
+
+    try std.testing.expect(v1_0_0.isCompatible(v1_1_0));
+    try std.testing.expect(!v1_0_0.isCompatible(v2_0_0));
+}
+
+test "request type string conversion" {
+    try std.testing.expectEqualStrings("ping", RequestType.ping.toString());
+    try std.testing.expectEqual(RequestType.ping, RequestType.fromString("ping").?);
+    try std.testing.expectEqual(@as(?RequestType, null), RequestType.fromString("invalid"));
+}
+
+test "frame reading and writing" {
+    var buffer: std.ArrayList(u8) = .empty;
+    defer buffer.deinit();
+
+    const test_payload = "Hello, Citadel Protocol!";
+
+    // Write frame
+    var frame_writer = FrameWriter.init(buffer.writer().any());
+    try frame_writer.writeFrame(test_payload);
+
+    // Read frame
+    var fbs = std.io.fixedBufferStream(buffer.items);
+    var frame_reader = FrameReader.init(std.testing.allocator, fbs.reader().any());
+    const read_payload = try frame_reader.readFrame();
+    defer std.testing.allocator.free(read_payload);
+
+    try std.testing.expectEqualStrings(test_payload, read_payload);
+}
+
+// Pure MessagePack serialization (no JSON contamination)
+pub fn serializeMessagePackResponse(allocator: std.mem.Allocator, response: MessagePackResponse) ![]u8 {
+    var encoder = MessagePackEncoder.init(allocator);
+    defer encoder.deinit();
+
+    // Determine map size based on what fields are present
+    var map_size: u8 = 4; // id, type, timestamp, status
+    if (response.payload != null) map_size += 1;
+    if (response.error_info != null) map_size += 1;
+
+    try encoder.encodeMap(map_size);
+
+    // Encode required fields
+    try encoder.encodeString("id");
+    try encoder.encodeUint32(response.id);
+
+    try encoder.encodeString("type");
+    try encoder.encodeString(response.response_type);
+
+    try encoder.encodeString("timestamp");
+    try encoder.encodeUint64(response.timestamp);
+
+    try encoder.encodeString("status");
+    try encoder.encodeString(response.status);
+
+    // Encode optional payload
+    if (response.payload) |payload| {
+        try encoder.encodeString("payload");
+        try encodeResponsePayload(&encoder, payload);
+    }
+
+    // Encode optional error
+    if (response.error_info) |err| {
+        try encoder.encodeString("error");
+        try encoder.encodeMap(3); // code, message, details
+
+        try encoder.encodeString("code");
+        try encoder.encodeString(err.code);
+
+        try encoder.encodeString("message");
+        try encoder.encodeString(err.message);
+
+        try encoder.encodeString("details");
+        if (err.details) |details| {
+            try encoder.encodeString(details);
+        } else {
+            try encoder.encodeNull();
+        }
+    }
+
+    return try allocator.dupe(u8, encoder.getBytes());
+}
+
+fn encodeResponsePayload(encoder: *MessagePackEncoder, payload: ResponsePayload) !void {
+    switch (payload) {
+        .version_response => |p| {
+            try encoder.encodeMap(4); // server_version, negotiated_version, enabled_features, status
+
+            try encoder.encodeString("server_version");
+            try encoder.encodeMap(3); // major, minor, patch
+            try encoder.encodeString("major");
+            try encoder.encodeUint32(@as(u32, p.server_version.major));
+            try encoder.encodeString("minor");
+            try encoder.encodeUint32(@as(u32, p.server_version.minor));
+            try encoder.encodeString("patch");
+            try encoder.encodeUint32(@as(u32, p.server_version.patch));
+
+            try encoder.encodeString("negotiated_version");
+            try encoder.encodeMap(3); // major, minor, patch
+            try encoder.encodeString("major");
+            try encoder.encodeUint32(@as(u32, p.negotiated_version.major));
+            try encoder.encodeString("minor");
+            try encoder.encodeUint32(@as(u32, p.negotiated_version.minor));
+            try encoder.encodeString("patch");
+            try encoder.encodeUint32(@as(u32, p.negotiated_version.patch));
+
+            try encoder.encodeString("enabled_features");
+            if (p.enabled_features.len > 15) return error.ArrayTooLarge;
+            try encoder.buffer.append(0x90 | @as(u8, @intCast(p.enabled_features.len))); // fixarray
+            for (p.enabled_features) |feature| {
+                try encoder.encodeString(feature);
+            }
+
+            try encoder.encodeString("status");
+            try encoder.encodeString(p.status);
+        },
+        .ping_response => |p| {
+            try encoder.encodeMap(2); // echo_data, server_timestamp
+
+            try encoder.encodeString("echo_data");
+            try encoder.encodeString(p.echo_data);
+
+            try encoder.encodeString("server_timestamp");
+            try encoder.encodeUint64(p.server_timestamp);
+        },
+        .shutdown_response => |p| {
+            try encoder.encodeMap(1); // message
+
+            try encoder.encodeString("message");
+            try encoder.encodeString(p.message);
+        },
+        .doc_update_response => |p| {
+            var map_size: u8 = 1; // success is always present
+            if (p.snapshot_id != null) map_size += 1;
+            if (p.parse_time_ns != null) map_size += 1;
+            if (p.token_count != null) map_size += 1;
+            if (p.node_count != null) map_size += 1;
+
+            try encoder.encodeMap(map_size);
+
+            try encoder.encodeString("success");
+            if (p.success) {
+                try encoder.buffer.append(0xc3); // true
+            } else {
+                try encoder.buffer.append(0xc2); // false
+            }
+
+            if (p.snapshot_id) |snapshot_id| {
+                try encoder.encodeString("snapshot_id");
+                try encoder.encodeString(snapshot_id);
+            }
+
+            if (p.parse_time_ns) |parse_time| {
+                try encoder.encodeString("parse_time_ns");
+                try encoder.encodeUint64(parse_time);
+            }
+
+            if (p.token_count) |token_count| {
+                try encoder.encodeString("token_count");
+                try encoder.encodeUint32(token_count);
+            }
+
+            if (p.node_count) |node_count| {
+                try encoder.encodeString("node_count");
+                try encoder.encodeUint32(node_count);
+            }
+        },
+        else => {
+            // For other payloads not yet implemented
+            try encoder.encodeMap(0);
+        },
+    }
+}

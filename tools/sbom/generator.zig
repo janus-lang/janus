@@ -79,7 +79,7 @@ const JanusProject = struct {
 
     pub fn analyze(allocator: std.mem.Allocator, version: []const u8) !Self {
         // Analyze the Janus project structure and dependencies
-        var components = std.ArrayList(Component).init(allocator);
+        var components: std.ArrayList(Component) = .empty;
         defer components.deinit();
 
         // Core compiler component

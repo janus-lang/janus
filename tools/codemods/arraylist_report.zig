@@ -568,15 +568,15 @@ test "analyzeSource reports ArrayList instantiations and skips types/comments" {
         \\const std = @import("std");
         \\
         \\pub fn sample(allocator: std.mem.Allocator) void {
-        \\    var list_a = std.ArrayList(u8).init(allocator);
+        \\    var list_a: std.ArrayList(u8) = .empty;
         \\    var list_b = std.ArrayList(u8)
         \\        .initCapacity(allocator, 16);
         \\    var list_c = std.ArrayList(struct {
         \\        name: []const u8,
         \\    }){};
         \\    const TypeAlias = std.ArrayList(u8);
-        \\    // std.ArrayList(u8).init(allocator);
-        \\    const literal = "std.ArrayList(u8).init(allocator)";
+        \\    // std.ArrayList(u8).empty;
+        \\    const literal = "std.ArrayList(u8).empty";
         \\    const init_fn = std.ArrayList(u8).init;
         \\}
     ;

@@ -832,7 +832,7 @@ pub const MessagePackEncoder = struct {
     pub fn init(allocator: std.mem.Allocator) MessagePackEncoder {
         return .{
             .allocator = allocator,
-            .buffer = std.ArrayList(u8).init(allocator),
+            .buffer = .empty,
         };
     }
 
@@ -930,7 +930,7 @@ test "request type string conversion" {
 }
 
 test "frame reading and writing" {
-    var buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit();
 
     const test_payload = "Hello, Citadel Protocol!";

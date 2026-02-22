@@ -17,8 +17,8 @@ pub const TensorToolCtx = struct {
 /// x-janus-capabilities and x-janus-profile fields per SPEC.
 pub fn tensorToolManual(ctx_ptr: *const anyopaque, alloc: std.mem.Allocator) anyerror![]const u8 {
     const ctx: *const TensorToolCtx = @ptrCast(@alignCast(ctx_ptr));
-    var out = std.ArrayList(u8).init(alloc);
-    errdefer out.deinit();
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(alloc);
     const w = out.writer();
 
     try w.print("{{\n  \"name\": \"{s}\",\n  \"summary\": \"Executes a tensor graph\",\n  \"x-janus-profile\": \"{s}\",\n  \"x-janus-capabilities\": {{\n    \"required\": [", .{ ctx.tool_name, ctx.profile });
@@ -35,7 +35,7 @@ pub fn tensorToolManual(ctx_ptr: *const anyopaque, alloc: std.mem.Allocator) any
         try w.print("]", .{});
     }
     try w.print("\n  }}\n}}", .{});
-    return out.toOwnedSlice();
+    return try out.toOwnedSlice(alloc);
 }
 
 pub fn toManualFn() utcp.ManualFn {

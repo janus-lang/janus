@@ -371,7 +371,7 @@ pub const MemoryFS = struct {
             return FsError.NotDir;
         }
 
-        var entries = std.ArrayList(MemoryDirEntry).init(self.allocator);
+        var entries: std.ArrayList(MemoryDirEntry) = .empty;
         defer entries.deinit();
 
         var child_it = node.children.iterator();
@@ -383,7 +383,7 @@ pub const MemoryFS = struct {
             try entries.append(entry);
         }
 
-        return entries.toOwnedSlice();
+        return try entries.toOwnedSlice(alloc);
     }
 
     /// Delete file or directory

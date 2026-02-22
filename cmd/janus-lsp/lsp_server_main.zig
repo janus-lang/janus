@@ -312,7 +312,7 @@ const JanusLSPServer = struct {
                 def_result.symbol_type,
             }),
             .references_of => |refs_result| blk: {
-                var json_buffer = std.ArrayList(u8).init(self.allocator);
+                var json_buffer: std.ArrayList(u8) = .empty;
                 defer json_buffer.deinit();
 
                 try json_buffer.appendSlice("{\"references\": [");
@@ -341,7 +341,7 @@ const JanusLSPServer = struct {
                 type_result.signature,
             }),
             .diagnostics => |diag_result| blk: {
-                var json_buffer = std.ArrayList(u8).init(self.allocator);
+                var json_buffer: std.ArrayList(u8) = .empty;
                 defer json_buffer.deinit();
 
                 try json_buffer.appendSlice("{\"diagnostics\": [");
@@ -453,7 +453,7 @@ const JanusLSPServer = struct {
         const connection = self.daemon_connection orelse return error.NotConnected;
 
         // Serialize params to JSON string
-        var params_string = std.ArrayList(u8).init(self.allocator);
+        var params_string: std.ArrayList(u8) = .empty;
         defer params_string.deinit();
         try std.json.stringify(params, .{}, params_string.writer());
 

@@ -107,7 +107,7 @@ pub const ArchiveIndex = struct {
     /// Initialize empty index
     pub fn init(allocator: Allocator) ArchiveIndex {
         return ArchiveIndex{
-            .entries = std.ArrayList(ArchiveEntry).init(allocator),
+            .entries = .empty,
             .path_to_entry = if (builtin.os.tag == .linux)
                 std.StringHashMap(usize).init(allocator)
             else
@@ -138,7 +138,7 @@ pub const ArchiveIndex = struct {
 
     /// Get all entry paths (for directory listing)
     pub fn getChildPaths(self: ArchiveIndex, dir_path: []const u8) ![]const []const u8 {
-        var children = std.ArrayList([]const u8).init(self.allocator);
+        var children: std.ArrayList([]const u8) = .empty;
         defer children.deinit();
 
         const search_prefix = if (std.mem.endsWith(u8, dir_path, "/"))
@@ -172,7 +172,7 @@ pub const ArchiveIndex = struct {
             }
         }
 
-        return children.toOwnedSlice();
+        return try children.toOwnedSlice(alloc);
     }
 
     /// Clean up the index
@@ -532,7 +532,7 @@ fn validateArchivePath(path: []const u8) !void {
 fn normalizeArchivePath(path: []const u8, allocator: Allocator) ![]u8 {
     if (path.len == 0) return try allocator.dupe(u8, "/");
 
-    var components = std.ArrayList([]const u8).init(allocator);
+    var components: std.ArrayList([]const u8) = .empty;
     defer components.deinit();
 
     var path_parts = std.mem.split(u8, path, "/");
@@ -557,7 +557,7 @@ fn normalizeArchivePath(path: []const u8, allocator: Allocator) ![]u8 {
         return try allocator.dupe(u8, "/");
     }
 
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .empty;
     defer result.deinit();
 
     for (components.items, 0..) |component, i| {
@@ -565,7 +565,7 @@ fn normalizeArchivePath(path: []const u8, allocator: Allocator) ![]u8 {
         try result.appendSlice(component);
     }
 
-    return result.toOwnedSlice();
+    return try result.toOwnedSlice(alloc);
 }
 
 /// Create CompressFS from tar+zstd archive
