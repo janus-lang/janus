@@ -261,7 +261,7 @@ test "resolver: capability change prompting" {
     const changes = [_]resolver.CapabilityChange{cap_change};
 
     // Test prompting (output to a buffer)
-    var output_buffer = std.ArrayList(u8).init(allocator);
+    var output_buffer: std.ArrayList(u8) = .empty;
     defer output_buffer.deinit();
 
     const result = try resolver.Resolver.promptCapabilityChanges(&changes, output_buffer.writer());

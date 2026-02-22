@@ -168,7 +168,7 @@ test "validation engine performance with large ASTDB" {
     const start_time = std.time.nanoTimestamp();
 
     // Create multiple compilation units
-    var unit_ids = std.ArrayList(AstDB.UnitId).init(allocator);
+    var unit_ids: std.ArrayList(AstDB.UnitId) = .empty;
     defer unit_ids.deinit();
 
     for (0..10) |i| {

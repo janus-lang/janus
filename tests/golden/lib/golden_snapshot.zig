@@ -68,7 +68,7 @@ pub const SnapshotAPI = struct {
 
     /// Serialize snapshot to canonical bytes
     fn serializeSnapshot(self: *SnapshotAPI, snapshot: *const astdb.Snapshot) ![]u8 {
-        var buf = std.ArrayList(u8).init(self.allocator);
+        var buf: std.ArrayList(u8) = .empty;
         defer buf.deinit();
 
         const writer = buf.writer();
@@ -129,7 +129,7 @@ pub const SnapshotAPI = struct {
             try writer.writeAll(&entry.value_ptr.*);
         }
 
-        return buf.toOwnedSlice();
+        return try buf.toOwnedSlice(alloc);
     }
 
     /// Deserialize snapshot from canonical bytes

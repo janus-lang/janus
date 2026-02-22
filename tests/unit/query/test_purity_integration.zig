@@ -50,7 +50,7 @@ const QueryEngine = struct {
         return QueryEngine{
             .allocator = allocator,
             .debug_mode = debug_mode,
-            .diagnostics = std.ArrayList(Diagnostic).init(allocator),
+            .diagnostics = .empty,
         };
     }
 

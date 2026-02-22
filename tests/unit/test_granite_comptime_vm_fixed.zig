@@ -81,7 +81,7 @@ test "Granite-Solid ComptimeVM - Zero Leak Validation" {
 
             const const_name = try astdb_system.str_interner.get(const_name_str);
 
-            var dependencies = std.ArrayList(astdb.NodeId).init(allocator);
+            var dependencies: std.ArrayList(astdb.NodeId) = .empty;
             defer dependencies.deinit();
 
             const input_contract = contracts.ComptimeVMInputContract{
@@ -129,7 +129,7 @@ test "Granite-Solid ComptimeVM - Integration Compatibility" {
     defer comptime_vm.deinit();
 
     // Test the same pattern used in step2_integration_working.zig
-    var dependencies = std.ArrayList(astdb.NodeId).init(allocator);
+    var dependencies: std.ArrayList(astdb.NodeId) = .empty;
     defer dependencies.deinit();
     try dependencies.append(@enumFromInt(1));
 

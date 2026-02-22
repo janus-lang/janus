@@ -165,10 +165,10 @@ pub const IRComparator = struct {
     /// Parse LLVM IR into structured representation
     pub fn parseIR(self: *const Self, ir_content: []const u8) !IRStructure {
         // Simplified IR parsing - real implementation would use proper LLVM IR parser
-        var functions = std.ArrayList(IRStructure.FunctionInfo).init(self.allocator);
-        var globals = std.ArrayList(IRStructure.GlobalInfo).init(self.allocator);
-        var types = std.ArrayList(IRStructure.TypeInfo).init(self.allocator);
-        var metadata = std.ArrayList(IRStructure.MetadataInfo).init(self.allocator);
+        var functions: std.ArrayList(IRStructure.FunctionInfo) = .empty;
+        var globals: std.ArrayList(IRStructure.GlobalInfo) = .empty;
+        var types: std.ArrayList(IRStructure.TypeInfo) = .empty;
+        var metadata: std.ArrayList(IRStructure.MetadataInfo) = .empty;
 
         var lines = std.mem.splitScalar(u8, ir_content, '\n');
         var line_number: u32 = 0;
@@ -211,7 +211,7 @@ pub const IRComparator = struct {
 
     /// Compare two IR structures and detect differences
     pub fn compareIR(self: *const Self, expected: []const u8, actual: []const u8) !ComparisonResult {
-        var differences = std.ArrayList(IRDifference).init(self.allocator);
+        var differences: std.ArrayList(IRDifference) = .empty;
 
         // Parse both IR structures
         var expected_structure = try self.parseIR(expected);
@@ -270,7 +270,7 @@ pub const IRComparator = struct {
 
     /// Generate detailed diff report
     pub fn generateDiffReport(self: *const Self, comparison: *const ComparisonResult) ![]const u8 {
-        var report = std.ArrayList(u8).init(self.allocator);
+        var report: std.ArrayList(u8) = .empty;
         var writer = report.writer();
 
         try writer.print("IR Comparison Report\n");
@@ -300,7 +300,7 @@ pub const IRComparator = struct {
             }
         }
 
-        return report.toOwnedSlice();
+        return try report.toOwnedSlice(alloc);
     }
 
     // Helper functions for parsing (simplified implementations)

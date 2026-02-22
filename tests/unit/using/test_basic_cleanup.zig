@@ -61,8 +61,8 @@ const TestContext = struct {
     pub fn init(allocator: Allocator) TestContext {
         return TestContext{
             .allocator = allocator,
-            .cleanup_order = std.ArrayList(u32).init(allocator),
-            .resources = std.ArrayList(TestResource).init(allocator),
+            .cleanup_order = .empty,
+            .resources = .empty,
         };
     }
 

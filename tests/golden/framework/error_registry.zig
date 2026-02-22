@@ -214,7 +214,7 @@ pub const ErrorRegistry = struct {
     pub fn formatFailureReport(self: *Self, report: FailureReport) ![]u8 {
         const error_info = self.getErrorInfo(report.error_code) orelse return error.UnknownErrorCode;
 
-        var buffer = std.ArrayList(u8).init(self.allocator);
+        var buffer: std.ArrayList(u8) = .empty;
         defer buffer.deinit();
 
         const writer = buffer.writer();
@@ -306,7 +306,7 @@ pub const ErrorRegistry = struct {
         try writer.print("\n═══════════════════════════════════════════════════════════════\n");
         try writer.print("Golden Test Framework - Forensic Failure Analysis\n");
 
-        return buffer.toOwnedSlice();
+        return try buffer.toOwnedSlice(alloc);
     }
 
     /// Populate the error database with all known errors

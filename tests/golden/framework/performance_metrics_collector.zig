@@ -294,7 +294,7 @@ pub const PerformanceMetricsCollector = struct {
 
     /// Validate collected metrics for accuracy and reliability
     pub fn validateMetrics(self: *Self, metrics: *const ComprehensiveMetrics) !MetricsValidationResult {
-        var validation_errors = std.ArrayList(MetricsValidationResult.ValidationError).init(self.allocator);
+        var validation_errors: std.ArrayList(MetricsValidationResult.ValidationError) = .empty;
 
         // Validate dispatch overhead consistency
         if (metrics.dispatch_metrics.overhead_ns == 0) {
@@ -345,7 +345,7 @@ pub const PerformanceMetricsCollector = struct {
 
     /// Generate detailed performance analysis report
     pub fn generateAnalysisReport(self: *Self, metrics: *const ComprehensiveMetrics, validation: *const MetricsValidationResult) ![]const u8 {
-        var report = std.ArrayList(u8).init(self.allocator);
+        var report: std.ArrayList(u8) = .empty;
         var writer = report.writer();
 
         try writer.print("Comprehensive Performance Analysis Report\n", .{});
@@ -450,7 +450,7 @@ pub const PerformanceMetricsCollector = struct {
             }
         }
 
-        return report.toOwnedSlice();
+        return try report.toOwnedSlice(alloc);
     }
 
     // Private helper functions

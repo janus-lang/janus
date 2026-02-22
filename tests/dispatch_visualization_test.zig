@@ -435,7 +435,7 @@ const VisualizationTestSuite = struct {
         _ = try self.debugger.addWatch("Test Watch", watch_expr);
 
         // Generate report
-        var report_buffer = ArrayList(u8).init(self.allocator);
+        var report_buffer: ArrayList(u8) = .empty;
         defer report_buffer.deinit();
 
         try self.debugger.generateDebugReport(report_buffer.writer());

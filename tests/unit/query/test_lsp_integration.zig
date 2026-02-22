@@ -112,7 +112,7 @@ test "LSP Hover Functionality" {
     try text_document.object.put("version", json.Value{ .integer = 1 });
 
     const content_changes = json.Value{
-        .array = std.ArrayList(json.Value).init(allocator),
+        .array = .empty,
     };
 
     const change = json.Value{

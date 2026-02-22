@@ -154,7 +154,7 @@ test "TestResult lifecycle" {
     const allocator = std.testing.allocator;
 
     // Create a test result with diagnostic messages
-    var diagnostic_messages = std.ArrayList(TestRunner.DiagnosticMessage).init(allocator);
+    var diagnostic_messages: std.ArrayList(TestRunner.DiagnosticMessage) = .empty;
     defer diagnostic_messages.deinit();
 
     try diagnostic_messages.append(.{

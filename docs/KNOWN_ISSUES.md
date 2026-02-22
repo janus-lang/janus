@@ -1,6 +1,144 @@
 # Known Issues
 
-*No known issues at this time.*
+## Active Issues
+
+### Zig 0.16-dev Compatibility (OPEN 2026-02-22)
+
+**Status**: ⚠️ Under Investigation
+**Date Reported**: 2026-02-22
+**Component**: Toolchain
+**Impact**: High — blocks Zig 0.16 migration
+
+**Issue**: Zig 0.16-dev hangs on all compilation tasks on Debian 12 (bookworm) with kernel 6.1.0-42-amd64.
+
+**Symptoms**:
+- ✅ `zig version` works
+- ❌ `zig build` → hangs indefinitely
+- ❌ `zig run` → hangs indefinitely
+- ❌ `zig build-exe` → hangs indefinitely
+- ❌ `zig build --list-steps` → hangs indefinitely
+
+**Tested Versions**:
+- 0.16.0-dev.2623+27eec9bd6 — BROKEN
+- 0.16.0-dev.2637+6a9510c0e (latest, Feb 20) — BROKEN
+
+**Hypothesis**: Zig 0.16's new async-first stdlib (`std.Io` vs `std.io`) has a threading/IO issue on this kernel/glibc combination.
+
+**Workaround**: Use **Zig 0.15.2** (fully functional for Janus builds)
+
+**Environment**:
+- Debian 12 bookworm
+- Kernel 6.1.0-42-amd64
+- x86_64
+
+**Coordination**: Need confirmation from @Virgil if Zig 0.16 works on his system.
+
+**Related Reports**:
+- `agent-reports/2026-02-22-0750-voxis-zig016-blocker.md`
+
+---
+
+### Test Suite Failures (RESOLVED 2026-02-22 08:48)
+
+**Status**: ✅ **RESOLVED** — 931/934 passing (99.7%)
+**Date Reported**: 2026-02-22
+**Date Resolved**: 2026-02-22 08:48
+**Component**: Test Suite / LLVM Integration
+**Impact**: ~~Medium~~ → **HIGH (Resolved)**
+
+**Summary**: ~~83/934 tests failing (91%)~~ → **3/934 failing (99.7%)**
+
+**Root Cause (RESOLVED)**:
+```
+llc: error: ptr type is only supported in -opaque-pointers mode
+```
+
+Janus LLVM emitter generates opaque pointer IR (`ptr` type), but LLVM 14.0.6 requires explicit `-opaque-pointers` flag.
+
+**Fix Applied**: Added `-opaque-pointers` flag to 24 test files in `tests/integration/`
+
+**Tests Fixed (80 tests)**:
+- ✅ for_loop_e2e: 0/2 → 2/2
+- ✅ function_call_e2e: 0/5 → 5/5
+- ✅ array_e2e_tests: 0/12 → 12/12
+- ✅ import_e2e_tests: 0/6 → 6/6
+- ✅ logical_e2e_tests: 0/10 → 10/10
+- ✅ compound_assignment_e2e: 0/12 → 12/12
+- ✅ string_e2e_tests: 1/12 → 12/12
+- ✅ while_loop_e2e: 2/7 → 7/7
+- ✅ async_await_e2e: 8/10 → 10/10
+- (+ 60+ more tests)
+
+**Remaining Issues (3 tests)**:
+- type_inference_tests (module path config)
+- type_system_tests (module path config)
+- pattern_coverage_tests (module path config)
+
+These are build.zig configuration issues, not code bugs.
+
+**Related Reports**:
+- `agent-reports/2026-02-22-0848-voxis-llvm-opaque-pointers-fix.md`
+
+---
+
+### Test Suite Failures (HISTORICAL — Pre-08:48 Fix)
+
+**Status**: ✅ RESOLVED
+**Date Reported**: 2026-02-22
+**Component**: Test Suite
+**Impact**: ~~Medium~~ → Resolved
+
+**Summary**: ~~83/934 tests failing (91% pass rate)~~ → FIXED
+
+**Passing Tests (Highlights)**:
+- ✅ UTCP Transport BDD: 11/11
+- ✅ QTJIR tests: All (emitter, validation, SSA, fusion, etc.)
+- ✅ Numeric literals e2e: 19/20
+- ✅ Modulo e2e: 7/8
+- ✅ Struct e2e: 4/5
+- ✅ Async/await: 8/10
+
+**Failing Tests (High Impact)**:
+| Test Suite | Status | Notes |
+|------------|--------|-------|
+| type_inference_tests | ❌ Compile error | Module path issue |
+| type_system_tests | ❌ Compile error | Module path issue |
+| array_e2e_tests | 0/12 ❌ | Arrays not working |
+| import_e2e_tests | 0/6 ❌ | Imports not working |
+| logical_e2e_tests | 0/10 ❌ | Logical operators not working |
+| compound_assignment_e2e | 0/12 ❌ | Compound assignment not working |
+| function_call_e2e | 0/5 ❌ | Function calls not working |
+| string_e2e_tests | 1/12 ❌ | Strings mostly broken |
+| for_loop_e2e | 0/2 ❌ | For loops broken (despite Jan 25 fix) |
+
+**Root Cause Found (2026-02-22 08:45)**:
+```
+llc: error: ptr type is only supported in -opaque-pointers mode
+```
+
+**Analysis**: Janus LLVM emitter generates opaque pointer IR (`ptr` type), but `llc` (LLVM 14.0.6) requires `-opaque-pointers` flag which isn't being passed.
+
+**Fix Options**:
+1. Add `-opaque-pointers` flag to `llc` invocation in LLVM emitter
+2. Upgrade to LLVM 15+ (opaque pointers by default)
+3. Generate typed pointers instead of opaque `ptr`
+
+**Impact**: This explains many e2e test failures — they're LLVM IR compatibility issues, not feature bugs.
+
+**Affected Tests**:
+- for_loop_e2e: 0/2
+- function_call_e2e: 0/5
+- array_e2e_tests: 0/12
+- compound_assignment_e2e: 0/12
+- (likely others using LLVM codegen)
+
+**Next Steps**:
+1. Investigate module path issues
+2. Confirm if regressions from recent changes
+3. Prioritize fixes based on feature importance
+
+**Related Reports**:
+- `agent-reports/2026-02-22-0757-voxis-janus-build-verify.md`
 
 ---
 

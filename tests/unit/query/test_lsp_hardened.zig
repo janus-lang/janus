@@ -96,7 +96,7 @@ test "LSP Server Incremental Document Synchronization" {
     try text_document.object.put("version", json.Value{ .integer = 1 });
 
     const content_changes = json.Value{
-        .array = std.ArrayList(json.Value).init(allocator),
+        .array = .empty,
     };
 
     const full_change = json.Value{
@@ -394,7 +394,7 @@ test "LSP Server Performance Under Stress" {
         try text_document.object.put("version", json.Value{ .integer = @intCast(i + 1) });
 
         const content_changes = json.Value{
-            .array = std.ArrayList(json.Value).init(allocator),
+            .array = .empty,
         };
 
         const change = json.Value{

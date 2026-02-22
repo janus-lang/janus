@@ -256,7 +256,7 @@ pub const ApprovalWorkflow = struct {
     /// Get approval history for a test
     pub fn getApprovalHistory(self: *const Self, test_name: []const u8) ![]ApprovalRecord {
         const all_records = try self.loadApprovalHistory();
-        var matching_records = std.ArrayList(ApprovalRecord).init(self.allocator);
+        var matching_records: std.ArrayList(ApprovalRecord) = .empty;
 
         for (all_records) |record| {
             if (std.mem.eql(u8, record.request.test_name, test_name)) {
@@ -269,12 +269,12 @@ pub const ApprovalWorkflow = struct {
         }
 
         self.allocator.free(all_records);
-        return matching_records.toOwnedSlice();
+        return try matching_records.toOwnedSlice(alloc);
     }
 
     /// Generate approval report
     pub fn generateApprovalReport(self: *const Self, records: []const ApprovalRecord) ![]const u8 {
-        var report = std.ArrayList(u8).init(self.allocator);
+        var report: std.ArrayList(u8) = .empty;
         var writer = report.writer();
 
         try writer.print("Golden Reference Approval Report\n");
@@ -282,7 +282,7 @@ pub const ApprovalWorkflow = struct {
 
         if (records.len == 0) {
             try writer.print("No approval records found.\n");
-            return report.toOwnedSlice();
+            return try report.toOwnedSlice(alloc);
         }
 
         for (records, 0..) |record, i| {
@@ -313,7 +313,7 @@ pub const ApprovalWorkflow = struct {
             try writer.print("   Justification: {s}\n\n", .{record.request.justification});
         }
 
-        return report.toOwnedSlice();
+        return try report.toOwnedSlice(alloc);
     }
 
     // Private helper functions

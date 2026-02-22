@@ -224,7 +224,7 @@ pub const TestRunner = struct {
             self.allocator.free(test_cases);
         }
 
-        var results = ArrayList(TestResult).init(self.allocator);
+        var results: ArrayList(TestResult) = .empty;
         defer results.deinit();
 
         if (self.config.parallel_execution) {
@@ -239,7 +239,7 @@ pub const TestRunner = struct {
             results.items.len,
         });
 
-        return results.toOwnedSlice();
+        return try results.toOwnedSlice(alloc);
     }
 
     /// Run a single test by name
@@ -252,7 +252,7 @@ pub const TestRunner = struct {
 
     /// Discover all test cases in the test directory
     fn discoverTestCases(self: *Self) ![]TestCase {
-        var test_cases = ArrayList(TestCase).init(self.allocator);
+        var test_cases: ArrayList(TestCase) = .empty;
         defer test_cases.deinit();
 
         var dir = std.fs.cwd().openDir(self.config.test_directory, .{ .iterate = true }) catch |err| {
@@ -277,7 +277,7 @@ pub const TestRunner = struct {
         }
 
         std.log.info("Discovered {} golden test cases", .{test_cases.items.len});
-        return test_cases.toOwnedSlice();
+        return try test_cases.toOwnedSlice(alloc);
     }
 
     /// Load a single test case by name
@@ -320,7 +320,7 @@ pub const TestRunner = struct {
         // In a full implementation, this would use a thread pool
         const max_workers = @min(self.config.max_parallel_workers, test_cases.len);
 
-        var completed_results = ArrayList(TestResult).init(self.allocator);
+        var completed_results: ArrayList(TestResult) = .empty;
         defer completed_results.deinit();
 
         // Simple parallel execution - in practice would use proper thread pool
@@ -337,7 +337,7 @@ pub const TestRunner = struct {
     fn executeTestCase(self: *Self, test_case: TestCase) !TestResult {
         const start_time = std.time.milliTimestamp();
 
-        var diagnostic_messages = ArrayList(DiagnosticMessage).init(self.allocator);
+        var diagnostic_messages: ArrayList(DiagnosticMessage) = .empty;
         defer diagnostic_messages.deinit();
 
         // Check if test should be skipped for current platform
@@ -720,14 +720,14 @@ pub const TestRunner = struct {
     /// Parse test metadata from embedded comments in Janus source
     pub fn parseTestMetadata(self: *Self, source_content: []const u8) !TestMetadata {
         var expected_strategy: ?[]const u8 = null;
-        var expected_performance = ArrayList(TestMetadata.PerformanceExpectation).init(self.allocator);
+        var expected_performance: ArrayList(TestMetadata.PerformanceExpectation) = .empty;
         defer expected_performance.deinit();
 
         var platforms: TestMetadata.PlatformFilter = .all;
-        var optimization_levels = ArrayList(TestConfig.OptimizationLevel).init(self.allocator);
+        var optimization_levels: ArrayList(TestConfig.OptimizationLevel) = .empty;
         defer optimization_levels.deinit();
 
-        var skip_platforms = ArrayList(TestConfig.Platform).init(self.allocator);
+        var skip_platforms: ArrayList(TestConfig.Platform) = .empty;
         defer skip_platforms.deinit();
 
         var timeout_override: ?u32 = null;

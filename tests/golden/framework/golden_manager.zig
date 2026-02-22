@@ -246,7 +246,7 @@ pub const GoldenManager = struct {
 
     /// List all golden references for a test
     pub fn listGoldenReferences(self: *const Self, test_name: []const u8) ![]GoldenFileInfo {
-        var references = std.ArrayList(GoldenFileInfo).init(self.allocator);
+        var references: std.ArrayList(GoldenFileInfo) = .empty;
 
         // Search in common directory
         const common_path = try std.fmt.allocPrint(self.allocator, "{s}/references/common", .{self.base_path});
@@ -263,7 +263,7 @@ pub const GoldenManager = struct {
 
         try self.scanDirectoryForReferences(platform_path, test_name, true, &references);
 
-        return references.toOwnedSlice();
+        return try references.toOwnedSlice(alloc);
     }
 
     fn scanDirectoryForReferences(

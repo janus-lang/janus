@@ -158,7 +158,7 @@ const SerializationTestSuite = struct {
         }
 
         // Serialize all tables
-        var cache_paths = ArrayList([]const u8).init(self.allocator);
+        var cache_paths: ArrayList([]const u8) = .empty;
         defer {
             for (cache_paths.items) |path| {
                 self.allocator.free(path);
@@ -399,7 +399,7 @@ const SerializationTestSuite = struct {
         }
 
         // Serialize all tables (simulating concurrent builds)
-        var cache_paths = ArrayList([]const u8).init(self.allocator);
+        var cache_paths: ArrayList([]const u8) = .empty;
         defer {
             for (cache_paths.items) |path| {
                 self.allocator.free(path);

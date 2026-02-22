@@ -50,7 +50,7 @@ test "Granite-Solid Infrastructure - Complete Zero-Leak Validation" {
         // Test const declaration evaluation
         const const_name = try astdb_system.str_interner.get("test_const");
 
-        var dependencies = std.ArrayList(astdb.NodeId).init(allocator);
+        var dependencies: std.ArrayList(astdb.NodeId) = .empty;
         defer dependencies.deinit();
 
         const input_contract = contracts.ComptimeVMInputContract{
@@ -87,7 +87,7 @@ test "Granite-Solid Infrastructure - Complete Zero-Leak Validation" {
 
             const const_name = try astdb_system.str_interner.get(const_name_str);
 
-            var dependencies = std.ArrayList(astdb.NodeId).init(allocator);
+            var dependencies: std.ArrayList(astdb.NodeId) = .empty;
             defer dependencies.deinit();
 
             const input_contract = contracts.ComptimeVMInputContract{
@@ -169,7 +169,7 @@ test "Granite-Solid Components - Individual Validation" {
         for (test_cases, 0..) |expr_type, i| {
             const expr_name = try astdb_system.str_interner.get("test_expr");
 
-            var dependencies = std.ArrayList(astdb.NodeId).init(allocator);
+            var dependencies: std.ArrayList(astdb.NodeId) = .empty;
             defer dependencies.deinit();
 
             const input_contract = contracts.ComptimeVMInputContract{

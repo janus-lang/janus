@@ -283,10 +283,10 @@ pub const IRIntegration = struct {
 
     /// Validate that generated IR complies with metadata contracts
     fn validateMetadataCompliance(self: *Self, ir_content: ?[]const u8, metadata: TestMetadata) !IRGenerationResult.MetadataCompliance {
-        var performance_violations = ArrayList(IRGenerationResult.PerformanceViolation).init(self.allocator);
+        var performance_violations: ArrayList(IRGenerationResult.PerformanceViolation) = .empty;
         defer performance_violations.deinit();
 
-        var validation_failures = ArrayList(IRGenerationResult.ValidationFailure).init(self.allocator);
+        var validation_failures: ArrayList(IRGenerationResult.ValidationFailure) = .empty;
         defer validation_failures.deinit();
 
         // If no IR was generated, check if that was expected

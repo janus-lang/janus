@@ -41,7 +41,7 @@ pub const SemanticDiffer = struct {
 
     /// Compare two snapshots and produce semantic diff
     pub fn diffSnapshots(self: *SemanticDiffer, old_snap: *const astdb.Snapshot, new_snap: *const astdb.Snapshot) ![]DiffItem {
-        var diffs = std.ArrayList(DiffItem).init(self.allocator);
+        var diffs: std.ArrayList(DiffItem) = .empty;
         defer diffs.deinit();
 
         // Compare declarations (functions, variables, etc.)
@@ -50,7 +50,7 @@ pub const SemanticDiffer = struct {
         // Compare node structures
         try self.diffNodeStructures(old_snap, new_snap, &diffs);
 
-        return diffs.toOwnedSlice();
+        return try diffs.toOwnedSlice(alloc);
     }
 
     /// Compare declarations between snapshots
@@ -267,7 +267,7 @@ pub const SemanticDiffer = struct {
 
     /// Format diff results as JSON for golden comparison
     pub fn formatDiffAsJSON(self: *SemanticDiffer, diffs: []const DiffItem) ![]u8 {
-        var buf = std.ArrayList(u8).init(self.allocator);
+        var buf: std.ArrayList(u8) = .empty;
         defer buf.deinit();
 
         const writer = buf.writer();
@@ -283,7 +283,7 @@ pub const SemanticDiffer = struct {
 
         try writer.writeAll("],\"unchanged\":[]}"); // TODO: Track unchanged items
 
-        return buf.toOwnedSlice();
+        return try buf.toOwnedSlice(alloc);
     }
 
     const StrIdContext = struct {

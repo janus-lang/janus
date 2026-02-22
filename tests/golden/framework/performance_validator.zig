@@ -272,7 +272,7 @@ pub const PerformanceValidator = struct {
 
     /// Generate comprehensive performance report
     pub fn generatePerformanceReport(self: *const Self, results: []const ValidationResult) ![]const u8 {
-        var report = std.ArrayList(u8).init(self.allocator);
+        var report: std.ArrayList(u8) = .empty;
         var writer = report.writer();
 
         try writer.print("Performance Validation Report\n", .{});
@@ -317,7 +317,7 @@ pub const PerformanceValidator = struct {
             try writer.print("\n", .{});
         }
 
-        return report.toOwnedSlice();
+        return try report.toOwnedSlice(alloc);
     }
 
     // Private helper functions

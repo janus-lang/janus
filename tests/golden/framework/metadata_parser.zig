@@ -60,7 +60,7 @@ pub const MetadataParser = struct {
 
     /// Extract all metadata comment lines from source
     fn extractMetadataLines(self: *Self, source_content: []const u8) ![][]const u8 {
-        var lines = ArrayList([]const u8).init(self.allocator);
+        var lines: ArrayList([]const u8) = .empty;
         defer lines.deinit();
 
         var line_iter = std.mem.splitScalar(u8, source_content, '\n');
@@ -76,7 +76,7 @@ pub const MetadataParser = struct {
             }
         }
 
-        return lines.toOwnedSlice();
+        return try lines.toOwnedSlice(alloc);
     }
 
     /// Parse a single metadata line
@@ -151,7 +151,7 @@ pub const MetadataParser = struct {
 
     /// Parse fallback strategies from comma-separated list
     fn parseFallbackStrategies(self: *Self, value: []const u8) ![]TestMetadata.DispatchStrategy {
-        var strategies = ArrayList(TestMetadata.DispatchStrategy).init(self.allocator);
+        var strategies: ArrayList(TestMetadata.DispatchStrategy) = .empty;
         defer strategies.deinit();
 
         var strategy_iter = std.mem.splitScalar(u8, value, ',');
@@ -163,7 +163,7 @@ pub const MetadataParser = struct {
             }
         }
 
-        return strategies.toOwnedSlice();
+        return try strategies.toOwnedSlice(alloc);
     }
 
     /// Parse performance expectation from string like "dispatch_overhead_ns < 30 ±5%"
@@ -281,7 +281,7 @@ pub const MetadataParser = struct {
             return;
         }
 
-        var platforms = ArrayList(TestMetadata.PlatformRequirements.Platform).init(self.allocator);
+        var platforms: ArrayList(TestMetadata.PlatformRequirements.Platform) = .empty;
         defer platforms.deinit();
 
         var platform_iter = std.mem.splitScalar(u8, value, ',');
@@ -298,7 +298,7 @@ pub const MetadataParser = struct {
 
     /// Parse excluded platforms
     fn parseExcludedPlatforms(self: *Self, value: []const u8, requirements: *TestMetadata.PlatformRequirements) !void {
-        var platforms = ArrayList(TestMetadata.PlatformRequirements.Platform).init(self.allocator);
+        var platforms: ArrayList(TestMetadata.PlatformRequirements.Platform) = .empty;
         defer platforms.deinit();
 
         var platform_iter = std.mem.splitScalar(u8, value, ',');
@@ -326,7 +326,7 @@ pub const MetadataParser = struct {
 
     /// Parse optimization requirements
     fn parseOptimizationRequirements(self: *Self, value: []const u8, requirements: *TestMetadata.OptimizationRequirements) !void {
-        var levels = ArrayList(TestMetadata.OptimizationRequirements.OptimizationLevel).init(self.allocator);
+        var levels: ArrayList(TestMetadata.OptimizationRequirements.OptimizationLevel) = .empty;
         defer levels.deinit();
 
         var level_iter = std.mem.splitScalar(u8, value, ',');
@@ -512,62 +512,62 @@ pub const MetadataParser = struct {
     // Helper functions for appending to arrays
 
     fn appendPerformanceExpectation(self: *Self, current: []TestMetadata.PerformanceExpectation, new_expectation: TestMetadata.PerformanceExpectation) ![]TestMetadata.PerformanceExpectation {
-        var list = ArrayList(TestMetadata.PerformanceExpectation).init(self.allocator);
+        var list: ArrayList(TestMetadata.PerformanceExpectation) = .empty;
         defer list.deinit();
 
         try list.appendSlice(current);
         try list.append(new_expectation);
 
-        return list.toOwnedSlice();
+        return try list.toOwnedSlice(alloc);
     }
 
     fn appendString(self: *Self, current: [][]const u8, new_string: []const u8) ![][]const u8 {
-        var list = ArrayList([]const u8).init(self.allocator);
+        var list: ArrayList([]const u8) = .empty;
         defer list.deinit();
 
         try list.appendSlice(current);
         try list.append(new_string);
 
-        return list.toOwnedSlice();
+        return try list.toOwnedSlice(alloc);
     }
 
     fn appendEnvironmentVariable(self: *Self, current: []TestMetadata.ExecutionConfig.EnvironmentVariable, new_var: TestMetadata.ExecutionConfig.EnvironmentVariable) ![]TestMetadata.ExecutionConfig.EnvironmentVariable {
-        var list = ArrayList(TestMetadata.ExecutionConfig.EnvironmentVariable).init(self.allocator);
+        var list: ArrayList(TestMetadata.ExecutionConfig.EnvironmentVariable) = .empty;
         defer list.deinit();
 
         try list.appendSlice(current);
         try list.append(new_var);
 
-        return list.toOwnedSlice();
+        return try list.toOwnedSlice(alloc);
     }
 
     fn appendTestDependency(self: *Self, current: []TestMetadata.TestDependency, new_dependency: TestMetadata.TestDependency) ![]TestMetadata.TestDependency {
-        var list = ArrayList(TestMetadata.TestDependency).init(self.allocator);
+        var list: ArrayList(TestMetadata.TestDependency) = .empty;
         defer list.deinit();
 
         try list.appendSlice(current);
         try list.append(new_dependency);
 
-        return list.toOwnedSlice();
+        return try list.toOwnedSlice(alloc);
     }
 
     fn appendValidationRule(self: *Self, current: []TestMetadata.ValidationRule, new_rule: TestMetadata.ValidationRule) ![]TestMetadata.ValidationRule {
-        var list = ArrayList(TestMetadata.ValidationRule).init(self.allocator);
+        var list: ArrayList(TestMetadata.ValidationRule) = .empty;
         defer list.deinit();
 
         try list.appendSlice(current);
         try list.append(new_rule);
 
-        return list.toOwnedSlice();
+        return try list.toOwnedSlice(alloc);
     }
 
     fn appendQualityGate(self: *Self, current: []TestMetadata.QualityGate, new_gate: TestMetadata.QualityGate) ![]TestMetadata.QualityGate {
-        var list = ArrayList(TestMetadata.QualityGate).init(self.allocator);
+        var list: ArrayList(TestMetadata.QualityGate) = .empty;
         defer list.deinit();
 
         try list.appendSlice(current);
         try list.append(new_gate);
 
-        return list.toOwnedSlice();
+        return try list.toOwnedSlice(alloc);
     }
 };

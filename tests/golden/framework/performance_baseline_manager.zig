@@ -251,7 +251,7 @@ pub const PerformanceBaselineManager = struct {
 
     /// Validate performance against configurable thresholds
     pub fn validateThresholds(self: *Self, _: []const u8, measurement: PerformanceValidator.PerformanceMeasurement, expected_thresholds: []const PerformanceThreshold) ![]ThresholdValidationResult {
-        var results = std.ArrayList(ThresholdValidationResult).init(self.allocator);
+        var results: std.ArrayList(ThresholdValidationResult) = .empty;
 
         for (expected_thresholds) |threshold| {
             const actual_value = switch (threshold.metric) {
@@ -285,7 +285,7 @@ pub const PerformanceBaselineManager = struct {
             try results.append(result);
         }
 
-        return results.toOwnedSlice();
+        return try results.toOwnedSlice(alloc);
     }
 
     /// Generate performance trend report
@@ -300,7 +300,7 @@ pub const PerformanceBaselineManager = struct {
         var trend_analysis = try self.analyzeTrend(measurements);
         defer trend_analysis.deinit(self.allocator);
 
-        var report = std.ArrayList(u8).init(self.allocator);
+        var report: std.ArrayList(u8) = .empty;
         var writer = report.writer();
 
         try writer.print("Performance Trend Report: {s}\n", .{test_name});
@@ -333,7 +333,7 @@ pub const PerformanceBaselineManager = struct {
         try writer.print("  Max: {} ns\n", .{max_val});
         try writer.print("  Range: {} ns ({d:.1}%)\n", .{ max_val - min_val, if (mean != 0) @as(f64, @floatFromInt(max_val - min_val)) / mean * 100 else 0 });
 
-        return report.toOwnedSlice();
+        return try report.toOwnedSlice(alloc);
     }
 
     // Performance threshold definitions
@@ -396,7 +396,7 @@ pub const PerformanceBaselineManager = struct {
         defer history.deinit(self.allocator);
 
         // Add new version
-        var new_versions = std.ArrayList(BaselineVersion).init(self.allocator);
+        var new_versions: std.ArrayList(BaselineVersion) = .empty;
         try new_versions.appendSlice(history.versions);
 
         const new_version = BaselineVersion{

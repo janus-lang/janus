@@ -82,7 +82,7 @@ test "min profile - O(1) frame operations" {
 
     // Measure frame operations at different depths
     const test_depths = [_]u32{ 1, 10, 100, 1000 };
-    var timings = std.ArrayList(u64).init(allocator);
+    var timings: std.ArrayList(u64) = .empty;
     defer timings.deinit();
 
     for (test_depths) |depth| {
@@ -124,7 +124,7 @@ test "min profile - unique resource tracking" {
     var registry = ResourceRegistryMin.init(allocator);
     defer registry.deinit();
 
-    var cleanup_order = std.ArrayList(u32).init(allocator);
+    var cleanup_order: std.ArrayList(u32) = .empty;
     defer cleanup_order.deinit();
 
     const frame = try registry.pushFrame();
@@ -196,7 +196,7 @@ test "min profile - sub-millisecond cleanup" {
     var registry = ResourceRegistryMin.init(allocator);
     defer registry.deinit();
 
-    var cleanup_order = std.ArrayList(u32).init(allocator);
+    var cleanup_order: std.ArrayList(u32) = .empty;
     defer cleanup_order.deinit();
 
     // Create many resources to test cleanup performance
@@ -237,7 +237,7 @@ test "min profile - O(1) memory overhead per resource" {
     var registry = ResourceRegistryMin.init(allocator);
     defer registry.deinit();
 
-    var cleanup_order = std.ArrayList(u32).init(allocator);
+    var cleanup_order: std.ArrayList(u32) = .empty;
     defer cleanup_order.deinit();
 
     // Test memory usage at different resource counts
@@ -331,7 +331,7 @@ test "min profile - cleanup error handling" {
     var registry = ResourceRegistryMin.init(allocator);
     defer registry.deinit();
 
-    var cleanup_order = std.ArrayList(u32).init(allocator);
+    var cleanup_order: std.ArrayList(u32) = .empty;
     defer cleanup_order.deinit();
 
     const frame = try registry.pushFrame();
@@ -371,7 +371,7 @@ test "min profile - using statement integration" {
     const scope = try manager.enterScope();
 
     // Register a resource (equivalent to resource acquisition)
-    var cleanup_order = std.ArrayList(u32).init(allocator);
+    var cleanup_order: std.ArrayList(u32) = .empty;
     defer cleanup_order.deinit();
 
     var test_resource = MinTestResource.init(42, 1337, &cleanup_order);
@@ -401,7 +401,7 @@ test "min profile - stress test performance" {
     var registry = ResourceRegistryMin.init(allocator);
     defer registry.deinit();
 
-    var cleanup_order = std.ArrayList(u32).init(allocator);
+    var cleanup_order: std.ArrayList(u32) = .empty;
     defer cleanup_order.deinit();
 
     const stress_count = 10_000;

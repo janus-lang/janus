@@ -102,7 +102,7 @@ test "Golden: CID-based invalidation precision" {
     // Add queries to cache (simulate cached results)
     const dummy_result1 = engine.QueryResult{
         .data = engine.QueryData{ .node_at = null },
-        .dependencies = std.ArrayList(engine.CID).init(allocator),
+        .dependencies = .empty,
         .execution_time_ns = 1000000,
         .cache_hit = false,
         .error_info = null,
@@ -110,7 +110,7 @@ test "Golden: CID-based invalidation precision" {
 
     const dummy_result2 = engine.QueryResult{
         .data = engine.QueryData{ .node_at = null },
-        .dependencies = std.ArrayList(engine.CID).init(allocator),
+        .dependencies = .empty,
         .execution_time_ns = 1000000,
         .cache_hit = false,
         .error_info = null,

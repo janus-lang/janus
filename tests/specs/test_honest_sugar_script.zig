@@ -133,7 +133,7 @@ fn mockPipelineDesugar(source: []const u8) usize {
 
 fn mockGenerateMigrationPlan(source: []const u8, _: Profile) !MockMigrationPlan {
     // Generate migration suggestions from :script to :go
-    var suggestions = std.ArrayList(MockSuggestion).init(testing.allocator);
+    var suggestions: std.ArrayList(MockSuggestion) = .empty;
     defer suggestions.deinit();
 
     if (std.mem.indexOf(u8, source, "hashmap()") != null) {
