@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
@@ -31,7 +32,7 @@ pub const MasterIntegrationTestRunner = struct {
         std.debug.print("🚀 Starting Comprehensive Dispatch Integration Test Suite\n");
         std.debug.print("=========================================================\n\n");
 
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         // Test Suite 1: End-to-End Integration Tests
         std.debug.print("📋 Test Suite 1: End-to-End Integration Tests\n");
@@ -73,7 +74,7 @@ pub const MasterIntegrationTestRunner = struct {
         };
         try results.addResult("Performance Boundary Tests", perf_result);
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const total_time_ms = (end_time - start_time) / 1_000_000;
 
         results.total_duration_ms = total_time_ms;
@@ -161,9 +162,9 @@ pub const MasterIntegrationTestRunner = struct {
         for (0..regression_runs) |run| {
             std.debug.print("Regression run {} of {}...\n", .{ run + 1, regression_runs });
 
-            const start_time = std.time.nanoTimestamp();
+            const start_time = compat_time.nanoTimestamp();
             try perf_tests.runAllPerformanceTests();
-            const end_time = std.time.nanoTimestamp();
+            const end_time = compat_time.nanoTimestamp();
 
             const run_time_ms = (end_time - start_time) / 1_000_000;
             try performance_results.append(run_time_ms);

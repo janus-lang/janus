@@ -4,6 +4,7 @@
 //! NS-Msg: Effect Definitions (Zig 0.15+ compatible)
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const types = @import("types.zig");
 const envelope = @import("envelope.zig");
@@ -106,7 +107,7 @@ pub const NsContext = struct {
 };
 
 pub fn generateQueryId() u128 {
-    const timestamp = @as(u128, @intCast(std.time.nanoTimestamp())) << 64;
+    const timestamp = @as(u128, @intCast(compat_time.nanoTimestamp())) << 64;
     const random = std.crypto.random.int(u64);
     return timestamp | random;
 }

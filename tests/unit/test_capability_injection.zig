@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const testing = std.testing;
 const api = @import("compiler/libjanus/api.zig");
 const astdb = @import("compiler/libjanus/astdb.zig");
@@ -162,7 +163,7 @@ test "Revolutionary Capability Injection - Complete Pipeline" {
     }
 
     // Cleanup
-    std.fs.cwd().deleteFile(output_path) catch {};
+    compat_fs.deleteFile(output_path) catch {};
 
     // Final Results
     std.debug.print("\n🎉 REVOLUTIONARY CAPABILITY INJECTION TEST RESULTS:\n", .{});

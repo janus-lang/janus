@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const PerformanceValidator = @import("performance_validator.zig").PerformanceValidator;
 
@@ -142,7 +144,7 @@ pub const PerformanceBaselineManager = struct {
             .optimization_level = try self.allocator.dupe(u8, optimization_level),
             .measurements = try self.allocator.dupe(PerformanceValidator.PerformanceMeasurement, measurements),
             .statistical_summary = statistical_summary,
-            .created_at = std.time.timestamp(),
+            .created_at = compat_time.timestamp(),
         };
 
         // Analyze if this should become the new baseline
@@ -381,7 +383,7 @@ pub const PerformanceBaselineManager = struct {
 
         // Ensure directory exists
         if (std.fs.path.dirname(history_path)) |dir_path| {
-            std.fs.cwd().makePath(dir_path) catch |err| switch (err) {
+            compat_fs.makeDir(dir_path) catch |err| switch (err) {
                 error.PathAlreadyExists => {},
                 else => return err,
             };
@@ -401,7 +403,7 @@ pub const PerformanceBaselineManager = struct {
 
         const new_version = BaselineVersion{
             .version = version,
-            .created_at = std.time.timestamp(),
+            .created_at = compat_time.timestamp(),
             .compiler_version = try self.allocator.dupe(u8, compiler_version),
             .platform = try self.allocator.dupe(u8, platform),
             .optimization_level = try self.allocator.dupe(u8, optimization_level),
@@ -436,7 +438,7 @@ pub const PerformanceBaselineManager = struct {
     }
 
     fn saveBaselineHistory(self: *Self, history: *const BaselineHistory, file_path: []const u8) !void {
-        const file = try std.fs.cwd().createFile(file_path, .{});
+        const file = try compat_fs.createFile(file_path, .{});
         defer file.close();
 
         // Write JSON history (simplified)
@@ -529,7 +531,7 @@ pub const PerformanceBaselineManager = struct {
 
         // Simplified - return placeholder measurements with timestamps
         const measurements = try self.allocator.alloc(PerformanceValidator.PerformanceMeasurement, 10);
-        const now = std.time.timestamp();
+        const now = compat_time.timestamp();
 
         for (measurements, 0..) |*measurement, i| {
             measurement.* = PerformanceValidator.PerformanceMeasurement.init();

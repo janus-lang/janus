@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
@@ -465,13 +467,13 @@ const VisualizationTestSuite = struct {
             try self.visualizer.saveVisualization(viz, temp_file);
 
             // Verify file was created and contains expected content
-            const file_content = try std.fs.cwd().readFileAlloc(self.allocator, temp_file, std.math.maxInt(usize));
+            const file_content = try compat_fs.readFileAlloc(self.allocator, temp_file, std.math.maxInt(usize));
             defer self.allocator.free(file_content);
 
             try testing.expectEqualStrings(viz.content, file_content);
 
             // Clean up
-            std.fs.cwd().deleteFile(temp_file) catch {};
+            compat_fs.deleteFile(temp_file) catch {};
         }
     }
 
@@ -508,9 +510,9 @@ const VisualizationTestSuite = struct {
         self.profiler.endSession();
 
         // Measure visualization generation time
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
         try self.visualizer.generateVisualizations(self.profiler);
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
 
         const generation_time = end_time - start_time;
 

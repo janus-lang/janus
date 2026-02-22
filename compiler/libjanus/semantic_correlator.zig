@@ -24,6 +24,7 @@
 //!   - This expects the OLD UserProfile shape
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 const nextgen = @import("nextgen_diagnostic.zig");
@@ -252,7 +253,7 @@ pub const SemanticCorrelator = struct {
         }
 
         // Detect changes
-        const now = std.time.timestamp();
+        const now = compat_time.timestamp();
         const window_start = now - self.config.change_window_seconds;
 
         var detected_changes: ArrayList(SemanticChange) = .empty;
@@ -409,7 +410,7 @@ pub const SemanticCorrelator = struct {
             .id = id,
             .error_site_cid = error_site_cid,
             .affected_entities = entities,
-            .timestamp = std.time.timestamp(),
+            .timestamp = compat_time.timestamp(),
         });
 
         // Check if this is caused by existing errors
@@ -643,7 +644,7 @@ test "SemanticCorrelator builds context" {
         .entity_name = "UserProfile",
         .entity_kind = .struct_type,
         .signature = "{ name: string }",
-        .timestamp = std.time.timestamp() - 100, // Recent change
+        .timestamp = compat_time.timestamp() - 100, // Recent change
         .file_path = "models.jan",
         .line = 10,
     });

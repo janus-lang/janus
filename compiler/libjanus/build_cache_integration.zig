@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 const HashMap = std.HashMap;
@@ -50,8 +52,8 @@ pub const BuildCacheManager = struct {
 
         pub fn init(allocator: Allocator) BuildSession {
             return BuildSession{
-                .session_id = @intCast(std.time.nanoTimestamp()),
-                .start_time = @intCast(std.time.nanoTimestamp()),
+                .session_id = @intCast(compat_time.nanoTimestamp()),
+                .start_time = @intCast(compat_time.nanoTimestamp()),
                 .source_files = HashMap([]const u8, FileInfo).init(allocator),
                 .dispatch_tables = HashMap([]const u8, *OptimizedDispatchTable).init(allocator),
             };
@@ -290,7 +292,7 @@ pub const BuildCacheManager = struct {
 
     /// End the current build session
     pub fn endBuildSession(self: *Self) !void {
-        const end_time = @as(u64, @intCast(std.time.nanoTimestamp()));
+        const end_time = @as(u64, @intCast(compat_time.nanoTimestamp()));
         self.metrics.total_build_time_ns = end_time - self.build_session.start_time;
 
         // Calculate final metrics
@@ -302,9 +304,9 @@ pub const BuildCacheManager = struct {
 
     /// Get or build a dispatch table for a signature
     pub fn getOrBuildDispatchTable(self: *Self, signature_name: []const u8, type_signature: []const TypeId, type_registry: *TypeRegistry, build_fn: *const fn ([]const u8, []const TypeId, *TypeRegistry) anyerror!*OptimizedDispatchTable) !*OptimizedDispatchTable {
-        const lookup_start = std.time.nanoTimestamp();
+        const lookup_start = compat_time.nanoTimestamp();
         defer {
-            const lookup_end = std.time.nanoTimestamp();
+            const lookup_end = compat_time.nanoTimestamp();
             self.metrics.cache_lookup_time_ns += @intCast(lookup_end - lookup_start);
         }
 
@@ -321,15 +323,15 @@ pub const BuildCacheManager = struct {
         }
 
         // Build fresh table
-        const build_start = std.time.nanoTimestamp();
+        const build_start = compat_time.nanoTimestamp();
         const fresh_table = try build_fn(signature_name, type_signature, type_registry);
-        const build_end = std.time.nanoTimestamp();
+        const build_end = compat_time.nanoTimestamp();
 
         // Optimize the table
-        const optimize_start = std.time.nanoTimestamp();
+        const optimize_start = compat_time.nanoTimestamp();
         const optimization_config = DispatchTableOptimizer.OptimizationConfig.default();
         const optimization_result = try self.optimizer.optimizeTable(fresh_table, optimization_config);
-        const optimize_end = std.time.nanoTimestamp();
+        const optimize_end = compat_time.nanoTimestamp();
 
         self.metrics.optimization_time_ns += @intCast(optimize_end - optimize_start);
         self.metrics.tables_built_fresh += 1;
@@ -350,7 +352,7 @@ pub const BuildCacheManager = struct {
 
         for (dependencies) |dep| {
             // Get current file info
-            const stat = std.fs.cwd().statFile(dep) catch |err| switch (err) {
+            const stat = compat_fs.statFile(dep) catch |err| switch (err) {
                 error.FileNotFound => {
                     // Dependency was deleted, invalidate
                     any_changed = true;
@@ -428,9 +430,9 @@ pub const BuildCacheManager = struct {
     }
 
     fn saveSessionTablesToCache(self: *Self) !void {
-        const serialize_start = std.time.nanoTimestamp();
+        const serialize_start = compat_time.nanoTimestamp();
         defer {
-            const serialize_end = std.time.nanoTimestamp();
+            const serialize_end = compat_time.nanoTimestamp();
             self.metrics.serialization_time_ns += @intCast(serialize_end - serialize_start);
         }
 
@@ -448,12 +450,12 @@ pub const BuildCacheManager = struct {
 
     fn performCacheCleanupIfNeeded(self: *Self) !void {
         // Check if cleanup is needed based on interval
-        const current_time = @as(u64, @intCast(std.time.nanoTimestamp()));
+        const current_time = @as(u64, @intCast(compat_time.nanoTimestamp()));
         const last_cleanup_file = try std.fs.path.join(self.allocator, &[_][]const u8{ self.config.cache_directory, ".last_cleanup" });
         defer self.allocator.free(last_cleanup_file);
 
         const should_cleanup = blk: {
-            const last_cleanup_data = std.fs.cwd().readFileAlloc(self.allocator, last_cleanup_file, 64) catch |err| switch (err) {
+            const last_cleanup_data = compat_fs.readFileAlloc(self.allocator, last_cleanup_file, 64) catch |err| switch (err) {
                 error.FileNotFound => break :blk true,
                 else => return err,
             };
@@ -469,7 +471,7 @@ pub const BuildCacheManager = struct {
             try self.serializer.cleanupCache(self.config.max_cache_age_seconds, self.config.max_cache_size_bytes);
 
             // Update last cleanup time
-            const cleanup_file = try std.fs.cwd().createFile(last_cleanup_file, .{});
+            const cleanup_file = try compat_fs.createFile(last_cleanup_file, .{});
             defer cleanup_file.close();
 
             try cleanup_file.writer().print("{}", .{current_time});
@@ -479,7 +481,7 @@ pub const BuildCacheManager = struct {
     fn calculateFileHash(self: *Self, file_path: []const u8) !u64 {
         _ = self;
 
-        const file_data = try std.fs.cwd().readFileAlloc(self.allocator, file_path, std.math.maxInt(usize));
+        const file_data = try compat_fs.readFileAlloc(self.allocator, file_path, std.math.maxInt(usize));
         defer self.allocator.free(file_data);
 
         var hasher = std.hash.Wyhash.init(0);

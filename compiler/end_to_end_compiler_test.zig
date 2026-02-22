@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const testing = std.testing;
 
 // Import all pipeline components
@@ -75,8 +76,8 @@ test "North Star: Complete compilation pipeline - demo.jan" {
     };
 
     // Step 7: Clean up
-    std.fs.cwd().deleteFile(c_output_path) catch {};
-    std.fs.cwd().deleteFile(exe_output_path) catch {};
+    compat_fs.deleteFile(c_output_path) catch {};
+    compat_fs.deleteFile(exe_output_path) catch {};
 
     std.log.info("🎉 North Star Test PASSED: Complete pipeline operational!", .{});
     std.log.info("🎉 Source → Parser → Semantic → IR → C Codegen: SUCCESS", .{});
@@ -230,7 +231,7 @@ test "Pipeline component integration" {
         try testing.expect(file_size > 0);
 
         // Clean up
-        std.fs.cwd().deleteFile(test_output) catch {};
+        compat_fs.deleteFile(test_output) catch {};
 
         std.log.info("✅ Code Generation: OK ({} bytes)", .{file_size});
     }
@@ -277,7 +278,7 @@ test "Minimal function compilation" {
     try testing.expect(file_size > 0);
 
     // Clean up
-    std.fs.cwd().deleteFile(output_path) catch {};
+    compat_fs.deleteFile(output_path) catch {};
 
     std.log.info("✅ Minimal function compilation: SUCCESS ({} bytes)", .{file_size});
 }
@@ -351,7 +352,7 @@ test "Full pipeline with complex program" {
     try testing.expect(ir_module.instructions.items.len > 3); // Should have multiple instructions
 
     // Clean up
-    std.fs.cwd().deleteFile(output_path) catch {};
+    compat_fs.deleteFile(output_path) catch {};
 
     std.log.info("✅ Complex program compilation: SUCCESS ({} bytes, {} instructions)", .{ file_size, ir_module.instructions.items.len });
 }

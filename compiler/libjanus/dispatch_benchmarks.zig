@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 const testing = std.testing;
@@ -182,22 +183,22 @@ pub const DispatchBenchmarkSuite = struct {
     /// Benchmark sequential access pattern
     fn benchmarkSequentialAccess(self: *Self, table: *OptimizedDispatchTable, types: []const TypeId) !u64 {
         const iterations = 10000;
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         for (0..iterations) |i| {
             const type_combo = self.generateTypeCombo(types, i % types.len);
             _ = table.lookup(type_combo);
         }
 
-        return @intCast(std.time.nanoTimestamp() - start_time);
+        return @intCast(compat_time.nanoTimestamp() - start_time);
     }
 
     /// Benchmark random access pattern
     fn benchmarkRandomAccess(self: *Self, table: *OptimizedDispatchTable, types: []const TypeId) !u64 {
         const iterations = 10000;
-        var rng = std.rand.DefaultPrng.init(@intCast(std.time.timestamp()));
+        var rng = std.rand.DefaultPrng.init(@intCast(compat_time.timestamp()));
 
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         for (0..iterations) |_| {
             const random_index = rng.random().uintLessThan(usize, types.len);
@@ -205,15 +206,15 @@ pub const DispatchBenchmarkSuite = struct {
             _ = table.lookup(type_combo);
         }
 
-        return @intCast(std.time.nanoTimestamp() - start_time);
+        return @intCast(compat_time.nanoTimestamp() - start_time);
     }
 
     /// Benchmark hot path access pattern (80/20 rule)
     fn benchmarkHotPathAccess(self: *Self, table: *OptimizedDispatchTable, types: []const TypeId) !u64 {
         const iterations = 10000;
-        var rng = std.rand.DefaultPrng.init(@intCast(std.time.timestamp()));
+        var rng = std.rand.DefaultPrng.init(@intCast(compat_time.timestamp()));
 
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         for (0..iterations) |_| {
             // 80% of accesses go to first 20% of implementations
@@ -227,7 +228,7 @@ pub const DispatchBenchmarkSuite = struct {
             _ = table.lookup(type_combo);
         }
 
-        return @intCast(std.time.nanoTimestamp() - start_time);
+        return @intCast(compat_time.nanoTimestamp() - start_time);
     }
 
     /// Generate type combination for testing

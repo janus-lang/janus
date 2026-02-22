@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 const HashMap = std.HashMap;
@@ -467,7 +468,7 @@ pub const ModuleDispatcher = struct {
             .exports = &.{},
             .imports = &.{},
             .is_loaded = false,
-            .load_timestamp = std.time.timestamp(),
+            .load_timestamp = compat_time.timestamp(),
         };
 
         try self.modules.put(module_id, module_info);
@@ -658,7 +659,7 @@ pub const ModuleDispatcher = struct {
 
         // Mark as loaded
         module_info.is_loaded = true;
-        module_info.load_timestamp = std.time.timestamp();
+        module_info.load_timestamp = compat_time.timestamp();
 
         // Update dispatch tables for all signatures this module participates in
         try self.updateDispatchTablesForModule(module_id);

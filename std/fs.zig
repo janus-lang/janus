@@ -5,6 +5,7 @@
 // Demonstrates tri-signature pattern: same name, rising capability across profiles
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const Context = @import("std_context.zig").Context;
 const Capability = @import("capabilities.zig");
 
@@ -174,7 +175,7 @@ pub fn write_file_min(path: []const u8, content: []const u8, allocator: std.mem.
     if (path.len == 0) return FsError.InvalidPath;
 
     // Real file writing implementation
-    const file = std.fs.cwd().createFile(path, .{}) catch |err| switch (err) {
+    const file = compat_fs.createFile(path, .{}) catch |err| switch (err) {
         error.AccessDenied => return FsError.PermissionDenied,
         error.FileNotFound => return FsError.FileNotFound,
         error.NameTooLong => return FsError.InvalidPath,
@@ -200,7 +201,7 @@ pub fn write_file_go(path: []const u8, content: []const u8, ctx: Context, alloca
     if (ctx.is_done()) return FsError.ContextCancelled;
 
     // Real file writing implementation with context awareness
-    const file = std.fs.cwd().createFile(path, .{}) catch |err| switch (err) {
+    const file = compat_fs.createFile(path, .{}) catch |err| switch (err) {
         error.AccessDenied => return FsError.PermissionDenied,
         error.FileNotFound => return FsError.FileNotFound,
         error.NameTooLong => return FsError.InvalidPath,
@@ -230,7 +231,7 @@ pub fn write_file_full(path: []const u8, content: []const u8, cap: Capability.Fi
     Capability.audit_capability_usage(cap, "fs.write");
 
     // Real file writing implementation with capability validation
-    const file = std.fs.cwd().createFile(path, .{}) catch |err| switch (err) {
+    const file = compat_fs.createFile(path, .{}) catch |err| switch (err) {
         error.AccessDenied => return FsError.PermissionDenied,
         error.FileNotFound => return FsError.FileNotFound,
         error.NameTooLong => return FsError.InvalidPath,
@@ -259,7 +260,7 @@ pub fn file_info_min(path: []const u8, allocator: std.mem.Allocator) FsError!Fil
     if (path.len == 0) return FsError.InvalidPath;
 
     // Real file info implementation
-    const stat = std.fs.cwd().statFile(path) catch |err| switch (err) {
+    const stat = compat_fs.statFile(path) catch |err| switch (err) {
         error.FileNotFound => return FsError.FileNotFound,
         error.AccessDenied => return FsError.PermissionDenied,
         error.NameTooLong => return FsError.InvalidPath,
@@ -283,7 +284,7 @@ pub fn file_info_go(path: []const u8, ctx: Context, allocator: std.mem.Allocator
     if (ctx.is_done()) return FsError.ContextCancelled;
 
     // Real file info implementation with context awareness
-    const stat = std.fs.cwd().statFile(path) catch |err| switch (err) {
+    const stat = compat_fs.statFile(path) catch |err| switch (err) {
         error.FileNotFound => return FsError.FileNotFound,
         error.AccessDenied => return FsError.PermissionDenied,
         error.NameTooLong => return FsError.InvalidPath,
@@ -310,7 +311,7 @@ pub fn file_info_full(path: []const u8, cap: Capability.FileSystem, allocator: s
     Capability.audit_capability_usage(cap, "fs.stat");
 
     // Real file info implementation with capability validation
-    const stat = std.fs.cwd().statFile(path) catch |err| switch (err) {
+    const stat = compat_fs.statFile(path) catch |err| switch (err) {
         error.FileNotFound => return FsError.FileNotFound,
         error.AccessDenied => return FsError.PermissionDenied,
         error.NameTooLong => return FsError.InvalidPath,

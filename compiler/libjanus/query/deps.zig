@@ -14,7 +14,7 @@ pub const DependencyTracker = struct {
     current_query: ?context.MemoKey,
     dependencies: std.HashMap(context.MemoKey, DependencySet, MemoKeyContext, std.hash_map.default_max_load_percentage),
     reverse_dependencies: std.HashMap(Dependency, DependencySet, DependencyContext, std.hash_map.default_max_load_percentage),
-    mutex: std.Thread.Mutex,
+    mutex: @import("compat_mutex").Mutex,
 
     const Self = @This();
 
@@ -26,7 +26,7 @@ pub const DependencyTracker = struct {
             .current_query = null,
             .dependencies = std.HashMap(context.MemoKey, DependencySet, MemoKeyContext, std.hash_map.default_max_load_percentage).init(allocator),
             .reverse_dependencies = std.HashMap(Dependency, DependencySet, DependencyContext, std.hash_map.default_max_load_percentage).init(allocator),
-            .mutex = std.Thread.Mutex{},
+            .mutex = @import("compat_mutex").Mutex{},
         };
 
         return self;

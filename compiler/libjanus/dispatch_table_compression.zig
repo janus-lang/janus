@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 const HashMap = std.HashMap;
@@ -347,7 +348,7 @@ pub const DispatchTableCompression = struct {
             .type_pattern_overflow = null,
             .implementation_index = 0, // TODO: Map to shared implementation table
             .call_frequency = entry.call_count,
-            .last_access_time = std.time.nanoTimestamp(),
+            .last_access_time = compat_time.nanoTimestamp(),
         };
 
         // Compress type pattern into bit vector if possible
@@ -1221,15 +1222,15 @@ pub const CompressionBenchmark = struct {
         const level = backend.getCompressionLevel();
 
         // Measure compression time
-        const compress_start = std.time.nanoTimestamp();
+        const compress_start = compat_time.nanoTimestamp();
         const compressed = try CompressionBackends.compress(allocator, backend, data, level);
-        const compress_end = std.time.nanoTimestamp();
+        const compress_end = compat_time.nanoTimestamp();
         defer allocator.free(compressed);
 
         // Measure decompression time
-        const decompress_start = std.time.nanoTimestamp();
+        const decompress_start = compat_time.nanoTimestamp();
         const decompressed = try CompressionBackends.decompress(allocator, backend, compressed, data.len);
-        const decompress_end = std.time.nanoTimestamp();
+        const decompress_end = compat_time.nanoTimestamp();
         defer allocator.free(decompressed);
 
         // Verify correctness

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const Allocator = std.mem.Allocator;
 
 // IR and codegen imports
@@ -174,13 +175,13 @@ pub const DispatchTableManager = struct {
         defer self.base_allocator.free(cache_path);
 
         // Ensure cache directory exists
-        std.fs.cwd().makePath(self.cache_dir.?) catch {};
+        compat_fs.makeDir(self.cache_dir.?) catch {};
 
         // Serialize and write
         const serialized = try self.serializeTable(table);
         defer self.base_allocator.free(serialized);
 
-        const file = try std.fs.cwd().createFile(cache_path, .{});
+        const file = try compat_fs.createFile(cache_path, .{});
         defer file.close();
 
         try file.writeAll(serialized);

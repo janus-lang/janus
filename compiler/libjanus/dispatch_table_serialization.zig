@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 const HashMap = std.HashMap;
@@ -246,7 +248,7 @@ pub const DispatchTableSerializer = struct {
 
     pub fn init(allocator: Allocator, cache_directory: []const u8) !Self {
         // Ensure cache directory exists
-        std.fs.cwd().makeDir(cache_directory) catch |err| switch (err) {
+        compat_fs.makeDir(cache_directory) catch |err| switch (err) {
             error.PathAlreadyExists => {},
             else => return err,
         };
@@ -273,9 +275,9 @@ pub const DispatchTableSerializer = struct {
 
     /// Serialize a dispatch table to cache
     pub fn serializeTable(self: *Self, table: *OptimizedDispatchTable, optimization_result: ?DispatchTableOptimizer.OptimizationResult) ![]const u8 {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
         defer {
-            const end_time = std.time.nanoTimestamp();
+            const end_time = compat_time.nanoTimestamp();
             self.stats.serialization_time_ns += @intCast(end_time - start_time);
             self.stats.tables_serialized += 1;
         }
@@ -294,7 +296,7 @@ pub const DispatchTableSerializer = struct {
         try self.serializeToBuffer(table, optimization_result, &buffer);
 
         // Write to file
-        const file = try std.fs.cwd().createFile(file_path, .{});
+        const file = try compat_fs.createFile(file_path, .{});
         defer file.close();
 
         try file.writeAll(buffer.items);
@@ -303,8 +305,8 @@ pub const DispatchTableSerializer = struct {
         const cache_entry = CacheIndex.CacheEntry{
             .file_path = file_path,
             .file_size = buffer.items.len,
-            .creation_time = @intCast(std.time.nanoTimestamp()),
-            .last_access_time = @intCast(std.time.nanoTimestamp()),
+            .creation_time = @intCast(compat_time.nanoTimestamp()),
+            .last_access_time = @intCast(compat_time.nanoTimestamp()),
             .access_count = 0,
             .format_version = self.format_version,
             .original_table_hash = self.calculateTableHash(table),
@@ -320,16 +322,16 @@ pub const DispatchTableSerializer = struct {
 
     /// Deserialize a dispatch table from cache
     pub fn deserializeTable(self: *Self, cache_key: CacheIndex.CacheKey, type_registry: *TypeRegistry) !?*OptimizedDispatchTable {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
         defer {
-            const end_time = std.time.nanoTimestamp();
+            const end_time = compat_time.nanoTimestamp();
             self.stats.cache_lookup_time_ns += @intCast(end_time - start_time);
         }
 
         // Check cache index
         if (self.cache_index.get(cache_key)) |cache_entry| {
             // Validate cache entry
-            const current_time = @intCast(std.time.nanoTimestamp());
+            const current_time = @intCast(compat_time.nanoTimestamp());
             if (!cache_entry.isValid(current_time, 24 * 60 * 60)) { // 24 hour max age
                 self.cache_index.remove(self.allocator, cache_key);
                 self.stats.cache_misses += 1;
@@ -341,14 +343,14 @@ pub const DispatchTableSerializer = struct {
             self.stats.cache_hits += 1;
 
             // Load and deserialize file
-            const deserialize_start = std.time.nanoTimestamp();
+            const deserialize_start = compat_time.nanoTimestamp();
             defer {
-                const deserialize_end = std.time.nanoTimestamp();
+                const deserialize_end = compat_time.nanoTimestamp();
                 self.stats.deserialization_time_ns += @intCast(deserialize_end - deserialize_start);
                 self.stats.tables_deserialized += 1;
             }
 
-            const file_data = std.fs.cwd().readFileAlloc(self.allocator, cache_entry.file_path, std.math.maxInt(usize)) catch |err| switch (err) {
+            const file_data = compat_fs.readFileAlloc(self.allocator, cache_entry.file_path, std.math.maxInt(usize)) catch |err| switch (err) {
                 error.FileNotFound => {
                     // Cache entry is stale, remove it
                     self.cache_index.remove(self.allocator, cache_key);
@@ -373,7 +375,7 @@ pub const DispatchTableSerializer = struct {
         const cache_key = try self.calculateCacheKey(table);
 
         if (self.cache_index.get(cache_key)) |cache_entry| {
-            const current_time = @intCast(std.time.nanoTimestamp());
+            const current_time = @intCast(compat_time.nanoTimestamp());
             return cache_entry.isValid(current_time, 24 * 60 * 60);
         }
 
@@ -386,7 +388,7 @@ pub const DispatchTableSerializer = struct {
 
         if (self.cache_index.get(cache_key)) |cache_entry| {
             // Delete cache file
-            std.fs.cwd().deleteFile(cache_entry.file_path) catch {};
+            compat_fs.deleteFile(cache_entry.file_path) catch {};
 
             // Remove from index
             self.cache_index.remove(self.allocator, cache_key);
@@ -395,7 +397,7 @@ pub const DispatchTableSerializer = struct {
 
     /// Clean up old cache entries
     pub fn cleanupCache(self: *Self, max_age_seconds: u64, max_cache_size_bytes: usize) !void {
-        const current_time = @intCast(std.time.nanoTimestamp());
+        const current_time = @intCast(compat_time.nanoTimestamp());
         var total_cache_size: usize = 0;
 
         // Collect entries for cleanup
@@ -418,7 +420,7 @@ pub const DispatchTableSerializer = struct {
         // Remove expired entries
         for (entries_to_remove.items) |key| {
             if (self.cache_index.get(key)) |cache_entry| {
-                std.fs.cwd().deleteFile(cache_entry.file_path) catch {};
+                compat_fs.deleteFile(cache_entry.file_path) catch {};
             }
             self.cache_index.remove(self.allocator, key);
         }
@@ -530,7 +532,7 @@ pub const DispatchTableSerializer = struct {
             .magic = CACHE_FILE_MAGIC,
             .format_version = self.format_version,
             .table_hash = self.calculateTableHash(table),
-            .creation_timestamp = @intCast(std.time.nanoTimestamp()),
+            .creation_timestamp = @intCast(compat_time.nanoTimestamp()),
             .signature_name_len = @intCast(table.signature_name.len),
             .type_signature_len = @intCast(table.type_signature.len),
             .entry_count = table.entry_count,
@@ -885,7 +887,7 @@ pub const DispatchTableSerializer = struct {
             if (current_size <= max_size_bytes) break;
 
             // Delete file
-            std.fs.cwd().deleteFile(entry.entry.file_path) catch {};
+            compat_fs.deleteFile(entry.entry.file_path) catch {};
 
             // Remove from index
             self.cache_index.remove(self.allocator, entry.key);
@@ -902,8 +904,8 @@ test "DispatchTableSerializer basic functionality" {
 
     // Create temporary cache directory
     const cache_dir = "test_cache";
-    std.fs.cwd().makeDir(cache_dir) catch {};
-    defer std.fs.cwd().deleteTree(cache_dir) catch {};
+    compat_fs.makeDir(cache_dir) catch {};
+    defer compat_fs.deleteTree(cache_dir) catch {};
 
     var serializer = try DispatchTableSerializer.init(allocator, cache_dir);
     defer serializer.deinit();
@@ -945,8 +947,8 @@ test "DispatchTableSerializer cache management" {
     const allocator = testing.allocator;
 
     const cache_dir = "test_cache_mgmt";
-    std.fs.cwd().makeDir(cache_dir) catch {};
-    defer std.fs.cwd().deleteTree(cache_dir) catch {};
+    compat_fs.makeDir(cache_dir) catch {};
+    defer compat_fs.deleteTree(cache_dir) catch {};
 
     var serializer = try DispatchTableSerializer.init(allocator, cache_dir);
     defer serializer.deinit();
@@ -990,8 +992,8 @@ test "DispatchTableSerializer format versioning" {
     const allocator = testing.allocator;
 
     const cache_dir = "test_cache_version";
-    std.fs.cwd().makeDir(cache_dir) catch {};
-    defer std.fs.cwd().deleteTree(cache_dir) catch {};
+    compat_fs.makeDir(cache_dir) catch {};
+    defer compat_fs.deleteTree(cache_dir) catch {};
 
     var serializer = try DispatchTableSerializer.init(allocator, cache_dir);
     defer serializer.deinit();

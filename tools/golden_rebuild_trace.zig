@@ -8,6 +8,7 @@
 //! Requirements: E-3 (No-work rebuild validation)
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const print = std.debug.print;
 const json = std.json;
 const time = std.time;
@@ -424,7 +425,7 @@ fn printBuildRunSummary(run: BuildRun) void {
 }
 
 fn writeTraceJSON(allocator: std.mem.Allocator, trace: RebuildTrace, output_file: []const u8) !void {
-    const file = try std.fs.cwd().createFile(output_file, .{});
+    const file = try compat_fs.createFile(output_file, .{});
     defer file.close();
 
     var json_output: std.ArrayList(u8) = .empty;

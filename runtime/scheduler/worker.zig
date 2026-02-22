@@ -361,7 +361,7 @@ pub const Worker = struct {
             MAX_BACKOFF_NS,
         );
 
-        std.c.nanosleep(.{ .tv_sec = 0, .tv_nsec = @intCast(backoff_ns) });
+        _ = std.c.nanosleep(&.{ .sec = 0, .nsec = @intCast(backoff_ns) }, null);
         self.stats.consecutive_idle += 1;
     }
 

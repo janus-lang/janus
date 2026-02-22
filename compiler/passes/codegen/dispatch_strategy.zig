@@ -10,6 +10,7 @@
 //! M6: Forge the Executable Artifact - Intelligence in Code Generation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 
@@ -322,7 +323,7 @@ pub const AdvancedStrategySelector = struct {
             .alternatives_considered = try alternatives.toOwnedSlice(),
             .selection_rationale = try self.allocator.dupe(u8, rationale),
             .confidence_score = best_score,
-            .timestamp = std.time.timestamp(),
+            .timestamp = compat_time.timestamp(),
             .decision_factors = .{
                 .frequency_weight = 1.0,
                 .complexity_weight = 1.0,

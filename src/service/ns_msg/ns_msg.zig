@@ -5,6 +5,7 @@
 //! Ties Router + Transport + Envelope serialization for pub/sub
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 
 const types = @import("types.zig");
@@ -94,7 +95,7 @@ pub const NsMsg = struct {
             .version = 0x01,
             .flags = meta.flags,
             .entropy_difficulty = meta.entropy_difficulty,
-            .timestamp = if (meta.timestamp == 0) @intCast(std.time.nanoTimestamp()) else meta.timestamp,
+            .timestamp = if (meta.timestamp == 0) @intCast(compat_time.nanoTimestamp()) else meta.timestamp,
         };
 
         self.next_sequence +%= 1;

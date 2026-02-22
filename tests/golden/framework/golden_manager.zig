@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 
 // Golden Test Framework - GoldenManager
@@ -97,7 +99,7 @@ pub const GoldenManager = struct {
         const version_info = try VersionInfo.current(allocator);
 
         // Ensure base directory exists
-        std.fs.cwd().makePath(base_path) catch |err| switch (err) {
+        compat_fs.makeDir(base_path) catch |err| switch (err) {
             error.PathAlreadyExists => {},
             else => return err,
         };
@@ -147,7 +149,7 @@ pub const GoldenManager = struct {
             const backup_path = try std.fmt.allocPrint(
                 self.allocator,
                 "{s}.backup.{d}",
-                .{ golden_path, std.time.timestamp() }
+                .{ golden_path, compat_time.timestamp() }
             );
             defer self.allocator.free(backup_path);
 
@@ -159,14 +161,14 @@ pub const GoldenManager = struct {
 
         // Ensure directory exists
         if (std.fs.path.dirname(golden_path)) |dir_path| {
-            std.fs.cwd().makePath(dir_path) catch |err| switch (err) {
+            compat_fs.makeDir(dir_path) catch |err| switch (err) {
                 error.PathAlreadyExists => {},
                 else => return err,
             };
         }
 
         // Write golden reference
-        const file = try std.fs.cwd().createFile(golden_path, .{});
+        const file = try compat_fs.createFile(golden_path, .{});
         defer file.close();
 
         try file.writeAll(ir_content);
@@ -179,7 +181,7 @@ pub const GoldenManager = struct {
         );
         defer self.allocator.free(metadata_path);
 
-        const metadata_file = try std.fs.cwd().createFile(metadata_path, .{});
+        const metadata_file = try compat_fs.createFile(metadata_path, .{});
         defer metadata_file.close();
 
         const metadata = try std.fmt.allocPrint(
@@ -200,7 +202,7 @@ pub const GoldenManager = struct {
                 try self.platform_info.toString(self.allocator),
                 self.version_info.compiler_version,
                 self.version_info.llvm_version,
-                std.time.timestamp(),
+                compat_time.timestamp(),
                 "placeholder-hash", // TODO: Calculate actual content hash
             }
         );
@@ -273,7 +275,7 @@ pub const GoldenManager = struct {
         platform_specific: bool,
         references: *std.ArrayList(GoldenFileInfo)
     ) !void {
-        var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch |err| switch (err) {
+        var dir = compat_fs.openDir(dir_path, .{ .iterate = true }) catch |err| switch (err) {
             error.FileNotFound => return, // Directory doesn't exist, skip
             else => return err,
         };
@@ -378,9 +380,9 @@ test "Golden reference storage and retrieval" {
     // Cleanup
     const golden_path = try manager.generateGoldenPath(file_info);
     defer testing.allocator.free(golden_path);
-    std.fs.cwd().deleteFile(golden_path) catch {};
+    compat_fs.deleteFile(golden_path) catch {};
 
     const metadata_path = try std.fmt.allocPrint(testing.allocator, "{s}.meta", .{golden_path});
     defer testing.allocator.free(metadata_path);
-    std.fs.cwd().deleteFile(metadata_path) catch {};
+    compat_fs.deleteFile(metadata_path) catch {};
 }

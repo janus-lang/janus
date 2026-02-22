@@ -11,6 +11,7 @@
 //! transport protocol dependencies.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const protocol = @import("citadel_protocol.zig");
 const libjanus = @import("libjanus");
 
@@ -65,10 +66,10 @@ const DocumentSession = struct {
 
         // Store new content
         self.content = try allocator.dupe(u8, new_content);
-        self.last_modified = std.time.timestamp();
+        self.last_modified = compat_time.timestamp();
 
         // Parse content and create new snapshot
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         var system = try libjanus.astdb.ASTDBSystem.init(allocator, true);
         defer system.deinit();
@@ -86,7 +87,7 @@ const DocumentSession = struct {
         _ = try parser.parseIntoSnapshot(self.snapshot.?);
         self.node_count = self.snapshot.?.nodeCount();
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         self.parse_time_ns = @as(u64, @intCast(end_time - start_time));
     }
 };

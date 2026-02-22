@@ -111,8 +111,9 @@ pub const TypeInterner = struct {
     arena: std.heap.ArenaAllocator, // Type storage arena
     types: std.ArrayList(Type),
     map: std.HashMap([32]u8, TypeId, Blake3Context, std.hash_map.default_max_load_percentage),
-    mutex: std.Thread.Mutex = .{},
+    mutex: compat.Mutex = .{},
 
+    const compat = @import("compat_mutex");
     const Blake3Context = StrInterner.Blake3Context;
 
     pub const Type = struct {
@@ -267,8 +268,9 @@ pub const SymInterner = struct {
     arena: std.heap.ArenaAllocator, // Symbol storage arena
     symbols: std.ArrayList(Symbol),
     map: std.HashMap([32]u8, SymId, Blake3Context, std.hash_map.default_max_load_percentage),
-    mutex: std.Thread.Mutex = .{},
+    mutex: compat_mutex.Mutex = .{},
 
+    const compat_mutex = @import("compat_mutex");
     const Blake3Context = StrInterner.Blake3Context;
 
     pub const Symbol = struct {

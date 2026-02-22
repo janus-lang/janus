@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 const HashMap = std.HashMap;
@@ -198,7 +199,7 @@ pub const PerformanceRegressionTester = struct {
         const throughput = try self.benchmarkThroughput(&[_]TypeId{ int_type, float_type });
 
         self.baseline_results = BaselineResults{
-            .timestamp = std.time.timestamp(),
+            .timestamp = compat_time.timestamp(),
             .version = try self.allocator.dupe(u8, version),
             .small_table_dispatch_ns = small_time,
             .medium_table_dispatch_ns = medium_time,
@@ -375,14 +376,14 @@ pub const PerformanceRegressionTester = struct {
 
         // Benchmark lookups
         const iterations = 10000;
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         for (0..iterations) |i| {
             const type_combo = self.generateTypeCombo(types, i % size);
             _ = table.lookup(type_combo);
         }
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         return @intCast((end_time - start_time) / iterations);
     }
 
@@ -440,10 +441,10 @@ pub const PerformanceRegressionTester = struct {
 
         // Measure throughput over 1 second
         const test_duration_ns = 1_000_000_000; // 1 second
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
         var dispatch_count: u64 = 0;
 
-        while ((std.time.nanoTimestamp() - start_time) < test_duration_ns) {
+        while ((compat_time.nanoTimestamp() - start_time) < test_duration_ns) {
             const type_combo = self.generateTypeCombo(types, dispatch_count % 10);
             _ = table.lookup(type_combo);
             dispatch_count += 1;

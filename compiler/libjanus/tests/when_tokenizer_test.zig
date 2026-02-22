@@ -7,6 +7,7 @@
 //! Validates proper recognition, precedence, and edge case handling.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
@@ -296,7 +297,7 @@ test "when performance with large input" {
 
     try large_source.appendSlice("  _ => default()\\nend");
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     var tok = try Tokenizer.init(allocator, large_source.items);
     defer tok.deinit();
@@ -304,7 +305,7 @@ test "when performance with large input" {
     const tokens = try tok.tokenize();
     defer allocator.free(tokens);
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const tokenize_time_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
 
     // Should complete tokenization in reasonable time (< 100ms for 1000 when keywords)

@@ -5,6 +5,8 @@
 // Secure temp file creation implementation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const Context = @import("std_context.zig").Context;
@@ -186,7 +188,7 @@ pub const TempFile = struct {
         }
 
         if (self.auto_cleanup and self.path.len > 0) {
-            std.fs.cwd().deleteFile(self.path) catch |err| {
+            compat_fs.deleteFile(self.path) catch |err| {
                 // Log error but don't fail - file might already be deleted
                 _ = err;
             };
@@ -239,7 +241,7 @@ fn generateSecureTempPathWithPrefix(prefix: []const u8, dir: std.fs.Dir, allocat
 /// Generate a random suffix for collision resistance
 fn generateRandomSuffix() []const u8 {
     // Use timestamp and process ID for uniqueness
-    const timestamp = std.time.nanoTimestamp();
+    const timestamp = compat_time.nanoTimestamp();
     const pid = std.os.linux.getpid();
 
     // Convert to hexadecimal for readable filename
@@ -282,7 +284,7 @@ pub fn createTempFileForAtomicWrite(target_path: []const u8, allocator: Allocato
     var dir_buf = try PathBuf.fromPath(dir_path, allocator);
     defer dir_buf.deinit();
 
-    const dir = std.fs.cwd().openDir(dir_buf.asSlice(), .{}) catch return FsError.TempDirInaccessible;
+    const dir = compat_fs.openDir(dir_buf.asSlice(), .{}) catch return FsError.TempDirInaccessible;
     defer dir.close();
 
     var temp_file = try TempFile.createWithPrefixInDir(filename, dir, allocator);
@@ -348,7 +350,7 @@ test "TempFile basic creation and cleanup" {
         try temp_file.writeAll(test_data);
 
         // Verify file exists
-        const metadata = std.fs.cwd().statFile(temp_file.path) catch unreachable;
+        const metadata = compat_fs.statFile(temp_file.path) catch unreachable;
         try testing.expect(metadata.size == test_data.len);
     }
 
@@ -387,7 +389,7 @@ test "TempFile persistence via rename" {
     const target_file = "/tmp/janus_persist_test.txt";
     const test_data = "persistent data";
 
-    defer std.fs.cwd().deleteFile(target_file) catch {};
+    defer compat_fs.deleteFile(target_file) catch {};
 
     {
         var temp_file = try TempFile.create(allocator);
@@ -414,13 +416,13 @@ test "Atomic write via temporary file" {
     const target_file = "/tmp/janus_atomic_via_temp.txt";
     const test_data = "atomic data";
 
-    defer std.fs.cwd().deleteFile(target_file) catch {};
+    defer compat_fs.deleteFile(target_file) catch {};
 
     // Test atomic write
     try writeAtomicViaTemp(test_data, target_file, allocator);
 
     // Verify file exists and has correct content
-    const metadata = std.fs.cwd().statFile(target_file) catch unreachable;
+    const metadata = compat_fs.statFile(target_file) catch unreachable;
     try testing.expect(metadata.size == test_data.len);
 
     const file = std.fs.cwd().openFile(target_file, .{}) catch unreachable;
@@ -508,7 +510,7 @@ test "TempFile error conditions" {
     // Test temp file in non-existent directory
     {
         const nonexistent_dir = "/nonexistent/deep/path";
-        const dir = std.fs.cwd().openDir(nonexistent_dir, .{}) catch {
+        const dir = compat_fs.openDir(nonexistent_dir, .{}) catch {
             // Expected - directory doesn't exist
             return;
         };

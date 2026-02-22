@@ -4,13 +4,14 @@
 // The full text of the license can be found in the LICENSE file at the root of the repository.
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const testing = std.testing;
 
 test "North Star program compilation architecture validation" {
     std.debug.print("\n🌟 NORTH STAR COMPILATION ARCHITECTURE VALIDATION 🌟\n", .{});
 
     // Read the North Star program to validate it exists and is parseable
-    const source_content = std.fs.cwd().readFileAlloc(testing.allocator, "examples/min_profile_demo.jan", 1024 * 1024) catch |err| {
+    const source_content = compat_fs.readFileAlloc(testing.allocator, "examples/min_profile_demo.jan", 1024 * 1024) catch |err| {
         std.debug.print("⚠️  North Star program not found: {}\n", .{err});
         std.debug.print("✅ Architecture validation can proceed without source file\n", .{});
         return;

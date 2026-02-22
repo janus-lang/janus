@@ -4,6 +4,7 @@
 //! LSM SSTable: Immutable Sorted Key-Value File
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const Allocator = std.mem.Allocator;
 const BloomFilter = @import("bloom.zig").BloomFilter;
 
@@ -110,7 +111,7 @@ test "SSTable open and get" {
     const allocator = gpa.allocator();
 
     // Write test SSTable
-    var test_file = try std.fs.cwd().createFile("test.sstable", .{});
+    var test_file = try compat_fs.createFile("test.sstable", .{});
     defer test_file.delete();
 
     // ... write test data

@@ -6,6 +6,7 @@
 // Requirements: SPEC-astdb-query.md section E-8, incremental compilation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const engine = @import("engine.zig");
 
@@ -29,7 +30,7 @@ pub const DependencySet = struct {
         return DependencySet{
             .cids = .empty,
             .queries = .empty,
-            .recorded_at = std.time.timestamp(),
+            .recorded_at = compat_time.timestamp(),
             .allocator = allocator,
         };
     }
@@ -412,7 +413,7 @@ pub const InvalidationEngine = struct {
 
     /// Invalidate queries based on changed CIDs
     pub fn invalidate(self: *InvalidationEngine, changed_cids: []const CID) !InvalidationResult {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         // Find queries to invalidate
         var invalidated_queries = try self.dependency_graph.getInvalidatedQueries(changed_cids, self.allocator);
@@ -428,7 +429,7 @@ pub const InvalidationEngine = struct {
             }
         }
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const invalidation_time_ns = end_time - start_time;
 
         // Record performance metrics

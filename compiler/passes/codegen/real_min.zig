@@ -15,6 +15,7 @@
 //! - Integrates with existing ASTDB infrastructure
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const astdb_core = @import("astdb_core");
 
 /// ValueExtractor - Extracts real literal values from ASTDB tokens
@@ -255,7 +256,7 @@ pub const RealMinCodegen = struct {
         const c_file_path = try std.fmt.allocPrint(self.allocator, "{s}.c", .{output_path});
         defer self.allocator.free(c_file_path);
 
-        const c_file = try std.fs.cwd().createFile(c_file_path, .{});
+        const c_file = try compat_fs.createFile(c_file_path, .{});
         defer c_file.close();
         try c_file.writeAll(self.output.items);
 

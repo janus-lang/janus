@@ -5,6 +5,7 @@
 // Secure temp file operations with collision resistance and automatic cleanup
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const Context = @import("std_context.zig").Context;
@@ -209,7 +210,7 @@ fn generateSecureTempPath(temp_dir: []const u8, prefix: []const u8, suffix: []co
     std.crypto.random.bytes(&entropy);
 
     // Include timestamp and PID for additional uniqueness
-    const timestamp = std.time.nanoTimestamp();
+    const timestamp = compat_time.nanoTimestamp();
     const pid = std.os.linux.getpid();
 
     // Format entropy as hex

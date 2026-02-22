@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const testing = std.testing;
 const api = @import("compiler/libjanus/api.zig");
 
@@ -119,8 +120,8 @@ test "Revolutionary Capability Injection - Simple Test" {
     std.debug.print("✅ Executable generation successful: {s}\n", .{output_path});
 
     // Cleanup
-    std.fs.cwd().deleteFile(output_path) catch {};
-    std.fs.cwd().deleteFile("debug.ll") catch {};
+    compat_fs.deleteFile(output_path) catch {};
+    compat_fs.deleteFile("debug.ll") catch {};
 
     // Revolutionary Achievement Summary
     std.debug.print("\n🎉 REVOLUTIONARY CAPABILITY INJECTION - SUCCESS!\n", .{});

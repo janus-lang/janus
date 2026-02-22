@@ -5,6 +5,7 @@
 //! Tests allocator sovereignty, capability security, and error transparency
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const io = @import("std_io");
 
@@ -239,13 +240,13 @@ test "performance characteristics - O(1) operations where expected" {
     try io.testing.createTestFile(testing_allocator, test_path, test_content);
 
     // Time the read operation
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     const read_cap = io.FileReadCapability{ .path = test_path };
     const read_buffer = try io.readFile(testing_allocator, test_path, read_cap);
     defer read_buffer.deinit();
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const duration_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
 
     // Verify content is correct

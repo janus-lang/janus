@@ -9,6 +9,7 @@
 //! and verifies performance parity with current janusd implementation.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const citadel_protocol = @import("citadel_protocol");
 
@@ -134,7 +135,7 @@ test "Protocol serialization performance" {
 
     var i: u32 = 0;
     while (i < iterations) : (i += 1) {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         // Serialize
         const serialized = try citadel_protocol.serializeRequest(allocator, test_request);
@@ -144,7 +145,7 @@ test "Protocol serialization performance" {
         const deserialized = try citadel_protocol.deserializeRequest(allocator, serialized);
         defer citadel_protocol.freeRequest(allocator, deserialized);
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         metrics.recordOperation(@intCast(end_time - start_time));
     }
 
@@ -180,7 +181,7 @@ test "Large document performance" {
         const iterations = 100;
         var i: u32 = 0;
         while (i < iterations) : (i += 1) {
-            const start_time = std.time.nanoTimestamp();
+            const start_time = compat_time.nanoTimestamp();
 
             const serialized = try citadel_protocol.serializeRequest(allocator, test_request);
             defer allocator.free(serialized);
@@ -188,7 +189,7 @@ test "Large document performance" {
             const deserialized = try citadel_protocol.deserializeRequest(allocator, serialized);
             defer citadel_protocol.freeRequest(allocator, deserialized);
 
-            const end_time = std.time.nanoTimestamp();
+            const end_time = compat_time.nanoTimestamp();
             metrics.recordOperation(@intCast(end_time - start_time));
         }
 
@@ -226,7 +227,7 @@ test "Concurrent protocol performance" {
 
             var i: u32 = 0;
             while (i < iterations) : (i += 1) {
-                const start_time = std.time.nanoTimestamp();
+                const start_time = compat_time.nanoTimestamp();
 
                 const serialized = citadel_protocol.serializeRequest(context.allocator, test_request) catch return;
                 defer context.allocator.free(serialized);
@@ -234,7 +235,7 @@ test "Concurrent protocol performance" {
                 const deserialized = citadel_protocol.deserializeRequest(context.allocator, serialized) catch return;
                 defer citadel_protocol.freeRequest(context.allocator, deserialized);
 
-                const end_time = std.time.nanoTimestamp();
+                const end_time = compat_time.nanoTimestamp();
                 context.metrics.recordOperation(@intCast(end_time - start_time));
             }
 
@@ -404,7 +405,7 @@ test "Performance baseline validation" {
 
         var i: u32 = 0;
         while (i < iterations) : (i += 1) {
-            const start_time = std.time.nanoTimestamp();
+            const start_time = compat_time.nanoTimestamp();
 
             const serialized = try citadel_protocol.serializeRequest(allocator, test_case.request);
             defer allocator.free(serialized);
@@ -412,7 +413,7 @@ test "Performance baseline validation" {
             const deserialized = try citadel_protocol.deserializeRequest(allocator, serialized);
             defer citadel_protocol.freeRequest(allocator, deserialized);
 
-            const end_time = std.time.nanoTimestamp();
+            const end_time = compat_time.nanoTimestamp();
             metrics.recordOperation(@intCast(end_time - start_time));
         }
 

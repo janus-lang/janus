@@ -12,6 +12,7 @@
 //! over stdio or Unix sockets.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 
 // Protocol version constants
 pub const PROTOCOL_VERSION_MAJOR: u16 = 1;
@@ -219,7 +220,7 @@ pub const Request = struct {
     timestamp: u64,
 
     pub fn getTimestamp() u64 {
-        return @intCast(std.time.nanoTimestamp());
+        return @intCast(compat_time.nanoTimestamp());
     }
 };
 

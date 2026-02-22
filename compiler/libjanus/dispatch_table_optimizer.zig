@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 const HashMap = std.HashMap;
@@ -691,7 +692,7 @@ pub const DispatchTableOptimizer = struct {
                 .type_pattern = &.{}, // Simplified
                 .implementation_pool_index = 0, // Simplified
                 .usage_count = entry.call_frequency,
-                .last_access_time = @intCast(std.time.timestamp()),
+                .last_access_time = @intCast(compat_time.timestamp()),
             };
 
             try shared_table.shared_entries.append(shared_entry);

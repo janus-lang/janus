@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const DispatchFamily = @import("dispatch_family.zig").DispatchFamily;
 const DispatchFamilyRegistry = @import("dispatch_family.zig").DispatchFamilyRegistry;
@@ -143,7 +144,7 @@ pub const DispatchTable = struct {
     }
 
     pub fn optimize(self: *DispatchTable) !void {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         // Sort entries by specificity (most specific first)
         std.sort.pdq(DispatchTableEntry, self.entries, {}, compareBySpecificity);
@@ -160,7 +161,7 @@ pub const DispatchTable = struct {
         self.optimization_metadata.compression_ratio =
             @as(f32, @floatFromInt(optimized_size)) / @as(f32, @floatFromInt(original_size));
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         self.optimization_metadata.generation_time_ns = @intCast(end_time - start_time);
     }
 

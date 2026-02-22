@@ -11,6 +11,7 @@
 //! REAL INTEGRATION WITH LIBJANUS ASTDB - NO SECOND SEMANTICS
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const print = std.debug.print;
 const json = std.json;
 const libjanus = @import("libjanus");
@@ -163,7 +164,7 @@ fn parseArgs(allocator: std.mem.Allocator, args: [][:0]u8) !GoldenCIDsConfig {
 
 fn processSourceFile(allocator: std.mem.Allocator, source_file: []const u8, config: GoldenCIDsConfig) !CIDOutput {
     // Read source file
-    const source_content = std.fs.cwd().readFileAlloc(allocator, source_file, 1024 * 1024) catch |err| {
+    const source_content = compat_fs.readFileAlloc(allocator, source_file, 1024 * 1024) catch |err| {
         print("❌ Error reading file {s}: {}\n", .{ source_file, err });
         return err;
     };
@@ -294,7 +295,7 @@ fn processSourceFile(allocator: std.mem.Allocator, source_file: []const u8, conf
 // All CID computation is handled exclusively by the canonical libjanus ASTDB system
 
 fn writeOutputJSON(allocator: std.mem.Allocator, outputs: []const CIDOutput, output_file: []const u8) !void {
-    const file = try std.fs.cwd().createFile(output_file, .{});
+    const file = try compat_fs.createFile(output_file, .{});
     defer file.close();
 
     // Create JSON structure

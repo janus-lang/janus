@@ -10,6 +10,7 @@
 //! - Performance under load
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const json = std.json;
 const Thread = std.Thread;
@@ -299,9 +300,9 @@ test "LSP Server Concurrent Request Handling" {
                 hover_params.object.put("position", position) catch continue;
 
                 // Execute hover request
-                const start_time = std.time.nanoTimestamp();
+                const start_time = compat_time.nanoTimestamp();
                 _ = ctx.server.handleHover(hover_params);
-                const end_time = std.time.nanoTimestamp();
+                const end_time = compat_time.nanoTimestamp();
 
                 const duration_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
 
@@ -380,7 +381,7 @@ test "LSP Server Performance Under Stress" {
     var successful_operations: u32 = 0;
 
     for (0..num_iterations) |i| {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         // Document change
         const change_params = json.Value{
@@ -434,7 +435,7 @@ test "LSP Server Performance Under Stress" {
 
         _ = server.handleHover(hover_params);
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const duration = @as(u64, @intCast(end_time - start_time));
         total_duration += duration;
 

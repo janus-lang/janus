@@ -16,6 +16,8 @@
 // Bridges Janus std library to actual system calls
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 const builtin = @import("builtin");
 const interpreter = @import("interpreter.zig");
 
@@ -134,7 +136,7 @@ export fn listDirImpl(path_ptr: [*]const u8, path_len: usize, allocator_ptr: *an
     const allocator = gpa.allocator();
 
     // Open directory
-    var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch |err| switch (err) {
+    var dir = compat_fs.openDir(path, .{ .iterate = true }) catch |err| switch (err) {
         error.FileNotFound => return 1,
         error.AccessDenied => return 2,
         error.NotDir => return 3,
@@ -179,7 +181,7 @@ export fn openDirImpl(path_ptr: [*]const u8, path_len: usize) ?*anyopaque {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
-    const dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch return null;
+    const dir = compat_fs.openDir(path, .{ .iterate = true }) catch return null;
 
     // Allocate directory handle
     const handle = allocator.create(std.fs.Dir) catch return null;
@@ -201,7 +203,7 @@ export fn openDirIterImpl(path_ptr: [*]const u8, path_len: usize) ?*anyopaque {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
-    var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch return null;
+    var dir = compat_fs.openDir(path, .{ .iterate = true }) catch return null;
     const h = allocator.create(DirIterHandle) catch {
         dir.close();
         return null;
@@ -254,7 +256,7 @@ export fn freeC(ptr: [*]u8) void {
 // Returns 0 on success; non-zero on error (1 not found, 2 access denied, 3 other).
 export fn statPathImpl(path_ptr: [*]const u8, path_len: usize, out_kind: *JanusFileType, out_size: *u64, out_perms: *u32, out_mtime: *i64) i32 {
     const path = path_ptr[0..path_len];
-    const st = std.fs.cwd().statFile(path) catch |err| switch (err) {
+    const st = compat_fs.statFile(path) catch |err| switch (err) {
         error.FileNotFound => return 1,
         error.AccessDenied => return 2,
         else => return 3,
@@ -286,7 +288,7 @@ export fn statPathImpl(path_ptr: [*]const u8, path_len: usize, out_kind: *JanusF
     if (@hasField(@TypeOf(st), "mtime")) {
         out_mtime.* = @intCast(@field(st, "mtime"));
     } else {
-        out_mtime.* = std.time.timestamp();
+        out_mtime.* = compat_time.timestamp();
     }
 
     return 0;
@@ -302,7 +304,7 @@ export fn fileInfoImpl(path_ptr: [*]const u8, path_len: usize, allocator_ptr: *a
         error.AccessDenied => return 2,
         error.IsDir => {
             // Handle directory case
-            var dir = std.fs.cwd().openDir(path, .{}) catch return 3;
+            var dir = compat_fs.openDir(path, .{}) catch return 3;
             defer dir.close();
 
             const stat = dir.stat() catch return 4;
@@ -325,7 +327,7 @@ export fn fileInfoImpl(path_ptr: [*]const u8, path_len: usize, allocator_ptr: *a
 // ===== TIME OPERATIONS =====
 
 export fn getCurrentTime() i64 {
-    return std.time.timestamp();
+    return compat_time.timestamp();
 }
 
 // ===== MEMORY OPERATIONS =====
@@ -443,7 +445,7 @@ export fn writeAtomicImpl(path_ptr: [*]const u8, path_len: usize, data_ptr: [*]c
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
-    var dir = std.fs.cwd().openDir(parent, .{}) catch |err| switch (err) {
+    var dir = compat_fs.openDir(parent, .{}) catch |err| switch (err) {
         error.FileNotFound => return 2,
         error.AccessDenied => return 13,
         else => return 5,
@@ -496,7 +498,7 @@ export fn writeAtomicImpl(path_ptr: [*]const u8, path_len: usize, data_ptr: [*]c
 // Create single-level directory at path; returns 0 on success
 export fn createDirImpl(path_ptr: [*]const u8, path_len: usize) i32 {
     const path = path_ptr[0..path_len];
-    std.fs.cwd().makeDir(path) catch |err| switch (err) {
+    compat_fs.makeDir(path) catch |err| switch (err) {
         error.PathAlreadyExists => return 17,
         error.FileNotFound => return 2,
         error.AccessDenied => return 13,
@@ -561,7 +563,7 @@ export fn symlinkSupportStatusImpl(base_ptr: [*]const u8, base_len: usize) i32 {
     defer allocator.free(link_path);
 
     // Create target file
-    var dir = std.fs.cwd().openDir(base, .{}) catch return 0;
+    var dir = compat_fs.openDir(base, .{}) catch return 0;
     var f = dir.createFile(target_name, .{}) catch { dir.close(); return 2; };
     _ = f.write("x") catch {};
     f.close();
@@ -619,7 +621,7 @@ fn copyFileTo(src_path: []const u8, dst_dir: std.fs.Dir, dst_name: []const u8) !
 fn xdevFallback(from: []const u8, to: []const u8, recursive: bool, follow_symlinks: bool, replace: bool, preserve_symlinks: bool) i32 {
     // If preserving symlink at top-level, and source is a symlink, create corresponding symlink at destination and remove source
     if (preserve_symlinks) {
-        const st0 = std.fs.cwd().statFile(from) catch |e| switch (e) {
+        const st0 = compat_fs.statFile(from) catch |e| switch (e) {
             error.FileNotFound => return 2,
             else => null,
         };
@@ -627,7 +629,7 @@ fn xdevFallback(from: []const u8, to: []const u8, recursive: bool, follow_symlin
             if (stx.kind == .sym_link) {
                 // Replace policy
                 const parent = dirnameOf(to);
-                var dir = std.fs.cwd().openDir(parent, .{}) catch |e4| switch (e4) {
+                var dir = compat_fs.openDir(parent, .{}) catch |e4| switch (e4) {
                     error.FileNotFound => return 2,
                     error.AccessDenied => return 13,
                     else => return 5,
@@ -645,7 +647,7 @@ fn xdevFallback(from: []const u8, to: []const u8, recursive: bool, follow_symlin
                 }
                 // Read original link text from source's parent dir
                 const parent_from = dirnameOf(from);
-                var src_dir = std.fs.cwd().openDir(parent_from, .{}) catch return 5;
+                var src_dir = compat_fs.openDir(parent_from, .{}) catch return 5;
                 defer src_dir.close();
                 var lbuf: [4096]u8 = undefined;
                 const link_name = std.fs.path.basename(from);
@@ -677,7 +679,7 @@ fn xdevFallback(from: []const u8, to: []const u8, recursive: bool, follow_symlin
                 };
                 if (rc != 0) return rc;
                 if (dyn_target) |dt| alloc0.free(dt);
-                std.fs.cwd().deleteFile(from) catch {};
+                compat_fs.deleteFile(from) catch {};
                 return 0;
             }
         }
@@ -687,7 +689,7 @@ fn xdevFallback(from: []const u8, to: []const u8, recursive: bool, follow_symlin
     const allocator = gpa.allocator();
     var from_resolved_opt: ?[]u8 = null;
     if (follow_symlinks) {
-        if (std.fs.cwd().realpathAlloc(allocator, from)) |rp| {
+        if (compat_fs.realpathAlloc(allocator, from)) |rp| {
             from_resolved_opt = rp;
         } else |e| {}
     }
@@ -696,20 +698,20 @@ fn xdevFallback(from: []const u8, to: []const u8, recursive: bool, follow_symlin
     // Determine source kind: directory vs file
     var is_dir_src = false;
     var src_dir_opt: ?std.fs.Dir = null;
-    if (std.fs.cwd().openDir(from_use, .{ .iterate = true })) |d| {
+    if (compat_fs.openDir(from_use, .{ .iterate = true })) |d| {
         src_dir_opt = d;
         is_dir_src = true;
     } else |err| {}
 
     if (!is_dir_src) {
-        const st = std.fs.cwd().statFile(from_use) catch |e2| switch (e2) {
+        const st = compat_fs.statFile(from_use) catch |e2| switch (e2) {
             error.FileNotFound => return 2,
             error.IsDir => return 22,
             else => return 5,
         };
         // File copy fallback
         const parent = dirnameOf(to);
-        var dir = std.fs.cwd().openDir(parent, .{ .iterate = true }) catch |e4| switch (e4) {
+        var dir = compat_fs.openDir(parent, .{ .iterate = true }) catch |e4| switch (e4) {
             error.FileNotFound => return 2,
             error.AccessDenied => return 13,
             else => return 5,
@@ -729,7 +731,7 @@ fn xdevFallback(from: []const u8, to: []const u8, recursive: bool, follow_symlin
         copyFileTo(from_use, dir, base) catch return 5;
         dir.rename(base, base) catch {};
         dir.sync() catch {};
-        std.fs.cwd().deleteFile(from) catch {};
+        compat_fs.deleteFile(from) catch {};
         if (from_resolved_opt) |rp| allocator.free(rp);
         return 0;
     }
@@ -738,7 +740,7 @@ fn xdevFallback(from: []const u8, to: []const u8, recursive: bool, follow_symlin
     if (!recursive) { if (src_dir_opt) |*sd| sd.close(); return 22; }
 
     const parent_to = dirnameOf(to);
-    var target_parent = std.fs.cwd().openDir(parent_to, .{ .iterate = true }) catch |e| switch (e) {
+    var target_parent = compat_fs.openDir(parent_to, .{ .iterate = true }) catch |e| switch (e) {
         error.FileNotFound => return 2,
         error.AccessDenied => return 13,
         else => return 5,
@@ -776,7 +778,7 @@ fn xdevFallback(from: []const u8, to: []const u8, recursive: bool, follow_symlin
         // Atomic swap: rename tmp/tmp_dir/dst_name to final name under parent
         if (!replace) {
             // Refuse if destination already exists
-            if (std.fs.cwd().openDir(to, .{ .iterate = true })) |d| { d.close(); return 17; } else |e| switch (e) {
+            if (compat_fs.openDir(to, .{ .iterate = true })) |d| { d.close(); return 17; } else |e| switch (e) {
                 error.NotDir => return 17,
                 error.FileNotFound => {},
                 else => return 5,
@@ -800,7 +802,7 @@ fn xdevFallback(from: []const u8, to: []const u8, recursive: bool, follow_symlin
 
 fn copyDirRecursive(src_path: []const u8, dst: *std.fs.Dir, follow_symlinks: bool, preserve_symlinks: bool) i32 {
     // Open src dir
-    var sd = std.fs.cwd().openDir(src_path, .{ .iterate = true }) catch return 5;
+    var sd = compat_fs.openDir(src_path, .{ .iterate = true }) catch return 5;
     defer sd.close();
     var it = sd.iterate();
     while (true) {
@@ -827,7 +829,7 @@ fn copyDirRecursive(src_path: []const u8, dst: *std.fs.Dir, follow_symlinks: boo
             .sym_link => {
                 if (preserve_symlinks) {
                     // Read link text relative to src_path; grow buffer if needed
-                    var sdir = std.fs.cwd().openDir(src_path, .{}) catch return 5;
+                    var sdir = compat_fs.openDir(src_path, .{}) catch return 5;
                     defer sdir.close();
                     var lbuf: [4096]u8 = undefined;
                     const try_len = sdir.readLink(name, &lbuf) catch 0;

@@ -10,6 +10,7 @@
 //! This test validates the complete M5 campaign objective.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 
 // Real components - the complete semantic intelligence stack
@@ -114,10 +115,10 @@ test "ULTIMATE LIVE-FIRE: Complete semantic intelligence pipeline" {
     std.debug.print("✅ ValidationEngine initialized with perfect ASTDB\n", .{});
 
     // Execute complete semantic validation
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
     var validation_result = try validation_engine.validate(&astdb_system);
     defer validation_result.deinit();
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
 
     const validation_time_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
     std.debug.print("✅ Semantic Validation completed in {d:.2}ms\n", .{validation_time_ms});

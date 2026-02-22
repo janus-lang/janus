@@ -10,6 +10,10 @@
 //! REVOLUTIONARY ASTDB ARCHITECTURE - QUERY-POWERED COMPILATION
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
+
+extern "c" fn getenv(name: [*:0]const u8) ?[*:0]const u8;
 const janus = @import("janus_lib");
 const version_info = @import("version.zig");
 
@@ -39,21 +43,20 @@ inline fn hexFmt(hash: []const u8, buf: []u8) void {
 // Integration Protocol - Validation configuration
 // ValidationConfig import not required here; semantic module manages validation configuration.
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // Parse command line arguments
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
-
-    // Convert [:0]u8 to []const u8 for profile detection
-    const const_args = try allocator.alloc([]const u8, args.len);
-    defer allocator.free(const_args);
-    for (args, 0..) |arg, i| {
-        const_args[i] = arg;
+    // Parse command line arguments (Zig 0.16: use Init args)
+    var arg_list: std.ArrayListUnmanaged([]const u8) = .empty;
+    defer arg_list.deinit(allocator);
+    var iter = std.process.Args.iterate(init.minimal.args);
+    while (iter.next()) |arg| {
+        try arg_list.append(allocator, arg);
     }
+    const args = arg_list.items;
+    const const_args = args;
 
     // Detect profile from CLI args and environment
     const profile = profiles.ProfileDetector.detectProfile(const_args);
@@ -153,11 +156,17 @@ pub fn main() !void {
         defer result.deinit(allocator);
 
         if (json_output) {
-            var buf: [4096]u8 = undefined;
-            var stdout = std.fs.File.stdout().writer(&buf);
-            try std.json.Stringify.value(result, .{ .whitespace = .indent_2 }, &stdout.interface);
-            try stdout.interface.writeAll("\n");
-            try stdout.end();
+            // Zig 0.16: std.fs.File removed — serialize to buffer, write to fd 1
+            const json_str = try std.json.Stringify.valueAlloc(allocator, result, .{ .whitespace = .indent_2 });
+            defer allocator.free(json_str);
+            var offset: usize = 0;
+            while (offset < json_str.len) {
+                const rc = std.os.linux.write(1, json_str[offset..].ptr, json_str.len - offset);
+                const signed: isize = @bitCast(rc);
+                if (signed <= 0) break;
+                offset += rc;
+            }
+            _ = std.os.linux.write(1, "\n", 1);
         } else {
             std.debug.print("\nTest Summary:\n", .{});
             std.debug.print("  Passed: {d}\n", .{result.passed});
@@ -629,7 +638,7 @@ pub fn main() !void {
             // const sidx = src_idx_opt.?;
             // const source_path = args[sidx];
             // const out_ll = if (sidx + 1 < args.len and args[sidx + 1].len > 0 and args[sidx + 1][0] != '-') args[sidx + 1] else "out.ll";
-            // const bytes = try std.fs.cwd().readFileAlloc(allocator, source_path, 16 * 1024 * 1024);
+            // const bytes = try compat_fs.readFileAlloc(allocator, source_path, 16 * 1024 * 1024);
             // defer allocator.free(bytes);
 
             if (verify_flag) {
@@ -667,12 +676,12 @@ pub fn main() !void {
 
                 // Locate runtime directory for scheduler support
                 // Priority: JANUS_RUNTIME_DIR env > "runtime" relative to CWD
-                const runtime_dir: ?[]const u8 = std.process.getEnvVarOwned(allocator, "JANUS_RUNTIME_DIR") catch |err| blk: {
-                    if (err == error.EnvironmentVariableNotFound) {
-                        // Try relative path from CWD
-                        break :blk std.fs.cwd().realpathAlloc(allocator, "runtime") catch null;
+                const runtime_dir: ?[]const u8 = blk: {
+                    const env_ptr = getenv("JANUS_RUNTIME_DIR");
+                    if (env_ptr) |ptr| {
+                        break :blk allocator.dupe(u8, std.mem.sliceTo(ptr, 0)) catch null;
                     }
-                    break :blk null;
+                    break :blk compat_fs.realpathAlloc(allocator, "runtime") catch null;
                 };
                 defer if (runtime_dir) |d| allocator.free(d);
 
@@ -1182,12 +1191,14 @@ fn cacheGc(root: []const u8, max_keep: usize, allocator: std.mem.Allocator) !voi
 }
 
 fn cachePrune(root: []const u8, older_days_opt: ?u64, max_size_mb_opt: ?u64, allocator: std.mem.Allocator) !void {
-    var root_dir = try fs.cwd().openDir(root, .{ .iterate = true });
+    const obj_path = try std.fmt.allocPrint(allocator, "{s}/objects", .{root});
+    defer allocator.free(obj_path);
+    var root_dir = try compat_fs.openDir(root);
     defer root_dir.close();
-    var obj_dir = try root_dir.openDir("objects", .{ .iterate = true });
+    var obj_dir = try compat_fs.openDir(obj_path);
     defer obj_dir.close();
 
-    const now = std.time.timestamp();
+    const now = compat_time.timestamp();
     const cutoff: i64 = if (older_days_opt) |d| now - @as(i64, @intCast(d)) * 24 * 60 * 60 else std.math.maxInt(i64);
     const max_total: u64 = if (max_size_mb_opt) |mb| mb * 1024 * 1024 else 0;
 
@@ -1229,25 +1240,26 @@ fn cachePrune(root: []const u8, older_days_opt: ?u64, max_size_mb_opt: ?u64, all
     }.upsert;
 
     var it = obj_dir.iterate();
-    while (try it.next()) |ent| {
+    while (it.next() catch null) |ent| {
         if (ent.kind != .directory) continue;
-        var cid_dir = try obj_dir.openDir(ent.name, .{ .iterate = true, .access_sub_paths = true });
+        const cid_path_dir = try std.fmt.allocPrint(allocator, "{s}/objects/{s}", .{ root, ent.name });
+        defer allocator.free(cid_path_dir);
+        var cid_dir = compat_fs.openDir(cid_path_dir) catch continue;
         defer cid_dir.close();
         var it2 = cid_dir.iterate();
-        while (try it2.next()) |ent2| {
+        while (it2.next() catch null) |ent2| {
             if (ent2.kind != .file) continue;
             const is_art = std.mem.startsWith(u8, ent2.name, "artifact-") and std.mem.endsWith(u8, ent2.name, ".bin");
             const is_ir = std.mem.startsWith(u8, ent2.name, "ir-") and std.mem.endsWith(u8, ent2.name, ".txt");
             const is_summary = std.mem.startsWith(u8, ent2.name, "graph-") and std.mem.endsWith(u8, ent2.name, ".json");
             if (!(is_art or is_ir or is_summary)) continue;
-            const st = cid_dir.statFile(ent2.name) catch continue;
             const full = try std.fmt.allocPrint(allocator, "{s}/objects/{s}/{s}", .{ root, ent.name, ent2.name });
-            // derive cid_path and flavor
+            const st = compat_fs.statFile(full) catch continue;
             const cid_path = try std.fmt.allocPrint(allocator, "{s}/objects/{s}", .{ root, ent.name });
             var flavor: []const u8 = "";
             if (is_art) flavor = ent2.name[9 .. ent2.name.len - 4] else if (is_ir) flavor = ent2.name[3 .. ent2.name.len - 4] else flavor = ent2.name[6 .. ent2.name.len - 14];
             const flavor_owned = try allocator.dupe(u8, flavor);
-            try files.append(allocator, .{ .path = full, .mtime = st.mtime, .size = @intCast(st.size), .cid_path = cid_path, .flavor = flavor_owned });
+            try files.append(allocator, .{ .path = full, .mtime = st.mtime, .size = st.size, .cid_path = cid_path, .flavor = flavor_owned });
             try addCount(&counts, cid_path, flavor, allocator);
         }
     }
@@ -1320,7 +1332,7 @@ fn cachePrune(root: []const u8, older_days_opt: ?u64, max_size_mb_opt: ?u64, all
 
     // Remove empty CID directories
     var it3 = obj_dir.iterate();
-    while (try it3.next()) |ent| {
+    while (it3.next() catch null) |ent| {
         if (ent.kind != .directory) continue;
         const cid_path = try std.fmt.allocPrint(allocator, "{s}/objects/{s}", .{ root, ent.name });
         defer allocator.free(cid_path);
@@ -1348,7 +1360,7 @@ fn cachePruneAdvanced(root: []const u8, older_days_opt: ?u64, max_size_mb_opt: ?
     const objects_path = try std.fmt.allocPrint(allocator, "{s}/objects", .{root});
     defer allocator.free(objects_path);
 
-    const now = std.time.timestamp();
+    const now = compat_time.timestamp();
     const cutoff: i64 = if (older_days_opt) |d| now - @as(i64, @intCast(d)) * 24 * 60 * 60 else std.math.maxInt(i64);
     const max_total: u64 = if (max_size_mb_opt) |mb| mb * 1024 * 1024 else 0;
 
@@ -1461,7 +1473,7 @@ fn cachePruneAdvanced(root: []const u8, older_days_opt: ?u64, max_size_mb_opt: ?
             if (f.size == 0) continue;
             if (f.mtime < cutoff) {
                 if (dry_run) try record(&plan, allocator, f.cid_hex, f.path) else {
-                    fs.cwd().deleteFile(f.path) catch {};
+                    compat_fs.deleteFile(f.path) catch {};
                 }
                 freed += f.size;
                 removed += 1;
@@ -1489,7 +1501,7 @@ fn cachePruneAdvanced(root: []const u8, older_days_opt: ?u64, max_size_mb_opt: ?
         while (k < files.items.len and total > max_total) : (k += 1) {
             if (files.items[k].size == 0) continue;
             if (dry_run) try record(&plan, allocator, files.items[k].cid_hex, files.items[k].path) else {
-                fs.cwd().deleteFile(files.items[k].path) catch {};
+                compat_fs.deleteFile(files.items[k].path) catch {};
             }
             freed += files.items[k].size;
             total -= files.items[k].size;
@@ -1510,7 +1522,7 @@ fn cachePruneAdvanced(root: []const u8, older_days_opt: ?u64, max_size_mb_opt: ?
             if (mp) |mpp| {
                 if (dry_run) {
                     try record(&plan, allocator, c.cid_hex, mpp);
-                } else fs.cwd().deleteFile(mpp) catch {};
+                } else compat_fs.deleteFile(mpp) catch {};
                 allocator.free(mpp);
             }
         }
@@ -1554,9 +1566,11 @@ fn cachePruneAdvanced(root: []const u8, older_days_opt: ?u64, max_size_mb_opt: ?
 }
 
 fn cacheGcAdvanced(root: []const u8, max_keep: usize, dry_run: bool, confirms: [][]const u8, allocator: std.mem.Allocator) !void {
-    var root_dir = try fs.cwd().openDir(root, .{ .iterate = true });
+    const obj_path = try std.fmt.allocPrint(allocator, "{s}/objects", .{root});
+    defer allocator.free(obj_path);
+    var root_dir = try compat_fs.openDir(root);
     defer root_dir.close();
-    var obj_dir = try root_dir.openDir("objects", .{ .iterate = true });
+    var obj_dir = try compat_fs.openDir(obj_path);
     defer obj_dir.close();
     var it = obj_dir.iterate();
     var removed: usize = 0;
@@ -1587,7 +1601,7 @@ fn cacheGcAdvanced(root: []const u8, max_keep: usize, dry_run: bool, confirms: [
             try plan_ref.append(allocator_, entry);
         }
     }.add;
-    while (try it.next()) |ent| {
+    while (it.next() catch null) |ent| {
         if (ent.kind != .directory) continue;
         if (confirms.len > 0) {
             var ok = false;
@@ -1599,35 +1613,43 @@ fn cacheGcAdvanced(root: []const u8, max_keep: usize, dry_run: bool, confirms: [
             }
             if (!ok) continue;
         }
-        var cid_dir = try obj_dir.openDir(ent.name, .{ .iterate = true });
+        const cid_dir_path = try std.fmt.allocPrint(allocator, "{s}/objects/{s}", .{ root, ent.name });
+        defer allocator.free(cid_dir_path);
+        var cid_dir = compat_fs.openDir(cid_dir_path) catch continue;
         defer cid_dir.close();
-        var files = std.ArrayList(struct { name: []u8, mtime: i128 }){};
+        var files2 = std.ArrayList(struct { name: []u8, mtime: i128 }){};
         defer {
-            for (files.items) |f| allocator.free(f.name);
-            files.deinit(allocator);
+            for (files2.items) |f| allocator.free(f.name);
+            files2.deinit(allocator);
         }
         var it2 = cid_dir.iterate();
-        while (try it2.next()) |ent2| {
+        while (it2.next() catch null) |ent2| {
             if (ent2.kind == .file and std.mem.startsWith(u8, ent2.name, "artifact-") and std.mem.endsWith(u8, ent2.name, ".bin")) {
-                const st = cid_dir.statFile(ent2.name) catch continue;
+                const full2 = std.fmt.allocPrint(allocator, "{s}/{s}", .{ cid_dir_path, ent2.name }) catch continue;
+                defer allocator.free(full2);
+                const st = compat_fs.statFile(full2) catch continue;
                 const nm = try allocator.dupe(u8, ent2.name);
-                try files.append(allocator, .{ .name = nm, .mtime = st.mtime });
+                try files2.append(allocator, .{ .name = nm, .mtime = st.mtime });
             }
         }
-        if (files.items.len > max_keep) {
-            const FT = @TypeOf(files.items[0]);
-            std.sort.block(FT, files.items, {}, struct {
+        if (files2.items.len > max_keep) {
+            const FT = @TypeOf(files2.items[0]);
+            std.sort.block(FT, files2.items, {}, struct {
                 fn less(_: void, a: FT, b: FT) bool {
                     return a.mtime > b.mtime;
                 }
             }.less);
             var idx: usize = max_keep;
-            while (idx < files.items.len) : (idx += 1) {
+            while (idx < files2.items.len) : (idx += 1) {
                 if (dry_run) {
-                    const full = try std.fmt.allocPrint(allocator, "{s}/objects/{s}/{s}", .{ root, ent.name, files.items[idx].name });
-                    try record(&plan, allocator, ent.name, full);
-                    allocator.free(full);
-                } else cid_dir.deleteFile(files.items[idx].name) catch {};
+                    const full3 = try std.fmt.allocPrint(allocator, "{s}/objects/{s}/{s}", .{ root, ent.name, files2.items[idx].name });
+                    try record(&plan, allocator, ent.name, full3);
+                    allocator.free(full3);
+                } else {
+                    const del_path = std.fmt.allocPrint(allocator, "{s}/{s}", .{ cid_dir_path, files2.items[idx].name }) catch continue;
+                    defer allocator.free(del_path);
+                    compat_fs.deleteFile(del_path) catch {};
+                }
                 removed += 1;
             }
         }
@@ -1651,9 +1673,9 @@ fn cacheClean(root: []const u8, allocator: std.mem.Allocator) !void {
         return error.InvalidCacheRoot;
     }
     // Warn and refuse if root resolves to current working directory
-    const cwd = try fs.cwd().realpathAlloc(allocator, ".");
+    const cwd = try compat_fs.realpathAlloc(allocator, ".");
     defer allocator.free(cwd);
-    const rpath = fs.cwd().realpathAlloc(allocator, root) catch root;
+    const rpath = compat_fs.realpathAlloc(allocator, root) catch root;
     defer if (!std.mem.eql(u8, rpath, root)) allocator.free(rpath);
     if (std.mem.eql(u8, rpath, cwd)) {
         std.debug.print("Refusing to delete current working directory '{s}'.\n", .{rpath});
@@ -1664,13 +1686,13 @@ fn cacheClean(root: []const u8, allocator: std.mem.Allocator) !void {
         return error.InvalidCacheRoot;
     }
     // Safety check: ensure this looks like a cache root (must contain 'objects' dir)
-    var root_dir = try fs.cwd().openDir(root, .{ .iterate = true });
-    defer root_dir.close();
-    _ = root_dir.openDir("objects", .{ .iterate = false }) catch {
+    const check_obj_path = try std.fmt.allocPrint(allocator, "{s}/objects", .{root});
+    defer allocator.free(check_obj_path);
+    _ = compat_fs.statFile(check_obj_path) catch {
         std.debug.print("'{s}' does not look like a cache root (missing 'objects' dir). Aborting.\n", .{root});
         return error.InvalidCacheRoot;
     };
-    fs.cwd().deleteTree(root) catch |err| {
+    compat_fs.deleteTree(root) catch |err| {
         std.debug.print("Failed to delete '{s}': {}\n", .{ root, err });
         return err;
     };
@@ -1792,8 +1814,8 @@ fn testCASCommand(allocator: std.mem.Allocator) !void {
     const cas_root = "test_cas_demo";
 
     // Clean up any existing test directory
-    std.fs.cwd().deleteTree(cas_root) catch {};
-    defer std.fs.cwd().deleteTree(cas_root) catch {};
+    compat_fs.deleteTree(cas_root) catch {};
+    defer compat_fs.deleteTree(cas_root) catch {};
 
     try janus.initializeCAS(cas_root);
     var cas = janus.createCAS(cas_root, allocator);
@@ -1966,8 +1988,8 @@ fn testTransportCommand(allocator: std.mem.Allocator) !void {
     const test_file = "test_transport_demo.txt";
     const test_content = "Hello from Janus Transport Layer!";
 
-    try std.fs.cwd().writeFile(.{ .sub_path = test_file, .data = test_content });
-    defer std.fs.cwd().deleteFile(test_file) catch {};
+    try compat_fs.writeFile(.{ .sub_path = test_file, .data = test_content });
+    defer compat_fs.deleteFile(test_file) catch {};
 
     const file_url = "file://" ++ test_file;
     var file_result = janus.fetchContent(&registry, file_url, allocator) catch |err| {
@@ -1993,12 +2015,12 @@ fn testTransportCommand(allocator: std.mem.Allocator) !void {
 
     // Create a test directory
     const test_dir = "test_transport_dir";
-    std.fs.cwd().deleteTree(test_dir) catch {};
-    defer std.fs.cwd().deleteTree(test_dir) catch {};
+    compat_fs.deleteTree(test_dir) catch {};
+    defer compat_fs.deleteTree(test_dir) catch {};
 
-    try std.fs.cwd().makeDir(test_dir);
-    try std.fs.cwd().writeFile(.{ .sub_path = test_dir ++ "/file1.txt", .data = "Content 1" });
-    try std.fs.cwd().writeFile(.{ .sub_path = test_dir ++ "/file2.txt", .data = "Content 2" });
+    try compat_fs.makeDir(test_dir);
+    try compat_fs.writeFile(.{ .sub_path = test_dir ++ "/file1.txt", .data = "Content 1" });
+    try compat_fs.writeFile(.{ .sub_path = test_dir ++ "/file2.txt", .data = "Content 2" });
 
     const dir_url = "file://" ++ test_dir;
     var dir_result = janus.fetchContent(&registry, dir_url, allocator) catch |err| {
@@ -2199,8 +2221,8 @@ fn testResolverCommand(allocator: std.mem.Allocator) !void {
     // Test 1: Resolver Initialization
     std.debug.print("\n--- Testing Resolver Initialization ---\n", .{});
     const cas_root = "test_resolver_demo";
-    std.fs.cwd().deleteTree(cas_root) catch {};
-    defer std.fs.cwd().deleteTree(cas_root) catch {};
+    compat_fs.deleteTree(cas_root) catch {};
+    defer compat_fs.deleteTree(cas_root) catch {};
 
     var resolver_instance = janus.createResolver(cas_root, allocator) catch |err| {
         std.debug.print("❌ Failed to create resolver: {}\n", .{err});
@@ -2214,12 +2236,12 @@ fn testResolverCommand(allocator: std.mem.Allocator) !void {
     std.debug.print("\n--- Testing Package Resolution ---\n", .{});
 
     const test_pkg_dir = "test_demo_package";
-    std.fs.cwd().deleteTree(test_pkg_dir) catch {};
-    defer std.fs.cwd().deleteTree(test_pkg_dir) catch {};
+    compat_fs.deleteTree(test_pkg_dir) catch {};
+    defer compat_fs.deleteTree(test_pkg_dir) catch {};
 
-    try std.fs.cwd().makeDir(test_pkg_dir);
-    try std.fs.cwd().writeFile(.{ .sub_path = test_pkg_dir ++ "/main.zig", .data = "pub fn main() { std.debug.print(\"Hello from test package!\", .{}); }" });
-    try std.fs.cwd().writeFile(.{ .sub_path = test_pkg_dir ++ "/README.md", .data = "# Test Demo Package\n\nThis is a test package for the Janus Ledger resolver." });
+    try compat_fs.makeDir(test_pkg_dir);
+    try compat_fs.writeFile(.{ .sub_path = test_pkg_dir ++ "/main.zig", .data = "pub fn main() { std.debug.print(\"Hello from test package!\", .{}); }" });
+    try compat_fs.writeFile(.{ .sub_path = test_pkg_dir ++ "/README.md", .data = "# Test Demo Package\n\nThis is a test package for the Janus Ledger resolver." });
 
     // Test 3: Add Dependency
     const source = janus.Manifest.PackageRef.Source{
@@ -2273,14 +2295,14 @@ fn testResolverCommand(allocator: std.mem.Allocator) !void {
     std.debug.print("✅ Lockfile saved to JANUS.lock\n", .{});
 
     // Verify lockfile was created
-    const lockfile_stat = std.fs.cwd().statFile("JANUS.lock") catch |err| {
+    const lockfile_stat = compat_fs.statFile("JANUS.lock") catch |err| {
         std.debug.print("❌ Failed to verify lockfile: {}\n", .{err});
         return;
     };
     std.debug.print("✅ Lockfile size: {} bytes\n", .{lockfile_stat.size});
 
     // Clean up test lockfile
-    std.fs.cwd().deleteFile("JANUS.lock") catch {};
+    compat_fs.deleteFile("JANUS.lock") catch {};
 
     std.debug.print("\n🎉 Dependency Resolver tests completed!\n", .{});
     std.debug.print("🎉 The strategic core is operational!\n", .{});

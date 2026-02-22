@@ -5,6 +5,7 @@
 // Task 2.1 - Foundation for all semantic queries
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const Blake3 = std.crypto.hash.Blake3;
 const schema = @import("../astdb/schema.zig");
@@ -38,9 +39,9 @@ pub const QueryCtx = struct {
 
     /// Execute a query with canonical argument validation
     pub fn executeQuery(self: *Self, query_id: QueryId, args: QueryArgs) !QueryResult {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
         defer {
-            const elapsed = std.time.nanoTimestamp() - start_time;
+            const elapsed = compat_time.nanoTimestamp() - start_time;
             self.performance_monitor.recordQuery(query_id, elapsed);
         }
 

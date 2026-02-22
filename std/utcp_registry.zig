@@ -2,8 +2,30 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
+const compat_mutex = @import("compat_mutex");
 const rsp1 = @import("rsp1");
 pub const cluster = @import("rsp1_cluster");
+
+/// Writer backed by an ArrayList(u8), replacing the removed std.ArrayList(u8).Writer.
+const ArrayListWriter = struct {
+    list: *std.ArrayList(u8),
+    alloc: std.mem.Allocator,
+
+    pub fn writeAll(self: ArrayListWriter, data: []const u8) !void {
+        try self.list.appendSlice(self.alloc, data);
+    }
+
+    pub fn writeByte(self: ArrayListWriter, byte: u8) !void {
+        try self.list.append(self.alloc, byte);
+    }
+
+    pub fn print(self: ArrayListWriter, comptime fmt: []const u8, args: anytype) !void {
+        var buf: [4096]u8 = undefined;
+        const result = std.fmt.bufPrint(&buf, fmt, args) catch return error.NoSpaceLeft;
+        try self.list.appendSlice(self.alloc, result);
+    }
+};
 
 pub const WriteCapability = struct {};
 pub const MaintenanceCapability = struct {}; // optional, if you want to gate maint ops separately
@@ -60,7 +82,7 @@ pub const BackpressureMetrics = struct {
         self.avg_ttl_remaining_ns = 0;
         self.max_ttl_remaining_ns = 0;
         self.min_ttl_remaining_ns = std.math.maxInt(i128);
-        self.metrics_reset_time_ns = std.time.nanoTimestamp();
+        self.metrics_reset_time_ns = compat_time.nanoTimestamp();
     }
 
     pub fn updateTtlStats(self: *BackpressureMetrics, ttl_remaining_ns: i128, entry_count: usize) void {
@@ -159,9 +181,9 @@ pub fn UtcpRegistryNsSyncLease(comptime UseSpinLock: bool) type {
         // Namespace quotas: maximum entries allowed per group
         max_entries_per_group: usize = 1024,
 
-        // Lock choice per capsule workload
-        lock_mutex: if (UseSpinLock) void else std.Thread.Mutex = if (UseSpinLock) {} else .{},
-        lock_spin: if (UseSpinLock) std.Thread.SpinLock else void = if (UseSpinLock) .{} else {},
+        // Lock choice per capsule workload (compat_mutex for Zig 0.16)
+        lock_mutex: if (UseSpinLock) void else compat_mutex.Mutex = if (UseSpinLock) {} else .{},
+        lock_spin: if (UseSpinLock) std.atomic.Mutex else void = if (UseSpinLock) .unlocked else {},
 
         // Background maintenance
         maint_running: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
@@ -248,7 +270,9 @@ pub fn UtcpRegistryNsSyncLease(comptime UseSpinLock: bool) type {
         }
 
         inline fn lock(self: *Self) void {
-            if (UseSpinLock) self.lock_spin.lock() else self.lock_mutex.lock();
+            if (UseSpinLock) {
+                while (!self.lock_spin.tryLock()) {}
+            } else self.lock_mutex.lock();
         }
         inline fn unlock(self: *Self) void {
             if (UseSpinLock) self.lock_spin.unlock() else self.lock_mutex.unlock();
@@ -267,7 +291,7 @@ pub fn UtcpRegistryNsSyncLease(comptime UseSpinLock: bool) type {
         }
 
         fn nowNs() i128 {
-            return std.time.nanoTimestamp(); // monotonic
+            return compat_time.nanoTimestamp(); // monotonic
         }
 
         fn calcDeadline(now_ns: i128, ttl_ns: i128) i128 {
@@ -533,32 +557,32 @@ pub fn UtcpRegistryNsSyncLease(comptime UseSpinLock: bool) type {
 
             var out = std.ArrayList(u8){};
             errdefer out.deinit(alloc);
-            const w = out.writer(alloc);
+            const w = ArrayListWriter{ .list = &out, .alloc = alloc };
 
             const now = Self.nowNs();
             const metrics = self.getMetricsUnlocked();
 
             try w.writeAll("{\"utcp_version\":\"1.0.0\",\"registry_time_ns\":");
-            try std.fmt.format(w, "{}", .{now});
+            try w.print( "{}", .{now});
             try w.writeAll(",\"backpressure_metrics\":{");
 
             // Add metrics to output
             try w.writeAll("\"total_entries\":");
-            try std.fmt.format(w, "{}", .{metrics.total_entries});
+            try w.print( "{}", .{metrics.total_entries});
             try w.writeAll(",\"purged_since_reset\":");
-            try std.fmt.format(w, "{}", .{metrics.purged_since_reset});
+            try w.print( "{}", .{metrics.purged_since_reset});
             try w.writeAll(",\"total_heartbeats\":");
-            try std.fmt.format(w, "{}", .{metrics.total_heartbeats});
+            try w.print( "{}", .{metrics.total_heartbeats});
             try w.writeAll(",\"failed_heartbeats\":");
-            try std.fmt.format(w, "{}", .{metrics.failed_heartbeats});
+            try w.print( "{}", .{metrics.failed_heartbeats});
             try w.writeAll(",\"avg_ttl_remaining_ns\":");
-            try std.fmt.format(w, "{}", .{metrics.avg_ttl_remaining_ns});
+            try w.print( "{}", .{metrics.avg_ttl_remaining_ns});
             try w.writeAll(",\"max_ttl_remaining_ns\":");
-            try std.fmt.format(w, "{}", .{metrics.max_ttl_remaining_ns});
+            try w.print( "{}", .{metrics.max_ttl_remaining_ns});
             try w.writeAll(",\"min_ttl_remaining_ns\":");
-            try std.fmt.format(w, "{}", .{metrics.min_ttl_remaining_ns});
+            try w.print( "{}", .{metrics.min_ttl_remaining_ns});
             try w.writeAll(",\"metrics_reset_time_ns\":");
-            try std.fmt.format(w, "{}", .{metrics.metrics_reset_time_ns});
+            try w.print( "{}", .{metrics.metrics_reset_time_ns});
             try w.writeAll("},\"groups\":{");
 
             var first_group = true;
@@ -589,12 +613,12 @@ pub fn UtcpRegistryNsSyncLease(comptime UseSpinLock: bool) type {
                         // Remove the closing brace temporarily
                         try w.writeByte(',');
                         try w.writeAll("\"lease_deadline\":");
-                        try std.fmt.format(w, "{}", .{e.deadline_ns});
+                        try w.print( "{}", .{e.deadline_ns});
                         try w.writeAll(",\"heartbeat_count\":");
-                        try std.fmt.format(w, "{}", .{e.heartbeat_count});
+                        try w.print( "{}", .{e.heartbeat_count});
                         try w.writeAll(",\"signature\":\"");
                         for (e.signature) |b| {
-                            try std.fmt.format(w, "{x:0>2}", .{b});
+                            try w.print( "{x:0>2}", .{b});
                         }
                         try w.writeAll("\"}");
                     }

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const janus = @import("janus_lib");
 const tokenizer = janus.tokenizer;
 
@@ -18,12 +19,14 @@ pub fn main(init: std.process.Init) !void {
 
     var prng = std.Random.DefaultPrng.init(blk: {
         var seed: u64 = undefined;
-        std.posix.getrandom(std.mem.asBytes(&seed)) catch seed = 12345;
+        // getrandom removed from std.posix in 0.16 — use linux syscall
+        const rc = std.os.linux.getrandom(std.mem.asBytes(&seed).ptr, @sizeOf(u64), 0);
+        if (@as(isize, @bitCast(rc)) < 0) seed = 12345;
         break :blk seed;
     });
     const rand = prng.random();
 
-    var timer = try std.time.Timer.start();
+    const start_ns = compat_time.nanoTimestamp();
     var success_count: usize = 0;
     var failure_count: usize = 0;
 
@@ -69,8 +72,9 @@ pub fn main(init: std.process.Init) !void {
         success_count += 1;
     }
 
-    const elapsed = timer.read();
-    const ms = @as(f64, @floatFromInt(elapsed)) / 1_000_000.0;
+    const end_ns = compat_time.nanoTimestamp();
+    const elapsed_ns = end_ns - start_ns;
+    const ms = @as(f64, @floatFromInt(@as(i64, @intCast(elapsed_ns)))) / 1_000_000.0;
     std.debug.print("Fuzz complete: {d} iterations in {d:.2}ms ({d:.0} iter/sec)\n" ++
-        "Success: {d}, Failures: {d} (non-parser errors)\n", .{ iter_count, ms, @as(f64, @floatFromInt(iter_count)) / ms, success_count, failure_count });
+        "Success: {d}, Failures: {d} (non-parser errors)\n", .{ iter_count, ms, @as(f64, @floatFromInt(iter_count)) / (ms / 1000.0), success_count, failure_count });
 }

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const testing = std.testing;
 const resolver = @import("../../compiler/libjanus/ledger/resolver.zig");
 const manifest = @import("../../compiler/libjanus/ledger/manifest.zig");
@@ -11,14 +12,14 @@ test "resolver: initialization and cleanup" {
     const allocator = testing.allocator;
 
     const cas_root = "test_resolver_cas";
-    std.fs.cwd().deleteTree(cas_root) catch {};
-    defer std.fs.cwd().deleteTree(cas_root) catch {};
+    compat_fs.deleteTree(cas_root) catch {};
+    defer compat_fs.deleteTree(cas_root) catch {};
 
     var test_resolver = try resolver.Resolver.init(cas_root, allocator);
     defer test_resolver.deinit();
 
     // Verify CAS directory was created
-    var cas_dir = try std.fs.cwd().openDir(cas_root, .{});
+    var cas_dir = try compat_fs.openDir(cas_root, .{});
     cas_dir.close();
 }
 
@@ -72,8 +73,8 @@ test "resolver: capability change detection" {
     }
 
     const cas_root = "test_resolver_changes";
-    std.fs.cwd().deleteTree(cas_root) catch {};
-    defer std.fs.cwd().deleteTree(cas_root) catch {};
+    compat_fs.deleteTree(cas_root) catch {};
+    defer compat_fs.deleteTree(cas_root) catch {};
 
     var test_resolver = try resolver.Resolver.init(cas_root, allocator);
     defer test_resolver.deinit();
@@ -104,8 +105,8 @@ test "resolver: URL construction from sources" {
     const allocator = testing.allocator;
 
     const cas_root = "test_resolver_urls";
-    std.fs.cwd().deleteTree(cas_root) catch {};
-    defer std.fs.cwd().deleteTree(cas_root) catch {};
+    compat_fs.deleteTree(cas_root) catch {};
+    defer compat_fs.deleteTree(cas_root) catch {};
 
     var test_resolver = try resolver.Resolver.init(cas_root, allocator);
     defer test_resolver.deinit();
@@ -153,8 +154,8 @@ test "resolver: capability equality checking" {
     const allocator = testing.allocator;
 
     const cas_root = "test_resolver_equality";
-    std.fs.cwd().deleteTree(cas_root) catch {};
-    defer std.fs.cwd().deleteTree(cas_root) catch {};
+    compat_fs.deleteTree(cas_root) catch {};
+    defer compat_fs.deleteTree(cas_root) catch {};
 
     var test_resolver = try resolver.Resolver.init(cas_root, allocator);
     defer test_resolver.deinit();
@@ -197,17 +198,17 @@ test "resolver: file transport integration" {
     const allocator = testing.allocator;
 
     const cas_root = "test_resolver_integration";
-    std.fs.cwd().deleteTree(cas_root) catch {};
-    defer std.fs.cwd().deleteTree(cas_root) catch {};
+    compat_fs.deleteTree(cas_root) catch {};
+    defer compat_fs.deleteTree(cas_root) catch {};
 
     // Create test package directory
     const test_pkg_dir = "test_package_source";
-    std.fs.cwd().deleteTree(test_pkg_dir) catch {};
-    defer std.fs.cwd().deleteTree(test_pkg_dir) catch {};
+    compat_fs.deleteTree(test_pkg_dir) catch {};
+    defer compat_fs.deleteTree(test_pkg_dir) catch {};
 
-    try std.fs.cwd().makeDir(test_pkg_dir);
-    try std.fs.cwd().writeFile(.{ .sub_path = test_pkg_dir ++ "/main.zig", .data = "pub fn main() {}" });
-    try std.fs.cwd().writeFile(.{ .sub_path = test_pkg_dir ++ "/README.md", .data = "# Test Package" });
+    try compat_fs.makeDir(test_pkg_dir);
+    try compat_fs.writeFile(.{ .sub_path = test_pkg_dir ++ "/main.zig", .data = "pub fn main() {}" });
+    try compat_fs.writeFile(.{ .sub_path = test_pkg_dir ++ "/README.md", .data = "# Test Package" });
 
     var test_resolver = try resolver.Resolver.init(cas_root, allocator);
     defer test_resolver.deinit();
@@ -279,8 +280,8 @@ test "resolver: error handling" {
     const allocator = testing.allocator;
 
     const cas_root = "test_resolver_errors";
-    std.fs.cwd().deleteTree(cas_root) catch {};
-    defer std.fs.cwd().deleteTree(cas_root) catch {};
+    compat_fs.deleteTree(cas_root) catch {};
+    defer compat_fs.deleteTree(cas_root) catch {};
 
     var test_resolver = try resolver.Resolver.init(cas_root, allocator);
     defer test_resolver.deinit();
@@ -298,8 +299,8 @@ test "resolver: memory management" {
     const allocator = testing.allocator;
 
     const cas_root = "test_resolver_memory";
-    std.fs.cwd().deleteTree(cas_root) catch {};
-    defer std.fs.cwd().deleteTree(cas_root) catch {};
+    compat_fs.deleteTree(cas_root) catch {};
+    defer compat_fs.deleteTree(cas_root) catch {};
 
     var test_resolver = try resolver.Resolver.init(cas_root, allocator);
     defer test_resolver.deinit();

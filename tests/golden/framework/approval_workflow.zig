@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const IRComparator = @import("ir_comparator.zig").IRComparator;
 
@@ -103,7 +105,7 @@ pub const ApprovalWorkflow = struct {
     pub fn init(allocator: std.mem.Allocator, approval_log_path: []const u8) !Self {
         // Ensure approval log directory exists
         if (std.fs.path.dirname(approval_log_path)) |dir_path| {
-            std.fs.cwd().makePath(dir_path) catch |err| switch (err) {
+            compat_fs.makeDir(dir_path) catch |err| switch (err) {
                 error.PathAlreadyExists => {},
                 else => return err,
             };
@@ -181,7 +183,7 @@ pub const ApprovalWorkflow = struct {
             },
             .justification = try self.allocator.dupe(u8, justification),
             .requested_by = try self.allocator.dupe(u8, requested_by),
-            .requested_at = std.time.timestamp(),
+            .requested_at = compat_time.timestamp(),
         };
     }
 
@@ -218,7 +220,7 @@ pub const ApprovalWorkflow = struct {
             {
                 record.decision = decision;
                 record.approved_by = try self.allocator.dupe(u8, approved_by);
-                record.approved_at = std.time.timestamp();
+                record.approved_at = compat_time.timestamp();
                 if (approval_notes) |notes| {
                     record.approval_notes = try self.allocator.dupe(u8, notes);
                 }
@@ -319,7 +321,7 @@ pub const ApprovalWorkflow = struct {
     // Private helper functions
 
     fn logApprovalRecord(self: *const Self, record: *const ApprovalRecord) !void {
-        const file = try std.fs.cwd().createFile(self.approval_log_path, .{ .truncate = false });
+        const file = try compat_fs.createFile(self.approval_log_path, .{ .truncate = false });
         defer file.close();
 
         try file.seekFromEnd(0);

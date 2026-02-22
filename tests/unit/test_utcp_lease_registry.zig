@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const utcp = @import("../std/utcp_registry.zig");
 const rsp1 = @import("../std/rsp1_crypto.zig");
 const cl = @import("../std/rsp1_cluster.zig");
@@ -194,7 +195,7 @@ test "UTCP lease registry - crypto signature validation" {
     var container = TestContainer{ .name = "crypto_test", .value = 777 };
 
     const ttl_seconds: u64 = 60;
-    const now = std.time.nanoTimestamp();
+    const now = compat_time.nanoTimestamp();
     const expected_deadline = now + (@as(i128, ttl_seconds) * std.time.ns_per_s);
 
     // Register container
@@ -304,7 +305,7 @@ test "UTCP lease registry - lease metadata in manual" {
     var container = TestContainer{ .name = "metadata_test", .value = 12345 };
 
     const lease_ttl: u64 = 120; // 2 minutes
-    const before_time = std.time.nanoTimestamp();
+    const before_time = compat_time.nanoTimestamp();
 
     try registry.registerLease(
         "metadata_group",
@@ -315,7 +316,7 @@ test "UTCP lease registry - lease metadata in manual" {
         .{},
     );
 
-    const after_time = std.time.nanoTimestamp();
+    const after_time = compat_time.nanoTimestamp();
 
     const manual = try registry.buildManual(gpa.allocator());
     defer gpa.allocator().free(manual);

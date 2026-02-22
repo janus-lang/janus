@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 const manifest = @import("manifest.zig");
 const cas = @import("cas.zig");
 
@@ -150,11 +152,11 @@ fn fetchGitHttps(url: []const u8, allocator: std.mem.Allocator) TransportError!F
     }
 
     // Create temporary directory for clone
-    const temp_dir = try std.fmt.allocPrint(allocator, "/tmp/janus_git_{d}_{d}", .{ std.time.timestamp(), std.Thread.getCurrentId() });
+    const temp_dir = try std.fmt.allocPrint(allocator, "/tmp/janus_git_{d}_{d}", .{ compat_time.timestamp(), std.Thread.getCurrentId() });
     defer allocator.free(temp_dir);
 
     // Ensure temp directory is clean
-    std.fs.cwd().deleteTree(temp_dir) catch {};
+    compat_fs.deleteTree(temp_dir) catch {};
 
     // Execute git clone with appropriate strategy based on ref type
     const clone_success = switch (parsed.ref_type) {
@@ -164,13 +166,13 @@ fn fetchGitHttps(url: []const u8, allocator: std.mem.Allocator) TransportError!F
     };
 
     if (!clone_success) {
-        std.fs.cwd().deleteTree(temp_dir) catch {};
+        compat_fs.deleteTree(temp_dir) catch {};
         return TransportError.ContentNotFound;
     }
 
     // Create normalized archive from cloned repository
     const archive_content = createNormalizedArchive(temp_dir, allocator) catch |err| {
-        std.fs.cwd().deleteTree(temp_dir) catch {};
+        compat_fs.deleteTree(temp_dir) catch {};
         return switch (err) {
             error.OutOfMemory => TransportError.OutOfMemory,
             else => TransportError.NetworkError,
@@ -178,7 +180,7 @@ fn fetchGitHttps(url: []const u8, allocator: std.mem.Allocator) TransportError!F
     };
 
     // Clean up temporary directory
-    std.fs.cwd().deleteTree(temp_dir) catch {};
+    compat_fs.deleteTree(temp_dir) catch {};
 
     // Calculate content ID
     const content_id = cas.blake3Hash(archive_content);
@@ -355,7 +357,7 @@ fn fetchFile(url: []const u8, allocator: std.mem.Allocator) TransportError!Fetch
         return TransportError.InvalidUrl;
 
     // Check if path is a directory or file
-    const stat = std.fs.cwd().statFile(path) catch |err| switch (err) {
+    const stat = compat_fs.statFile(path) catch |err| switch (err) {
         error.FileNotFound => return TransportError.ContentNotFound,
         else => return TransportError.NetworkError,
     };
@@ -368,7 +370,7 @@ fn fetchFile(url: []const u8, allocator: std.mem.Allocator) TransportError!Fetch
         };
     } else blk: {
         // Read file content directly
-        break :blk std.fs.cwd().readFileAlloc(allocator, path, 100 * 1024 * 1024) catch |err| switch (err) {
+        break :blk compat_fs.readFileAlloc(allocator, path, 100 * 1024 * 1024) catch |err| switch (err) {
             error.FileNotFound => return TransportError.ContentNotFound,
             error.OutOfMemory => return TransportError.OutOfMemory,
             else => return TransportError.NetworkError,
@@ -460,7 +462,7 @@ fn collectFiles(base_path: []const u8, rel_path: []const u8, files: *std.ArrayLi
         try std.fs.path.join(allocator, &[_][]const u8{ base_path, rel_path });
     defer allocator.free(full_path);
 
-    var dir = std.fs.cwd().openDir(full_path, .{ .iterate = true }) catch return;
+    var dir = compat_fs.openDir(full_path, .{ .iterate = true }) catch return;
     defer dir.close();
 
     var iterator = dir.iterate();

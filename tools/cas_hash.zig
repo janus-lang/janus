@@ -19,30 +19,29 @@ pub fn main(init: std.process.Init) !void {
 
     if (iter.next()) |path| {
         // Read file using POSIX for Zig 0.16 compatibility (O_RDONLY = 0)
-        const fd = try std.posix.openat(std.posix.AT.FDCWD, path, 0, 0);
-        defer std.posix.close(fd);
-        const stat = try std.posix.fstat(fd);
-        const size = @intCast(usize, stat.size);
+        const fd = try std.posix.openat(std.posix.AT.FDCWD, path, .{}, 0);
+        defer _ = std.os.linux.close(fd);
+        // fstat removed in Zig 0.16 — use statx with AT_EMPTY_PATH
+        var stx: std.os.linux.Statx = undefined;
+        if (std.os.linux.statx(fd, "", 0x1000, std.os.linux.STATX.BASIC_STATS, &stx) != 0) return error.StatFailed;
+        const size: usize = @intCast(stx.size);
         data = try allocator.alloc(u8, size);
         data_owned = true;
-        _ = try std.posix.read(fd, data);
+        const nread = std.os.linux.read(fd, data.ptr, data.len);
+        if (@as(isize, @bitCast(nread)) < 0) return error.ReadFailed;
     } else {
-        // Read stdin - use posix read
-        var stdin_buffer: [65536]u8 = undefined;
+        // Read all of stdin into heap buffer
+        var buf = try allocator.alloc(u8, 65536);
         var total_read: usize = 0;
         while (true) {
-            const bytes_read = std.posix.read(std.posix.STDIN_FILENO, stdin_buffer[total_read..]) catch break;
-            if (bytes_read == 0) break;
-            total_read += bytes_read;
-            if (total_read >= stdin_buffer.len) {
-                // Expand buffer
-                const new_buffer = try allocator.alloc(u8, total_read * 2);
-                @memcpy(new_buffer[0..total_read], stdin_buffer[0..total_read]);
-                allocator.free(data);
-                data = new_buffer;
+            if (total_read >= buf.len) {
+                buf = try allocator.realloc(buf, buf.len * 2);
             }
+            const rc = std.os.linux.read(0, buf[total_read..].ptr, buf.len - total_read);
+            if (@as(isize, @bitCast(rc)) <= 0) break;
+            total_read += rc;
         }
-        data = try allocator.resizeOrFree(std.mem.sliceTo(std.posix.STDIN_FILENO, 0), total_read);
+        data = buf[0..total_read];
         data_owned = true;
     }
 

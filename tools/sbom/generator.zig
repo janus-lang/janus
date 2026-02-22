@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const janus_lib = @import("janus_lib");
 
 // Janus SBOM Generator
@@ -148,7 +149,7 @@ const JanusProject = struct {
 };
 
 fn generateCycloneDX(allocator: std.mem.Allocator, project: *const JanusProject, output_path: []const u8) !void {
-    const file = try std.fs.cwd().createFile(output_path, .{});
+    const file = try compat_fs.createFile(output_path, .{});
     defer file.close();
 
     var writer = file.writer();
@@ -252,7 +253,7 @@ fn generateCycloneDX(allocator: std.mem.Allocator, project: *const JanusProject,
 }
 
 fn generateSPDX(allocator: std.mem.Allocator, project: *const JanusProject, output_path: []const u8) !void {
-    const file = try std.fs.cwd().createFile(output_path, .{});
+    const file = try compat_fs.createFile(output_path, .{});
     defer file.close();
 
     var writer = file.writer();
@@ -327,7 +328,7 @@ pub fn main() !void {
     const config = try SBOMConfig.parseArgs(allocator, args[1..]);
 
     // Ensure output directory exists
-    std.fs.cwd().makeDir(config.output_dir) catch |err| switch (err) {
+    compat_fs.makeDir(config.output_dir) catch |err| switch (err) {
         error.PathAlreadyExists => {},
         else => return err,
     };

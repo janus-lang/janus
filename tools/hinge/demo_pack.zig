@@ -13,6 +13,7 @@
 //
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const packer = @import("packer.zig");
 
 // Simple demo to show .jpk packer functionality
@@ -92,9 +93,9 @@ pub fn main() !void {
     std.debug.print("   Integrity: BLAKE3 content-addressed\n", .{});
 
     // Cleanup
-    try std.fs.cwd().deleteTree("demo_project/");
-    try std.fs.cwd().deleteTree("demo_cas/");
-    try std.fs.cwd().deleteTree("demo_output/");
+    try compat_fs.deleteTree("demo_project/");
+    try compat_fs.deleteTree("demo_cas/");
+    try compat_fs.deleteTree("demo_output/");
 
     std.debug.print("\n✅ Demo completed successfully!\n", .{});
     std.debug.print("\n🚀 Key Features Demonstrated:\n", .{});
@@ -108,9 +109,9 @@ pub fn main() !void {
 
 fn createDemoStructure(_: std.mem.Allocator) !void {
     // Create a demo project structure
-    try std.fs.cwd().makePath("demo_project/Programs/janus-demo/1.0.0/bin/");
-    try std.fs.cwd().makePath("demo_project/Programs/janus-demo/1.0.0/lib/");
-    try std.fs.cwd().makePath("demo_project/Programs/janus-demo/1.0.0/include/");
+    try compat_fs.makeDir("demo_project/Programs/janus-demo/1.0.0/bin/");
+    try compat_fs.makeDir("demo_project/Programs/janus-demo/1.0.0/lib/");
+    try compat_fs.makeDir("demo_project/Programs/janus-demo/1.0.0/include/");
 
     // Create some demo files
     const demo_files = [_]struct { path: []const u8, content: []const u8 }{
@@ -133,10 +134,10 @@ fn createDemoStructure(_: std.mem.Allocator) !void {
     };
 
     for (demo_files) |file| {
-        try std.fs.cwd().writeFile(.{ .sub_path = file.path, .data = file.content });
+        try compat_fs.writeFile(.{ .sub_path = file.path, .data = file.content });
         // Make executable
         if (std.mem.containsAtLeast(u8, file.path, 1, "bin/")) {
-            const stat = try std.fs.cwd().statFile(file.path);
+            const stat = try compat_fs.statFile(file.path);
             var f = try std.fs.cwd().openFile(file.path, .{ .mode = .read_write });
             defer f.close();
             try std.posix.fchmod(f.handle, stat.mode | 0o111);

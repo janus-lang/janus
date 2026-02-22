@@ -11,6 +11,7 @@
 //! - Profile-aware feature sets (progressive disclosure)
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 
 /// Shell execution profiles providing progressive feature disclosure
 pub const Profile = enum {
@@ -254,7 +255,7 @@ pub const JobTable = struct {
             .command_text = try self.allocator.dupe(u8, command_text),
             .process_ids = try self.allocator.dupe(std.posix.pid_t, process_ids),
             .state = .running,
-            .started_at = std.time.timestamp(),
+            .started_at = compat_time.timestamp(),
             .exit_codes = try self.allocator.alloc(i32, process_ids.len),
         };
 

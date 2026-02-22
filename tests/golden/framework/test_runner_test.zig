@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const TestRunner = @import("test_runner.zig").TestRunner;
 
 // Integration test for TestRunner functionality
@@ -162,7 +163,7 @@ test "TestResult lifecycle" {
         .phase = .loading,
         .message = try allocator.dupe(u8, "Test message"),
         .context = try allocator.dupe(u8, "Test context"),
-        .timestamp = std.time.timestamp(),
+        .timestamp = compat_time.timestamp(),
     });
 
     var result = TestRunner.TestResult{

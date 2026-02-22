@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const manual = @import("utcp_manual.zig");
 pub const auth = @import("auth.zig");
 const caps = @import("capabilities.zig");
@@ -17,6 +18,40 @@ const cl = utcp.cluster;
 
 // Re-export manual functions for testing
 pub const writeManualJSON = manual.writeManualJSON;
+
+/// Minimal writer over a raw fd (replaces std.fs.File.writer in Zig 0.16)
+const SocketWriter = struct {
+    fd: std.posix.fd_t,
+
+    pub const Error = error{ WriteFailed, NoSpaceLeft };
+
+    pub fn writeAll(self: SocketWriter, data: []const u8) Error!void {
+        var offset: usize = 0;
+        while (offset < data.len) {
+            const rc = std.os.linux.write(self.fd, data[offset..].ptr, data.len - offset);
+            const signed: isize = @bitCast(rc);
+            if (signed <= 0) return error.WriteFailed;
+            offset += rc;
+        }
+    }
+
+    pub fn write(self: SocketWriter, data: []const u8) Error!usize {
+        const rc = std.os.linux.write(self.fd, data.ptr, data.len);
+        const signed: isize = @bitCast(rc);
+        if (signed <= 0) return error.WriteFailed;
+        return rc;
+    }
+
+    pub fn print(self: SocketWriter, comptime fmt: []const u8, args: anytype) Error!void {
+        var buf: [4096]u8 = undefined;
+        const result = std.fmt.bufPrint(&buf, fmt, args) catch return error.NoSpaceLeft;
+        try self.writeAll(result);
+    }
+
+    pub fn writeByte(self: SocketWriter, byte: u8) Error!void {
+        try self.writeAll(&[_]u8{byte});
+    }
+};
 pub const Options = manual.Options;
 
 const LeaseContainer = struct {
@@ -29,15 +64,14 @@ const LeaseContainer = struct {
 // janusd — minimal UTCP bootstrap server
 // Transport: line-delimited JSON over TCP (bootstrap only)
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var args = try std.process.argsWithAllocator(allocator);
-    defer args.deinit();
-
-    _ = args.skip(); // argv0
+    // Zig 0.16: args via Init, not std.process.argsWithAllocator
+    var args = std.process.Args.iterate(init.minimal.args);
+    _ = args.next(); // skip argv0
     var host: []const u8 = "127.0.0.1";
     var port: u16 = 7735;
     var cluster_mode: bool = false;
@@ -70,15 +104,37 @@ pub fn main() !void {
 
     if (lsp_mode) {
         std.log.info("janusd (LSP Mode) starting...", .{});
-        // For LSP, we use Stdin/Stdout
-        const stdin = std.fs.File.stdin();
-        const stdout = std.fs.File.stdout();
+        // Zig 0.16: std.fs.File removed — use raw fd adapters
+        const FdReader = struct {
+            fd: std.posix.fd_t,
+            pub fn read(self: @This(), buf: []u8) !usize {
+                const rc = std.os.linux.read(self.fd, buf.ptr, buf.len);
+                const signed: isize = @bitCast(rc);
+                if (signed < 0) return error.ReadFailed;
+                if (rc == 0) return 0;
+                return rc;
+            }
+        };
+        const FdWriter = struct {
+            fd: std.posix.fd_t,
+            pub fn writeAll(self: @This(), data: []const u8) !void {
+                var offset: usize = 0;
+                while (offset < data.len) {
+                    const rc = std.os.linux.write(self.fd, data[offset..].ptr, data.len - offset);
+                    const signed: isize = @bitCast(rc);
+                    if (signed <= 0) return error.WriteFailed;
+                    offset += rc;
+                }
+            }
+        };
+        const stdin = FdReader{ .fd = 0 };
+        const stdout = FdWriter{ .fd = 1 };
 
         // Initialize ASTDB (The Brain)
-        var db = try janus_lib.astdb.AstDB.init(allocator, false); // non-deterministic for live dev? or true? false is fine.
+        var db = try janus_lib.astdb.AstDB.init(allocator, false);
         defer db.deinit();
 
-        var server = lsp.LspServer(@TypeOf(stdin), @TypeOf(stdout)).init(allocator, stdin, stdout, &db);
+        var server = lsp.LspServer(FdReader, FdWriter).init(allocator, stdin, stdout, &db);
         defer server.deinit();
         try server.run();
         return;
@@ -86,55 +142,83 @@ pub fn main() !void {
 
     // Resolve epoch key from env if not provided
     if (!have_key) {
-        if (std.process.getEnvVarOwned(allocator, "JANUSD_EPOCH_KEY")) |hex| {
+        if (std.process.Environ.getAlloc(.empty, allocator, "JANUSD_EPOCH_KEY")) |hex| {
             defer allocator.free(hex);
             if (hexTo32(hex, &epoch_key)) have_key = true;
         } else |_| {}
     }
     if (!have_key) {
-        std.crypto.random.bytes(&epoch_key);
+        // Zig 0.16: std.crypto.random removed — use Linux getrandom syscall
+        _ = std.os.linux.getrandom(std.mem.asBytes(&epoch_key).ptr, @sizeOf(@TypeOf(epoch_key)), 0);
     }
 
     // Initialize UTCP Registry and optional cluster replicator
     var app = try App.init(allocator, epoch_key, cluster_mode);
     defer app.deinit();
 
-    const listen_address = try std.net.Address.parseIp(host, port);
-    const sock_flags: u32 = std.posix.SOCK.STREAM | std.posix.SOCK.CLOEXEC;
-    const proto: u32 = if (listen_address.any.family == std.posix.AF.UNIX) 0 else std.posix.IPPROTO.TCP;
-    const sockfd = try std.posix.socket(listen_address.any.family, sock_flags, proto);
-    defer std.posix.close(sockfd);
+    // Build sockaddr_in manually (std.net/std.posix.socket removed in Zig 0.16)
+    const linux = std.os.linux;
+    var addr: linux.sockaddr.in = .{
+        .port = std.mem.nativeToBig(u16, port),
+        .addr = 0, // INADDR_ANY
+    };
+    if (!std.mem.eql(u8, host, "0.0.0.0")) {
+        var octets: [4]u8 = .{ 0, 0, 0, 0 };
+        var it = std.mem.splitScalar(u8, host, '.');
+        for (&octets) |*o| {
+            const part = it.next() orelse break;
+            o.* = std.fmt.parseInt(u8, part, 10) catch 0;
+        }
+        addr.addr = std.mem.readInt(u32, &octets, .big);
+    }
+    const SOCK_STREAM: u32 = 1;
+    const SOCK_CLOEXEC: u32 = 0o2000000;
+    const IPPROTO_TCP: u32 = 6;
+    const SOL_SOCKET: u32 = 1;
+    const SO_REUSEADDR: u32 = 2;
+
+    const sock_rc = linux.socket(linux.AF.INET, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
+    if (@as(isize, @bitCast(sock_rc)) < 0) return error.SocketFailed;
+    const sockfd: i32 = @intCast(sock_rc);
+    defer _ = linux.close(sockfd);
+
     const reuse: i32 = 1;
-    try std.posix.setsockopt(sockfd, std.posix.SOL.SOCKET, std.posix.SO.REUSEADDR, std.mem.asBytes(&reuse));
-    try std.posix.bind(sockfd, &listen_address.any, listen_address.getOsSockLen());
-    try std.posix.listen(sockfd, 128);
+    _ = linux.setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, std.mem.asBytes(&reuse), @sizeOf(@TypeOf(reuse)));
+    const bind_rc = linux.bind(sockfd, @ptrCast(&addr), @sizeOf(@TypeOf(addr)));
+    if (@as(isize, @bitCast(bind_rc)) < 0) return error.BindFailed;
+    const listen_rc = linux.listen(sockfd, 128);
+    if (@as(isize, @bitCast(listen_rc)) < 0) return error.ListenFailed;
 
     if (http_mode) {
         std.log.info("janusd (HTTP UTCP) listening on {s}:{d}", .{ host, port });
         while (true) {
-            var client_addr: std.net.Address = undefined;
-            var addr_len: std.posix.socklen_t = @sizeOf(std.net.Address);
-            const conn_fd = std.posix.accept(sockfd, &client_addr.any, &addr_len, std.posix.SOCK.CLOEXEC) catch |e| {
-                std.log.err("accept failed: {s}", .{@errorName(e)});
+            var client_addr: linux.sockaddr.in = undefined;
+            var addr_len: u32 = @sizeOf(linux.sockaddr.in);
+            const accept_rc = linux.accept4(sockfd, @ptrCast(&client_addr), &addr_len, SOCK_CLOEXEC);
+            const signed: isize = @bitCast(accept_rc);
+            if (signed < 0) {
+                std.log.err("accept failed", .{});
                 continue;
-            };
-            var conn_file = std.fs.File{ .handle = conn_fd };
-            handleHttpClient(&app, allocator, &conn_file) catch |e| {
+            }
+            const conn_fd: i32 = @intCast(accept_rc);
+            handleHttpClientFd(&app, allocator, conn_fd) catch |e| {
                 std.log.err("http client error: {s}", .{@errorName(e)});
             };
         }
     } else {
         std.log.info("janusd (UTCP bootstrap) listening on {s}:{d}", .{ host, port });
         while (true) {
-            var client_addr: std.net.Address = undefined;
-            var addr_len: std.posix.socklen_t = @sizeOf(std.net.Address);
-            const conn_fd = std.posix.accept(sockfd, &client_addr.any, &addr_len, std.posix.SOCK.CLOEXEC) catch |e| {
-                std.log.err("accept failed: {s}", .{@errorName(e)});
+            var client_addr: linux.sockaddr.in = undefined;
+            var addr_len: u32 = @sizeOf(linux.sockaddr.in);
+            const accept_rc = linux.accept4(sockfd, @ptrCast(&client_addr), &addr_len, SOCK_CLOEXEC);
+            const signed: isize = @bitCast(accept_rc);
+            if (signed < 0) {
+                std.log.err("accept failed", .{});
                 continue;
-            };
-            var conn_file = std.fs.File{ .handle = conn_fd };
+            }
+            const conn_fd: i32 = @intCast(accept_rc);
             std.log.info("client connected", .{});
-            handleClient(allocator, &conn_file) catch |e| {
+            handleClientFd(allocator, conn_fd) catch |e| {
                 std.log.err("client error: {s}", .{@errorName(e)});
             };
         }
@@ -215,12 +299,9 @@ const App = struct {
     }
 };
 
-fn handleClient(allocator: std.mem.Allocator, file: *std.fs.File) !void {
-    defer file.close();
-    const fd = file.handle;
-    var write_buf: [4096]u8 = undefined;
-    var writer_impl = file.writer(&write_buf);
-    const writer = &writer_impl.interface;
+fn handleClientFd(allocator: std.mem.Allocator, fd: std.posix.fd_t) !void {
+    defer _ = std.os.linux.close(fd);
+    const writer = SocketWriter{ .fd = fd };
 
     while (true) {
         var line = std.ArrayList(u8){};
@@ -286,12 +367,9 @@ fn sendManual(writer: anytype, allocator: std.mem.Allocator) !void {
 
 // ================= HTTP server & router (MVP) =================
 
-fn handleHttpClient(app: *App, allocator: std.mem.Allocator, file: *std.fs.File) !void {
-    defer file.close();
-    const fd = file.handle;
-    var write_buf: [4096]u8 = undefined;
-    var writer_impl = file.writer(&write_buf);
-    const writer = &writer_impl.interface;
+fn handleHttpClientFd(app: *App, allocator: std.mem.Allocator, fd: std.posix.fd_t) !void {
+    defer _ = std.os.linux.close(fd);
+    const writer = SocketWriter{ .fd = fd };
 
     // Read headers
     var header_buf = std.ArrayList(u8){};
@@ -368,7 +446,10 @@ fn readExact(fd: std.posix.fd_t, buffer: []u8) !void {
 }
 
 fn readInto(fd: std.posix.fd_t, buffer: []u8) !usize {
-    return std.posix.read(fd, buffer);
+    // std.posix.read removed in Zig 0.16 — use linux syscall
+    const rc = std.os.linux.read(fd, buffer.ptr, buffer.len);
+    if (@as(isize, @bitCast(rc)) < 0) return error.ReadFailed;
+    return rc;
 }
 
 fn parseRequestLineAndHeaders(
@@ -382,7 +463,7 @@ fn parseRequestLineAndHeaders(
 ) !void {
     var it = std.mem.tokenizeScalar(u8, header_bytes, '\n');
     if (it.next()) |line0| {
-        const line = std.mem.trimRight(u8, std.mem.trim(u8, line0, " \t\r"), "\r");
+        const line = std.mem.trim(u8, line0, " \t\r");
         var sp = std.mem.tokenizeAny(u8, line, " \t");
         out_method.* = sp.next() orelse return error.BadRequest;
         out_path.* = sp.next() orelse return error.BadRequest;
@@ -393,7 +474,7 @@ fn parseRequestLineAndHeaders(
     var content_type: []const u8 = "";
     var authorization: []const u8 = "";
     while (it.next()) |raw| {
-        const l = std.mem.trimRight(u8, std.mem.trim(u8, raw, " \t\r"), "\r");
+        const l = std.mem.trim(u8, raw, " \t\r");
         if (l.len == 0) break;
         if (std.ascii.startsWithIgnoreCase(l, "Content-Length:")) {
             const v = std.mem.trim(u8, l["Content-Length:".len..], " \t");
@@ -411,22 +492,42 @@ fn parseRequestLineAndHeaders(
     out_authorization.* = authorization;
 }
 
+/// Fixed-buffer writer providing print/writeAll for HTTP body construction.
+const BufWriter = struct {
+    buf: []u8,
+    pos: usize = 0,
+
+    pub fn print(self: *BufWriter, comptime fmt: []const u8, args: anytype) !void {
+        const result = std.fmt.bufPrint(self.buf[self.pos..], fmt, args) catch return error.NoSpaceLeft;
+        self.pos += result.len;
+    }
+
+    pub fn writeAll(self: *BufWriter, data: []const u8) !void {
+        if (self.pos + data.len > self.buf.len) return error.NoSpaceLeft;
+        @memcpy(self.buf[self.pos..][0..data.len], data);
+        self.pos += data.len;
+    }
+
+    pub fn getWritten(self: *const BufWriter) []const u8 {
+        return self.buf[0..self.pos];
+    }
+};
+
 fn writeHttpJson(writer: anytype, status_code: u16, status_text: []const u8, body_writer_fn: anytype) !void {
-    var buf = std.ArrayList(u8){};
-    defer buf.deinit(std.heap.page_allocator);
+    var body_buf_storage: [65536]u8 = undefined;
+    var buf_writer = BufWriter{ .buf = &body_buf_storage };
     const Body = @TypeOf(body_writer_fn);
     const info = @typeInfo(Body);
-    const body_writer = buf.writer(std.heap.page_allocator);
     if (info == .@"fn") {
-        try body_writer_fn(body_writer);
+        try body_writer_fn(&buf_writer);
     } else if (info == .pointer and @hasDecl(info.pointer.child, "write")) {
-        try body_writer_fn.*.write(body_writer);
+        try body_writer_fn.*.write(&buf_writer);
     } else if (@hasDecl(Body, "write")) {
-        try body_writer_fn.write(body_writer);
+        try body_writer_fn.write(&buf_writer);
     } else {
         @compileError("body_writer_fn must be function or type with write method");
     }
-    const body = buf.items;
+    const body = buf_writer.getWritten();
     try writer.print("HTTP/1.1 {d} {s}\r\n", .{ status_code, status_text });
     try writer.print("Content-Type: application/json\r\n", .{});
     try writer.print("Content-Length: {d}\r\n", .{body.len});
@@ -832,12 +933,12 @@ fn routeHttp(
     }
 
     if (std.mem.eql(u8, method, "POST") and std.mem.startsWith(u8, path, "/tools/")) {
-        const start_ns = std.time.nanoTimestamp();
+        const start_ns = compat_time.nanoTimestamp();
         var status_code: u16 = 200;
         const tool_name: []const u8 = path["/tools/".len..];
         const finalize = struct {
             fn done(tool: []const u8, code: u16, start: i128) void {
-                const now = std.time.nanoTimestamp();
+                const now = compat_time.nanoTimestamp();
                 const dur = now - start;
                 const dur_ns = if (dur <= 0)
                     0

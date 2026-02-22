@@ -6,6 +6,7 @@
 // Requirements: SPEC-astdb-query.md section E-8, LSP integration
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const deps = @import("dependencies.zig");
 
@@ -329,14 +330,14 @@ pub const QueryContext = struct {
 
     /// Execute a query with memoization and dependency tracking
     pub fn execute(self: *QueryContext, key: QueryKey) !QueryResult {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         // Check memo cache first
         if (self.memo_cache.get(key)) |cached_result| {
             return QueryResult{
                 .data = try cached_result.data.clone(self.allocator),
                 .dependencies = try cached_result.dependencies.clone(),
-                .execution_time_ns = std.time.nanoTimestamp() - start_time,
+                .execution_time_ns = compat_time.nanoTimestamp() - start_time,
                 .cache_hit = true,
                 .error_info = null,
             };
@@ -349,7 +350,7 @@ pub const QueryContext = struct {
 
         // Execute query with dependency tracking
         var result = try self.executeQuery(key);
-        result.execution_time_ns = std.time.nanoTimestamp() - start_time;
+        result.execution_time_ns = compat_time.nanoTimestamp() - start_time;
         result.cache_hit = false;
 
         // Record dependencies in the graph

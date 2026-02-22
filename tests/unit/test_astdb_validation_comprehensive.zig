@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 
 /// 🔧 COMPREHENSIVE ASTDB VALIDATION
@@ -284,7 +285,7 @@ test "ASTDB Performance Validation - Throughput Test" {
     var snapshot = try astdb_system.createSnapshot();
     defer snapshot.deinit();
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Create 1000 nodes with string interning and CID computation
     var buffer: [64]u8 = undefined;
@@ -310,7 +311,7 @@ test "ASTDB Performance Validation - Throughput Test" {
         try testing.expect(!astdb.CIDUtils.isZero(cid));
     }
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const duration_ns = end_time - start_time;
     const duration_ms = @as(f64, @floatFromInt(duration_ns)) / 1_000_000.0;
 

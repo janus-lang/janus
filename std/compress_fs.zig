@@ -5,6 +5,7 @@
 // Task 11: CompressFS implementations (index layer)
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const Context = @import("std_context.zig").Context;
@@ -634,7 +635,7 @@ test "Archive index operations" {
         .mode = 0o644,
         .uid = 0,
         .gid = 0,
-        .mtime = std.time.timestamp(),
+        .mtime = compat_time.timestamp(),
         .checksum = try allocator.dupe(u8, "test_checksum"),
         .link_target = null,
     };

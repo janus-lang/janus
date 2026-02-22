@@ -9,6 +9,7 @@
 //! REBUILT FROM GROUND UP - INTEGRATES WITH LIBJANUS
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const print = std.debug.print;
 const json = std.json;
 const libjanus = @import("libjanus");
@@ -163,7 +164,7 @@ fn executePurityTest(allocator: std.mem.Allocator, config: DiagConfig) !Diagnost
     print("🧪 Executing REAL purity violation test with libjanus...\n", .{});
 
     // Read the test file
-    const test_content = std.fs.cwd().readFileAlloc(allocator, config.test_file, 1024 * 1024) catch |err| {
+    const test_content = compat_fs.readFileAlloc(allocator, config.test_file, 1024 * 1024) catch |err| {
         print("❌ Error reading test file {s}: {}\n", .{ config.test_file, err });
         return err;
     };
@@ -379,7 +380,7 @@ fn analyzeDiagnosticResult(result: DiagnosticResult) !void {
 }
 
 fn writeDiagJSON(allocator: std.mem.Allocator, result: DiagnosticResult, output_file: []const u8) !void {
-    const file = try std.fs.cwd().createFile(output_file, .{});
+    const file = try compat_fs.createFile(output_file, .{});
     defer file.close();
 
     var json_output: std.ArrayList(u8) = .empty;

@@ -4,6 +4,7 @@
 // QTJIR → LLVM IR Emitter (Text-based for MVP, LLVM-C bindings for production)
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const graph = @import("graph.zig");
 
 const QTJIRGraph = graph.QTJIRGraph;
@@ -433,7 +434,7 @@ pub const LLVMEmitter = struct {
     /// Compile LLVM IR to executable
     pub fn compileToExecutable(self: *LLVMEmitter, llvm_ir: []const u8, output_path: []const u8) !void {
         // Write LLVM IR to file for debugging
-        const ll_file = try std.fs.cwd().createFile("debug.ll", .{});
+        const ll_file = try compat_fs.createFile("debug.ll", .{});
         defer ll_file.close();
         try ll_file.writeAll(llvm_ir);
 

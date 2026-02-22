@@ -14,6 +14,7 @@
 //! - Semantic Validator (Guardian - Every rule → enforcement)
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 
@@ -92,7 +93,7 @@ pub const SemanticCore = struct {
 
     /// Perform complete semantic analysis on a compilation unit
     pub fn analyzeUnit(self: *SemanticCore, unit_id: UnitId) !void {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         // Phase 1: Symbol Resolution (Foundation)
         try self.symbol_resolver.resolveUnit(unit_id);
@@ -110,7 +111,7 @@ pub const SemanticCore = struct {
         self.stats.validations_performed += validation_stats.nodes_validated;
         self.stats.errors_found += validation_stats.errors_found;
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const duration_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
         self.stats.total_analysis_time_ms += duration_ms;
         self.stats.units_analyzed += 1;

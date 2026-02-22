@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const testing = std.testing;
 
 // Import pipeline components
@@ -61,7 +62,7 @@ test "Janus Memory Discipline: Arena Allocator Sovereignty" {
     std.log.info("⚙️  Step 3: C Code Generation (Bounded)", .{});
 
     const c_output = "memory_discipline_test.c";
-    const c_file = try std.fs.cwd().createFile(c_output, .{});
+    const c_file = try compat_fs.createFile(c_output, .{});
     defer c_file.close();
 
     // Generate C code with bounded string operations
@@ -87,7 +88,7 @@ test "Janus Memory Discipline: Arena Allocator Sovereignty" {
     std.log.info("✅ Generated C file: {} bytes", .{file_size});
 
     // Clean up file (arena handles all memory automatically)
-    std.fs.cwd().deleteFile(c_output) catch {};
+    compat_fs.deleteFile(c_output) catch {};
 
     std.log.info("", .{});
     std.log.info("🎉 Janus Memory Discipline Test: SUCCESS!", .{});
@@ -154,7 +155,7 @@ test "File Operations with Proper Resource Management" {
 
     // Create file with proper resource management
     {
-        const file = try std.fs.cwd().createFile(test_file, .{});
+        const file = try compat_fs.createFile(test_file, .{});
         defer file.close(); // Proper resource cleanup
 
         const content = "#include <stdio.h>\\nint main() { return 0; }\\n";
@@ -162,14 +163,14 @@ test "File Operations with Proper Resource Management" {
     } // file is closed here by defer
 
     // Read file with proper memory management
-    const file_content = try std.fs.cwd().readFileAlloc(allocator, test_file, 1024);
+    const file_content = try compat_fs.readFileAlloc(allocator, test_file, 1024);
     defer allocator.free(file_content); // Explicit memory cleanup
 
     try testing.expect(file_content.len > 0);
     try testing.expect(std.mem.indexOf(u8, file_content, "#include <stdio.h>") != null);
 
     // Clean up file
-    std.fs.cwd().deleteFile(test_file) catch {};
+    compat_fs.deleteFile(test_file) catch {};
 
     std.log.info("✅ File operations completed with proper resource management", .{});
 }

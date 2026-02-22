@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 const serde = @import("serde_shim.zig");
 
 // Manifest represents project intent (janus.kdl)
@@ -54,7 +56,7 @@ pub const Manifest = struct {
     pub fn parseFromFile(allocator: std.mem.Allocator, path: []const u8) !Manifest {
         var manifest = Manifest.init(allocator);
 
-        const content = try std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize));
+        const content = try compat_fs.readFileAlloc(allocator, path, std.math.maxInt(usize));
         defer allocator.free(content);
 
         // Simple KDL-like parsing for now
@@ -163,7 +165,7 @@ pub const Manifest = struct {
     }
 
     pub fn writeToFile(self: *const Manifest, path: []const u8) !void {
-        const file = try std.fs.cwd().createFile(path, .{});
+        const file = try compat_fs.createFile(path, .{});
         defer file.close();
 
         try file.writer().print("project {{\n", .{});
@@ -329,7 +331,7 @@ pub const Lockfile = struct {
     }
 
     pub fn writeToFile(self: *const Lockfile, path: []const u8) !void {
-        const file = try std.fs.cwd().createFile(path, .{});
+        const file = try compat_fs.createFile(path, .{});
         defer file.close();
 
         try file.writer().writeAll("{\n");
@@ -385,7 +387,7 @@ pub const Lockfile = struct {
     /// Parse lockfile using our SIMD-accelerated serde framework
     /// This leverages the 4.5 GB/s simdjzon parser for maximum performance
     pub fn parseFromFileWithSerde(allocator: std.mem.Allocator, path: []const u8) !Lockfile {
-        const content = try std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize));
+        const content = try compat_fs.readFileAlloc(allocator, path, std.math.maxInt(usize));
         defer allocator.free(content);
 
         var fbs = std.io.fixedBufferStream(content);
@@ -405,7 +407,7 @@ pub const Lockfile = struct {
         try serde.serializeToJson(self, &buffer);
 
         // Write to file with atomic operation
-        const file = try std.fs.cwd().createFile(path, .{});
+        const file = try compat_fs.createFile(path, .{});
         defer file.close();
 
         try file.writeAll(buffer.items);
@@ -514,15 +516,15 @@ pub const Lockfile = struct {
     /// Parse lockfile with maximum performance optimizations
     /// Uses SIMD acceleration and zero-copy where possible
     pub fn parseFromFileOptimized(allocator: std.mem.Allocator, path: []const u8) !Lockfile {
-        const content = try std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize));
+        const content = try compat_fs.readFileAlloc(allocator, path, std.math.maxInt(usize));
         defer allocator.free(content);
 
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         // Use serde with optimized settings
         var lockfile = try parseFromFileWithSerde(allocator, path);
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const duration_ns = end_time - start_time;
         const throughput = @as(f64, @floatFromInt(content.len)) / (@as(f64, @floatFromInt(duration_ns)) / 1_000_000_000.0);
 
@@ -570,7 +572,7 @@ pub const Lockfile = struct {
     /// High-performance manifest parsing using Janus serde
     /// This provides SIMD acceleration and capability validation
     pub fn parseManifestWithSerde(allocator: std.mem.Allocator, path: []const u8) !Manifest {
-        const content = try std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize));
+        const content = try compat_fs.readFileAlloc(allocator, path, std.math.maxInt(usize));
         defer allocator.free(content);
 
         // TODO: Convert KDL content to structured format for serde parsing

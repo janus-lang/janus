@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 
 // 🔧 COMPTIME VM VALIDATION
@@ -290,7 +291,7 @@ test "ComptimeVM Performance Validation" {
     var comptime_vm = try ComptimeVM.init(allocator, &astdb_system);
     defer comptime_vm.deinit();
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Perform 1000 evaluations
     var buffer: [64]u8 = undefined;
@@ -321,7 +322,7 @@ test "ComptimeVM Performance Validation" {
         try testing.expect(output.success);
     }
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const duration_ns = end_time - start_time;
     const duration_ms = @as(f64, @floatFromInt(duration_ns)) / 1_000_000.0;
 

@@ -5,6 +5,7 @@
 // Demonstrates how the compiler pipeline integrates with the profile system
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const profiles = @import("profiles.zig");
 const profile_diagnostics = @import("profile_diagnostics.zig");
 
@@ -367,7 +368,7 @@ pub const ProfileCompiler = struct {
         defer self.allocator.free(executable_content);
 
         // Write executable
-        try std.fs.cwd().writeFile(.{ .sub_path = output_path, .data = executable_content });
+        try compat_fs.writeFile(.{ .sub_path = output_path, .data = executable_content });
 
         // Make executable
         const file = try std.fs.cwd().openFile(output_path, .{});
@@ -464,7 +465,7 @@ test "profile compiler integration" {
     try testing.expect(result.features_used.len > 0);
 
     // Clean up test output
-    std.fs.cwd().deleteFile("test_output") catch {};
+    compat_fs.deleteFile("test_output") catch {};
 }
 
 test "profile upgrade suggestions" {

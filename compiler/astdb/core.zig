@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const interners = @import("intern.zig");
 const cid = @import("cid.zig");
 
@@ -1118,14 +1119,14 @@ test "AstDB O(1) unit teardown" {
     }
 
     // Measure teardown time (should be O(1) per unit)
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Remove all units
     for (units) |unit_id| {
         try db.removeUnit(unit_id);
     }
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const duration_ns = end_time - start_time;
 
     // Should complete very quickly (< 1ms for 10 units)

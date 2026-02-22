@@ -15,6 +15,7 @@
 //! compiler learns from user behavior.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 const nextgen = @import("nextgen_diagnostic.zig");
@@ -239,7 +240,7 @@ pub const FixLearningEngine = struct {
         category: FixAcceptance.FixCategory,
         verbatim: bool,
     ) !void {
-        const timestamp = std.time.timestamp();
+        const timestamp = compat_time.timestamp();
 
         // Update error pattern stats
         if (self.error_patterns.getPtr(error_pattern)) |stats| {

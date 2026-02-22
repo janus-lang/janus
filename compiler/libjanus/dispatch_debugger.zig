@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 const HashMap = std.HashMap;
@@ -84,8 +85,8 @@ pub const DispatchDebugger = struct {
 
         pub fn init() DebugSession {
             return DebugSession{
-                .session_id = @intCast(std.time.nanoTimestamp()),
-                .start_time = @intCast(std.time.nanoTimestamp()),
+                .session_id = @intCast(compat_time.nanoTimestamp()),
+                .start_time = @intCast(compat_time.nanoTimestamp()),
                 .end_time = 0,
                 .is_active = true,
                 .is_paused = false,
@@ -97,12 +98,12 @@ pub const DispatchDebugger = struct {
         }
 
         pub fn end(self: *DebugSession) void {
-            self.end_time = @intCast(std.time.nanoTimestamp());
+            self.end_time = @intCast(compat_time.nanoTimestamp());
             self.is_active = false;
         }
 
         pub fn getDuration(self: *const DebugSession) u64 {
-            const end = if (self.end_time > 0) self.end_time else @as(u64, @intCast(std.time.nanoTimestamp()));
+            const end = if (self.end_time > 0) self.end_time else @as(u64, @intCast(compat_time.nanoTimestamp()));
             return end - self.start_time;
         }
     };
@@ -160,8 +161,8 @@ pub const DispatchDebugger = struct {
 
         pub fn init(allocator: Allocator, call_site: DispatchProfiler.CallSiteId, argument_types: []const TypeRegistry.TypeId) ExecutionFrame {
             return ExecutionFrame{
-                .frame_id = @intCast(std.time.nanoTimestamp()),
-                .timestamp = @intCast(std.time.nanoTimestamp()),
+                .frame_id = @intCast(compat_time.nanoTimestamp()),
+                .timestamp = @intCast(compat_time.nanoTimestamp()),
                 .call_site = call_site,
                 .argument_types = argument_types,
                 .resolution_steps = .empty,
@@ -552,7 +553,7 @@ pub const DispatchDebugger = struct {
 
     /// Add a breakpoint
     pub fn addBreakpoint(self: *Self, bp_type: Breakpoint.BreakpointType, condition: Breakpoint.BreakpointCondition) !u64 {
-        const bp_id = @as(u64, @intCast(std.time.nanoTimestamp()));
+        const bp_id = @as(u64, @intCast(compat_time.nanoTimestamp()));
 
         const breakpoint = Breakpoint{
             .id = bp_id,
@@ -579,7 +580,7 @@ pub const DispatchDebugger = struct {
 
     /// Add a watch expression
     pub fn addWatch(self: *Self, name: []const u8, expression: Watch.WatchExpression) !u64 {
-        const watch_id = @as(u64, @intCast(std.time.nanoTimestamp()));
+        const watch_id = @as(u64, @intCast(compat_time.nanoTimestamp()));
 
         const watch = Watch{
             .id = watch_id,

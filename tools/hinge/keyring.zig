@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const packer = @import("packer.zig");
 
 pub fn defaultDir(allocator: std.mem.Allocator) ![]u8 {
@@ -39,11 +40,11 @@ pub fn isTrusted(allocator: std.mem.Allocator, pub_bytes: []const u8) !bool {
 }
 
 pub fn addPublicKey(allocator: std.mem.Allocator, pub_path: []const u8) ![]u8 {
-    const pub_bytes = try std.fs.cwd().readFileAlloc(allocator, pub_path, 1 << 24);
+    const pub_bytes = try compat_fs.readFileAlloc(allocator, pub_path, 1 << 24);
     defer allocator.free(pub_bytes);
     const dir = try defaultDir(allocator);
     defer allocator.free(dir);
-    try std.fs.cwd().makePath(dir);
+    try compat_fs.makeDir(dir);
     const keyid = try keyIdHex(allocator, pub_bytes);
     errdefer allocator.free(keyid);
     const fname = try std.fmt.allocPrint(allocator, "{s}.pub", .{keyid});
@@ -51,7 +52,7 @@ pub fn addPublicKey(allocator: std.mem.Allocator, pub_path: []const u8) ![]u8 {
     const path = try std.fs.path.join(allocator, &.{ dir, fname });
     defer allocator.free(path);
     // Write if absent
-    const f = std.fs.cwd().createFile(path, .{ .exclusive = true }) catch |e| switch (e) {
+    const f = compat_fs.createFile(path, .{ .exclusive = true }) catch |e| switch (e) {
         error.PathAlreadyExists => {
             // already trusted, return keyid
             return keyid;
@@ -71,7 +72,7 @@ pub fn listKeyIds(allocator: std.mem.Allocator) ![][]u8 {
         for (out.items) |s| allocator.free(s);
         out.deinit(allocator);
     }
-    var d = std.fs.cwd().openDir(dir, .{ .iterate = true }) catch |e| switch (e) {
+    var d = compat_fs.openDir(dir, .{ .iterate = true }) catch |e| switch (e) {
         error.FileNotFound => return try out.toOwnedSlice(allocator),
         else => return e,
     };
@@ -94,5 +95,5 @@ pub fn removeByKeyId(allocator: std.mem.Allocator, keyid: []const u8) !void {
     defer allocator.free(fname);
     const path = try std.fs.path.join(allocator, &.{ dir, fname });
     defer allocator.free(path);
-    try std.fs.cwd().deleteFile(path);
+    try compat_fs.deleteFile(path);
 }

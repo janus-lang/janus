@@ -5,6 +5,7 @@
 //! Uses Zig 0.15+ ArrayList API with .empty initialization
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 
 pub const Segment = union(enum) {
@@ -346,7 +347,7 @@ pub const RetainedValue = struct {
         const path_clone = try path.clone(allocator);
         errdefer path_clone.deinit(allocator);
 
-        const now = @as(u64, @intCast(std.time.timestamp()));
+        const now = @as(u64, @intCast(compat_time.timestamp()));
         const expires = if (ttl_seconds) |ttl| now + ttl else null;
 
         return .{
@@ -367,7 +368,7 @@ pub const RetainedValue = struct {
     /// Check if this retained value has expired
     pub fn isExpired(self: Self) bool {
         if (self.expires_at) |exp| {
-            const now = @as(u64, @intCast(std.time.timestamp()));
+            const now = @as(u64, @intCast(compat_time.timestamp()));
             return now > exp;
         }
         return false;
@@ -375,7 +376,7 @@ pub const RetainedValue = struct {
 
     /// Update access time and increment delivery count
     pub fn markDelivered(self: *Self) void {
-        self.last_accessed = @as(u64, @intCast(std.time.timestamp()));
+        self.last_accessed = @as(u64, @intCast(compat_time.timestamp()));
         self.delivery_count += 1;
     }
 };
@@ -459,7 +460,7 @@ pub const RetainedValueCache = struct {
             value.path,
             value.envelope_data,
             value.lamport_clock,
-            if (value.expires_at) |exp| exp - @as(u64, @intCast(std.time.timestamp())) else null,
+            if (value.expires_at) |exp| exp - @as(u64, @intCast(compat_time.timestamp())) else null,
         ) catch return null;
     }
 
@@ -581,7 +582,7 @@ pub const RetainedValueCache = struct {
                     path,
                     value.envelope_data,
                     value.lamport_clock,
-                    if (value.expires_at) |exp| exp - @as(u64, @intCast(std.time.timestamp())) else null,
+                    if (value.expires_at) |exp| exp - @as(u64, @intCast(compat_time.timestamp())) else null,
                 );
                 path.deinit(); // Deinit the parsed path (RetainedValue.init clones it)
                 try results.append(allocator, cloned);

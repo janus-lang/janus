@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const TypeRegistry = @import("type_registry.zig").TypeRegistry;
 const Type = @import("type_registry.zig").Type;
@@ -380,7 +381,7 @@ pub const SemanticResolver = struct {
     }
 
     pub fn resolve(self: *SemanticResolver, call_site: CallSite) !ResolveResult {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         // Phase 1: Collect candidates
         var candidates = self.candidate_collector.collect(call_site.function_name, @intCast(call_site.argument_types.len)) catch {
@@ -436,7 +437,7 @@ pub const SemanticResolver = struct {
         self.allocator.free(compatible);
 
         // Update timing information
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const resolution_time = @as(u64, @intCast(end_time - start_time));
 
         switch (result) {

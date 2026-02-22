@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
@@ -22,7 +24,7 @@ pub const DispatchSerializationTests = struct {
 
     pub fn init(allocator: Allocator) !Self {
         // Create temporary directory for testing
-        const temp_dir = try std.fmt.allocPrint(allocator, "/tmp/janus_dispatch_test_{}", .{std.time.timestamp()});
+        const temp_dir = try std.fmt.allocPrint(allocator, "/tmp/janus_dispatch_test_{}", .{compat_time.timestamp()});
 
         return Self{
             .allocator = allocator,
@@ -32,7 +34,7 @@ pub const DispatchSerializationTests = struct {
 
     pub fn deinit(self: *Self) void {
         // Clean up temporary directory
-        std.fs.cwd().deleteTree(self.temp_dir) catch {};
+        compat_fs.deleteTree(self.temp_dir) catch {};
         self.allocator.free(self.temp_dir);
     }
 
@@ -211,16 +213,16 @@ pub const DispatchSerializationTests = struct {
         defer serializer.deinit();
 
         // Measure serialization performance
-        const serialize_start = std.time.nanoTimestamp();
+        const serialize_start = compat_time.nanoTimestamp();
         const serialized_data = try serializer.serializeTable(&table);
-        const serialize_end = std.time.nanoTimestamp();
+        const serialize_end = compat_time.nanoTimestamp();
 
         const serialize_time_ms = (serialize_end - serialize_start) / 1_000_000;
 
         // Measure deserialization performance
-        const deserialize_start = std.time.nanoTimestamp();
+        const deserialize_start = compat_time.nanoTimestamp();
         const deserialized_table = try serializer.deserializeTable(serialized_data);
-        const deserialize_end = std.time.nanoTimestamp();
+        const deserialize_end = compat_time.nanoTimestamp();
 
         const deserialize_time_ms = (deserialize_end - deserialize_start) / 1_000_000;
 

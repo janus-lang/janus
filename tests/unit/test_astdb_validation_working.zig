@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 
 /// 🔧 ASTDB VALIDATION - STRING INTERNER INTEGRATION
@@ -183,12 +184,12 @@ test "ASTDB String Interner Validation - Memory Management" {
         }
 
         // Remove units (should be O(1) per unit)
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
         for (units) |unit_id| {
             try db.removeUnit(unit_id);
             try testing.expect(db.getUnit(unit_id) == null);
         }
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const duration_ns = end_time - start_time;
 
         // Should complete very quickly
@@ -214,7 +215,7 @@ test "ASTDB Performance Validation - Throughput Test" {
     var db = astdb.AstDB.initWithMode(allocator, true);
     defer db.deinit();
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Create 100 compilation units with string interning
     var buffer: [128]u8 = undefined;
@@ -231,7 +232,7 @@ test "ASTDB Performance Validation - Throughput Test" {
         }
     }
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const duration_ns = end_time - start_time;
     const duration_ms = @as(f64, @floatFromInt(duration_ns)) / 1_000_000.0;
 

@@ -6,6 +6,7 @@
 // Requirements: SPEC-astdb-query.md section E-8, incremental compilation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 
 // Import query engine modules
@@ -185,7 +186,7 @@ test "Golden: Dependency tracking overhead measurement" {
     var dependency_set = deps.DependencySet.init(allocator);
     defer dependency_set.deinit();
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Simulate dependency recording during query execution
     try dependency_tracker.startTracking(&dependency_set);
@@ -199,7 +200,7 @@ test "Golden: Dependency tracking overhead measurement" {
 
     dependency_tracker.stopTracking();
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const overhead_ns = end_time - start_time;
 
     // Verify dependency tracking overhead is minimal (< 1ms for 100 dependencies)

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 
 /// Source location information for functions
@@ -88,7 +89,7 @@ pub const DispatchFamily = struct {
                 .max_arity = 0,
                 .min_arity = std.math.maxInt(u32),
                 .total_overloads = 0,
-                .creation_timestamp = std.time.timestamp(),
+                .creation_timestamp = compat_time.timestamp(),
             },
             .allocator = allocator,
         };

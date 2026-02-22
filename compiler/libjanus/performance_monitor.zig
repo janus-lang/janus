@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 
 /// Performance monitoring and profiling for semantic resolution
@@ -289,7 +290,7 @@ test "ResolutionCache basic operations" {
         .success = true,
         .target_function = "add",
         .conversion_cost = 5,
-        .timestamp = std.time.timestamp(),
+        .timestamp = compat_time.timestamp(),
     };
 
     // Cache and retrieve

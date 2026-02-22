@@ -8,6 +8,7 @@
 //! the same truth in all worlds.
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
@@ -372,7 +373,7 @@ test "Golden IR Harness - Snapshot Persistence" {
         std.debug.print("✅ Snapshot saved successfully: {s}\n", .{filename});
 
         // Clean up test file
-        std.fs.cwd().deleteFile(filename) catch {};
+        compat_fs.deleteFile(filename) catch {};
         std.fs.cwd().deleteDir(test_dir) catch {};
     } else {
         std.debug.print("❌ Snapshot file not found: {s}\n", .{filename});

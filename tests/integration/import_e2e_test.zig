@@ -7,6 +7,7 @@
 // Two source files → Parse → Lower → LLVM → Objects → Link → Execute
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const testing = std.testing;
 const janus_parser = @import("janus_parser");
 const qtjir = @import("qtjir");
@@ -232,7 +233,7 @@ fn compileFileToObject(
     tmp_dir: std.testing.TmpDir,
 ) ![]const u8 {
     // Read file content
-    const source = try std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024);
+    const source = try compat_fs.readFileAlloc(allocator, file_path, 1024 * 1024);
     defer allocator.free(source);
 
     return compileToObject(allocator, source, module_name, tmp_dir);

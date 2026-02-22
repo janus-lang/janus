@@ -4,6 +4,7 @@
 // Comprehensive tests for Janus dispatch CLI tools
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const ArrayList = std.array_list.Managed;
 const Allocator = std.mem.Allocator;
@@ -289,7 +290,7 @@ test "DispatchTracer performance - large trace buffer" {
     var tracer = try DispatchTracer.init(testing.allocator, config);
     defer tracer.deinit();
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Add many traces
     for (0..500) |i| {
@@ -298,7 +299,7 @@ test "DispatchTracer performance - large trace buffer" {
         try tracer.completeTrace(call_id, .switch_table_lookup, "impl", i % 4 == 0);
     }
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const duration_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000;
 
     // Should complete in reasonable time (less than 100ms)
@@ -336,13 +337,13 @@ test "DispatchQueryCLI performance - large dispatch family" {
 
     try query_cli.dispatch_families.put("large_function", large_family);
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Query the large family
     const args = &[_][]const u8{ "janus", "query", "dispatch", "large_function", "--show-candidates" };
     try query_cli.run(args);
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const duration_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000;
 
     // Should complete in reasonable time (less than 50ms)

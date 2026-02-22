@@ -5,6 +5,7 @@
 //! zig build-exe integration_demo.zig && ./integration_demo
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 
 const ns_msg = @import("ns_msg.zig");
 const transport = @import("transport.zig");
@@ -28,7 +29,7 @@ pub fn main() !void {
     const reading = envelope.SensorReading{
         .value = 52.3,
         .unit = "µg/m³",
-        .timestamp = @intCast(std.time.timestamp()),
+        .timestamp = @intCast(compat_time.timestamp()),
         .geohash = "u33dc0",
     };
 

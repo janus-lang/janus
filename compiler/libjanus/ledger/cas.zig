@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const blake3 = @import("blake3.zig");
 
 // Content-Addressed Storage (CAS) Core
@@ -64,7 +65,7 @@ pub const CAS = struct {
     // Store verified content in CAS with content-addressed path
     pub fn store(self: *CAS, content_id: ContentId, data: []const u8) !void {
         // Create CAS directory if it doesn't exist
-        std.fs.cwd().makeDir(self.root_path) catch |err| switch (err) {
+        compat_fs.makeDir(self.root_path) catch |err| switch (err) {
             error.PathAlreadyExists => {}, // OK
             else => return err,
         };
@@ -77,7 +78,7 @@ pub const CAS = struct {
         defer self.allocator.free(content_dir);
 
         // Create content directory
-        std.fs.cwd().makeDir(content_dir) catch |err| switch (err) {
+        compat_fs.makeDir(content_dir) catch |err| switch (err) {
             error.PathAlreadyExists => {}, // OK - content already exists
             else => return err,
         };
@@ -86,7 +87,7 @@ pub const CAS = struct {
         const archive_path = try std.fs.path.join(self.allocator, &[_][]const u8{ content_dir, "archive" });
         defer self.allocator.free(archive_path);
 
-        const file = try std.fs.cwd().createFile(archive_path, .{});
+        const file = try compat_fs.createFile(archive_path, .{});
         defer file.close();
         try file.writeAll(data);
     }
@@ -244,7 +245,7 @@ fn compareArchiveEntries(context: void, a: ArchiveEntry, b: ArchiveEntry) bool {
 
 // Utility function to create CAS directory structure
 pub fn initializeCAS(cas_root: []const u8) !void {
-    std.fs.cwd().makeDir(cas_root) catch |err| switch (err) {
+    compat_fs.makeDir(cas_root) catch |err| switch (err) {
         error.PathAlreadyExists => {}, // OK
         else => return err,
     };

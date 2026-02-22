@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const testing = std.testing;
 
 // Import pipeline components
@@ -37,7 +38,7 @@ test "Working End-to-End: Tokenizer → Manual C Generation" {
 
     // Step 2: Manual C Code Generation (simulating the full pipeline)
     const c_output = "working_test.c";
-    const c_file = try std.fs.cwd().createFile(c_output, .{});
+    const c_file = try compat_fs.createFile(c_output, .{});
     defer c_file.close();
 
     // Generate basic C code structure
@@ -65,14 +66,14 @@ test "Working End-to-End: Tokenizer → Manual C Generation" {
     std.log.info("✅ C file verified: {} bytes", .{file_size});
 
     // Step 4: Read and display generated C code
-    const c_content = try std.fs.cwd().readFileAlloc(allocator, c_output, 1024);
+    const c_content = try compat_fs.readFileAlloc(allocator, c_output, 1024);
     defer allocator.free(c_content);
 
     std.log.info("Generated C code:", .{});
     std.log.info("{s}", .{c_content});
 
     // Clean up
-    std.fs.cwd().deleteFile(c_output) catch {};
+    compat_fs.deleteFile(c_output) catch {};
 
     std.log.info("🎉 Working End-to-End Test: SUCCESS!", .{});
 }
@@ -122,7 +123,7 @@ test "Manual C Code Generation" {
 
     // Generate C code manually to test the concept
     const c_output = "manual_codegen_test.c";
-    const c_file = try std.fs.cwd().createFile(c_output, .{});
+    const c_file = try compat_fs.createFile(c_output, .{});
     defer c_file.close();
 
     const c_code =
@@ -151,7 +152,7 @@ test "Manual C Code Generation" {
     try testing.expect(file_size > 0);
 
     // Read and check content
-    const c_content = try std.fs.cwd().readFileAlloc(allocator, c_output, 1024);
+    const c_content = try compat_fs.readFileAlloc(allocator, c_output, 1024);
     defer allocator.free(c_content);
 
     // Should contain basic C structure
@@ -160,7 +161,7 @@ test "Manual C Code Generation" {
     try testing.expect(std.mem.indexOf(u8, c_content, "puts(") != null);
 
     // Clean up
-    std.fs.cwd().deleteFile(c_output) catch {};
+    compat_fs.deleteFile(c_output) catch {};
 
     std.log.info("✅ Manual C Code Generation test: {} bytes", .{file_size});
 }
@@ -193,7 +194,7 @@ test "Complete Pipeline Simulation" {
 
     // Step 2: Generate C code based on parsed tokens
     const c_output = "pipeline_test.c";
-    const c_file = try std.fs.cwd().createFile(c_output, .{});
+    const c_file = try compat_fs.createFile(c_output, .{});
     defer c_file.close();
 
     // Create C code using extracted information
@@ -230,7 +231,7 @@ test "Complete Pipeline Simulation" {
     try testing.expect(string_literal.len > 0);
 
     // Clean up
-    std.fs.cwd().deleteFile(c_output) catch {};
+    compat_fs.deleteFile(c_output) catch {};
 
     std.log.info("✅ Complete pipeline simulation: SUCCESS", .{});
     std.log.info("   Function: {s}", .{func_name});

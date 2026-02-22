@@ -4,6 +4,7 @@
 // ASTDB → QTJIR Lowering
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const astdb = @import("astdb_core"); // Using the same name as in tests for now
 const graph = @import("graph.zig");
 const builtin_calls = @import("builtin_calls.zig");
@@ -415,14 +416,14 @@ fn processUseZig(
     defer allocator.free(relative_path);
 
     // Convert to absolute path for registry (so it works from any directory)
-    const full_path = std.fs.cwd().realpathAlloc(allocator, relative_path) catch |err| {
+    const full_path = compat_fs.realpathAlloc(allocator, relative_path) catch |err| {
         std.debug.print("Warning: Could not resolve Zig module path '{s}': {s}\n", .{ relative_path, @errorName(err) });
         return;
     };
     defer allocator.free(full_path);
 
     // Read the Zig file
-    const zig_source = std.fs.cwd().readFileAlloc(
+    const zig_source = compat_fs.readFileAlloc(
         allocator,
         full_path,
         10 * 1024 * 1024, // 10MB max

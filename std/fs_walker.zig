@@ -5,6 +5,7 @@
 // Advanced recursive filesystem traversal with security, optimization, and monitoring
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const Context = @import("std_context.zig").Context;
@@ -591,12 +592,12 @@ test "Walker basic functionality" {
 
     // Create a test directory structure
     const test_root = "/tmp/walker_test";
-    try std.fs.cwd().makePath(test_root);
-    defer std.fs.cwd().deleteTree(test_root) catch {};
+    try compat_fs.makeDir(test_root);
+    defer compat_fs.deleteTree(test_root) catch {};
 
     // Create some test files
-    try std.fs.cwd().writeFile(.{ .sub_path = test_root ++ "/file1.txt", .data = "content1" });
-    try std.fs.cwd().writeFile(.{ .sub_path = test_root ++ "/file2.txt", .data = "content2" });
+    try compat_fs.writeFile(.{ .sub_path = test_root ++ "/file1.txt", .data = "content1" });
+    try compat_fs.writeFile(.{ .sub_path = test_root ++ "/file2.txt", .data = "content2" });
 
     // Test walker initialization
     var walker = try Walker.init(test_root, WalkOptions{}, allocator);

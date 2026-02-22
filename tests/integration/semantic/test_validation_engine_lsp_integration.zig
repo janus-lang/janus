@@ -7,6 +7,7 @@
 //! and the LSP server, ensuring real-time validation and semantic information delivery.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const Thread = std.Thread;
@@ -260,7 +261,7 @@ test "LSP performance with concurrent validation requests" {
 
     const unit_id = try context.didOpenDocument(content);
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Simulate multiple concurrent LSP requests
     var hover_results: [10]?[]const u8 = undefined;
@@ -268,7 +269,7 @@ test "LSP performance with concurrent validation requests" {
         hover_results[i] = try context.handleHoverRequest(unit_id, 0, @intCast(i + 5));
     }
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const duration_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
 
     // Performance requirement: < 50ms for 10 concurrent requests

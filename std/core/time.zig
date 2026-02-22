@@ -13,6 +13,7 @@
 //! - No allocations - all values are primitive types
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 
 // ============================================================================
 // SYSTEM TIME (epoch-based)
@@ -21,7 +22,7 @@ const std = @import("std");
 /// Get current Unix timestamp in seconds
 /// Returns seconds since January 1, 1970 UTC
 pub export fn time_now_seconds() callconv(.c) i64 {
-    return std.time.timestamp();
+    return compat_time.timestamp();
 }
 
 /// Get current Unix timestamp in milliseconds
@@ -40,7 +41,7 @@ pub export fn time_now_micros() callconv(.c) i64 {
 /// Returns nanoseconds since January 1, 1970 UTC
 /// Note: Precision depends on platform
 pub export fn time_now_nanos() callconv(.c) i64 {
-    return @intCast(std.time.nanoTimestamp());
+    return @intCast(compat_time.nanoTimestamp());
 }
 
 // ============================================================================
@@ -56,7 +57,7 @@ pub export fn time_monotonic_millis() callconv(.c) i64 {
 /// Get monotonic clock in nanoseconds (highest precision)
 /// Use this for benchmarking and performance critical code
 pub export fn time_monotonic_nanos() callconv(.c) i64 {
-    return @intCast(std.time.nanoTimestamp());
+    return @intCast(compat_time.nanoTimestamp());
 }
 
 /// Sleep for specified milliseconds
@@ -206,9 +207,9 @@ pub export fn time_days_in_month(year: i32, month: i32) callconv(.c) i32 {
 /// Simple benchmark: measure function call overhead
 /// Returns nanoseconds for a minimal operation (for calibration)
 pub export fn time_calibration_nanos() callconv(.c) i64 {
-    const start: i64 = @intCast(std.time.nanoTimestamp());
+    const start: i64 = @intCast(compat_time.nanoTimestamp());
     // Minimal work - just get timestamp again
-    const end: i64 = @intCast(std.time.nanoTimestamp());
+    const end: i64 = @intCast(compat_time.nanoTimestamp());
     return end - start;
 }
 
@@ -217,7 +218,7 @@ pub export fn time_calibration_nanos() callconv(.c) i64 {
 /// Use only for relative measurements in tight loops
 pub export fn time_cpu_ticks() callconv(.c) u64 {
     // Use standard library's CPU timestamp if available
-    return @intCast(std.time.nanoTimestamp());
+    return @intCast(compat_time.nanoTimestamp());
 }
 
 // ============================================================================

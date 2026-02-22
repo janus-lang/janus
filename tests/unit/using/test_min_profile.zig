@@ -8,6 +8,7 @@
 //! and only activates when the :min profile is selected.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
@@ -37,13 +38,13 @@ const MinTestResource = struct {
     }
 
     pub fn cleanup(ptr: *anyopaque) !void {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         const self = @ptrCast(*MinTestResource, @alignCast(@alignOf(MinTestResource), ptr));
         self.is_cleaned = true;
         try self.cleanup_order.append(self.id);
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         self.cleanup_time_ns = end_time - start_time;
     }
 
@@ -93,12 +94,12 @@ test "min profile - O(1) frame operations" {
         }
 
         // Measure push/pop at this depth
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         const frame = try registry.pushFrame();
         try registry.popFrame();
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const elapsed = end_time - start_time;
         try timings.append(elapsed);
 
@@ -212,9 +213,9 @@ test "min profile - sub-millisecond cleanup" {
     }
 
     // Measure cleanup time
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
     try registry.popFrame();
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
 
     const cleanup_time_ns = end_time - start_time;
     const cleanup_time_ms = @intToFloat(f64, cleanup_time_ns) / 1_000_000.0;
@@ -409,7 +410,7 @@ test "min profile - stress test performance" {
     defer allocator.free(resources);
 
     // Measure total time for stress test
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     const frame = try registry.pushFrame();
 
@@ -422,7 +423,7 @@ test "min profile - stress test performance" {
     // Cleanup all resources
     try registry.popFrame();
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const total_time_ms = @intToFloat(f64, end_time - start_time) / 1_000_000.0;
 
     // Should handle 10k resources in reasonable time (under 10ms)

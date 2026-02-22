@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 
 // Type system imports
@@ -43,9 +44,9 @@ pub const PerfectHashGenerator = struct {
         self: *PerfectHashGenerator,
         candidates: []const CandidateIR,
     ) !?PerfectHashTable {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
         defer {
-            const end_time = std.time.nanoTimestamp();
+            const end_time = compat_time.nanoTimestamp();
             self.stats.generation_time_ns = @intCast(end_time - start_time);
         }
 
@@ -121,7 +122,7 @@ pub const PerfectHashGenerator = struct {
         const table_size = @as(u32, @intFromFloat(@as(f32, @floatFromInt(type_ids.len)) / self.load_factor));
 
         // Generate random hash seed
-        var prng = std.Random.DefaultPrng.init(@intCast(std.time.nanoTimestamp()));
+        var prng = std.Random.DefaultPrng.init(@intCast(compat_time.nanoTimestamp()));
         const hash_seed = prng.random().int(u64);
 
         // Create hash table structure

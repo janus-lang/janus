@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
@@ -492,7 +493,7 @@ const ProfilingTestSuite = struct {
         self.profiler.reset();
 
         // Measure profiling overhead
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         self.profiler.startSession(null);
 
@@ -524,7 +525,7 @@ const ProfilingTestSuite = struct {
 
         self.profiler.endSession();
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const total_time = end_time - start_time;
         const time_per_call = total_time / num_calls;
 

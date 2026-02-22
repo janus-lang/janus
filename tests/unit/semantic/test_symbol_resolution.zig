@@ -8,6 +8,7 @@
 //! scope resolution and error reporting.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const print = std.debug.print;
 
@@ -358,7 +359,7 @@ test "Symbol Resolution - Performance Characteristics" {
     var symbol_ids = ArrayList(symbol_table.SymbolId){};
     defer symbol_ids.deinit();
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     for (0..num_symbols) |i| {
         const name_str = try std.fmt.allocPrint(allocator, "symbol_{d}", .{i});
@@ -376,7 +377,7 @@ test "Symbol Resolution - Performance Characteristics" {
         try symbol_ids.append(symbol_id);
     }
 
-    const declaration_time = std.time.nanoTimestamp();
+    const declaration_time = compat_time.nanoTimestamp();
     const declaration_duration = @as(f64, @floatFromInt(declaration_time - start_time)) / 1_000_000.0;
 
     print("   Symbol declaration time: {d:.2f}ms for {} symbols\n", .{ declaration_duration, num_symbols });
@@ -394,7 +395,7 @@ test "Symbol Resolution - Performance Characteristics" {
         }
     }
 
-    const resolution_time = std.time.nanoTimestamp();
+    const resolution_time = compat_time.nanoTimestamp();
     const resolution_duration = @as(f64, @floatFromInt(resolution_time - declaration_time)) / 1_000_000.0;
 
     print("   Symbol resolution time: {d:.2f}ms for {} lookups\n", .{ resolution_duration, num_symbols });

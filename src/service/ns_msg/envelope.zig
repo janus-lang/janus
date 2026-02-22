@@ -4,6 +4,7 @@
 //! NS-Msg: Message Envelope and Serialization
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const types = @import("types.zig");
 const Path = types.Path;
@@ -27,7 +28,7 @@ pub fn Envelope(comptime T: type) type {
             return .{
                 .path = path,
                 .payload = payload,
-                .timestamp = @intCast(std.time.nanoTimestamp()),
+                .timestamp = @intCast(compat_time.nanoTimestamp()),
                 .sequence = 0,
                 .query_id = null,
                 .reply_path = null,

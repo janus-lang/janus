@@ -5,6 +5,7 @@
 // Task 2.2 - Implements sharded memo table, worker pool, cycle detection
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const Atomic = std.atomic.Atomic;
 const context = @import("context.zig");
@@ -93,7 +94,7 @@ pub const MemoTable = struct {
 const Shard = struct {
     allocator: Allocator,
     entries: std.HashMap(context.MemoKey, Entry, MemoKeyContext, std.hash_map.default_max_load_percentage),
-    mutex: std.Thread.Mutex,
+    mutex: @import("compat_mutex").Mutex,
     stats: ShardStats,
 
     const Entry = struct {
@@ -112,7 +113,7 @@ const Shard = struct {
         return Shard{
             .allocator = allocator,
             .entries = std.HashMap(context.MemoKey, Entry, MemoKeyContext, std.hash_map.default_max_load_percentage).init(allocator),
-            .mutex = std.Thread.Mutex{},
+            .mutex = @import("compat_mutex").Mutex{},
             .stats = ShardStats{},
         };
     }
@@ -128,7 +129,7 @@ const Shard = struct {
         if (self.entries.get(key)) |entry| {
             // Update access statistics
             _ = entry.access_count.fetchAdd(1, .Monotonic);
-            entry.last_access.store(std.time.nanoTimestamp(), .Monotonic);
+            entry.last_access.store(compat_time.nanoTimestamp(), .Monotonic);
             self.stats.hits += 1;
 
             return entry.result;
@@ -145,7 +146,7 @@ const Shard = struct {
         const entry = Entry{
             .result = result,
             .access_count = Atomic(u32).init(1),
-            .last_access = Atomic(u64).init(std.time.nanoTimestamp()),
+            .last_access = Atomic(u64).init(compat_time.nanoTimestamp()),
         };
 
         try self.entries.put(key, entry);
@@ -208,7 +209,7 @@ pub const CacheStats = struct {
 pub const CycleDetector = struct {
     allocator: Allocator,
     active_queries: std.HashMap(context.MemoKey, QueryState, MemoKeyContext, std.hash_map.default_max_load_percentage),
-    mutex: std.Thread.Mutex,
+    mutex: @import("compat_mutex").Mutex,
 
     const QueryState = struct {
         thread_id: std.Thread.Id,
@@ -222,7 +223,7 @@ pub const CycleDetector = struct {
         return Self{
             .allocator = allocator,
             .active_queries = std.HashMap(context.MemoKey, QueryState, MemoKeyContext, std.hash_map.default_max_load_percentage).init(allocator),
-            .mutex = std.Thread.Mutex{},
+            .mutex = @import("compat_mutex").Mutex{},
         };
     }
 
@@ -251,7 +252,7 @@ pub const CycleDetector = struct {
 
         const state = QueryState{
             .thread_id = std.Thread.getCurrentId(),
-            .start_time = std.time.nanoTimestamp(),
+            .start_time = compat_time.nanoTimestamp(),
             .dependencies = .empty,
         };
 
@@ -304,7 +305,7 @@ pub const QueryScheduler = struct {
     allocator: Allocator,
     thread_pool: std.Thread.Pool,
     work_queue: std.fifo.LinearFifo(WorkItem, .Dynamic),
-    queue_mutex: std.Thread.Mutex,
+    queue_mutex: @import("compat_mutex").Mutex,
 
     const WorkItem = struct {
         query_id: context.QueryId,
@@ -319,7 +320,7 @@ pub const QueryScheduler = struct {
             .allocator = allocator,
             .thread_pool = try std.Thread.Pool.init(.{ .allocator = allocator, .n_jobs = thread_count }),
             .work_queue = std.fifo.LinearFifo(WorkItem, .Dynamic).init(allocator),
-            .queue_mutex = std.Thread.Mutex{},
+            .queue_mutex = @import("compat_mutex").Mutex{},
         };
     }
 

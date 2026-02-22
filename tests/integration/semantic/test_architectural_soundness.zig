@@ -7,6 +7,7 @@
 //! identified in the Voxis assessment as sound and granite-solid.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
@@ -230,7 +231,7 @@ test "canonical hashing performance and correctness" {
 
     // Performance test: O(1) operations
     const operation_count = 10000;
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     for (0..operation_count) |i| {
         const param_type = if (i % 2 == 0) i32_type else f64_type;
@@ -239,7 +240,7 @@ test "canonical hashing performance and correctness" {
         _ = try type_system.createFunctionType(&[_]@TypeOf(param_type){param_type}, return_type, .janus_call);
     }
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const total_time_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
     const ops_per_second = @as(f64, @floatFromInt(operation_count)) / (total_time_ms / 1000.0);
 

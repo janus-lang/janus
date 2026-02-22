@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 
 // Type system imports
@@ -111,7 +112,7 @@ pub const InlineCache = struct {
 
     /// Lookup a dispatch entry in the cache
     pub fn lookup(self: *InlineCache, type_id: TypeId) ?*const DispatchEntry {
-        const timestamp = std.time.nanoTimestamp();
+        const timestamp = compat_time.nanoTimestamp();
 
         // Search cache entries
         for (self.entries, 0..) |*entry, i| {
@@ -139,7 +140,7 @@ pub const InlineCache = struct {
 
     /// Insert a new entry into the cache
     pub fn insert(self: *InlineCache, type_id: TypeId, entry: *const DispatchEntry) void {
-        const timestamp = std.time.nanoTimestamp();
+        const timestamp = compat_time.nanoTimestamp();
 
         // Find insertion point (LRU eviction)
         var insert_index: usize = 0;

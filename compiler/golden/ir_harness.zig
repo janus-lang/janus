@@ -10,6 +10,7 @@
 //! M6: Forge the Executable Artifact - Forensic Truth in Code Generation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
@@ -391,7 +392,7 @@ pub const IRHarness = struct {
     /// Save snapshots to disk for persistence
     pub fn saveSnapshots(self: *IRHarness, directory: []const u8) !void {
         // Create directory if it doesn't exist
-        std.fs.cwd().makeDir(directory) catch |err| switch (err) {
+        compat_fs.makeDir(directory) catch |err| switch (err) {
             error.PathAlreadyExists => {},
             else => return err,
         };
@@ -403,7 +404,7 @@ pub const IRHarness = struct {
             const json = try snapshot.toJson(self.allocator);
             defer self.allocator.free(json);
 
-            try std.fs.cwd().writeFile(.{ .sub_path = filename, .data = json });
+            try compat_fs.writeFile(.{ .sub_path = filename, .data = json });
             std.debug.print("💾 Saved golden snapshot: {s}\n", .{filename});
         }
     }

@@ -15,6 +15,7 @@
 //! - Zero-overhead capability injection
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const IR = @import("../../libjanus/ir.zig");
 const ir_generator = @import("../../ir_generator.zig");
 
@@ -455,7 +456,7 @@ pub const LLVMCodegen = struct {
     // REAL ASTDB-based compilation - uses parsed AST data
     pub fn compileToExecutable(self: *LLVMCodegen, llvm_ir: []const u8, output_path: []const u8) !void {
         // Write LLVM IR to debug file for inspection
-        const debug_file = try std.fs.cwd().createFile("debug.ll", .{});
+        const debug_file = try compat_fs.createFile("debug.ll", .{});
         defer debug_file.close();
         try debug_file.writeAll(llvm_ir);
 
@@ -546,7 +547,7 @@ pub const LLVMCodegen = struct {
 
         // Write C stub to temporary file (keep for debugging)
         const temp_c_path = "janus_generated.c";
-        const c_file = try std.fs.cwd().createFile(temp_c_path, .{});
+        const c_file = try compat_fs.createFile(temp_c_path, .{});
         defer c_file.close();
         try c_file.writeAll(c_program.items);
 
@@ -592,7 +593,7 @@ pub const LLVMCodegen = struct {
                 \\echo "(Generated from Janus source via libjanus compiler)"
             ;
 
-            const shell_file = try std.fs.cwd().createFile(output_path, .{});
+            const shell_file = try compat_fs.createFile(output_path, .{});
             defer shell_file.close();
             try shell_file.writeAll(shell_stub);
 
@@ -602,7 +603,7 @@ pub const LLVMCodegen = struct {
             _ = chmod_process.spawnAndWait() catch {};
 
             // Clean up
-            // Keep temp file for debugging: std.fs.cwd().deleteFile(temp_c_path) catch {};
+            // Keep temp file for debugging: compat_fs.deleteFile(temp_c_path) catch {};
             return;
         };
 
@@ -615,7 +616,7 @@ pub const LLVMCodegen = struct {
                 \\echo "(Generated from Janus source via libjanus compiler)"
             ;
 
-            const shell_file = try std.fs.cwd().createFile(output_path, .{});
+            const shell_file = try compat_fs.createFile(output_path, .{});
             defer shell_file.close();
             try shell_file.writeAll(shell_stub);
 
@@ -626,7 +627,7 @@ pub const LLVMCodegen = struct {
         }
 
         // Keep temp files for debugging
-        // std.fs.cwd().deleteFile(temp_c_path) catch {};
+        // compat_fs.deleteFile(temp_c_path) catch {};
     }
 };
 

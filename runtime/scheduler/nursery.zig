@@ -442,7 +442,7 @@ pub const Nursery = struct {
                     // This notifies all siblings to check for cancellation
                     self.cancel_token.cancelFailure();
                 },
-                .panic => |_| {
+                .panic => {
                     self.first_error = .{
                         .task_id = task.id,
                         .error_code = -1, // Panic marker
@@ -511,7 +511,7 @@ pub const Nursery = struct {
         } else {
             // Main thread fallback: sleep-based polling
             while (!self.allChildrenComplete()) {
-                std.c.nanosleep(.{ .tv_sec = 0, .tv_nsec = 100_000 }); // 100µs poll interval
+                _ = std.c.nanosleep(&.{ .sec = 0, .nsec = 100_000 }, null); // 100µs poll interval
             }
         }
 

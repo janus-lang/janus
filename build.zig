@@ -69,11 +69,35 @@ pub fn build(b: *std.Build) void {
     const compiler_options = b.addOptions();
     compiler_options.addOption(bool, "trace_qtjir", enable_qtjir_trace);
 
+    // Zig 0.16 compat: pthread-based Mutex (std.Thread.Mutex was removed)
+    const compat_mutex_mod = b.addModule("compat_mutex", .{
+        .root_source_file = b.path("runtime/compat/mutex.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Zig 0.16 compat: timestamp functions (std.time.nanoTimestamp/timestamp removed)
+    const compat_time_mod = b.addModule("compat_time", .{
+        .root_source_file = b.path("runtime/compat/time.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Zig 0.16 compat: filesystem functions (std.fs.cwd/File/Dir moved to std.Io)
+    const compat_fs_mod = b.addModule("compat_fs", .{
+        .root_source_file = b.path("runtime/compat/fs.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const astdb_core_mod = b.addModule("astdb_core", .{
         .root_source_file = b.path("compiler/astdb/core.zig"),
         .target = target,
         .optimize = optimize,
     });
+    astdb_core_mod.addImport("compat_mutex", compat_mutex_mod);
+    astdb_core_mod.addImport("compat_time", compat_time_mod);
+    astdb_core_mod.addImport("compat_fs", compat_fs_mod);
 
     // Note: astdb.zig is just a compatibility wrapper around core.zig
     // We use astdb_core directly to avoid module conflicts
@@ -147,6 +171,9 @@ pub fn build(b: *std.Build) void {
     lib_mod.addImport("janus_tokenizer", tokenizer_mod);
     lib_mod.addImport("janus_parser", libjanus_parser_mod);
     lib_mod.addImport("compiler_errors", compiler_errors_mod);
+    lib_mod.addImport("compat_mutex", compat_mutex_mod);
+    lib_mod.addImport("compat_time", compat_time_mod);
+    lib_mod.addImport("compat_fs", compat_fs_mod);
 
     // Semantic Analysis Module - The Soul of the Compiler
     const semantic_mod = b.addModule("semantic", .{
@@ -155,6 +182,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     semantic_mod.addImport("astdb", lib_mod);
+    semantic_mod.addImport("compat_mutex", compat_mutex_mod);
+    semantic_mod.addImport("compat_time", compat_time_mod);
+    semantic_mod.addImport("compat_fs", compat_fs_mod);
 
     // Zig Parser - For native Zig integration
     const zig_parser_mod = b.addModule("zig_parser", .{
@@ -173,6 +203,8 @@ pub fn build(b: *std.Build) void {
     qtjir_mod.addImport("janus_parser", libjanus_parser_mod);
     qtjir_mod.addImport("zig_parser", zig_parser_mod);
     qtjir_mod.addImport("semantic", semantic_mod);
+    qtjir_mod.addImport("compat_time", compat_time_mod);
+    qtjir_mod.addImport("compat_fs", compat_fs_mod);
     qtjir_mod.addOptions("compiler_options", compiler_options);
 
     // Add qtjir to libjanus for core_profile_codegen
@@ -186,6 +218,8 @@ pub fn build(b: *std.Build) void {
     });
     inspect_mod.addImport("astdb_core", astdb_core_mod);
     inspect_mod.addImport("libjanus", lib_mod);
+    inspect_mod.addImport("compat_time", compat_time_mod);
+    inspect_mod.addImport("compat_fs", compat_fs_mod);
 
     // Note: Allocator Contexts implementation in std/mem/ctx.zig
     // .jan files in std/mem/ctx/ are specifications for future self-hosting
@@ -199,6 +233,8 @@ pub fn build(b: *std.Build) void {
     pipeline_mod.addImport("janus_lib", lib_mod);
     pipeline_mod.addImport("qtjir", qtjir_mod);
     pipeline_mod.addImport("astdb_core", astdb_core_mod);
+    pipeline_mod.addImport("compat_time", compat_time_mod);
+    pipeline_mod.addImport("compat_fs", compat_fs_mod);
     pipeline_mod.addAnonymousImport("janus_runtime_embed", .{
         .root_source_file = b.path("runtime/runtime_embed.zig"),
     });
@@ -217,6 +253,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     jit_forge_mod.addImport("janus_context", janus_context_mod);
+    jit_forge_mod.addImport("compat_time", compat_time_mod);
+    jit_forge_mod.addImport("compat_fs", compat_fs_mod);
 
     // Additional modules needed for CLI imports (Zig 0.15 module hygiene)
     const vfs_mod = b.addModule("vfs_adapter", .{
@@ -224,6 +262,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    vfs_mod.addImport("compat_time", compat_time_mod);
+    vfs_mod.addImport("compat_fs", compat_fs_mod);
 
     // Janus Runtime module - for tests that directly use Channel, etc.
     const janus_rt_mod = b.addModule("janus_rt", .{
@@ -256,6 +296,7 @@ pub fn build(b: *std.Build) void {
     const blake3_mod = b.addModule("blake3", .{
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
     const blake3_lib = b.addLibrary(.{
         .name = "blake3",
@@ -410,6 +451,8 @@ pub fn build(b: *std.Build) void {
     janus_cli.root_module.addImport("inspect", inspect_mod); // For janus inspect
     janus_cli.root_module.addImport("jit_forge", jit_forge_mod);
     janus_cli.root_module.addImport("janus_context", janus_context_mod);
+    janus_cli.root_module.addImport("compat_time", compat_time_mod);
+    janus_cli.root_module.addImport("compat_fs", compat_fs_mod);
     // Runtime source embed module - enables pipeline.zig to embed runtime from runtime/ directory
     janus_cli.root_module.addAnonymousImport("janus_runtime_embed", .{
         .root_source_file = b.path("runtime/runtime_embed.zig"),
@@ -486,6 +529,8 @@ pub fn build(b: *std.Build) void {
         janusd.root_module.addImport("semantic", semantic_mod);
         janusd.root_module.addImport("utcp_registry", utcp_registry_mod.?);
         janusd.root_module.addImport("lsp_server", lsp_mod);
+        janusd.root_module.addImport("compat_time", compat_time_mod);
+        janusd.root_module.addImport("compat_fs", compat_fs_mod);
         janusd.root_module.link_objects.append(b.allocator, .{ .other_step = blake3_lib }) catch @panic("OOM");
         b.installArtifact(janusd);
 
@@ -570,6 +615,8 @@ pub fn build(b: *std.Build) void {
     // Add rsp1 import to utcp_registry_mod for proper module resolution
     if (utcp_registry_mod) |um| {
         um.addImport("rsp1", rsp1_mod);
+        um.addImport("compat_mutex", compat_mutex_mod);
+        um.addImport("compat_time", compat_time_mod);
         // rsp1_cluster is imported by utcp_registry.zig - create module for it
         const rsp1_cluster_mod = b.addModule("rsp1_cluster", .{ 
             .root_source_file = b.path("std/rsp1_cluster.zig"), 
@@ -2206,6 +2253,8 @@ pub fn build(b: *std.Build) void {
         });
     }
     fuzz.root_module.addImport("janus_lib", lib_mod);
+    fuzz.root_module.addImport("compat_time", compat_time_mod);
+    fuzz.root_module.addImport("compat_fs", compat_fs_mod);
     b.installArtifact(fuzz);
 
     const fuzz_run = b.addRunArtifact(fuzz);

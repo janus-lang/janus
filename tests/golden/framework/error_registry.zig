@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 
 /// Golden Test Framework Error Registry
@@ -191,7 +192,7 @@ pub const ErrorRegistry = struct {
             .test_case = try self.allocator.dupe(u8, test_case),
             .platform = try self.allocator.dupe(u8, platform),
             .optimization_level = try self.allocator.dupe(u8, optimization_level),
-            .timestamp = std.time.timestamp(),
+            .timestamp = compat_time.timestamp(),
             .error_message = try self.allocator.dupe(u8, error_message),
             .context = .{
                 .servicelden_reference_path = if (context.servicelden_reference_path) |path| try self.allocator.dupe(u8, path) else null,

@@ -12,6 +12,7 @@
 // Perfect precision here means perfect efficiency everywhere else.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const astdb = @import("../astdb.zig");
 const compilation_unit = @import("compilation_unit.zig");
 const interface_cid_mod = @import("interface_cid.zig");
@@ -503,7 +504,7 @@ pub const ChangeDetectionEngine = struct {
         current_unit: *const CompilationUnit,
         cached_unit: *const CompilationUnit,
     ) !ChangeDetectionResult {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
         var cid_comparisons: u32 = 0;
         var cache_hits: u32 = 0;
 
@@ -531,7 +532,7 @@ pub const ChangeDetectionEngine = struct {
         cid_comparisons += 1;
         if (dependency_comparison.are_equal) cache_hits += 1;
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
 
         // Determine change type and details
         const change_type: ChangeType = if (!interface_comparison.are_equal)
@@ -597,8 +598,8 @@ pub const ChangeDetectionEngine = struct {
 
     /// Analyze a new file
     fn analyzeNewFile(_: *ChangeDetectionEngine, current_unit: *const CompilationUnit) !ChangeDetectionResult {
-        const start_time = std.time.nanoTimestamp();
-        const end_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
 
         return ChangeDetectionResult{
             .unit = current_unit,
@@ -625,8 +626,8 @@ pub const ChangeDetectionEngine = struct {
 
     /// Analyze a deleted file
     fn analyzeDeletedFile(_: *ChangeDetectionEngine, cached_unit: *const CompilationUnit) !ChangeDetectionResult {
-        const start_time = std.time.nanoTimestamp();
-        const end_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
 
         return ChangeDetectionResult{
             .unit = cached_unit,

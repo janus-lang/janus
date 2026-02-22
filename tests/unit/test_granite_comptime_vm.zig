@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const astdb = @import("compiler/libjanus/astdb.zig");
 const ComptimeVM = @import("compiler/comptime_vm.zig").ComptimeVM;
@@ -289,7 +290,7 @@ test "Granite-Solid ComptimeVM - Performance Validation" {
     defer comptime_vm.deinit();
 
     // Measure performance of 1000 evaluations
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     for (0..1000) |i| {
         const const_name_str = try std.fmt.allocPrint(allocator, "perf_const_{d}", .{i});
@@ -313,7 +314,7 @@ test "Granite-Solid ComptimeVM - Performance Validation" {
         try testing.expect(output.success);
     }
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const duration_ns = end_time - start_time;
     const duration_ms = @as(f64, @floatFromInt(duration_ns)) / 1_000_000.0;
 
