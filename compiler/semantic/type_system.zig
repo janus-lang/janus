@@ -336,7 +336,7 @@ pub const TypeSystem = struct {
                 .tensor => |t| {
                     self.allocator.free(t.dims);
                 },
-                .allocator => |_| {
+                .allocator => {
                     // No cleanup needed
                 },
                 .context_bound => |ctx_info| {

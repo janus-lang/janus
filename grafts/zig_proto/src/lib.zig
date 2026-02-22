@@ -64,16 +64,16 @@ export fn janus_graft_read_file(
     const cb = alloc_cb.?;
 
     const path = path_ptr[0..path_len];
-    var cwd = std.fs.cwd();
-    const file = cwd.openFile(path, .{}) catch return 2; // ForeignError on IO
-    defer file.close();
+    // Use POSIX for Zig 0.16 compatibility (O_RDONLY = 0)
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path, 0, 0) catch return 2;
+    defer std.posix.close(fd);
 
-    const stat = file.stat() catch return 2;
+    const stat = std.posix.fstat(fd) catch return 2;
     // Guard extremely large files; cap at usize max already, but keep simple
     const size: usize = @intCast(stat.size);
     const mem = cb(size, alloc_ctx) orelse return 3;
     const buf = @as([*]u8, @ptrCast(mem))[0..size];
-    const n = file.readAll(buf) catch return 2;
+    const n = std.posix.read(fd, buf) catch return 2;
     if (n != size) {
         // shrink length to read bytes; still success
         out_ptr.* = buf.ptr;

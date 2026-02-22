@@ -8,7 +8,8 @@ const global_cache = @import("build_support/global_cache.zig");
 fn ensureWritableGlobalCache(b: *std.Build) void {
     if (globalCacheWritable(b)) return;
 
-    const local_cache = cache_support.ensureLocalGlobalCache(b.cache_root, b.allocator, "global-cache") catch |err| {
+    const io = b.graph.io;
+    const local_cache = cache_support.ensureLocalGlobalCache(b.cache_root, b.allocator, io, "global-cache") catch |err| {
         std.debug.panic("failed to prepare local global cache: {s}", .{@errorName(err)});
     };
     applyGlobalCacheOverride(b, local_cache);
@@ -16,11 +17,12 @@ fn ensureWritableGlobalCache(b: *std.Build) void {
 
 fn globalCacheWritable(b: *std.Build) bool {
     const probe_name = "janus-cache-write-probe";
-    var file = b.graph.global_cache_root.handle.createFile(probe_name, .{}) catch {
+    const io = b.graph.io;
+    var file = b.graph.global_cache_root.handle.createFile(io, probe_name, .{}) catch {
         return false;
     };
-    file.close();
-    b.graph.global_cache_root.handle.deleteFile(probe_name) catch {};
+    file.close(io);
+    b.graph.global_cache_root.handle.deleteFile(io, probe_name) catch {};
     return true;
 }
 
@@ -43,12 +45,11 @@ fn applyGlobalCacheOverride(b: *std.Build, new_cache: cache_support.CacheDirecto
         b.graph.cache.prefixes_len += 1;
     }
 
-    var old_handle = old_cache.handle;
-    old_handle.close();
+    // Note: old_handle.close() removed - in Zig 0.16, handles are managed differently
 }
 
 fn directoriesEqual(a: cache_support.CacheDirectory, bdir: cache_support.CacheDirectory) bool {
-    if (a.handle.fd == bdir.handle.fd) return true;
+    // In Zig 0.16, Dir comparison is done via path
     if (a.path) |ap| {
         if (bdir.path) |bp| {
             if (std.mem.eql(u8, ap, bp)) return true;
@@ -252,30 +253,30 @@ pub fn build(b: *std.Build) void {
     const enable_sanitizers = enable_asan or enable_tsan;
 
     // Add BLAKE3 C library (fixed syntax; original had invalid .target/.optimize in options)
+    const blake3_mod = b.addModule("blake3", .{
+        .target = target,
+        .optimize = optimize,
+    });
     const blake3_lib = b.addLibrary(.{
         .name = "blake3",
-        .root_module = b.addModule("blake3", .{
-            .target = target,
-            .optimize = optimize,
-        }),
+        .root_module = blake3_mod,
         .linkage = .static,
     });
-    blake3_lib.linkLibC();
     if (enable_sanitizers) {
-        blake3_lib.addCSourceFiles(.{
+        blake3_mod.addCSourceFiles(.{
             .files = &[_][]const u8{},
             .flags = &[_][]const u8{ "-fsanitize=address", "-fsanitize=thread", "-fsanitize=undefined" },
         });
     }
 
     // Base C sources (always included)
-    const base_flags = &[_][]const u8{ "-std=c99", "-DBLAKE3_NO_AVX512" };
+    const base_flags = &[_][]const u8{ "-std=c99", "-DBLAKE3_NO_AVX512", "-DNDEBUG" };
     inline for ([_]std.Build.LazyPath{
         b.path("third_party/blake3/c/blake3.c"),
         b.path("third_party/blake3/c/blake3_dispatch.c"),
         b.path("third_party/blake3/c/blake3_portable.c"),
     }) |src| {
-        blake3_lib.addCSourceFile(.{ .file = src, .flags = base_flags });
+        blake3_mod.addCSourceFile(.{ .file = src, .flags = base_flags });
     }
 
     // Conditional optimized implementations (error handling: check target CPU for SIMD support)
@@ -283,14 +284,14 @@ pub fn build(b: *std.Build) void {
     const is_x86 = cpu.arch == .x86_64 or cpu.arch == .x86;
     if (is_x86) {
         // SSE2 (baseline x86_64; always include if x86)
-        blake3_lib.addCSourceFile(.{
+        blake3_mod.addCSourceFile(.{
             .file = b.path("third_party/blake3/c/blake3_sse2.c"),
             .flags = base_flags ++ &[_][]const u8{ "-msse2", "-DIS_X86=1" },
         });
 
         // SSE4.1 (common; check availability) - DISABLED: API compatibility issue in Zig 0.14.1
         // if (cpu.features.isEnabled(.sse4_1)) {
-        //     blake3_lib.addCSourceFile(.{
+        //     blake3_mod.addCSourceFile(.{
         //         .file = b.path("third_party/blake3/c/blake3_sse41.c"),
         //         .flags = base_flags ++ &[_][]const u8{ "-msse4.1", "-DIS_X86=1" },
         //     });
@@ -300,7 +301,7 @@ pub fn build(b: *std.Build) void {
 
         // AVX2 (advanced; conditional) - DISABLED: API compatibility issue in Zig 0.14.1
         // if (cpu.features.isEnabled(.avx2)) {
-        //     blake3_lib.addCSourceFile(.{
+        //     blake3_mod.addCSourceFile(.{
         //         .file = b.path("third_party/blake3/c/blake3_avx2.c"),
         //         .flags = base_flags ++ &[_][]const u8{ "-mavx2", "-DIS_X86=1" },
         //     });
@@ -312,31 +313,32 @@ pub fn build(b: *std.Build) void {
         // Fallback: Only portable (already added)
     }
 
-    blake3_lib.addIncludePath(b.path("third_party/blake3/c"));
+    blake3_mod.addIncludePath(b.path("third_party/blake3/c"));
     b.installArtifact(blake3_lib);
 
     // libjanus - The Brain (Static Library) - Apply consistent options
+    const libjanus_mod = b.addModule("libjanus_module", .{
+        .root_source_file = b.path("compiler/libjanus/api.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const libjanus = b.addLibrary(.{
         .name = "libjanus",
-        .root_module = b.addModule("libjanus_module", .{
-            .root_source_file = b.path("compiler/libjanus/api.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
+        .root_module = libjanus_mod,
         .linkage = .static,
     });
-    libjanus.linkLibC();
     if (enable_sanitizers) {
-        libjanus.addCSourceFiles(.{
+        libjanus_mod.addCSourceFiles(.{
             .files = &[_][]const u8{},
             .flags = &[_][]const u8{ "-fsanitize=address", "-fsanitize=thread", "-fsanitize=undefined" },
         });
     }
 
-    libjanus.root_module.addImport("semantic", semantic_mod);
-    libjanus.linkLibrary(blake3_lib);
+    libjanus_mod.addImport("semantic", semantic_mod);
+    // Link the blake3 library
+    libjanus_mod.link_objects.append(b.allocator, .{ .other_step = blake3_lib }) catch @panic("OOM");
     if (enable_sanitizers) {
-        // libjanus.addCSourceFiles(.{
+        // libjanus.root_module.addCSourceFiles(.{
         //     .files = &[_][]const u8{},
         //     .flags = &[_][]const u8{"-fsanitize=address", "-fsanitize=undefined"},
         // });
@@ -353,13 +355,13 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("runtime/janus_rt.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
         .linkage = .static,
     });
-    janus_runtime.linkLibC();
     // Add x86_64 context switch assembly for fiber support (SPEC-021 Section 5.3)
     if (target.result.cpu.arch == .x86_64) {
-        janus_runtime.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
+        janus_runtime.root_module.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
     }
     b.installArtifact(janus_runtime);
 
@@ -370,12 +372,12 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("runtime/janus_rt.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
-    janus_runtime_obj.linkLibC();
     // Add x86_64 context switch assembly for fiber support (SPEC-021 Section 5.3)
     if (target.result.cpu.arch == .x86_64) {
-        janus_runtime_obj.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
+        janus_runtime_obj.root_module.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
     }
 
     // Install the object file to zig-out/obj/ for easy access
@@ -393,9 +395,8 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    janus_cli.linkLibC();
     if (enable_sanitizers) {
-        janus_cli.addCSourceFiles(.{
+        janus_cli.root_module.addCSourceFiles(.{
             .files = &[_][]const u8{},
             .flags = &[_][]const u8{ "-fsanitize=address", "-fsanitize=thread", "-fsanitize=undefined" },
         });
@@ -413,12 +414,12 @@ pub fn build(b: *std.Build) void {
     janus_cli.root_module.addAnonymousImport("janus_runtime_embed", .{
         .root_source_file = b.path("runtime/runtime_embed.zig"),
     });
-    janus_cli.linkLibrary(blake3_lib);
-    janus_cli.linkSystemLibrary("LLVM-21"); // For pipeline LLVM emitter
+    janus_cli.root_module.link_objects.append(b.allocator, .{ .other_step = blake3_lib }) catch @panic("OOM");
+    janus_cli.root_module.linkSystemLibrary("LLVM-21", .{}); // For pipeline LLVM emitter
     janus_cli.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" }); // For LLVM headers
     janus_cli.root_module.addIncludePath(b.path("third_party/blake3/c"));
     if (enable_sanitizers) {
-        // janus_cli.addCSourceFiles(.{
+        // janus_cli.root_module.addCSourceFiles(.{
         //     .files = &[_][]const u8{},
         //     .flags = &[_][]const u8{"-fsanitize=address", "-fsanitize=undefined"},
         // });
@@ -464,9 +465,8 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
             }),
         });
-        janusd.linkLibC();
         if (enable_sanitizers) {
-            janusd.addCSourceFiles(.{
+            janusd.root_module.addCSourceFiles(.{
                 .files = &[_][]const u8{},
                 .flags = &[_][]const u8{ "-fsanitize=address", "-fsanitize=thread", "-fsanitize=undefined" },
             });
@@ -486,7 +486,7 @@ pub fn build(b: *std.Build) void {
         janusd.root_module.addImport("semantic", semantic_mod);
         janusd.root_module.addImport("utcp_registry", utcp_registry_mod.?);
         janusd.root_module.addImport("lsp_server", lsp_mod);
-        janusd.linkLibrary(blake3_lib);
+        janusd.root_module.link_objects.append(b.allocator, .{ .other_step = blake3_lib }) catch @panic("OOM");
         b.installArtifact(janusd);
 
         // Standalone LSP Server (Direct ASTDB Access)
@@ -517,9 +517,8 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
             }),
         });
-        lib_unit_tests.linkLibC();
         if (enable_sanitizers) {
-            lib_unit_tests.addCSourceFiles(.{
+            lib_unit_tests.root_module.addCSourceFiles(.{
                 .files = &[_][]const u8{},
                 .flags = &[_][]const u8{ "-fsanitize=address", "-fsanitize=thread", "-fsanitize=undefined" },
             });
@@ -527,7 +526,7 @@ pub fn build(b: *std.Build) void {
         lib_unit_tests.root_module.addImport("semantic", semantic_mod);
         lib_unit_tests.root_module.addImport("astdb_core", astdb_core_mod);
         lib_unit_tests.root_module.addImport("libjanus_astdb", libjanus_astdb_mod);
-        lib_unit_tests.linkLibrary(blake3_lib);
+        lib_unit_tests.root_module.link_objects.append(b.allocator, .{ .other_step = blake3_lib }) catch @panic("OOM");
         lib_unit_tests.root_module.addIncludePath(b.path("third_party/blake3/c"));
         const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
         test_step.dependOn(&run_lib_unit_tests.step);
@@ -540,16 +539,15 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
             }),
         });
-        exe_unit_tests.linkLibC();
         if (enable_sanitizers) {
-            exe_unit_tests.addCSourceFiles(.{
+            exe_unit_tests.root_module.addCSourceFiles(.{
                 .files = &[_][]const u8{},
                 .flags = &[_][]const u8{ "-fsanitize=address", "-fsanitize=thread", "-fsanitize=undefined" },
             });
         }
         exe_unit_tests.root_module.addImport("janus_lib", lib_mod);
         exe_unit_tests.root_module.addImport("semantic", semantic_mod);
-        exe_unit_tests.linkLibrary(blake3_lib);
+        exe_unit_tests.root_module.link_objects.append(b.allocator, .{ .other_step = blake3_lib }) catch @panic("OOM");
         exe_unit_tests.root_module.addIncludePath(b.path("third_party/blake3/c"));
         const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
         test_step.dependOn(&run_exe_unit_tests.step);
@@ -564,8 +562,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    rsp1_tests.linkLibC();
-    rsp1_tests.linkLibrary(blake3_lib);
+    rsp1_tests.root_module.link_objects.append(b.allocator, .{ .other_step = blake3_lib }) catch @panic("OOM");
     rsp1_tests.root_module.addIncludePath(b.path("third_party/blake3/c"));
     const rsp1_mod = b.addModule("rsp1", .{ .root_source_file = b.path("std/rsp1_crypto.zig"), .target = target, .optimize = optimize });
     rsp1_tests.root_module.addImport("rsp1", rsp1_mod);
@@ -595,8 +592,7 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
             }),
         });
-        utcp_transport_bdd_tests.linkLibC();
-        utcp_transport_bdd_tests.linkLibrary(blake3_lib);
+        utcp_transport_bdd_tests.root_module.link_objects.append(b.allocator, .{ .other_step = blake3_lib }) catch @panic("OOM");
         utcp_transport_bdd_tests.root_module.addIncludePath(b.path("third_party/blake3/c"));
         utcp_transport_bdd_tests.root_module.addImport("std_utcp", utcp_registry_mod.?);
         utcp_transport_bdd_tests.root_module.addImport("janusd_utcp", janusd_main_mod.?);
@@ -868,8 +864,7 @@ pub fn build(b: *std.Build) void {
     verify_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     verify_tests.root_module.addImport("qtjir", qtjir_mod);
 
-    verify_tests.linkLibC();
-    verify_tests.linkSystemLibrary("LLVM-21");
+    verify_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     // Some systems need explicit include path for LLVM-C headers if not in standard path
     verify_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
 
@@ -979,7 +974,7 @@ pub fn build(b: *std.Build) void {
     });
     // Link assembly file for x86_64 context switch
     if (target.result.cpu.arch == .x86_64) {
-        context_switch_tests.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
+        context_switch_tests.root_module.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
     }
 
     const run_context_switch_tests = b.addRunArtifact(context_switch_tests);
@@ -999,7 +994,7 @@ pub fn build(b: *std.Build) void {
     });
     // Link assembly file for x86_64 context switch
     if (target.result.cpu.arch == .x86_64) {
-        worker_integration_tests.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
+        worker_integration_tests.root_module.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
     }
 
     const run_worker_integration_tests = b.addRunArtifact(worker_integration_tests);
@@ -1019,7 +1014,7 @@ pub fn build(b: *std.Build) void {
     });
     // Link assembly file for x86_64 context switch
     if (target.result.cpu.arch == .x86_64) {
-        multiworker_tests.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
+        multiworker_tests.root_module.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
     }
 
     const run_multiworker_tests = b.addRunArtifact(multiworker_tests);
@@ -1037,7 +1032,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     if (target.result.cpu.arch == .x86_64) {
-        nursery_integration_tests.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
+        nursery_integration_tests.root_module.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
     }
 
     const run_nursery_integration_tests = b.addRunArtifact(nursery_integration_tests);
@@ -1055,7 +1050,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     if (target.result.cpu.arch == .x86_64) {
-        scheduler_tests.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
+        scheduler_tests.root_module.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
     }
 
     const run_scheduler_tests = b.addRunArtifact(scheduler_tests);
@@ -1220,8 +1215,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    forge_hello_tests.linkLibC();
-    forge_hello_tests.linkSystemLibrary("LLVM-21"); // Pipeline needs LLVM
+    forge_hello_tests.root_module.linkSystemLibrary("LLVM-21", .{}); // Pipeline needs LLVM
     forge_hello_tests.root_module.addImport("janus_lib", lib_mod);
     forge_hello_tests.root_module.addImport("qtjir", qtjir_mod);
     forge_hello_tests.root_module.addImport("astdb_core", astdb_core_mod);
@@ -1517,8 +1511,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     qtjir_llvm_emitter_tests.root_module.addImport("astdb_core", astdb_core_mod);
-    qtjir_llvm_emitter_tests.linkLibC();
-    qtjir_llvm_emitter_tests.linkSystemLibrary("LLVM");
+    qtjir_llvm_emitter_tests.root_module.linkSystemLibrary("LLVM", .{});
     const run_qtjir_llvm_emitter_tests = b.addRunArtifact(qtjir_llvm_emitter_tests);
 
     const test_llvm_emitter_step = b.step("test-llvm-emitter", "Run QTJIR LLVM-C emitter tests");
@@ -1535,8 +1528,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     qtjir_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
-    qtjir_e2e_tests.linkLibC();
-    qtjir_e2e_tests.linkSystemLibrary("LLVM");
+    qtjir_e2e_tests.root_module.linkSystemLibrary("LLVM", .{});
     const run_qtjir_e2e_tests = b.addRunArtifact(qtjir_e2e_tests);
 
     const test_e2e_step = b.step("test-e2e", "Run QTJIR End-to-End compilation tests");
@@ -1552,8 +1544,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     qtjir_jfind_hello_tests.root_module.addImport("astdb_core", astdb_core_mod);
-    qtjir_jfind_hello_tests.linkLibC();
-    qtjir_jfind_hello_tests.linkSystemLibrary("LLVM");
+    qtjir_jfind_hello_tests.root_module.linkSystemLibrary("LLVM", .{});
     const run_qtjir_jfind_hello_tests = b.addRunArtifact(qtjir_jfind_hello_tests);
 
     const test_jfind_hello_step = b.step("test-jfind-hello", "Run QTJIR JFind Hello compilation tests");
@@ -1570,7 +1561,6 @@ pub fn build(b: *std.Build) void {
     });
     qtjir_lower_tests.root_module.addImport("astdb_core", astdb_core_mod);
     qtjir_lower_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
-    qtjir_lower_tests.linkLibC();
     const run_qtjir_lower_tests = b.addRunArtifact(qtjir_lower_tests);
 
     const test_lower_step = b.step("test-lower", "Run QTJIR Lowering tests");
@@ -1617,8 +1607,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    hello_world_e2e_tests.linkLibC();
-    hello_world_e2e_tests.linkSystemLibrary("LLVM-21");
+    hello_world_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     hello_world_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     hello_world_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     hello_world_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -1638,8 +1627,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    error_handling_e2e_tests.linkLibC();
-    error_handling_e2e_tests.linkSystemLibrary("LLVM-21");
+    error_handling_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     error_handling_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     error_handling_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     error_handling_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -1659,8 +1647,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    jfind_e2e_tests.linkLibC();
-    jfind_e2e_tests.linkSystemLibrary("LLVM-21");
+    jfind_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     jfind_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     jfind_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     jfind_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -1679,8 +1666,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    for_loop_e2e_tests.linkLibC();
-    for_loop_e2e_tests.linkSystemLibrary("LLVM-21");
+    for_loop_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     for_loop_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     for_loop_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     for_loop_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -1700,8 +1686,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    range_operators_e2e_tests.linkLibC();
-    range_operators_e2e_tests.linkSystemLibrary("LLVM-21");
+    range_operators_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     range_operators_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     range_operators_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     range_operators_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -1721,8 +1706,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    if_else_e2e_tests.linkLibC();
-    if_else_e2e_tests.linkSystemLibrary("LLVM-21");
+    if_else_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     if_else_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     if_else_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     if_else_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -1742,8 +1726,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    while_loop_e2e_tests.linkLibC();
-    while_loop_e2e_tests.linkSystemLibrary("LLVM-21");
+    while_loop_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     while_loop_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     while_loop_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     while_loop_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -1763,8 +1746,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    function_call_e2e_tests.linkLibC();
-    function_call_e2e_tests.linkSystemLibrary("LLVM-21");
+    function_call_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     function_call_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     function_call_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     function_call_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -1784,8 +1766,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    continue_e2e_tests.linkLibC();
-    continue_e2e_tests.linkSystemLibrary("LLVM-21");
+    continue_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     continue_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     continue_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     continue_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -1805,8 +1786,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    match_e2e_tests.linkLibC();
-    match_e2e_tests.linkSystemLibrary("LLVM-21");
+    match_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     match_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     match_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     match_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -1826,8 +1806,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    struct_e2e_tests.linkLibC();
-    struct_e2e_tests.linkSystemLibrary("LLVM-21");
+    struct_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     struct_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     struct_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     struct_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -1847,8 +1826,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    string_e2e_tests.linkLibC();
-    string_e2e_tests.linkSystemLibrary("LLVM-21");
+    string_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     string_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     string_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     string_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -1868,8 +1846,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    type_annotation_e2e_tests.linkLibC();
-    type_annotation_e2e_tests.linkSystemLibrary("LLVM-21");
+    type_annotation_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     type_annotation_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     type_annotation_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     type_annotation_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -1889,8 +1866,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    array_e2e_tests.linkLibC();
-    array_e2e_tests.linkSystemLibrary("LLVM-21");
+    array_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     array_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     array_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     array_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -1910,8 +1886,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    import_e2e_tests.linkLibC();
-    import_e2e_tests.linkSystemLibrary("LLVM-21");
+    import_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     import_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     import_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     import_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -1931,8 +1906,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    unary_e2e_tests.linkLibC();
-    unary_e2e_tests.linkSystemLibrary("LLVM-21");
+    unary_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     unary_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     unary_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     unary_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -1952,8 +1926,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    logical_e2e_tests.linkLibC();
-    logical_e2e_tests.linkSystemLibrary("LLVM-21");
+    logical_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     logical_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     logical_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     logical_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -1973,8 +1946,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    modulo_e2e_tests.linkLibC();
-    modulo_e2e_tests.linkSystemLibrary("LLVM-21");
+    modulo_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     modulo_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     modulo_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     modulo_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -1994,8 +1966,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    bitwise_e2e_tests.linkLibC();
-    bitwise_e2e_tests.linkSystemLibrary("LLVM-21");
+    bitwise_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     bitwise_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     bitwise_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     bitwise_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -2015,8 +1986,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    numeric_literals_e2e_tests.linkLibC();
-    numeric_literals_e2e_tests.linkSystemLibrary("LLVM-21");
+    numeric_literals_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     numeric_literals_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     numeric_literals_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     numeric_literals_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -2036,8 +2006,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    compound_assignment_e2e_tests.linkLibC();
-    compound_assignment_e2e_tests.linkSystemLibrary("LLVM-21");
+    compound_assignment_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     compound_assignment_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     compound_assignment_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     compound_assignment_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -2057,8 +2026,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    async_await_e2e_tests.linkLibC();
-    async_await_e2e_tests.linkSystemLibrary("LLVM-21");
+    async_await_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     async_await_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     async_await_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     async_await_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -2078,8 +2046,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    using_e2e_tests.linkLibC();
-    using_e2e_tests.linkSystemLibrary("LLVM-21");
+    using_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     using_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     using_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     using_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -2099,7 +2066,6 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    channel_tests.linkLibC();
     channel_tests.root_module.addImport("janus_rt", janus_rt_mod);
     const run_channel_tests = b.addRunArtifact(channel_tests);
 
@@ -2144,7 +2110,6 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
             }),
         });
-        janusd_tests.linkLibC();
         janusd_tests.root_module.addImport("utcp_registry", utcp_registry_mod.?);
         // add imports for janusd tests if needed in future
         const run_janusd_tests = b.addRunArtifact(janusd_tests);
@@ -2234,9 +2199,8 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    fuzz.linkLibC();
     if (enable_sanitizers) {
-        fuzz.addCSourceFiles(.{
+        fuzz.root_module.addCSourceFiles(.{
             .files = &[_][]const u8{},
             .flags = &[_][]const u8{ "-fsanitize=address", "-fsanitize=thread", "-fsanitize=undefined" },
         });
@@ -2275,9 +2239,8 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    fuzz_qtjir.linkLibC();
     if (enable_sanitizers) {
-        fuzz_qtjir.addCSourceFiles(.{
+        fuzz_qtjir.root_module.addCSourceFiles(.{
             .files = &[_][]const u8{},
             .flags = &[_][]const u8{ "-fsanitize=address", "-fsanitize=thread", "-fsanitize=undefined" },
         });
@@ -2313,7 +2276,6 @@ pub fn build(b: *std.Build) void {
         }),
         .linkage = .static,
     });
-    zig_graft_proto.linkLibC();
     b.installArtifact(zig_graft_proto);
 
     // Unit tests for graft adapter
@@ -2325,7 +2287,6 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    graft_proto_tests.linkLibC();
     const graft_proto_mod = b.addModule("graft_proto", .{
         .root_source_file = b.path("std/graft/proto.zig"),
         .target = target,
@@ -2340,7 +2301,7 @@ pub fn build(b: *std.Build) void {
     graft_proto_mod.addImport("std_caps", std_caps_mod);
     graft_proto_tests.root_module.addImport("std_caps", std_caps_mod);
     // std_caps module intentionally not wired here to keep graft tests independent
-    graft_proto_tests.linkLibrary(zig_graft_proto);
+    graft_proto_tests.root_module.link_objects.append(b.allocator, .{ .other_step = zig_graft_proto }) catch @panic("OOM");
     const run_graft_proto_tests = b.addRunArtifact(graft_proto_tests);
     test_step.dependOn(&run_graft_proto_tests.step);
 
@@ -2381,8 +2342,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    qtjir_arrays_integration_tests.linkLibC();
-    qtjir_arrays_integration_tests.linkSystemLibrary("LLVM-21");
+    qtjir_arrays_integration_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     qtjir_arrays_integration_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     qtjir_arrays_integration_tests.root_module.addImport("astdb_core", astdb_core_mod);
     qtjir_arrays_integration_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -2402,8 +2362,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    panic_tests.linkLibC();
-    panic_tests.linkSystemLibrary("LLVM-21"); // Assuming LLVM-21 as used above
+    panic_tests.root_module.linkSystemLibrary("LLVM-21", .{}); // Assuming LLVM-21 as used above
     panic_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     panic_tests.root_module.addImport("astdb_core", astdb_core_mod);
     panic_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -2423,8 +2382,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    string_tests.linkLibC();
-    string_tests.linkSystemLibrary("LLVM-21");
+    string_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     string_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     string_tests.root_module.addImport("astdb_core", astdb_core_mod);
     string_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -2444,8 +2402,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    allocator_tests.linkLibC();
-    allocator_tests.linkSystemLibrary("LLVM-21");
+    allocator_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     allocator_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     allocator_tests.root_module.addImport("astdb_core", astdb_core_mod);
     allocator_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -2465,8 +2422,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    recursion_tests.linkLibC();
-    recursion_tests.linkSystemLibrary("LLVM-21");
+    recursion_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     recursion_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     recursion_tests.root_module.addImport("astdb_core", astdb_core_mod);
     recursion_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
@@ -2486,8 +2442,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    while_tests.linkLibC();
-    while_tests.linkSystemLibrary("LLVM-21");
+    while_tests.root_module.linkSystemLibrary("LLVM-21", .{});
     while_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
     while_tests.root_module.addImport("astdb_core", astdb_core_mod);
     while_tests.root_module.addImport("janus_parser", libjanus_parser_mod);

@@ -70,7 +70,7 @@ fn demoLSPPerformance(allocator: std.mem.Allocator) !void {
     const queries = [_][]const u8{ "hover", "definition", "references", "diagnostics" };
 
     for (queries) |query_type| {
-        const start_time = time.nanoTimestamp();
+        const start_time = std.time.milliTimestamp() * 1_000_000;
 
         // Simulate query execution time
         const base_time = switch (query_type[0]) {
@@ -81,7 +81,7 @@ fn demoLSPPerformance(allocator: std.mem.Allocator) !void {
         };
         time.sleep(base_time * time.ns_per_ms);
 
-        const elapsed = time.nanoTimestamp() - start_time;
+        const elapsed = std.time.milliTimestamp() * 1_000_000 - start_time;
         const elapsed_ms = @as(f64, @floatFromInt(elapsed)) / time.ns_per_ms;
 
         print("  📊 {s:<12} {d:>6.2}ms ✅\n", .{ query_type, elapsed_ms });

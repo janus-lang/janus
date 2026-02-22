@@ -498,38 +498,56 @@ export fn janus_readFile(path: [*:0]const u8) callconv(.c) ?[*:0]u8 {
     const allocator = gpa.allocator();
     const path_slice = std.mem.span(path);
 
-    // Use std.fs.cwd() for blocking file read
-    const content = std.fs.cwd().readFileAlloc(
-        allocator,
-        path_slice,
-        std.math.maxInt(usize),
-    ) catch {
+    // Use POSIX openat for blocking file read (compatible with Zig 0.16)
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path_slice, std.posix.O.RDONLY, 0) catch {
         return null;
     };
+    defer std.posix.close(fd);
+
+    // Read file contents
+    const stat = std.posix.fstat(fd) catch {
+        return null;
+    };
+    const size = @intCast(usize, stat.size);
+    
+    const buffer = allocator.alloc(u8, size + 1) catch {
+        return null;
+    };
+    
+    const bytes_read = std.posix.read(fd, buffer[0..size]) catch {
+        allocator.free(buffer);
+        return null;
+    };
+    
+    if (bytes_read != size) {
+        allocator.free(buffer);
+        return null;
+    }
+    buffer[size] = 0;
 
     // Allocate with C allocator for lifetime management
-    const c_buffer = std.c.malloc(content.len + 1) orelse {
-        allocator.free(content);
+    const c_buffer = std.c.malloc(size + 1) orelse {
+        allocator.free(buffer);
         return null;
     };
 
-    const result_slice: [*]u8 = @ptrCast(c_buffer);
-    @memcpy(result_slice[0..content.len], content);
-    result_slice[content.len] = 0;
-
-    allocator.free(content);
-    return @ptrCast(result_slice);
+    @memcpy(@ptrCast(c_buffer), buffer, size + 1);
+    allocator.free(buffer);
+    return @ptrCast(c_buffer);
 }
 
 export fn janus_writeFile(path: [*:0]const u8, content: [*:0]const u8) callconv(.c) i32 {
     const path_slice = std.mem.span(path);
     const content_slice = std.mem.span(content);
 
-    // Use std.fs.cwd() for blocking file write
-    std.fs.cwd().writeFile(.{
-        .sub_path = path_slice,
-        .data = content_slice,
-    }) catch {
+    // Use POSIX openat for blocking file write (compatible with Zig 0.16)
+    // O_WRONLY=1, O_CREAT=0101, O_TRUNC=01000
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path_slice, 1 | 0101 | 01000, 0o644) catch {
+        return -1;
+    };
+    defer std.posix.close(fd);
+
+    std.posix.write(fd, content_slice) catch {
         return -1;
     };
 
@@ -888,12 +906,8 @@ pub fn Channel(comptime T: type) type {
         count: usize, // Current items in buffer
         capacity: usize,
 
-        // Synchronization
+        // Synchronization (std.Thread.Mutex for Zig 0.16)
         mutex: std.Thread.Mutex,
-        not_empty: std.Thread.Condition, // Signaled when data available
-        not_full: std.Thread.Condition, // Signaled when space available
-
-        // State
         closed: std.atomic.Value(bool),
         allocator: std.mem.Allocator,
 
@@ -918,8 +932,6 @@ pub fn Channel(comptime T: type) type {
                 .count = 0,
                 .capacity = capacity, // Store original (0 = unbuffered)
                 .mutex = .{},
-                .not_empty = .{},
-                .not_full = .{},
                 .closed = std.atomic.Value(bool).init(false),
                 .allocator = allocator,
             };
@@ -938,9 +950,11 @@ pub fn Channel(comptime T: type) type {
             self.mutex.lock();
             defer self.mutex.unlock();
 
-            // Wait for space (or unbuffered handoff)
+            // Wait for space (or unbuffered handoff) - busy-wait for Zig 0.16
             while (self.isFull() and !self.closed.load(.acquire)) {
-                self.not_full.wait(&self.mutex);
+                self.mutex.unlock();
+                std.time.sleep(1000); // 1 microsecond
+                self.mutex.lock();
             }
 
             if (self.closed.load(.acquire)) {
@@ -952,13 +966,12 @@ pub fn Channel(comptime T: type) type {
             self.tail = (self.tail + 1) % self.buffer.len;
             self.count += 1;
 
-            // Signal waiting receivers
-            self.not_empty.signal();
-
             // For unbuffered: wait for receiver to take value
             if (self.capacity == 0) {
                 while (self.count > 0 and !self.closed.load(.acquire)) {
-                    self.not_full.wait(&self.mutex);
+                    self.mutex.unlock();
+                    std.time.sleep(1000); // 1 microsecond
+                    self.mutex.lock();
                 }
             }
         }
@@ -969,9 +982,11 @@ pub fn Channel(comptime T: type) type {
             self.mutex.lock();
             defer self.mutex.unlock();
 
-            // Wait for data
+            // Wait for data - busy-wait for Zig 0.16
             while (self.count == 0 and !self.closed.load(.acquire)) {
-                self.not_empty.wait(&self.mutex);
+                self.mutex.unlock();
+                std.time.sleep(1000); // 1 microsecond
+                self.mutex.lock();
             }
 
             // If empty and closed, return error
@@ -983,9 +998,6 @@ pub fn Channel(comptime T: type) type {
             const value = self.buffer[self.head];
             self.head = (self.head + 1) % self.buffer.len;
             self.count -= 1;
-
-            // Signal waiting senders
-            self.not_full.signal();
 
             return value;
         }
@@ -1008,7 +1020,6 @@ pub fn Channel(comptime T: type) type {
             self.tail = (self.tail + 1) % self.buffer.len;
             self.count += 1;
 
-            self.not_empty.signal();
             return true;
         }
 
@@ -1029,7 +1040,6 @@ pub fn Channel(comptime T: type) type {
             self.head = (self.head + 1) % self.buffer.len;
             self.count -= 1;
 
-            self.not_full.signal();
             return value;
         }
 
@@ -1038,10 +1048,8 @@ pub fn Channel(comptime T: type) type {
         pub fn close(self: *Self) void {
             self.closed.store(true, .release);
 
-            // Wake all waiters
+            // Wake all waiters - no-op without condition variables
             self.mutex.lock();
-            self.not_empty.broadcast();
-            self.not_full.broadcast();
             self.mutex.unlock();
         }
 
@@ -1302,8 +1310,10 @@ pub const SelectContext = struct {
     /// Wait for one case to become ready
     /// Returns the index of the ready case, or -1 on error
     fn wait(self: *SelectContext) i32 {
-        // Record start time for timeout handling
-        const start_time = std.time.nanoTimestamp();
+        // Record start time for timeout handling (use clock_gettime for Zig 0.16)
+        var ts: std.posix.timespec = undefined;
+        std.posix.clock_gettime(std.posix.CLOCK.REALTIME, &ts) catch ts = .{ .sec = 0, .nsec = 0 };
+        const start_time = @as(u64, @intCast(ts.sec)) * 1_000_000_000 + @as(u64, @intCast(ts.nsec));
 
         // Find maximum timeout and set deadline
         var max_timeout_ns: u64 = 0;
@@ -1353,7 +1363,9 @@ pub const SelectContext = struct {
                         }
                     },
                     .timeout => {
-                        const now: u64 = @intCast(std.time.nanoTimestamp());
+                        var ts: std.posix.timespec = undefined;
+                        std.posix.clock_gettime(std.posix.CLOCK.REALTIME, &ts) catch ts = .{ .sec = 0, .nsec = 0 };
+                        const now: u64 = @as(u64, @intCast(ts.sec)) * 1_000_000_000 + @as(u64, @intCast(ts.nsec));
                         const elapsed = now -| @as(u64, @intCast(start_time));
                         if (elapsed >= c.timeout_ns) {
                             c.ready = true;
@@ -1379,7 +1391,9 @@ pub const SelectContext = struct {
 
             // Check timeout deadline
             if (self.has_timeout) {
-                const now: u64 = @intCast(std.time.nanoTimestamp());
+                var ts: std.posix.timespec = undefined;
+                std.posix.clock_gettime(std.posix.CLOCK.REALTIME, &ts) catch ts = .{ .sec = 0, .nsec = 0 };
+                const now: u64 = @as(u64, @intCast(ts.sec)) * 1_000_000_000 + @as(u64, @intCast(ts.nsec));
                 if (now >= self.timeout_deadline) {
                     // Find and return timeout case
                     for (self.cases[0..self.case_count], 0..) |*c, i| {
@@ -1391,8 +1405,8 @@ pub const SelectContext = struct {
                 }
             }
 
-            // Sleep with exponential backoff
-            std.Thread.sleep(sleep_ns);
+            // Sleep with exponential backoff (use nanosleep for blocking)
+            std.c.nanosleep(.{ .tv_sec = 0, .tv_nsec = sleep_ns });
             sleep_ns = @min(sleep_ns * 2, max_sleep_ns);
         }
     }

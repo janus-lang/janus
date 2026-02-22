@@ -16,8 +16,19 @@ pub const StrInterner = struct {
     arena: std.heap.ArenaAllocator, // String storage arena
     strings: std.ArrayList([]const u8),
     map: std.HashMap([32]u8, StrId, Blake3Context, std.hash_map.default_max_load_percentage),
-    mutex: std.Thread.Mutex = .{},
+    // Simple spinlock using atomic - Zig 0.16 compatible
+    lock: std.atomic.Value(u32) = .init(0),
     deterministic: bool,
+
+    fn acquireLock(self: *Self) void {
+        while (self.lock.cmpxchgWeak(0, 1, .acquire, .monotonic) != null) {
+            // Spin
+        }
+    }
+
+    fn releaseLock(self: *Self) void {
+        self.lock.store(0, .release);
+    }
 
     const Blake3Context = struct {
         pub fn hash(self: @This(), key: [32]u8) u64 {
@@ -61,8 +72,8 @@ pub const StrInterner = struct {
             Blake3.hash(bytes, &hash, .{});
         }
 
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.acquireLock();
+        defer self.releaseLock();
 
         if (self.map.get(hash)) |id| {
             return id;
@@ -222,8 +233,8 @@ pub const TypeInterner = struct {
         var hash: [32]u8 = undefined;
         Blake3.hash(stream.getWritten(), &hash, .{});
 
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.acquireLock();
+        defer self.releaseLock();
 
         if (self.map.get(hash)) |id| {
             return id;
@@ -305,8 +316,8 @@ pub const SymInterner = struct {
         var hash: [32]u8 = undefined;
         Blake3.hash(stream.getWritten(), &hash, .{});
 
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.acquireLock();
+        defer self.releaseLock();
 
         if (self.map.get(hash)) |id| {
             return id;

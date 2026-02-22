@@ -5,19 +5,20 @@ const std = @import("std");
 const janus = @import("janus_lib");
 const tokenizer = janus.tokenizer;
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
-
-    const iter_count = if (args.len > 1) try std.fmt.parseInt(usize, args[1], 10) else 1000;
+// Use Init for Zig 0.16 compatibility (provides arena)
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    
+    // Use the args from Init
+    var iter = std.process.Args.iterate(init.minimal.args);
+    
+    _ = iter.next(); // skip argv[0]
+    
+    const iter_count = if (iter.next()) |arg| try std.fmt.parseInt(usize, arg, 10) else 1000;
 
     var prng = std.Random.DefaultPrng.init(blk: {
         var seed: u64 = undefined;
-        try std.posix.getrandom(std.mem.asBytes(&seed));
+        std.posix.getrandom(std.mem.asBytes(&seed)) catch seed = 12345;
         break :blk seed;
     });
     const rand = prng.random();

@@ -511,7 +511,7 @@ pub const Nursery = struct {
         } else {
             // Main thread fallback: sleep-based polling
             while (!self.allChildrenComplete()) {
-                std.Thread.sleep(100_000); // 100µs poll interval
+                std.c.nanosleep(.{ .tv_sec = 0, .tv_nsec = 100_000 }); // 100µs poll interval
             }
         }
 
