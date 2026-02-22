@@ -80,7 +80,7 @@ pub const DispatchBenchmarkSuite = struct {
         defer self.profiler.unregisterTable(&table);
 
         // Create implementations
-        var implementations = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer {
             for (implementations.items) |impl| {
                 self.allocator.free(impl.param_type_ids);
@@ -108,7 +108,7 @@ pub const DispatchBenchmarkSuite = struct {
         }
 
         // Generate test cases
-        var test_cases = ArrayList([]const TypeId).init(self.allocator);
+        var test_cases: ArrayList([]const TypeId) = .empty;
         defer {
             for (test_cases.items) |case| {
                 self.allocator.free(case);
@@ -140,7 +140,7 @@ pub const DispatchBenchmarkSuite = struct {
 
         // Create implementations
         const impl_count = 20;
-        var implementations = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer {
             for (implementations.items) |impl| {
                 self.allocator.free(impl.param_type_ids);
@@ -497,7 +497,7 @@ test "PerformanceRegressionTests baseline and regression testing" {
     try testing.expect(baseline.memory_efficiency <= 1.0);
 
     // Run regression tests
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit();
 
     const passed = try regression_tests.runRegressionTests(buffer.writer());
@@ -536,7 +536,7 @@ test "Benchmark result formatting" {
     };
 
     // Test formatting
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit();
 
     try std.fmt.format(buffer.writer(), "{}", .{benchmark_results});

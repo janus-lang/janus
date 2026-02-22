@@ -26,7 +26,7 @@ pub fn main() !void {
     std.log.info("-----------------------", .{});
 
     var tokenizer = Tokenizer.init(allocator, source);
-    var tokens = std.ArrayList(Token).init(allocator);
+    var tokens: std.ArrayList(Token) = .empty;
     defer tokens.deinit();
 
     var token_count: u32 = 0;
@@ -70,7 +70,7 @@ pub fn main() !void {
     defer c_file.close();
 
     // Generate C code
-    var c_code = std.ArrayList(u8).init(allocator);
+    var c_code: std.ArrayList(u8) = .empty;
     defer c_code.deinit();
 
     try c_code.appendSlice("#include <stdio.h>\n\n");

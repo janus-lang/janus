@@ -168,7 +168,7 @@ pub const Tokenizer = struct {
             .current = 0,
             .line = 1,
             .column = 1,
-            .tokens = std.ArrayList(Token).init(allocator),
+            .tokens = .empty,
             .allocator = allocator,
         };
     }

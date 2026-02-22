@@ -1,0 +1,587 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// The full text of the license can be found in the LICENSE file at the root of the repository.
+
+const std = @import("std");
+const core_astdb = @import("astdb_core");
+const AstDB = core_astdb.AstDB;
+const Snapshot = core_astdb.Snapshot;
+const NodeId = core_astdb.NodeId;
+const DeclId = core_astdb.DeclId;
+const ScopeId = core_astdb.ScopeId;
+const UnitId = core_astdb.UnitId;
+const StrId = core_astdb.StrId;
+const AstNode = core_astdb.AstNode;
+const Decl = core_astdb.Decl;
+const Token = core_astdb.Token;
+
+// Error types for IR generation
+const IRGeneratorError = error{
+    OutOfMemory,
+    InvalidNode,
+    MissingDeclaration,
+    UnsupportedOperation,
+    InvalidFunctionDecl,
+    NotAFunction,
+    InvalidFunctionNode,
+};
+
+// Revolutionary IR Generation - The Transmutation Engine
+// Task: Phase 4 - Implement Q.IROf - Convert semantic truth to executable reality
+// Requirements: Transform validated ASTDB into backend-agnostic intermediate representation
+
+/// Core IR for Janus functions - Backend-agnostic representation
+pub const JanusIR = struct {
+    function_id: DeclId,
+    function_name: []const u8,
+    parameters: []Parameter,
+    return_type: TypeRef,
+    basic_blocks: []BasicBlock,
+    source_location: core_astdb.SourceSpan,
+
+    pub const Parameter = struct {
+        name: []const u8,
+        type_ref: TypeRef,
+        param_index: u32,
+    };
+
+    pub const TypeRef = struct {
+        name: []const u8,
+        size_bytes: u32,
+        alignment: u32,
+        is_primitive: bool,
+    };
+
+    pub const BasicBlock = struct {
+        id: u32,
+        label: []const u8,
+        instructions: []Instruction,
+        terminator: ?Terminator,
+    };
+
+    pub const Instruction = union(enum) {
+        load_param: LoadParam,
+        load_constant: LoadConstant,
+        binary_op: BinaryOp,
+        call: Call,
+        store: Store,
+
+        pub const LoadParam = struct {
+            dest_reg: u32,
+            param_index: u32,
+        };
+
+        pub const LoadConstant = struct {
+            dest_reg: u32,
+            value: ConstantValue,
+        };
+
+        pub const BinaryOp = struct {
+            dest_reg: u32,
+            op: BinaryOpKind,
+            left_reg: u32,
+            right_reg: u32,
+        };
+
+        pub const Call = struct {
+            dest_reg: ?u32, // null for void functions
+            function_name: []const u8,
+            args: []u32, // register numbers
+        };
+
+        pub const Store = struct {
+            source_reg: u32,
+            dest_location: StoreLocation,
+        };
+
+        pub const StoreLocation = union(enum) {
+            return_slot: void,
+            local_var: u32,
+        };
+    };
+
+    pub const ConstantValue = union(enum) {
+        integer: i64,
+        float: f64,
+        string: []const u8,
+        boolean: bool,
+    };
+
+    pub const BinaryOpKind = enum {
+        add,
+        sub,
+        mul,
+        div,
+        mod,
+        eq,
+        ne,
+        lt,
+        le,
+        gt,
+        ge,
+        logical_and,
+        logical_or,
+    };
+
+    pub const Terminator = union(enum) {
+        return_value: u32, // register containing return value
+        return_void: void,
+        branch: Branch,
+        conditional_branch: ConditionalBranch,
+
+        pub const Branch = struct {
+            target_block: u32,
+        };
+
+        pub const ConditionalBranch = struct {
+            condition_reg: u32,
+            true_block: u32,
+            false_block: u32,
+        };
+    };
+
+    pub fn deinit(self: *JanusIR, allocator: std.mem.Allocator) void {
+        allocator.free(self.parameters);
+        for (self.basic_blocks) |*block| {
+            allocator.free(block.instructions);
+        }
+        allocator.free(self.basic_blocks);
+    }
+};
+
+/// IR Generation Engine - The Transmutation Core
+pub const IRGenerator = struct {
+    allocator: std.mem.Allocator,
+    snapshot: *Snapshot,
+    astdb: *AstDB,
+
+    // IR generation state
+    next_register: u32,
+    next_block_id: u32,
+    current_instructions: std.ArrayList(JanusIR.Instruction),
+    current_blocks: std.ArrayList(JanusIR.BasicBlock),
+
+    const Self = @This();
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        snapshot: *Snapshot,
+        astdb: *AstDB,
+    ) !Self {
+        return Self{
+            .allocator = allocator,
+            .snapshot = snapshot,
+            .astdb = astdb,
+            .next_register = 0,
+            .next_block_id = 0,
+            .current_instructions = std.ArrayList(JanusIR.Instruction).init(allocator),
+            .current_blocks = std.ArrayList(JanusIR.BasicBlock).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.current_instructions.deinit();
+        self.current_blocks.deinit();
+    }
+
+    /// Q.IROf - The Creator Query
+    /// Transmutes a validated function declaration into executable IR
+    pub fn generateIR(self: *Self, unit_id: UnitId, function_decl_id: DeclId) IRGeneratorError!JanusIR {
+        // Reset generation state
+        self.next_register = 0;
+        self.next_block_id = 0;
+        self.current_instructions.clearRetainingCapacity();
+        self.current_blocks.clearRetainingCapacity();
+
+        // Get function declaration from ASTDB
+        const function_decl = self.snapshot.getDecl(unit_id, function_decl_id) orelse {
+            return error.InvalidFunctionDecl;
+        };
+
+        if (function_decl.kind != .function) {
+            return error.NotAFunction;
+        }
+
+        // Get function node
+        const function_node = self.snapshot.getNode(function_decl.node) orelse {
+            return error.InvalidFunctionNode;
+        };
+
+        // Extract function information
+        const function_name = self.astdb.getString(function_decl.name);
+
+        // Generate parameters
+        const parameters = try self.generateParameters(function_node);
+
+        // Generate function body
+        try self.generateFunctionBody(function_node);
+
+        // Create entry block with current instructions
+        const entry_block = JanusIR.BasicBlock{
+            .id = 0,
+            .label = "entry",
+            .instructions = try self.current_instructions.toOwnedSlice(),
+            .terminator = JanusIR.Terminator{ .return_void = {} }, // Default terminator
+        };
+
+        try self.current_blocks.append(entry_block);
+
+        // Create source location
+        const source_location = core_astdb.SourceSpan{
+            .start = 0, // TODO: Get actual span from ASTDB
+            .end = 0,
+            .line = 1,
+            .column = 1,
+        };
+
+        return JanusIR{
+            .function_id = function_decl_id,
+            .function_name = function_name,
+            .parameters = parameters,
+            .return_type = JanusIR.TypeRef{
+                .name = "void", // TODO: Extract actual return type
+                .size_bytes = 0,
+                .alignment = 1,
+                .is_primitive = true,
+            },
+            .basic_blocks = try self.current_blocks.toOwnedSlice(),
+            .source_location = source_location,
+        };
+    }
+
+    /// Generate parameter list from function node
+    fn generateParameters(self: *Self, function_node: *const AstNode) IRGeneratorError![]JanusIR.Parameter {
+        var parameters: std.ArrayList(JanusIR.Parameter) = .empty;
+        defer parameters.deinit();
+
+        // Find parameter list in function node children
+        const children = function_node.children(self.snapshot);
+        for (children) |child_id| {
+            const child_node = self.snapshot.getNode(child_id) orelse continue;
+
+            if (child_node.kind == .parameter) {
+                const param = try self.generateParameter(child_node, @intCast(parameters.items.len));
+                try parameters.append(param);
+            }
+        }
+
+        return try parameters.toOwnedSlice();
+    }
+
+    /// Generate a single parameter
+    fn generateParameter(self: *Self, param_node: *const AstNode, index: u32) IRGeneratorError!JanusIR.Parameter {
+        // Extract parameter name (first child should be identifier)
+        var param_name: []const u8 = "param";
+
+        const param_children = param_node.children(self.snapshot);
+        if (param_children.len > 0) {
+            const name_node = self.snapshot.getNode(param_children[0]);
+            if (name_node) |node| {
+                if (node.kind == .identifier) {
+                    const token = self.snapshot.getToken(node.first_token);
+                    if (token) |tok| {
+                        if (tok.str) |str_id| {
+                            param_name = self.astdb.getString(str_id);
+                        }
+                    }
+                }
+            }
+        }
+
+        return JanusIR.Parameter{
+            .name = param_name,
+            .type_ref = JanusIR.TypeRef{
+                .name = "i32", // TODO: Extract actual type
+                .size_bytes = 4,
+                .alignment = 4,
+                .is_primitive = true,
+            },
+            .param_index = index,
+        };
+    }
+
+    /// Generate IR for function body
+    fn generateFunctionBody(self: *Self, function_node: *const AstNode) IRGeneratorError!void {
+        // Find function body in children
+        const children = function_node.children(self.snapshot);
+        for (children) |child_id| {
+            const child_node = self.snapshot.getNode(child_id) orelse continue;
+
+            if (child_node.kind == .block_stmt) {
+                try self.generateBlock(child_node);
+                break;
+            }
+        }
+    }
+
+    /// Generate IR for a block statement
+    fn generateBlock(self: *Self, block_node: *const AstNode) IRGeneratorError!void {
+        // Process each statement in the block
+        const children = block_node.children(self.snapshot);
+        for (children) |stmt_id| {
+            const stmt_node = self.snapshot.getNode(stmt_id) orelse continue;
+            try self.generateStatement(stmt_node);
+        }
+    }
+
+    /// Generate IR for a statement
+    fn generateStatement(self: *Self, stmt_node: *const AstNode) IRGeneratorError!void {
+        switch (stmt_node.kind) {
+            .return_stmt => try self.generateReturnStatement(stmt_node),
+            .expr_stmt => try self.generateExpressionStatement(stmt_node),
+            .let_stmt, .var_stmt => try self.generateVariableDeclaration(stmt_node),
+            else => {
+                // Skip unsupported statement types for now
+                std.debug.print("Skipping unsupported statement type: {}\n", .{stmt_node.kind});
+            },
+        }
+    }
+
+    /// Generate IR for return statement
+    fn generateReturnStatement(self: *Self, return_node: *const AstNode) IRGeneratorError!void {
+        const return_children = return_node.children(self.snapshot);
+        if (return_children.len > 0) {
+            // Return with value
+            const expr_node = self.snapshot.getNode(return_children[0]) orelse return;
+            const result_reg = try self.generateExpression(expr_node);
+
+            // Store to return slot
+            try self.current_instructions.append(JanusIR.Instruction{
+                .store = JanusIR.Instruction.Store{
+                    .source_reg = result_reg,
+                    .dest_location = JanusIR.Instruction.StoreLocation{ .return_slot = {} },
+                },
+            });
+        }
+        // Return terminator will be added when finalizing the block
+    }
+
+    /// Generate IR for expression statement
+    fn generateExpressionStatement(self: *Self, expr_stmt_node: *const AstNode) IRGeneratorError!void {
+        const expr_stmt_children = expr_stmt_node.children(self.snapshot);
+        if (expr_stmt_children.len > 0) {
+            const expr_node = self.snapshot.getNode(expr_stmt_children[0]) orelse return;
+            _ = try self.generateExpression(expr_node);
+        }
+    }
+
+    /// Generate IR for variable declaration
+    fn generateVariableDeclaration(self: *Self, var_decl_node: *const AstNode) IRGeneratorError!void {
+        // TODO: Implement variable declaration IR generation
+        _ = self;
+        _ = var_decl_node;
+        std.debug.print("Variable declaration IR generation not yet implemented\n", .{});
+    }
+
+    /// Generate IR for an expression, returns the register containing the result
+    fn generateExpression(self: *Self, expr_node: *const AstNode) IRGeneratorError!u32 {
+        switch (expr_node.kind) {
+            .integer_literal => return try self.generateIntegerLiteral(expr_node),
+            .identifier => return try self.generateIdentifier(expr_node),
+            .binary_expr => return try self.generateBinaryExpression(expr_node),
+            .call_expr => return try self.generateFunctionCall(expr_node),
+            else => {
+                std.debug.print("Unsupported expression type: {}\n", .{expr_node.kind});
+                return self.allocateRegister();
+            },
+        }
+    }
+
+    /// Generate IR for integer literal
+    fn generateIntegerLiteral(self: *Self, literal_node: *const AstNode) IRGeneratorError!u32 {
+        const dest_reg = self.allocateRegister();
+
+        // Extract integer value (simplified - assumes valid integer)
+        const token = self.snapshot.getToken(literal_node.first_token);
+        const value: i64 = if (token) |tok| blk: {
+            if (tok.str) |str_id| {
+                const literal_str = self.astdb.getString(str_id);
+                break :blk std.fmt.parseInt(i64, literal_str, 10) catch 0;
+            } else {
+                break :blk 0;
+            }
+        } else 0;
+
+        try self.current_instructions.append(JanusIR.Instruction{
+            .load_constant = JanusIR.Instruction.LoadConstant{
+                .dest_reg = dest_reg,
+                .value = JanusIR.ConstantValue{ .integer = value },
+            },
+        });
+
+        return dest_reg;
+    }
+
+    /// Generate IR for identifier (variable/parameter reference)
+    fn generateIdentifier(self: *Self, identifier_node: *const AstNode) IRGeneratorError!u32 {
+        _ = identifier_node;
+        const dest_reg = self.allocateRegister();
+
+        // TODO: Resolve identifier to parameter or local variable
+        // For now, assume it's parameter 0
+        try self.current_instructions.append(JanusIR.Instruction{
+            .load_param = JanusIR.Instruction.LoadParam{
+                .dest_reg = dest_reg,
+                .param_index = 0,
+            },
+        });
+
+        return dest_reg;
+    }
+
+    /// Generate IR for binary expression
+    fn generateBinaryExpression(self: *Self, binary_node: *const AstNode) IRGeneratorError!u32 {
+        const binary_children = binary_node.children(self.snapshot);
+        if (binary_children.len < 2) return self.allocateRegister();
+
+        const left_node = self.snapshot.getNode(binary_children[0]) orelse return self.allocateRegister();
+        const right_node = self.snapshot.getNode(binary_children[1]) orelse return self.allocateRegister();
+
+        const left_reg = try self.generateExpression(left_node);
+        const right_reg = try self.generateExpression(right_node);
+        const dest_reg = self.allocateRegister();
+
+        // Determine operation type (simplified)
+        const op_kind = JanusIR.BinaryOpKind.add; // TODO: Extract actual operator
+
+        try self.current_instructions.append(JanusIR.Instruction{
+            .binary_op = JanusIR.Instruction.BinaryOp{
+                .dest_reg = dest_reg,
+                .op = op_kind,
+                .left_reg = left_reg,
+                .right_reg = right_reg,
+            },
+        });
+
+        return dest_reg;
+    }
+
+    /// Generate IR for function call - Extended for Allocator Contexts/Regions/Using
+    fn generateFunctionCall(self: *Self, call_node: *const AstNode) IRGeneratorError!u32 {
+        const dest_reg = self.allocateRegister();
+
+        // Extract function name (first child should be identifier)
+        var function_name: []const u8 = "unknown";
+        const call_children = call_node.children(self.snapshot);
+        if (call_children.len > 0) {
+            const name_node = self.snapshot.getNode(call_children[0]);
+            if (name_node) |node| {
+                if (node.kind == .identifier) {
+                    const token = self.snapshot.getToken(node.first_token);
+                    if (token) |tok| {
+                        if (tok.str) |str_id| {
+                            function_name = self.astdb.getString(str_id);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Generate arguments for standard functions
+        var args: std.ArrayList(u32) = .empty;
+        defer args.deinit();
+
+        // Skip first child (function name) and process arguments
+        for (call_children[1..]) |child_id| {
+            const child_node = self.snapshot.getNode(child_id) orelse continue;
+            const arg_reg = try self.generateExpression(child_node);
+            try args.append(arg_reg);
+        }
+
+        // Special handling for Allocator Contexts/Regions/Using functions
+        if (std.mem.eql(u8, function_name, "region")) {
+            // Region block creates scoped allocation context
+            try self.current_instructions.append(JanusIR.Instruction{
+                .call = JanusIR.Instruction.Call{
+                    .dest_reg = dest_reg,
+                    .function_name = "region_enter",
+                    .args = &.{},
+                },
+            });
+        } else if (std.mem.eql(u8, function_name, "using")) {
+            // Using block creates RAII context
+            try self.current_instructions.append(JanusIR.Instruction{
+                .call = JanusIR.Instruction.Call{
+                    .dest_reg = dest_reg,
+                    .function_name = "using_enter",
+                    .args = try args.toOwnedSlice(),
+                },
+            });
+        } else if (std.mem.eql(u8, function_name, "Allocator.create")) {
+            // Context-bound allocator creation
+            try self.current_instructions.append(JanusIR.Instruction{
+                .call = JanusIR.Instruction.Call{
+                    .dest_reg = dest_reg,
+                    .function_name = function_name,
+                    .args = try args.toOwnedSlice(),
+                },
+            });
+        } else {
+            // Standard function call
+            try self.current_instructions.append(JanusIR.Instruction{
+                .call = JanusIR.Instruction.Call{
+                    .dest_reg = dest_reg,
+                    .function_name = function_name,
+                    .args = try args.toOwnedSlice(),
+                },
+            });
+        }
+
+        return dest_reg;
+    }
+
+    /// Allocate a new virtual register
+    fn allocateRegister(self: *Self) u32 {
+        const reg = self.next_register;
+        self.next_register += 1;
+        return reg;
+    }
+};
+
+/// IR Query Interface - The Transmutation API
+pub const IRQueries = struct {
+    ir_generator: *IRGenerator,
+
+    const Self = @This();
+
+    pub fn init(ir_generator: *IRGenerator) Self {
+        return Self{
+            .ir_generator = ir_generator,
+        };
+    }
+
+    /// Q.IROf - The Creator Query
+    /// Generate IR for a function declaration
+    pub fn irOf(self: *Self, unit_id: UnitId, function_decl_id: DeclId) !JanusIR {
+        return try self.ir_generator.generateIR(unit_id, function_decl_id);
+    }
+
+    /// Q.IROfByName - Convenience query for IR generation by function name
+    pub fn irOfByName(self: *Self, unit_id: UnitId, function_name: []const u8, scope_id: ScopeId) !?JanusIR {
+        _ = self;
+        _ = unit_id;
+        _ = function_name;
+        _ = scope_id;
+        // TODO: Implement name resolution in new ASTDB system
+        return null;
+    }
+
+    /// Q.ValidateIR - Validate generated IR for correctness
+    pub fn validateIR(self: *Self, ir: *const JanusIR) !bool {
+        _ = self;
+
+        // Basic validation checks
+        if (ir.basic_blocks.len == 0) return false;
+        if (ir.function_name.len == 0) return false;
+
+        // Validate each basic block
+        for (ir.basic_blocks) |block| {
+            if (block.instructions.len == 0 and block.terminator == null) {
+                return false; // Empty block without terminator
+            }
+        }
+
+        return true;
+    }
+};

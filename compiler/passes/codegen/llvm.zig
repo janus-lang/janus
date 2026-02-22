@@ -60,7 +60,7 @@ pub const LLVMCodegen = struct {
 
     fn escapeForLLVM(self: *LLVMCodegen, raw: []const u8) ![]u8 {
         // Convert a raw string to LLVM c"..." style bytes with \0 terminator
-        var out = std.ArrayList(u8).init(self.allocator);
+        var out: std.ArrayList(u8) = .empty;
         defer out.deinit();
         try out.append('"');
         // Strip quotes if present
@@ -93,7 +93,7 @@ pub const LLVMCodegen = struct {
         // zero-terminate
         try out.appendSlice("\\00");
         try out.append('"');
-        return out.toOwnedSlice();
+        return try out.toOwnedSlice(alloc);
     }
 
     fn emitFunctions(self: *LLVMCodegen, w: anytype, module: *IR.Module) !void {

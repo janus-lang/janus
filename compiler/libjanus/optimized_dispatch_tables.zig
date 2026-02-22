@@ -376,8 +376,8 @@ pub const OptimizedDispatchTable = struct {
         const best_discriminator = self.findBestDiscriminator(entries);
 
         // Split entries based on discriminator
-        var left_entries = ArrayList(DispatchEntry).init(self.allocator);
-        var right_entries = ArrayList(DispatchEntry).init(self.allocator);
+        var left_entries: ArrayList(DispatchEntry) = .empty;
+        var right_entries: ArrayList(DispatchEntry) = .empty;
         defer left_entries.deinit();
         defer right_entries.deinit();
 
@@ -636,7 +636,7 @@ pub const DispatchMemoryProfiler = struct {
     pub fn init(allocator: Allocator) Self {
         return Self{
             .allocator = allocator,
-            .tables = ArrayList(*OptimizedDispatchTable).init(allocator),
+            .tables = .empty,
             .total_memory_used = 0,
             .peak_memory_used = 0,
             .allocation_count = 0,
@@ -1008,7 +1008,7 @@ test "DispatchMemoryProfiler functionality" {
     try testing.expect(profiler.total_memory_used > 0);
 
     // Test report generation
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit();
 
     try profiler.generateReport(buffer.writer());

@@ -16,9 +16,9 @@ pub const PerformanceMonitor = struct {
     pub fn init(allocator: Allocator) PerformanceMonitor {
         return PerformanceMonitor{
             .allocator = allocator,
-            .resolution_times = std.ArrayList(u64).init(allocator),
-            .diagnostic_times = std.ArrayList(u64).init(allocator),
-            .memory_usage = std.ArrayList(usize).init(allocator),
+            .resolution_times = .empty,
+            .diagnostic_times = .empty,
+            .memory_usage = .empty,
             .cache_hits = 0,
             .cache_misses = 0,
         };

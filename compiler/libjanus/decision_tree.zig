@@ -31,7 +31,7 @@ pub const DecisionNode = struct {
             .type_id = type_id,
             .param_index = param_index,
             .exact_impl = null,
-            .children = ArrayList(*DecisionNode).init(allocator),
+            .children = .empty,
             .fallback_impl = null,
             .parent = null,
         };
@@ -148,7 +148,7 @@ pub const DecisionTree = struct {
     pub fn init(allocator: Allocator, registry: *const TypeRegistry) Self {
         return Self{
             .allocator = allocator,
-            .roots = ArrayList(*DecisionNode).init(allocator),
+            .roots = .empty,
             .implementations = std.AutoHashMap(u32, *Implementation).init(allocator),
             .registry = registry,
             .stats = Statistics{},
@@ -199,7 +199,7 @@ pub const DecisionTree = struct {
 
         for (implementations) |*impl| {
             const param_count = @as(u32, @intCast(impl.param_types.len));
-            var list = param_counts.get(param_count) orelse ArrayList(*const Implementation).init(self.allocator);
+            var list = param_counts.get(param_count) orelse ArrayList(*const Implementation).empty;
             try list.append(impl);
             try param_counts.put(param_count, list);
         }
@@ -255,7 +255,7 @@ pub const DecisionTree = struct {
             if (param_idx >= impl.param_types.len) continue;
 
             const type_id = impl.param_types[param_idx];
-            var list = type_groups.get(type_id) orelse ArrayList(*const Implementation).init(self.allocator);
+            var list = type_groups.get(type_id) orelse ArrayList(*const Implementation).empty;
             try list.append(impl);
             try type_groups.put(type_id, list);
         }

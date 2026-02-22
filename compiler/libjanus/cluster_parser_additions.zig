@@ -8,7 +8,7 @@ fn parseActorDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_core.
 
     // Optional do/end block
     try parser.consume(.do_);
-    var block_children = std.ArrayList(astdb_core.NodeId).init(parser.allocator);
+    var block_children: std.ArrayList(astdb_core.NodeId) = .empty;
     defer block_children.deinit(parser.allocator);
     try parseBlockStatements(parser, nodes, &block_children);
     _ = try parser.consume(.end);
@@ -27,7 +27,7 @@ fn parseGrainDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_core.
     _ = parser.advance(); // consume 'grain'
     _ = try parser.consume(.identifier);
     try parser.consume(.do_);
-    var block_children = std.ArrayList(astdb_core.NodeId).init(parser.allocator);
+    var block_children: std.ArrayList(astdb_core.NodeId) = .empty;
     defer block_children.deinit(parser.allocator);
     try parseBlockStatements(parser, nodes, &block_children);
     _ = try parser.consume(.end);
@@ -46,7 +46,7 @@ fn parseGenServerDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_c
     _ = parser.advance(); // consume 'genserver'
     _ = try parser.consume(.identifier);
     try parser.consume(.do_);
-    var block_children = std.ArrayList(astdb_core.NodeId).init(parser.allocator);
+    var block_children: std.ArrayList(astdb_core.NodeId) = .empty;
     defer block_children.deinit(parser.allocator);
     try parseBlockStatements(parser, nodes, &block_children);
     _ = try parser.consume(.end);
@@ -70,7 +70,7 @@ fn parseSupervisorDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_
     }
     try parser.consume(.do_);
 
-    var block_children = std.ArrayList(astdb_core.NodeId).init(parser.allocator);
+    var block_children: std.ArrayList(astdb_core.NodeId) = .empty;
     defer block_children.deinit(parser.allocator);
     try parseBlockStatements(parser, nodes, &block_children);
     _ = try parser.consume(.end);
@@ -89,7 +89,7 @@ fn parseReceiveStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.
     _ = parser.advance(); // consume 'receive'
 
     try parser.consume(.do_);
-    var block_children = std.ArrayList(astdb_core.NodeId).init(parser.allocator);
+    var block_children: std.ArrayList(astdb_core.NodeId) = .empty;
     defer block_children.deinit(parser.allocator);
     try parseBlockStatements(parser, nodes, &block_children);
     _ = try parser.consume(.end);

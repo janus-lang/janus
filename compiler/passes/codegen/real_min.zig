@@ -101,7 +101,7 @@ pub const ValueExtractor = struct {
 
     /// Escape string for C literal (basic: \" \\ \n \t)
     pub fn escapeCString(self: *ValueExtractor, input: []const u8) ![]u8 {
-        var escaped = std.ArrayList(u8).init(self.allocator);
+        var escaped: std.ArrayList(u8) = .empty;
         defer escaped.deinit(); // But return duped
 
         for (input) |c| {
@@ -207,7 +207,7 @@ pub const RealMinCodegen = struct {
     pub fn init(allocator: std.mem.Allocator) RealMinCodegen {
         return RealMinCodegen{
             .allocator = allocator,
-            .output = std.ArrayList(u8).init(allocator),
+            .output = .empty,
             .source_text = null,
             .value_extractor = ValueExtractor.init(allocator),
             .identifier_extractor = IdentifierExtractor.init(allocator),
@@ -862,7 +862,7 @@ pub const RealMinCodegen = struct {
         defer self.allocator.free(exe_path);
 
         // Use zig cc for portable C compilation
-        var args = std.ArrayList([]const u8).init(self.allocator);
+        var args: std.ArrayList([]const u8) = .empty;
         defer args.deinit();
 
         try args.appendSlice(&[_][]const u8{ "zig", "cc", "-o", exe_path, c_file_path, "-std=c99", "-Wall", "-Wextra" });

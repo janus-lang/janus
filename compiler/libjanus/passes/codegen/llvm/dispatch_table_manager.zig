@@ -191,7 +191,7 @@ pub const DispatchTableManager = struct {
 
     /// Serialize dispatch table to CBOR format
     fn serializeTable(self: *DispatchTableManager, table: *const DispatchTable) ![]u8 {
-        var buffer = std.ArrayList(u8).init(self.base_allocator);
+        var buffer: std.ArrayList(u8) = .empty;
         defer buffer.deinit();
 
         // Simple binary format (would use CBOR in production)

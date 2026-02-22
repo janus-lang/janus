@@ -234,11 +234,11 @@ pub const ChangeSet = struct {
     pub fn init(allocator: std.mem.Allocator) ChangeSet {
         return ChangeSet{
             .allocator = allocator,
-            .changes = std.ArrayList(ChangeDetectionResult).init(allocator),
-            .units_to_recompile = std.ArrayList(*const CompilationUnit).init(allocator),
-            .units_affected_by_dependencies = std.ArrayList(*const CompilationUnit).init(allocator),
-            .new_files = std.ArrayList(*const CompilationUnit).init(allocator),
-            .deleted_files = std.ArrayList([]const u8).init(allocator),
+            .changes = .empty,
+            .units_to_recompile = .empty,
+            .units_affected_by_dependencies = .empty,
+            .new_files = .empty,
+            .deleted_files = .empty,
             .statistics = ChangeStatistics.init(),
         };
     }
@@ -460,7 +460,7 @@ pub const ChangeDetectionEngine = struct {
         dependency_graph: *const DependencyGraph,
     ) !void {
         // Find all units with interface changes
-        var interface_changed_units = std.ArrayList(*const CompilationUnit).init(self.allocator);
+        var interface_changed_units: std.ArrayList(*const CompilationUnit) = .empty;
         defer interface_changed_units.deinit();
 
         for (change_set.changes.items) |change| {

@@ -68,10 +68,10 @@ pub const DispatchStressTests = struct {
         const float_type = try self.type_registry.registerType("float", .primitive, &.{});
 
         // Create large signature group
-        var implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer implementations.deinit();
 
-        var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer impl_storage.deinit();
 
         std.debug.print("  Creating {} implementations...\n", .{LARGE_SIGNATURE_SIZE});
@@ -126,10 +126,10 @@ pub const DispatchStressTests = struct {
         const int_type = try self.type_registry.registerType("int", .primitive, &.{});
 
         // Create massive signature group
-        var implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer implementations.deinit();
 
-        var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer impl_storage.deinit();
 
         std.debug.print("  Creating {} implementations (this may take a moment)...\n", .{MASSIVE_SIGNATURE_SIZE});
@@ -190,7 +190,7 @@ pub const DispatchStressTests = struct {
         std.debug.print("🏔️ Stress testing deep type hierarchies...\n");
 
         // Create deep inheritance chain
-        var type_chain = ArrayList(TypeRegistry.TypeId).init(self.allocator);
+        var type_chain: ArrayList(TypeRegistry.TypeId) = .empty;
         defer type_chain.deinit();
 
         std.debug.print("  Creating {}-level deep type hierarchy...\n", .{DEEP_HIERARCHY_DEPTH});
@@ -210,10 +210,10 @@ pub const DispatchStressTests = struct {
         }
 
         // Create implementations for each level
-        var implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer implementations.deinit();
 
-        var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer impl_storage.deinit();
 
         for (type_chain.items, 0..) |type_id, i| {
@@ -284,7 +284,7 @@ pub const DispatchStressTests = struct {
         // Create wide inheritance pattern
         const base_type = try self.type_registry.registerType("WideBase", .table_open, &.{});
 
-        var child_types = ArrayList(TypeRegistry.TypeId).init(self.allocator);
+        var child_types: ArrayList(TypeRegistry.TypeId) = .empty;
         defer child_types.deinit();
 
         std.debug.print("  Creating wide hierarchy with {} child types...\n", .{WIDE_HIERARCHY_BREADTH});
@@ -299,10 +299,10 @@ pub const DispatchStressTests = struct {
         }
 
         // Create implementations for base and all children
-        var implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer implementations.deinit();
 
-        var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer impl_storage.deinit();
 
         // Base implementation
@@ -382,7 +382,7 @@ pub const DispatchStressTests = struct {
 
         // Create moderate depth hierarchy
         const hierarchy_depth = 10;
-        var type_chain = ArrayList(TypeRegistry.TypeId).init(self.allocator);
+        var type_chain: ArrayList(TypeRegistry.TypeId) = .empty;
         defer type_chain.deinit();
 
         const base_type = try self.type_registry.registerType("CombinedBase", .table_open, &.{});
@@ -399,10 +399,10 @@ pub const DispatchStressTests = struct {
 
         // Create large number of implementations across the hierarchy
         const impls_per_level = 100;
-        var implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer implementations.deinit();
 
-        var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer impl_storage.deinit();
 
         std.debug.print("  Creating {} implementations across {} hierarchy levels...\n", .{ impls_per_level * hierarchy_depth, hierarchy_depth });
@@ -466,7 +466,7 @@ pub const DispatchStressTests = struct {
         const signatures_per_module = 20;
         const impls_per_signature = 50;
 
-        var modules = ArrayList(u32).init(self.allocator);
+        var modules: ArrayList(u32) = .empty;
         defer modules.deinit();
 
         std.debug.print("  Creating {} modules with {} signatures each...\n", .{ module_count, signatures_per_module });
@@ -493,10 +493,10 @@ pub const DispatchStressTests = struct {
                 defer self.allocator.free(sig_name);
 
                 // Create implementations for this signature
-                var implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+                var implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
                 defer implementations.deinit();
 
-                var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+                var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
                 defer impl_storage.deinit();
 
                 for (0..impls_per_signature) |k| {

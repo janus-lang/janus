@@ -127,7 +127,7 @@ pub const ResourceRegistryMin = struct {
         // Sort resources by registration order (descending for LIFO)
         frame.sortResourcesLIFO();
 
-        var cleanup_errors = std.ArrayList(CleanupError).init(self.allocator);
+        var cleanup_errors: std.ArrayList(CleanupError) = .empty;
         defer cleanup_errors.deinit();
 
         // Execute cleanup in LIFO order
@@ -231,7 +231,7 @@ const ResourceFrame = struct {
     pub fn init(allocator: Allocator) ResourceFrame {
         return ResourceFrame{
             .parent = null,
-            .resources = std.ArrayList(ResourceEntry).init(allocator),
+            .resources = .empty,
             .next_order_id = 0,
             .created_at = std.time.milliTimestamp(),
             .allocator = allocator,
@@ -329,8 +329,8 @@ const FrameStack = struct {
 
     pub fn init(allocator: Allocator) FrameStack {
         return FrameStack{
-            .frame_pool = std.ArrayList(*ResourceFrame).init(allocator),
-            .free_frames = std.ArrayList(*ResourceFrame).init(allocator),
+            .frame_pool = .empty,
+            .free_frames = .empty,
             .allocator = allocator,
         };
     }
@@ -545,7 +545,7 @@ test "ResourceRegistryMin - LIFO cleanup order" {
     var registry = ResourceRegistryMin.init(allocator);
     defer registry.deinit();
 
-    var cleanup_order = std.ArrayList(u32).init(allocator);
+    var cleanup_order: std.ArrayList(u32) = .empty;
     defer cleanup_order.deinit();
 
     const frame = try registry.pushFrame();

@@ -144,7 +144,7 @@ pub const SemanticCore = struct {
     pub fn getSemanticErrors(self: *SemanticCore, unit_id: UnitId) ![]SemanticError {
         _ = unit_id; // TODO: Filter errors by unit
 
-        var errors = ArrayList(SemanticError).init(self.allocator);
+        var errors: ArrayList(SemanticError) = .empty;
 
         // Collect symbol resolution errors
         const symbol_diagnostics = self.symbol_resolver.getDiagnostics();
@@ -178,7 +178,7 @@ pub const SemanticCore = struct {
             });
         }
 
-        return errors.toOwnedSlice();
+        return try errors.toOwnedSlice(alloc);
     }
 
     /// Get comprehensive semantic statistics

@@ -24,7 +24,7 @@ test "Working End-to-End: Tokenizer → Manual C Generation" {
 
     // Step 1: Tokenization
     var tokenizer = Tokenizer.init(allocator, source);
-    var tokens = std.ArrayList(Token).init(allocator);
+    var tokens: std.ArrayList(Token) = .empty;
     defer tokens.deinit();
 
     while (true) {
@@ -197,7 +197,7 @@ test "Complete Pipeline Simulation" {
     defer c_file.close();
 
     // Create C code using extracted information
-    var c_code = std.ArrayList(u8).init(allocator);
+    var c_code: std.ArrayList(u8) = .empty;
     defer c_code.deinit();
 
     try c_code.appendSlice("#include <stdio.h>\\n\\n");

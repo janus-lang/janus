@@ -123,7 +123,7 @@ pub const DependencyTracker = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        var invalidated_queries = std.ArrayList(context.MemoKey).init(self.allocator);
+        var invalidated_queries: std.ArrayList(context.MemoKey) = .empty;
         var processed = std.HashMap(context.MemoKey, void, MemoKeyContext, std.hash_map.default_max_load_percentage).init(self.allocator);
         defer processed.deinit();
 

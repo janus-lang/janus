@@ -34,7 +34,7 @@ const MockDispatchFamily = struct {
     pub fn init(allocator: std.mem.Allocator, name: []const u8) !MockDispatchFamily {
         return MockDispatchFamily{
             .name = name,
-            .implementations = std.ArrayList(Implementation).init(allocator),
+            .implementations = .empty,
             .source_location = .{
                 .file_path = "test.jan",
                 .line = 1,

@@ -30,7 +30,7 @@ pub const FixSuggestionEngine = struct {
         candidates: []CompatibleCandidate,
         call_site: CallSite,
     ) ![]FixSuggestion {
-        var fixes = std.ArrayList(FixSuggestion).init(self.allocator);
+        var fixes: std.ArrayList(FixSuggestion) = .empty;
 
         for (candidates, 0..) |candidate, i| {
             // Generate explicit cast suggestions
@@ -46,7 +46,7 @@ pub const FixSuggestionEngine = struct {
         // Add function definition suggestion
         try self.addFunctionDefinitionSuggestion(&fixes, call_site);
 
-        return fixes.toOwnedSlice();
+        return try fixes.toOwnedSlice(alloc);
     }
 
     /// Generate fix suggestions for no matching functions
@@ -55,7 +55,7 @@ pub const FixSuggestionEngine = struct {
         call_site: CallSite,
         available_functions: []const []const u8,
     ) ![]FixSuggestion {
-        var fixes = std.ArrayList(FixSuggestion).init(self.allocator);
+        var fixes: std.ArrayList(FixSuggestion) = .empty;
 
         // Suggest similar function names (typo corrections)
         try self.addTypoCorrections(&fixes, call_site, available_functions);
@@ -66,7 +66,7 @@ pub const FixSuggestionEngine = struct {
         // Suggest function definition
         try self.addFunctionDefinitionSuggestion(&fixes, call_site);
 
-        return fixes.toOwnedSlice();
+        return try fixes.toOwnedSlice(alloc);
     }
 
     fn addCastSuggestions(
@@ -337,7 +337,7 @@ pub const FixSuggestionEngine = struct {
     }
 
     fn generateFunctionSignature(self: *FixSuggestionEngine, call_site: CallSite) ![]const u8 {
-        var signature = std.ArrayList(u8).init(self.allocator);
+        var signature: std.ArrayList(u8) = .empty;
 
         try signature.writer().print("func {s}(", .{call_site.function_name});
 
@@ -350,7 +350,7 @@ pub const FixSuggestionEngine = struct {
 
         try signature.appendSlice(") -> ReturnType {\n    // TODO: Implement\n}\n\n");
 
-        return signature.toOwnedSlice();
+        return try signature.toOwnedSlice(alloc);
     }
 
     pub fn calculateEditDistance(self: *FixSuggestionEngine, a: []const u8, b: []const u8) u32 {
@@ -369,7 +369,7 @@ pub const FixSuggestionEngine = struct {
 
         // Initialize matrix (simplified implementation)
         for (0..a.len + 1) |i| {
-            var row = std.ArrayList(u32).init(self.allocator);
+            var row: std.ArrayList(u32) = .empty;
             for (0..b.len + 1) |j| {
                 if (i == 0) {
                     row.append(@intCast(j)) catch return 999;

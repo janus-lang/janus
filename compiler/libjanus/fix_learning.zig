@@ -187,7 +187,7 @@ pub const FixLearningEngine = struct {
             .config = config,
             .error_patterns = std.AutoHashMap(u64, ErrorPatternStats).init(allocator),
             .preferences = UserPreferences.default(),
-            .recent_acceptances = ArrayList(FixAcceptance).init(allocator),
+            .recent_acceptances = .empty,
             .total_suggestions = 0,
             .total_acceptances = 0,
         };
@@ -285,7 +285,7 @@ pub const FixLearningEngine = struct {
         const stats = self.error_patterns.get(error_pattern);
 
         // Build preference signals
-        var signals = ArrayList(LearningContext.PreferenceSignal).init(self.allocator);
+        var signals: ArrayList(LearningContext.PreferenceSignal) = .empty;
 
         if (self.preferences.prefers_explicit_casts > 0.6) {
             signals.append(.{

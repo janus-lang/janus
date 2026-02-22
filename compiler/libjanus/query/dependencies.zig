@@ -27,8 +27,8 @@ pub const DependencySet = struct {
 
     pub fn init(allocator: Allocator) DependencySet {
         return DependencySet{
-            .cids = std.ArrayList(CID).init(allocator),
-            .queries = std.ArrayList(QueryKey).init(allocator),
+            .cids = .empty,
+            .queries = .empty,
             .recorded_at = std.time.timestamp(),
             .allocator = allocator,
         };
@@ -108,7 +108,7 @@ pub const DependencyTracker = struct {
     pub fn init(allocator: Allocator) DependencyTracker {
         return DependencyTracker{
             .current_deps = null,
-            .dep_stack = std.ArrayList(*DependencySet).init(allocator),
+            .dep_stack = .empty,
             .allocator = allocator,
         };
     }
@@ -237,7 +237,7 @@ pub const DependencyGraph = struct {
         // Update reverse indexes for CID dependencies
         for (deps.cids.items) |cid| {
             var queries = self.cid_to_queries.getPtr(cid) orelse blk: {
-                const new_queries = std.ArrayList(QueryKey).init(self.allocator);
+                const new_queries = std.ArrayList(QueryKey).empty;
                 try self.cid_to_queries.put(cid, new_queries);
                 break :blk self.cid_to_queries.getPtr(cid).?;
             };
@@ -258,7 +258,7 @@ pub const DependencyGraph = struct {
         // Update reverse indexes for query dependencies
         for (deps.queries.items) |dep_query| {
             var queries = self.query_to_queries.getPtr(dep_query) orelse blk: {
-                const new_queries = std.ArrayList(QueryKey).init(self.allocator);
+                const new_queries = std.ArrayList(QueryKey).empty;
                 try self.query_to_queries.put(dep_query, new_queries);
                 break :blk self.query_to_queries.getPtr(dep_query).?;
             };
@@ -279,7 +279,7 @@ pub const DependencyGraph = struct {
 
     /// Get queries that need to be invalidated when CIDs change
     pub fn getInvalidatedQueries(self: *DependencyGraph, changed_cids: []const CID, allocator: Allocator) !std.ArrayList(QueryKey) {
-        var invalidated = std.ArrayList(QueryKey).init(allocator);
+        var invalidated: std.ArrayList(QueryKey) = .empty;
         var visited = std.HashMap(QueryKey, void, QueryKeyContext, std.hash_map.default_max_load_percentage).init(allocator);
         defer visited.deinit();
 

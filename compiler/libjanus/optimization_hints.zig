@@ -224,7 +224,7 @@ pub const OptimizationHintsGenerator = struct {
         return Self{
             .allocator = allocator,
             .config = config,
-            .hints = ArrayList(OptimizationHint).init(allocator),
+            .hints = .empty,
             .stats = HintStats.init(allocator),
         };
     }
@@ -358,7 +358,7 @@ pub const OptimizationHintsGenerator = struct {
 
     /// Get hints by type
     pub fn getHintsByType(self: *const Self, hint_type: OptimizationHint.HintType) []const OptimizationHint {
-        var filtered_hints = ArrayList(OptimizationHint).init(self.allocator);
+        var filtered_hints: ArrayList(OptimizationHint) = .empty;
         defer filtered_hints.deinit();
 
         for (self.hints.items) |hint| {
@@ -367,12 +367,12 @@ pub const OptimizationHintsGenerator = struct {
             }
         }
 
-        return filtered_hints.toOwnedSlice() catch &.{};
+        return try filtered_hints.toOwnedSlice(alloc) catch &.{};
     }
 
     /// Get hints by priority
     pub fn getHintsByPriority(self: *const Self, priority: OptimizationHint.Priority) []const OptimizationHint {
-        var filtered_hints = ArrayList(OptimizationHint).init(self.allocator);
+        var filtered_hints: ArrayList(OptimizationHint) = .empty;
         defer filtered_hints.deinit();
 
         for (self.hints.items) |hint| {
@@ -381,12 +381,12 @@ pub const OptimizationHintsGenerator = struct {
             }
         }
 
-        return filtered_hints.toOwnedSlice() catch &.{};
+        return try filtered_hints.toOwnedSlice(alloc) catch &.{};
     }
 
     /// Get high-confidence hints suitable for automatic optimization
     pub fn getAutomaticOptimizationCandidates(self: *const Self) []const OptimizationHint {
-        var candidates = ArrayList(OptimizationHint).init(self.allocator);
+        var candidates: ArrayList(OptimizationHint) = .empty;
         defer candidates.deinit();
 
         for (self.hints.items) |hint| {
@@ -395,7 +395,7 @@ pub const OptimizationHintsGenerator = struct {
             }
         }
 
-        return candidates.toOwnedSlice() catch &.{};
+        return try candidates.toOwnedSlice(alloc) catch &.{};
     }
 
     /// Generate comprehensive hints report

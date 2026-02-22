@@ -168,7 +168,7 @@ pub const CompatibilityAnalyzer = struct {
     }
 
     pub fn analyze(self: *CompatibilityAnalyzer, candidates: CandidateSet, argument_types: []const TypeId) ![]CompatibleCandidate {
-        var compatible = std.ArrayList(CompatibleCandidate).init(self.allocator);
+        var compatible: std.ArrayList(CompatibleCandidate) = .empty;
 
         for (candidates.viable_candidates) |candidate| {
             // Parse parameter types (simplified for now)
@@ -197,13 +197,13 @@ pub const CompatibilityAnalyzer = struct {
             try compatible.append(compatible_candidate);
         }
 
-        return compatible.toOwnedSlice();
+        return try compatible.toOwnedSlice(alloc);
     }
 
     fn parseParameterTypes(self: *CompatibilityAnalyzer, param_str: []const u8) ![]TypeId {
         if (param_str.len == 0) return &[_]TypeId{};
 
-        var types = std.ArrayList(TypeId).init(self.allocator);
+        var types: std.ArrayList(TypeId) = .empty;
         var iterator = std.mem.splitScalar(u8, param_str, ',');
 
         while (iterator.next()) |type_name| {
@@ -216,7 +216,7 @@ pub const CompatibilityAnalyzer = struct {
             try types.append(type_obj.id);
         }
 
-        return types.toOwnedSlice();
+        return try types.toOwnedSlice(alloc);
     }
 
     fn assessMatchQuality(self: *CompatibilityAnalyzer, arg_types: []const TypeId, param_types: []const TypeId) MatchQuality {

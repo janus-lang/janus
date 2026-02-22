@@ -107,11 +107,11 @@ fn prettyNode(ss: *const api.Snapshot, node: api.NodeId, writer: anytype, depth:
 }
 
 fn dumpTree(ss: *const api.Snapshot, root: api.NodeId, allocator: std.mem.Allocator) ![]u8 {
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf: std.ArrayList(u8) = .empty;
     errdefer buf.deinit();
     const w = buf.writer();
     try prettyNode(ss, root, w, 0);
-    return buf.toOwnedSlice();
+    return try buf.toOwnedSlice(alloc);
 }
 
 const TestError = error{KindMismatch};

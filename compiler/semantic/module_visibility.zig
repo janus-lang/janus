@@ -158,7 +158,7 @@ pub const ModuleRegistry = struct {
     /// Add import relationship between modules
     pub fn addImport(self: *ModuleRegistry, from_module: ModuleId, to_module: ModuleId) !void {
         if (self.modules.getPtr(from_module)) |module_info| {
-            var new_imports = ArrayList(ModuleId).init(self.allocator);
+            var new_imports: ArrayList(ModuleId) = .empty;
             try new_imports.appendSlice(module_info.imports);
             try new_imports.append(to_module);
 
@@ -176,7 +176,7 @@ pub const ModuleRegistry = struct {
         symbol_id: u32,
     ) !void {
         if (self.modules.getPtr(module_id)) |module_info| {
-            var new_exports = ArrayList(ModuleInfo.SymbolExport).init(self.allocator);
+            var new_exports: ArrayList(ModuleInfo.SymbolExport) = .empty;
             try new_exports.appendSlice(module_info.exports);
 
             const export_info = ModuleInfo.SymbolExport{
@@ -287,7 +287,7 @@ pub const ModuleDependencyGraph = struct {
     /// Add dependency edge
     pub fn addDependency(self: *ModuleDependencyGraph, from: ModuleId, to: ModuleId) !void {
         if (self.adjacency_list.getPtr(from)) |deps| {
-            var new_deps = ArrayList(ModuleId).init(self.allocator);
+            var new_deps: ArrayList(ModuleId) = .empty;
             try new_deps.appendSlice(deps.*);
             try new_deps.append(to);
 

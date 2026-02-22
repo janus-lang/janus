@@ -290,7 +290,7 @@ pub const AstDatabase = struct {
 
     pub fn getSymbolTable(self: *AstDatabase, unit_id: core_astdb.UnitId, scope_id: core_astdb.ScopeId) !astdb.SymbolTable {
         const decl_ids = try self.db.getDeclsInScope(unit_id, scope_id, self.allocator);
-        var symbols = std.ArrayList(astdb.Symbol).init(self.allocator);
+        var symbols: std.ArrayList(astdb.Symbol) = .empty;
         errdefer symbols.deinit();
 
         for (decl_ids) |decl_id| {

@@ -155,7 +155,7 @@ pub const MasterIntegrationTestRunner = struct {
         defer perf_tests.deinit();
 
         const regression_runs = 5;
-        var performance_results = std.ArrayList(u64).init(self.allocator);
+        var performance_results: std.ArrayList(u64) = .empty;
         defer performance_results.deinit();
 
         for (0..regression_runs) |run| {
@@ -379,7 +379,7 @@ test "master integration test runner - test report generation" {
     try results.addResult("Test Suite 2", .passed);
     results.total_duration_ms = 1500;
 
-    var report_buffer = std.ArrayList(u8).init(testing.allocator);
+    var report_buffer: std.ArrayList(u8) = .empty;
     defer report_buffer.deinit();
 
     try runner.generateTestReport(results, report_buffer.writer());

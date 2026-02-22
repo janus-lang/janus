@@ -138,8 +138,8 @@ pub const SemanticGraph = struct {
     pub fn init(allocator: std.mem.Allocator, astdb_system: *astdb.ASTDBSystem) !SemanticGraph {
         const snapshot = try astdb_system.createSnapshot();
         return SemanticGraph{
-            .symbols = std.ArrayList(Symbol).init(allocator),
-            .required_capabilities = std.ArrayList(Type).init(allocator),
+            .symbols = .empty,
+            .required_capabilities = .empty,
             .astdb_system = astdb_system,
             .snapshot = snapshot,
             .allocator = allocator,
@@ -288,7 +288,7 @@ const Analyzer = struct {
     pub fn init(graph: *SemanticGraph, allocator: std.mem.Allocator) Analyzer {
         return Analyzer{
             .graph = graph,
-            .errors = std.ArrayList(SemanticError).init(allocator),
+            .errors = .empty,
             .allocator = allocator,
         };
     }
@@ -395,9 +395,9 @@ fn collectSymbolTables(graph: *SemanticGraph, allocator: std.mem.Allocator) !voi
             const surrogate: astdb_core.NodeId = @enumFromInt(n.child_lo);
             switch (n.kind) {
                 .func_decl => {
-                    var params = std.ArrayList(astdb_core.NodeId).init(graph.allocator);
+                    var params: std.ArrayList(astdb_core.NodeId) = .empty;
                     defer params.deinit();
-                    var param_names = std.ArrayList(astdb.StrId).init(graph.allocator);
+                    var param_names: std.ArrayList(astdb.StrId) = .empty;
                     defer param_names.deinit();
                     var func_name_sid: ?astdb.StrId = null;
                     for (children) |cid| {
@@ -422,7 +422,7 @@ fn collectSymbolTables(graph: *SemanticGraph, allocator: std.mem.Allocator) !voi
                     }
                 },
                 .struct_decl => {
-                    var fields = std.ArrayList(astdb_core.NodeId).init(graph.allocator);
+                    var fields: std.ArrayList(astdb_core.NodeId) = .empty;
                     defer fields.deinit();
                     // First identifier child is struct name; subsequent identifiers are fields
                     var saw_name = false;
@@ -765,9 +765,9 @@ fn normalizeAndStoreCallArgs(analyzer: *Analyzer, call_id: astdb_core.NodeId, no
     const edges = unit.edges[node.child_lo..node.child_hi];
     if (edges.len == 0) return; // malformed
 
-    var args_buf = std.ArrayList(astdb_core.NodeId).init(analyzer.allocator);
+    var args_buf: std.ArrayList(astdb_core.NodeId) = .empty;
     defer args_buf.deinit();
-    var names_buf = std.ArrayList(?astdb.StrId).init(analyzer.allocator);
+    var names_buf: std.ArrayList(?astdb.StrId) = .empty;
     defer names_buf.deinit();
 
     var i: usize = 1; // skip callee
@@ -808,7 +808,7 @@ fn normalizeAndStoreCallArgs(analyzer: *Analyzer, call_id: astdb_core.NodeId, no
     const param_names = analyzer.graph.func_param_names.get(func_id) orelse return;
 
     // Build reordered values array according to param order
-    var reordered = std.ArrayList(astdb_core.NodeId).init(analyzer.allocator);
+    var reordered: std.ArrayList(astdb_core.NodeId) = .empty;
     defer reordered.deinit();
     // Track which provided args were consumed (for unnamed fallbacks)
     var used = try analyzer.allocator.alloc(bool, names_buf.items.len);

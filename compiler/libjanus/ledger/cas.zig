@@ -181,7 +181,7 @@ pub fn normalizeArchive(archive_data: []const u8, allocator: std.mem.Allocator) 
     // Simple implementation: assume archive_data is already a normalized format
     // or is raw source code that doesn't need complex normalization
 
-    var normalized = std.ArrayList(u8).init(allocator);
+    var normalized: std.ArrayList(u8) = .empty;
     defer normalized.deinit();
 
     // For source code files, normalize line endings to LF
@@ -214,7 +214,7 @@ pub fn createNormalizedArchive(entries: []const ArchiveEntry, allocator: std.mem
 
     // Create a simple archive format:
     // [path_len:u32][path][content_len:u32][content][flags:u8]
-    var archive = std.ArrayList(u8).init(allocator);
+    var archive: std.ArrayList(u8) = .empty;
     defer archive.deinit();
 
     for (sorted_entries) |entry| {

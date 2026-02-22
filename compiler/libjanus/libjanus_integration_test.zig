@@ -365,7 +365,7 @@ pub const IntegrationTestSuite = struct {
         defer self.scope_manager.enterScope(original_scope);
 
         // Store function names to avoid freeing them prematurely
-        var function_names = std.ArrayList([]u8).init(self.allocator);
+        var function_names: std.ArrayList([]u8) = .empty;
         defer {
             for (function_names.items) |name| {
                 self.allocator.free(name);

@@ -203,8 +203,8 @@ pub const AdvancedStrategySelector = struct {
     pub fn init(allocator: Allocator) AdvancedStrategySelector {
         return AdvancedStrategySelector{
             .allocator = allocator,
-            .strategy_history = ArrayList(StrategyDecision).init(allocator),
-            .effectiveness_data = ArrayList(StrategyEffectiveness).init(allocator),
+            .strategy_history = .empty,
+            .effectiveness_data = .empty,
         };
     }
 
@@ -238,10 +238,10 @@ pub const AdvancedStrategySelector = struct {
         }
 
         // Analyze alternatives and select the best one
-        var alternatives = ArrayList(Strategy).init(self.allocator);
+        var alternatives: ArrayList(Strategy) = .empty;
         defer alternatives.deinit();
 
-        var fallback_chain = ArrayList(Strategy).init(self.allocator);
+        var fallback_chain: ArrayList(Strategy) = .empty;
         defer fallback_chain.deinit();
 
         var best_strategy: Strategy = undefined;
@@ -571,7 +571,7 @@ pub const FamilyOptimizer = struct {
         const result = try self.families.getOrPut(family_id);
         if (!result.found_existing) {
             result.value_ptr.* = FamilyData{
-                .call_sites = ArrayList(CallSite).init(self.allocator),
+                .call_sites = .empty,
                 .collective_frequency = 0.0,
                 .optimization_strategy = null,
                 .effectiveness_score = 0.0,

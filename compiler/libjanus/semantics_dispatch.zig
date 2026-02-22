@@ -348,7 +348,7 @@ pub const SemanticDispatchResolver = struct {
     fn parseTypeSignature(self: *SemanticDispatchResolver, param_types: []const u8) ![]TypeId {
         if (param_types.len == 0) return &[_]TypeId{};
 
-        var types = std.ArrayList(TypeId).init(self.allocator);
+        var types: std.ArrayList(TypeId) = .empty;
         var iterator = std.mem.splitScalar(u8, param_types, ',');
 
         while (iterator.next()) |type_name| {
@@ -357,7 +357,7 @@ pub const SemanticDispatchResolver = struct {
             try types.append(type_id);
         }
 
-        return types.toOwnedSlice();
+        return try types.toOwnedSlice(alloc);
     }
 
     fn getTypeIdFromName(self: *SemanticDispatchResolver, type_name: []const u8) TypeId {
@@ -375,7 +375,7 @@ pub const SemanticDispatchResolver = struct {
     fn serializeArgumentTypes(self: *SemanticDispatchResolver, arg_types: []const TypeId) ![]const u8 {
         if (arg_types.len == 0) return try self.allocator.dupe(u8, "");
 
-        var result = std.ArrayList(u8).init(self.allocator);
+        var result: std.ArrayList(u8) = .empty;
 
         for (arg_types, 0..) |type_id, i| {
             if (i > 0) try result.appendSlice(",");
@@ -391,7 +391,7 @@ pub const SemanticDispatchResolver = struct {
             try result.appendSlice(type_name);
         }
 
-        return result.toOwnedSlice();
+        return try result.toOwnedSlice(alloc);
     }
 
     /// Generate dispatch IR for LLVM backend
@@ -420,14 +420,14 @@ pub const SemanticDispatchResolver = struct {
 
     /// Get all dispatch tables for code generation
     pub fn getAllDispatchTables(self: *const SemanticDispatchResolver, allocator: Allocator) ![]const *DispatchTable {
-        var tables = std.ArrayList(*DispatchTable).init(allocator);
+        var tables: std.ArrayList(*DispatchTable) = .empty;
 
         var iterator = self.dispatch_tables.iterator();
         while (iterator.next()) |entry| {
             try tables.append(entry.value_ptr.*);
         }
 
-        return tables.toOwnedSlice();
+        return try tables.toOwnedSlice(alloc);
     }
 
     /// Get dispatch statistics for optimization

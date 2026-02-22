@@ -365,11 +365,11 @@ pub const ComprehensiveDispatchIntegrationTests = struct {
         );
 
         // Create multiple implementations to stress test
-        var implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer implementations.deinit();
 
         // Create implementations on the heap so they persist
-        var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer impl_storage.deinit();
 
         const type_combinations = [_][2]TypeRegistry.TypeId{
@@ -440,10 +440,10 @@ pub const ComprehensiveDispatchIntegrationTests = struct {
 
         // Scalability test: Verify O(1) or O(log n) lookup performance
         // Create a larger table and verify performance doesn't degrade significantly
-        var large_implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var large_implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer large_implementations.deinit();
 
-        var large_impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var large_impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer large_impl_storage.deinit();
 
         // Create 50 implementations to test scalability

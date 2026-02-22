@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: LCL-1.0
-// Copyright (c) 2025 Markus Maiwald
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
 // The full text of the license can be found in the LICENSE file at the root of the repository.
 
 //! Revolutionary LLVM Backend - The Final Link in the Chain
@@ -14,8 +15,8 @@
 //! - Zero-overhead capability injection
 
 const std = @import("std");
-const IR = @import("ir.zig");
-const ir_generator = @import("../ir_generator.zig");
+const IR = @import("../../libjanus/ir.zig");
+const ir_generator = @import("../../ir_generator.zig");
 
 pub const CodegenError = error{
     LLVMError,

@@ -1,0 +1,546 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+//! Using Statement Desugaring
+//! Task 1.1 - Create basic desugaring to `defer` with aggregator hook
+//!
+//! This module implements the desugaring of `using` statements into equivalent
+//! `defer` statements with cleanup aggregation for error handling.
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const UsingStmt = @import("../ast/using_stmt.zig").UsingStmt;
+const DeferEquivalent = @import("../ast/using_stmt.zig").DeferEquivalent;
+const CID = @import("../astdb/ids.zig").CID;
+const astdb = @import("../astdb.zig");
+const NodeId = astdb.NodeId;
+const Span = astdb.Span;
+
+/// Desugaring engine for using statements
+pub const UsingDesugar = struct {
+    allocator: Allocator,
+    cleanup_aggregator: CleanupAggregator,
+    defer_generator: DeferGenerator,
+
+    pub fn init(allocator: Allocator) UsingDesugar {
+        return UsingDesugar{
+            .allocator = allocator,
+            .cleanup_aggregator = CleanupAggregator.init(allocator),
+            .defer_generator = DeferGenerator.init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *UsingDesugar) void {
+        self.cleanup_aggregator.deinit();
+        self.defer_generator.deinit();
+    }
+
+    /// Desugar a using statement into equivalent defer statements
+    pub fn desugarUsing(self: *UsingDesugar, using_stmt: *UsingStmt) !DesugarResult {
+        // Step 1: Generate the resource binding
+        const binding_stmt = try self.generateResourceBinding(using_stmt);
+
+        // Step 2: Generate the defer cleanup statement
+        const defer_stmt = try self.generateDeferCleanup(using_stmt);
+
+        // Step 3: Generate error aggregation if needed
+        const error_handling = if (using_stmt.flags.is_infallible)
+            null
+        else
+            try self.generateErrorAggregation(using_stmt);
+
+        // Step 4: Generate the desugared block
+        const desugared_block = try self.generateDesugarBlock(using_stmt, binding_stmt, defer_stmt, error_handling);
+
+        return DesugarResult{
+            .binding_statement = binding_stmt,
+            .defer_statement = defer_stmt,
+            .error_aggregation = error_handling,
+            .desugared_block = desugared_block,
+            .original_using = using_stmt,
+        };
+    }
+
+    /// Generate the resource binding statement
+    /// `using file = open("data.txt")` -> `let file = open("data.txt")`
+    fn generateResourceBinding(self: *UsingDesugar, using_stmt: *UsingStmt) !*BindingStatement {
+        const binding = try self.allocator.create(BindingStatement);
+        binding.* = BindingStatement{
+            .base = AstNode{
+                .node_type = .variable_declaration,
+                .location = using_stmt.base.location,
+                .children = try self.allocator.alloc(CID, 1),
+            },
+            .binding_name = using_stmt.binding.name,
+            .is_mutable = using_stmt.binding.is_mutable,
+            .type_annotation = if (using_stmt.type_annotation) |type_ann| type_ann.type_expr else null,
+            .initializer = using_stmt.open_expr,
+            .binding_kind = if (using_stmt.binding.is_mutable) .mutable else .immutable,
+        };
+
+        binding.base.children[0] = using_stmt.open_expr;
+        return binding;
+    }
+
+    /// Generate the defer cleanup statement
+    /// `defer file.close()` with error aggregation
+    fn generateDeferCleanup(self: *UsingDesugar, using_stmt: *UsingStmt) !*DeferStatement {
+        const defer_stmt = try self.allocator.create(DeferStatement);
+
+        // Generate the cleanup call expression
+        const cleanup_call = try self.generateCleanupCall(using_stmt);
+
+        defer_stmt.* = DeferStatement{
+            .base = AstNode{
+                .node_type = .defer_statement,
+                .location = using_stmt.base.location,
+                .children = try self.allocator.alloc(CID, 1),
+            },
+            .cleanup_expr = cleanup_call,
+            .error_handling = if (using_stmt.flags.is_infallible) .ignore else .aggregate,
+            .resource_id = if (using_stmt.semantic_info) |info| info.resource_id.id else 0,
+        };
+
+        defer_stmt.base.children[0] = cleanup_call;
+        return defer_stmt;
+    }
+
+    /// Generate the cleanup call expression
+    /// `file.close()` or `file.close() catch |err| aggregator.add(err)`
+    fn generateCleanupCall(self: *UsingDesugar, using_stmt: *UsingStmt) !CID {
+        if (using_stmt.flags.is_infallible) {
+            // Simple method call for infallible cleanup
+            return self.defer_generator.generateMethodCall(
+                using_stmt.binding.name,
+                "close",
+                &[_]CID{}, // No arguments
+                using_stmt.base.location,
+            );
+        } else {
+            // Method call with error handling
+            return self.defer_generator.generateMethodCallWithErrorHandling(
+                using_stmt.binding.name,
+                "close",
+                &[_]CID{}, // No arguments
+                using_stmt.base.location,
+                .aggregate, // Aggregate errors instead of propagating
+            );
+        }
+    }
+
+    /// Generate error aggregation infrastructure if needed
+    fn generateErrorAggregation(self: *UsingDesugar, using_stmt: *UsingStmt) !?*ErrorAggregation {
+        if (using_stmt.flags.is_infallible) {
+            return null;
+        }
+
+        const aggregation = try self.allocator.create(ErrorAggregation);
+        aggregation.* = ErrorAggregation{
+            .aggregator_var = try std.fmt.allocPrint(self.allocator, "_cleanup_aggregator_{}", .{if (using_stmt.semantic_info) |info| info.resource_id.id else 0}),
+            .error_type = try self.determineCleanupErrorType(using_stmt),
+            .aggregation_strategy = .collect_all,
+        };
+
+        return aggregation;
+    }
+
+    /// Generate the complete desugared block
+    fn generateDesugarBlock(
+        self: *UsingDesugar,
+        using_stmt: *UsingStmt,
+        binding_stmt: *BindingStatement,
+        defer_stmt: *DeferStatement,
+        error_handling: ?*ErrorAggregation,
+    ) !*DesugarBlock {
+        const block = try self.allocator.create(DesugarBlock);
+
+        var statements: std.ArrayList(CID) = .empty;
+
+        // Add error aggregator initialization if needed
+        if (error_handling) |err_agg| {
+            const aggregator_init = try self.generateAggregatorInit(err_agg);
+            try statements.append(aggregator_init);
+        }
+
+        // Add resource binding
+        try statements.append(binding_stmt.base.cid);
+
+        // Add defer cleanup
+        try statements.append(defer_stmt.base.cid);
+
+        // Add original block contents
+        try statements.append(using_stmt.block);
+
+        // Add error aggregation finalization if needed
+        if (error_handling) |err_agg| {
+            const aggregator_finalize = try self.generateAggregatorFinalize(err_agg);
+            try statements.append(aggregator_finalize);
+        }
+
+        block.* = DesugarBlock{
+            .base = AstNode{
+                .node_type = .block_statement,
+                .location = using_stmt.base.location,
+                .children = statements.toOwnedSlice(),
+            },
+            .statements = statements.items,
+            .has_error_aggregation = error_handling != null,
+        };
+
+        return block;
+    }
+
+    /// Determine the cleanup error type for aggregation
+    fn determineCleanupErrorType(self: *UsingDesugar, using_stmt: *UsingStmt) ![]const u8 {
+        _ = self;
+
+        if (using_stmt.semantic_info) |info| {
+            // Use the error type from the close method
+            for (info.close_effects) |effect| {
+                if (effect.is_fallible) {
+                    return try std.fmt.allocPrint(self.allocator, "{}Error", .{effect.name});
+                }
+            }
+        }
+
+        // Default cleanup error type
+        return "CleanupError";
+    }
+
+    /// Generate aggregator initialization
+    fn generateAggregatorInit(self: *UsingDesugar, error_agg: *ErrorAggregation) !CID {
+        return self.defer_generator.generateVariableDeclaration(
+            error_agg.aggregator_var,
+            "CleanupAggregator",
+            "CleanupAggregator.init()",
+            SourceLocation{ .line = 0, .column = 0, .length = 0 }, // Generated location
+        );
+    }
+
+    /// Generate aggregator finalization
+    fn generateAggregatorFinalize(self: *UsingDesugar, error_agg: *ErrorAggregation) !CID {
+        return self.defer_generator.generateMethodCall(
+            error_agg.aggregator_var,
+            "finalize",
+            &[_]CID{},
+            SourceLocation{ .line = 0, .column = 0, .length = 0 }, // Generated location
+        );
+    }
+};
+
+/// Result of desugaring a using statement
+pub const DesugarResult = struct {
+    /// The resource binding statement
+    binding_statement: *BindingStatement,
+    /// The defer cleanup statement
+    defer_statement: *DeferStatement,
+    /// Error aggregation infrastructure (if needed)
+    error_aggregation: ?*ErrorAggregation,
+    /// The complete desugared block
+    desugared_block: *DesugarBlock,
+    /// Reference to original using statement
+    original_using: *UsingStmt,
+
+    pub fn deinit(self: *DesugarResult, allocator: Allocator) void {
+        self.binding_statement.deinit(allocator);
+        self.defer_statement.deinit(allocator);
+        if (self.error_aggregation) |err_agg| {
+            err_agg.deinit(allocator);
+        }
+        self.desugared_block.deinit(allocator);
+    }
+};
+
+/// Generated binding statement
+pub const BindingStatement = struct {
+    base: AstNode,
+    binding_name: []const u8,
+    is_mutable: bool,
+    type_annotation: ?CID,
+    initializer: CID,
+    binding_kind: BindingKind,
+
+    const BindingKind = enum {
+        immutable, // let
+        mutable, // var
+    };
+
+    pub fn deinit(self: *BindingStatement, allocator: Allocator) void {
+        allocator.free(self.base.children);
+        allocator.destroy(self);
+    }
+};
+
+/// Generated defer statement
+pub const DeferStatement = struct {
+    base: AstNode,
+    cleanup_expr: CID,
+    error_handling: ErrorHandling,
+    resource_id: u64,
+
+    const ErrorHandling = enum {
+        ignore, // Infallible cleanup
+        propagate, // Propagate errors immediately
+        aggregate, // Collect errors for later handling
+    };
+
+    pub fn deinit(self: *DeferStatement, allocator: Allocator) void {
+        allocator.free(self.base.children);
+        allocator.destroy(self);
+    }
+};
+
+/// Error aggregation infrastructure
+pub const ErrorAggregation = struct {
+    aggregator_var: []const u8,
+    error_type: []const u8,
+    aggregation_strategy: AggregationStrategy,
+
+    const AggregationStrategy = enum {
+        collect_all, // Collect all errors
+        first_error_only, // Keep only the first error
+        last_error_only, // Keep only the last error
+    };
+
+    pub fn deinit(self: *ErrorAggregation, allocator: Allocator) void {
+        allocator.free(self.aggregator_var);
+        allocator.free(self.error_type);
+        allocator.destroy(self);
+    }
+};
+
+/// Complete desugared block
+pub const DesugarBlock = struct {
+    base: AstNode,
+    statements: []CID,
+    has_error_aggregation: bool,
+
+    pub fn deinit(self: *DesugarBlock, allocator: Allocator) void {
+        allocator.free(self.base.children);
+        allocator.free(self.statements);
+        allocator.destroy(self);
+    }
+};
+
+/// Cleanup error aggregator for collecting multiple cleanup failures
+pub const CleanupAggregator = struct {
+    allocator: Allocator,
+    errors: std.ArrayList(CleanupError),
+    primary_error: ?CleanupError,
+
+    const CleanupError = struct {
+        error_type: []const u8,
+        message: []const u8,
+        resource_id: u64,
+        location: SourceLocation,
+    };
+
+    pub fn init(allocator: Allocator) CleanupAggregator {
+        return CleanupAggregator{
+            .allocator = allocator,
+            .errors = std.ArrayList(CleanupError).init(allocator),
+            .primary_error = null,
+        };
+    }
+
+    pub fn deinit(self: *CleanupAggregator) void {
+        for (self.errors.items) |err| {
+            self.allocator.free(err.error_type);
+            self.allocator.free(err.message);
+        }
+        self.errors.deinit();
+    }
+
+    /// Add a cleanup error to the aggregator
+    pub fn addError(self: *CleanupAggregator, error_type: []const u8, message: []const u8, resource_id: u64, location: SourceLocation) !void {
+        const cleanup_error = CleanupError{
+            .error_type = try self.allocator.dupe(u8, error_type),
+            .message = try self.allocator.dupe(u8, message),
+            .resource_id = resource_id,
+            .location = location,
+        };
+
+        // First error becomes the primary error
+        if (self.primary_error == null) {
+            self.primary_error = cleanup_error;
+        }
+
+        try self.errors.append(cleanup_error);
+    }
+
+    /// Finalize aggregation and return aggregate error if any
+    pub fn finalize(self: *CleanupAggregator) ?AggregateCleanupError {
+        if (self.errors.items.len == 0) {
+            return null;
+        }
+
+        return AggregateCleanupError{
+            .primary_error = self.primary_error.?,
+            .suppressed_errors = self.errors.items[1..], // All errors except the first
+            .total_error_count = self.errors.items.len,
+        };
+    }
+};
+
+/// Aggregate cleanup error containing primary and suppressed errors
+pub const AggregateCleanupError = struct {
+    primary_error: CleanupAggregator.CleanupError,
+    suppressed_errors: []const CleanupAggregator.CleanupError,
+    total_error_count: usize,
+
+    /// Format the aggregate error for display
+    pub fn format(self: AggregateCleanupError, allocator: Allocator) ![]const u8 {
+        var message: std.ArrayList(u8) = .empty;
+        var writer = message.writer();
+
+        try writer.print("Cleanup failed: {s}", .{self.primary_error.message});
+
+        if (self.suppressed_errors.len > 0) {
+            try writer.print(" (with {} suppressed error{})", .{
+                self.suppressed_errors.len,
+                if (self.suppressed_errors.len == 1) "" else "s",
+            });
+
+            for (self.suppressed_errors) |err| {
+                try writer.print("\n  Suppressed: {s}", .{err.message});
+            }
+        }
+
+        return try message.toOwnedSlice(alloc);
+    }
+};
+
+/// Generator for defer statements and related constructs
+const DeferGenerator = struct {
+    allocator: Allocator,
+    next_generated_id: u64,
+
+    pub fn init(allocator: Allocator) DeferGenerator {
+        return DeferGenerator{
+            .allocator = allocator,
+            .next_generated_id = 1,
+        };
+    }
+
+    pub fn deinit(self: *DeferGenerator) void {
+        _ = self;
+    }
+
+    /// Generate a method call expression
+    pub fn generateMethodCall(
+        self: *DeferGenerator,
+        receiver: []const u8,
+        method: []const u8,
+        args: []const CID,
+        location: SourceLocation,
+    ) !CID {
+        _ = self;
+        _ = receiver;
+        _ = method;
+        _ = args;
+        _ = location;
+
+        // Implementation would generate actual AST nodes
+        // For now, return a placeholder CID
+        return CID{ .bytes = [_]u8{1} ** 32 };
+    }
+
+    /// Generate a method call with error handling
+    pub fn generateMethodCallWithErrorHandling(
+        self: *DeferGenerator,
+        receiver: []const u8,
+        method: []const u8,
+        args: []const CID,
+        location: SourceLocation,
+        error_handling: DeferStatement.ErrorHandling,
+    ) !CID {
+        _ = self;
+        _ = receiver;
+        _ = method;
+        _ = args;
+        _ = location;
+        _ = error_handling;
+
+        // Implementation would generate method call with catch block
+        return CID{ .bytes = [_]u8{2} ** 32 };
+    }
+
+    /// Generate a variable declaration
+    pub fn generateVariableDeclaration(
+        self: *DeferGenerator,
+        name: []const u8,
+        var_type: []const u8,
+        initializer: []const u8,
+        location: SourceLocation,
+    ) !CID {
+        _ = self;
+        _ = name;
+        _ = var_type;
+        _ = initializer;
+        _ = location;
+
+        // Implementation would generate variable declaration AST
+        return CID{ .bytes = [_]u8{3} ** 32 };
+    }
+
+    fn getNextId(self: *DeferGenerator) u64 {
+        const id = self.next_generated_id;
+        self.next_generated_id += 1;
+        return id;
+    }
+};
+
+// Tests
+test "UsingDesugar basic functionality" {
+    const allocator = std.testing.allocator;
+
+    var desugar = UsingDesugar.init(allocator);
+    defer desugar.deinit();
+
+    // Test that the desugar engine initializes correctly
+    try std.testing.expect(desugar.defer_generator.next_generated_id == 1);
+}
+
+test "CleanupAggregator error collection" {
+    const allocator = std.testing.allocator;
+
+    var aggregator = CleanupAggregator.init(allocator);
+    defer aggregator.deinit();
+
+    const location = SourceLocation{ .line = 1, .column = 1, .length = 10 };
+
+    // Add some cleanup errors
+    try aggregator.addError("FileCloseError", "Failed to close file", 1, location);
+    try aggregator.addError("NetworkCloseError", "Failed to close connection", 2, location);
+
+    const aggregate = aggregator.finalize();
+    try std.testing.expect(aggregate != null);
+    try std.testing.expect(aggregate.?.total_error_count == 2);
+    try std.testing.expect(aggregate.?.suppressed_errors.len == 1);
+}
+
+test "Desugaring preserves LIFO order" {
+    // This test would verify that nested using statements
+    // generate defer statements in the correct LIFO order
+
+    // using file1 = open("file1") {
+    //   using file2 = open("file2") {
+    //     // use files
+    //   }
+    // }
+    //
+    // Should desugar to:
+    // let file1 = open("file1");
+    // defer file1.close();
+    // {
+    //   let file2 = open("file2");
+    //   defer file2.close();  // This executes first
+    //   {
+    //     // use files
+    //   }
+    // }  // file2.close() executes here
+    // // file1.close() executes here
+
+    // Implementation would test the actual desugaring logic
+    try std.testing.expect(true); // Placeholder
+}

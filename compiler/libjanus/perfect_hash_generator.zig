@@ -173,7 +173,7 @@ pub const PerfectHashGenerator = struct {
         }
 
         for (bucket_assignments) |*list| {
-            list.* = std.ArrayList(u32).init(self.allocator);
+            list.* = std.ArrayList(u32).empty;
         }
 
         // Hash each type ID to a bucket
@@ -219,7 +219,7 @@ pub const PerfectHashGenerator = struct {
         var displacement: u32 = 1;
         while (displacement < hash_table.table_size) : (displacement += 1) {
             var placement_valid = true;
-            var temp_positions = std.ArrayList(u32).init(self.allocator);
+            var temp_positions: std.ArrayList(u32) = .empty;
             defer temp_positions.deinit();
 
             // Check if all colliding IDs can be placed with this displacement

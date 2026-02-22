@@ -154,7 +154,7 @@ pub const EffectSet = struct {
 
     pub fn init(allocator: std.mem.Allocator) EffectSet {
         return EffectSet{
-            .effects = std.ArrayList(EffectType).init(allocator),
+            .effects = .empty,
             .allocator = allocator,
         };
     }
@@ -198,7 +198,7 @@ pub const CapabilitySet = struct {
 
     pub fn init(allocator: std.mem.Allocator) CapabilitySet {
         return CapabilitySet{
-            .capabilities = std.ArrayList(CapabilityType).init(allocator),
+            .capabilities = .empty,
             .allocator = allocator,
         };
     }
@@ -449,10 +449,10 @@ pub const EffectCapabilitySystem = struct {
         }
 
         // Analyze function to determine effects and capabilities
-        var detected_effects = std.ArrayList(astdb.StrId).init(self.allocator);
+        var detected_effects: std.ArrayList(astdb.StrId) = .empty;
         defer detected_effects.deinit();
 
-        var required_capabilities = std.ArrayList(astdb.StrId).init(self.allocator);
+        var required_capabilities: std.ArrayList(astdb.StrId) = .empty;
         defer required_capabilities.deinit();
 
         // Simplified heuristic for testing: detect effects based on function name patterns

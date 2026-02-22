@@ -90,7 +90,7 @@ pub const SignatureAnalyzer = struct {
             return SignatureGroup{
                 .key = key,
                 .name = try allocator.dupe(u8, name),
-                .implementations = std.ArrayList(Implementation).init(allocator),
+                .implementations = .empty,
                 .is_sealed = false,
             };
         }

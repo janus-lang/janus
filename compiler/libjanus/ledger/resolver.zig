@@ -183,13 +183,13 @@ pub const Resolver = struct {
         var new_lockfile = manifest.Lockfile.init(self.allocator);
         new_lockfile.version = 1;
 
-        var capability_changes = std.ArrayList(CapabilityChange).init(self.allocator);
-        var packages_added = std.ArrayList([]const u8).init(self.allocator);
-        var packages_updated = std.ArrayList([]const u8).init(self.allocator);
-        var packages_removed = std.ArrayList([]const u8).init(self.allocator);
+        var capability_changes: std.ArrayList(CapabilityChange) = .empty;
+        var packages_added: std.ArrayList([]const u8) = .empty;
+        var packages_updated: std.ArrayList([]const u8) = .empty;
+        var packages_removed: std.ArrayList([]const u8) = .empty;
 
         // Track packages to resolve (including transitive dependencies)
-        var resolution_queue = std.ArrayList(manifest.PackageRef).init(self.allocator);
+        var resolution_queue: std.ArrayList(manifest.PackageRef) = .empty;
         defer {
             for (resolution_queue.items) |*pkg_ref| {
                 self.freePackageRef(pkg_ref);
@@ -345,7 +345,7 @@ pub const Resolver = struct {
         old_pkg: *const manifest.ResolvedPackage,
         new_pkg: *const manifest.ResolvedPackage,
     ) ![]CapabilityChange {
-        var changes = std.ArrayList(CapabilityChange).init(self.allocator);
+        var changes: std.ArrayList(CapabilityChange) = .empty;
 
         // Check for removed capabilities
         for (old_pkg.capabilities) |old_cap| {
@@ -397,7 +397,7 @@ pub const Resolver = struct {
             }
         }
 
-        return changes.toOwnedSlice();
+        return try changes.toOwnedSlice(alloc);
     }
 
     // Prompt user for capability changes approval
@@ -451,7 +451,7 @@ pub const Resolver = struct {
     pub fn saveLockfile(self: *Resolver, lockfile: *const manifest.Lockfile) !void {
         // Use the new high-performance serde framework for serialization
         // This leverages SIMD acceleration and provides capability validation
-        var buffer = std.ArrayList(u8).init(self.allocator);
+        var buffer: std.ArrayList(u8) = .empty;
         defer buffer.deinit();
 
         // TODO: Integrate with actual serde framework when available in Zig

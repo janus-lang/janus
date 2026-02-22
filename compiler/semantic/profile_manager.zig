@@ -425,7 +425,7 @@ pub const ProfileManager = struct {
 
     /// Generate profile compatibility report
     pub fn generateCompatibilityReport(self: *ProfileManager, allocator: Allocator) ![]const u8 {
-        var report = ArrayList(u8).init(allocator);
+        var report: ArrayList(u8) = .empty;
         const writer = report.writer();
 
         try writer.print("Profile Compatibility Report\n", .{});
@@ -465,7 +465,7 @@ pub const ProfileManager = struct {
             }
         }
 
-        return report.toOwnedSlice();
+        return try report.toOwnedSlice(allocator);
     }
 };
 

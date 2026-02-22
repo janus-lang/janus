@@ -549,8 +549,8 @@ pub const DispatchProfiler = struct {
             .config = config,
             .call_profiles = HashMap(CallSiteId, CallProfile).init(allocator),
             .signature_profiles = HashMap([]const u8, SignatureProfile).init(allocator),
-            .hot_paths = ArrayList(HotPath).init(allocator),
-            .optimization_opportunities = ArrayList(OptimizationOpportunity).init(allocator),
+            .hot_paths = .empty,
+            .optimization_opportunities = .empty,
             .counters = std.mem.zeroes(PerformanceCounters),
             .current_session = null,
         };
@@ -677,7 +677,7 @@ pub const DispatchProfiler = struct {
         try writer.print("Hot Call Sites:\n");
         try writer.print("---------------\n");
 
-        var hot_call_sites = ArrayList(*CallProfile).init(self.allocator);
+        var hot_call_sites: ArrayList(*CallProfile) = .empty;
         defer hot_call_sites.deinit();
 
         var call_iter = self.call_profiles.iterator();
@@ -804,7 +804,7 @@ pub const DispatchProfiler = struct {
                 if (signature_groups.getPtr(signature)) |group| {
                     try group.append(entry.key_ptr.*);
                 } else {
-                    var new_group = ArrayList(CallSiteId).init(self.allocator);
+                    var new_group: ArrayList(CallSiteId) = .empty;
                     try new_group.append(entry.key_ptr.*);
                     try signature_groups.put(signature, new_group);
                 }

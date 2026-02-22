@@ -73,7 +73,7 @@ const ControlFlowContext = struct {
         return ControlFlowContext{
             .initialized_vars = std.StringHashMap(bool).init(allocator),
             .declared_vars = std.StringHashMap(bool).init(allocator),
-            .uninitialized_usage = std.ArrayList(UninitializedUsage).init(allocator),
+            .uninitialized_usage = .empty,
         };
     }
 
@@ -131,7 +131,7 @@ pub const ControlFlowValidator = struct {
             .allocator = allocator,
             .type_system = type_system,
             .symbol_table = symbol_table,
-            .errors = std.ArrayList(ControlFlowError).init(allocator),
+            .errors = .empty,
         };
     }
 
@@ -149,7 +149,7 @@ pub const ControlFlowValidator = struct {
         const has_return = try self.analyzeNode(node, &context);
 
         // Convert uninitialized usage to result format
-        var uninitialized_vars = std.ArrayList(UninitializedVariable).init(self.allocator);
+        var uninitialized_vars: std.ArrayList(UninitializedVariable) = .empty;
         for (context.uninitialized_usage.items) |usage| {
             const var_name = try self.allocator.dupe(u8, usage.variable_name);
             try uninitialized_vars.append(UninitializedVariable{

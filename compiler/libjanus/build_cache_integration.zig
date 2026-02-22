@@ -156,7 +156,7 @@ pub const BuildCacheManager = struct {
                 try dep_info.dependents.append(owned_file);
             } else {
                 // Create new dependency
-                var dependents = ArrayList([]const u8).init(self.allocator);
+                var dependents: ArrayList([]const u8) = .empty;
                 const owned_file = try self.allocator.dupe(u8, file);
                 try dependents.append(owned_file);
 

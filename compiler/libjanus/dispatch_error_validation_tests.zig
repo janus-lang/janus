@@ -351,10 +351,10 @@ pub const DispatchErrorValidationTests = struct {
         // Test 1: Excessive dispatch table size
         const int_type = try self.type_registry.registerType("int", .primitive, &.{});
 
-        var large_implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var large_implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer large_implementations.deinit();
 
-        var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer impl_storage.deinit();
 
         // Create a very large number of implementations

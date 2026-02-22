@@ -3295,7 +3295,7 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
     // So we should follow that pattern.
     // We need to track all "Jump to End" nodes.
 
-    // var scope_jumps = std.ArrayList(u32).init(ctx.allocator);
+    // var scope_jumps: std.ArrayList(u32) = .empty;
     // defer scope_jumps.deinit();
 
     // Re-doing the loop logic briefly to correct the "End Label" issue:
@@ -3371,7 +3371,7 @@ fn lowerMatchCorrected(ctx: *LoweringContext, node_id: NodeId, node: *const AstN
     const scrutinee_node = ctx.snapshot.getNode(scrutinee_id) orelse return error.InvalidNode;
     const scrutinee_val = try lowerExpression(ctx, scrutinee_id, scrutinee_node);
 
-    var end_jumps = std.ArrayList(u32).init(ctx.allocator);
+    var end_jumps: std.ArrayList(u32) = .empty;
     defer end_jumps.deinit();
 
     // Iterate over arms

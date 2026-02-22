@@ -368,7 +368,7 @@ pub const QueryContext = struct {
         // TODO: Implement actual query execution
         // For now, return placeholder results
 
-        const dependencies = std.ArrayList(CID).init(self.allocator);
+        const dependencies = std.ArrayList(CID).empty;
 
         const data = switch (key) {
             .node_at => QueryData{ .node_at = null }, // No node found (placeholder)
@@ -379,8 +379,8 @@ pub const QueryContext = struct {
                 .source_range = null,
             } },
             .def_of => QueryData{ .def_of = null }, // No definition found (placeholder)
-            .refs_of => QueryData{ .refs_of = std.ArrayList(ReferenceInfo).init(self.allocator) },
-            .diagnostics => QueryData{ .diagnostics = std.ArrayList(Diagnostic).init(self.allocator) },
+            .refs_of => QueryData{ .refs_of = .empty },
+            .diagnostics => QueryData{ .diagnostics = .empty },
             .parse_unit => QueryData{ .parse_unit = @enumFromInt(0) }, // Invalid node (placeholder)
             .ast_of_item => QueryData{ .ast_of_item = @enumFromInt(0) },
             .resolve_type => QueryData{ .resolve_type = TypeInfo{
@@ -608,9 +608,9 @@ fn cloneDefinitionInfo(def_info: DefinitionInfo, allocator: Allocator) !Definiti
 }
 
 fn cloneDiagnostics(diags: std.ArrayList(Diagnostic), allocator: Allocator) !std.ArrayList(Diagnostic) {
-    var cloned = std.ArrayList(Diagnostic).init(allocator);
+    var cloned: std.ArrayList(Diagnostic) = .empty;
     for (diags.items) |diag| {
-        var cloned_fixes = std.ArrayList(Diagnostic.FixSuggestion).init(allocator);
+        var cloned_fixes: std.ArrayList(Diagnostic.FixSuggestion) = .empty;
         for (diag.fix_suggestions.items) |fix| {
             try cloned_fixes.append(Diagnostic.FixSuggestion{
                 .message = try allocator.dupe(u8, fix.message),

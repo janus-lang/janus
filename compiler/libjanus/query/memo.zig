@@ -252,7 +252,7 @@ pub const CycleDetector = struct {
         const state = QueryState{
             .thread_id = std.Thread.getCurrentId(),
             .start_time = std.time.nanoTimestamp(),
-            .dependencies = std.ArrayList(context.MemoKey).init(self.allocator),
+            .dependencies = .empty,
         };
 
         try self.active_queries.put(key, state);

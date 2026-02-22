@@ -1,0 +1,1055 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const ArrayList = std.array_list.Managed;
+const HashMap = std.HashMap;
+const testing = std.testing;
+
+const TypeRegistry = @import("type_registry.zig").TypeRegistry;
+const TypeId = TypeRegistry.TypeId;
+const SignatureAnalyzer = @import("signature_analyzer.zig").SignatureAnalyzer;
+
+/// Cache-friendly dispatch table with optimized memory layout
+pub const OptimizedDispatchTable = struct {
+    allocator: Allocator,
+
+    // Cache-friendly layout: hot data first
+    entries: []DispatchEntry,
+    entry_count: u32,
+
+    // Cold data: metadata and debugging info
+    signature_name: []const u8,
+    type_signature: []const TypeId,
+    memory_stats: MemoryStats,
+
+    // Decision tree for fast lookup
+    decision_tree: ?*DecisionTreeNode,
+
+    // INTEGRATION: Compression support
+    compression_system: ?*const @import("advanced_dispatch_compression.zig").AdvancedDispatchCompression = null,
+    compressed_data: []u8 = &.{},
+    decompression_cache: ?[]DispatchEntry = null,
+    is_compressed: bool = false,
+
+    const Self = @This();
+
+    /// Single dispatch table entry optimized for cache efficiency
+    pub const DispatchEntry = struct {
+        // Hot data: 64 bytes (one cache line)
+        type_pattern: u64, // Compressed type pattern for fast matching
+        implementation_ptr: *const SignatureAnalyzer.Implementation,
+        specificity_score: u32,
+        call_frequency: u32, // For hot-path optimization
+
+        // Padding to align to cache line boundary
+        _padding: [32]u8 = std.mem.zeroes([32]u8),
+
+        pub fn matches(self: *const DispatchEntry, arg_types: []const TypeId) bool {
+            // Fast path: check compressed pattern first
+            const pattern = compressTypePattern(arg_types);
+            return self.type_pattern == pattern;
+        }
+
+        pub fn getImplementation(self: *const DispatchEntry) *const SignatureAnalyzer.Implementation {
+            return self.implementation_ptr;
+        }
+    };
+
+    /// Memory usage statistics for profiling
+    pub const MemoryStats = struct {
+        total_bytes: usize,
+        entry_bytes: usize,
+        tree_bytes: usize,
+        metadata_bytes: usize,
+        cache_lines_used: u32,
+        cache_efficiency: f32,
+
+        pub fn format(self: MemoryStats, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+            _ = fmt;
+            _ = options;
+            try writer.print("Memory: {} bytes ({} entries, {} tree, {} metadata), {} cache lines, {d:.1}% efficient", .{
+                self.total_bytes,
+                self.entry_bytes,
+                self.tree_bytes,
+                self.metadata_bytes,
+                self.cache_lines_used,
+                self.cache_efficiency * 100.0,
+            });
+        }
+    };
+
+    /// Decision tree node for O(log n) dispatch
+    pub const DecisionTreeNode = struct {
+        // Optimized for cache: 64 bytes per node
+        discriminator_type_index: u16,
+        discriminator_type_id: TypeId,
+        left_child: ?*DecisionTreeNode,
+        right_child: ?*DecisionTreeNode,
+
+        // Leaf node data
+        implementation: ?*const SignatureAnalyzer.Implementation,
+        is_leaf: bool,
+
+        // Performance data
+        access_count: u32,
+        last_access_time: u64,
+
+        // Padding to cache line boundary
+        _padding: [24]u8 = std.mem.zeroes([24]u8),
+
+        pub fn lookup(self: *DecisionTreeNode, arg_types: []const TypeId) ?*const SignatureAnalyzer.Implementation {
+            self.access_count += 1;
+            self.last_access_time = @intCast(std.time.timestamp());
+
+            if (self.is_leaf) {
+                return self.implementation;
+            }
+
+            if (self.discriminator_type_index >= arg_types.len) {
+                return null;
+            }
+
+            const arg_type = arg_types[self.discriminator_type_index];
+
+            // Navigate tree based on type comparison
+            if (arg_type <= self.discriminator_type_id) {
+                if (self.left_child) |left| {
+                    return left.lookup(arg_types);
+                }
+            } else {
+                if (self.right_child) |right| {
+                    return right.lookup(arg_types);
+                }
+            }
+
+            return null;
+        }
+    };
+
+    pub fn init(allocator: Allocator, signature_name: []const u8, type_signature: []const TypeId) !Self {
+        return Self{
+            .allocator = allocator,
+            .entries = &.{},
+            .entry_count = 0,
+            .signature_name = try allocator.dupe(u8, signature_name),
+            .type_signature = try allocator.dupe(TypeId, type_signature),
+            .memory_stats = std.mem.zeroes(MemoryStats),
+            .decision_tree = null,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        // Clean up compression data
+        if (self.compressed_data.len > 0) {
+            self.allocator.free(self.compressed_data);
+        }
+        if (self.decompression_cache) |cache| {
+            self.allocator.free(cache);
+        }
+
+        self.allocator.free(self.entries);
+        self.allocator.free(self.signature_name);
+        self.allocator.free(self.type_signature);
+
+        if (self.decision_tree) |tree| {
+            self.freeDecisionTree(tree);
+        }
+    }
+
+    /// Add implementation with cache-friendly insertion
+    pub fn addImplementation(self: *Self, implementation: *const SignatureAnalyzer.Implementation) !void {
+        // Reallocate entries array with cache-line alignment
+        const new_count = self.entry_count + 1;
+        const aligned_size = std.mem.alignForward(usize, new_count * @sizeOf(DispatchEntry), 64);
+
+        var new_entries = try self.allocator.alignedAlloc(DispatchEntry, 64, aligned_size / @sizeOf(DispatchEntry));
+
+        // Copy existing entries
+        if (self.entry_count > 0) {
+            @memcpy(new_entries[0..self.entry_count], self.entries);
+            self.allocator.free(self.entries);
+        }
+
+        // Add new entry
+        const type_pattern = compressTypePattern(implementation.param_type_ids);
+        new_entries[self.entry_count] = DispatchEntry{
+            .type_pattern = type_pattern,
+            .implementation_ptr = implementation,
+            .specificity_score = implementation.specificity_rank,
+            .call_frequency = 0,
+        };
+
+        self.entries = new_entries;
+        self.entry_count = new_count;
+
+        // Update memory statistics
+        try self.updateMemoryStats();
+
+        // Rebuild decision tree for optimal cache performance
+        try self.rebuildDecisionTree();
+    }
+
+    /// Lookup implementation with cache-optimized search
+    pub fn lookup(self: *Self, arg_types: []const TypeId) ?*const SignatureAnalyzer.Implementation {
+        // Fast path: use decision tree if available
+        if (self.decision_tree) |tree| {
+            return tree.lookup(arg_types);
+        }
+
+        // Fallback: linear search through cache-friendly entries
+        const pattern = compressTypePattern(arg_types);
+
+        for (self.entries[0..self.entry_count]) |*entry| {
+            if (entry.type_pattern == pattern) {
+                entry.call_frequency += 1;
+                return entry.implementation_ptr;
+            }
+        }
+
+        return null;
+    }
+
+    /// Optimize table layout based on call frequency
+    pub fn optimizeLayout(self: *Self) !void {
+        // Sort entries by call frequency (hot entries first)
+        const Context = struct {
+            pub fn lessThan(context: @This(), a: DispatchEntry, b: DispatchEntry) bool {
+                _ = context;
+                return a.call_frequency > b.call_frequency;
+            }
+        };
+
+        std.mem.sort(DispatchEntry, self.entries[0..self.entry_count], Context{}, Context.lessThan);
+
+        // Rebuild decision tree with hot entries prioritized
+        try self.rebuildDecisionTree();
+
+        // Update memory statistics
+        try self.updateMemoryStats();
+    }
+
+    /// Get memory usage statistics
+    pub fn getMemoryStats(self: *const Self) MemoryStats {
+        return self.memory_stats;
+    }
+
+    /// Benchmark different lookup strategies
+    pub fn benchmarkLookupStrategies(self: *Self, test_cases: []const []const TypeId, iterations: u32) !BenchmarkResults {
+        var results = BenchmarkResults{
+            .linear_search_ns = 0,
+            .decision_tree_ns = 0,
+            .compressed_pattern_ns = 0,
+            .cache_misses = 0,
+        };
+
+        // Benchmark linear search
+        const linear_start = std.time.nanoTimestamp();
+        for (0..iterations) |_| {
+            for (test_cases) |args| {
+                _ = self.linearSearchLookup(args);
+            }
+        }
+        results.linear_search_ns = @intCast(std.time.nanoTimestamp() - linear_start);
+
+        // Benchmark decision tree (if available)
+        if (self.decision_tree != null) {
+            const tree_start = std.time.nanoTimestamp();
+            for (0..iterations) |_| {
+                for (test_cases) |args| {
+                    _ = self.lookup(args);
+                }
+            }
+            results.decision_tree_ns = @intCast(std.time.nanoTimestamp() - tree_start);
+        }
+
+        // Benchmark compressed pattern matching
+        const pattern_start = std.time.nanoTimestamp();
+        for (0..iterations) |_| {
+            for (test_cases) |args| {
+                _ = self.compressedPatternLookup(args);
+            }
+        }
+        results.compressed_pattern_ns = @intCast(std.time.nanoTimestamp() - pattern_start);
+
+        return results;
+    }
+
+    /// Benchmark results for different lookup strategies
+    pub const BenchmarkResults = struct {
+        linear_search_ns: u64,
+        decision_tree_ns: u64,
+        compressed_pattern_ns: u64,
+        cache_misses: u32,
+
+        pub fn format(self: BenchmarkResults, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+            _ = fmt;
+            _ = options;
+            try writer.print("Benchmark Results:\n");
+            try writer.print("  Linear Search: {} ns\n", .{self.linear_search_ns});
+            try writer.print("  Decision Tree: {} ns\n", .{self.decision_tree_ns});
+            try writer.print("  Compressed Pattern: {} ns\n", .{self.compressed_pattern_ns});
+            try writer.print("  Cache Misses: {}\n", .{self.cache_misses});
+        }
+    };
+
+    // Private helper methods
+
+    fn updateMemoryStats(self: *Self) !void {
+        const entry_bytes = self.entry_count * @sizeOf(DispatchEntry);
+        const tree_bytes = if (self.decision_tree) |_| self.calculateTreeSize() else 0;
+        const metadata_bytes = @sizeOf(Self) + self.signature_name.len + self.type_signature.len * @sizeOf(TypeId);
+
+        self.memory_stats = MemoryStats{
+            .total_bytes = entry_bytes + tree_bytes + metadata_bytes,
+            .entry_bytes = entry_bytes,
+            .tree_bytes = tree_bytes,
+            .metadata_bytes = metadata_bytes,
+            .cache_lines_used = @intCast((entry_bytes + 63) / 64),
+            .cache_efficiency = self.calculateCacheEfficiency(),
+        };
+    }
+
+    fn calculateTreeSize(self: *const Self) usize {
+        if (self.decision_tree) |tree| {
+            return self.calculateNodeSize(tree);
+        }
+        return 0;
+    }
+
+    fn calculateNodeSize(self: *const Self, node: *const DecisionTreeNode) usize {
+        _ = self;
+        var size = @sizeOf(DecisionTreeNode);
+
+        if (node.left_child) |left| {
+            size += self.calculateNodeSize(left);
+        }
+
+        if (node.right_child) |right| {
+            size += self.calculateNodeSize(right);
+        }
+
+        return size;
+    }
+
+    fn calculateCacheEfficiency(self: *const Self) f32 {
+        if (self.entry_count == 0) return 1.0;
+
+        const ideal_entries_per_line = 64 / @sizeOf(DispatchEntry);
+        const actual_efficiency = @as(f32, @floatFromInt(self.entry_count)) / @as(f32, @floatFromInt(self.memory_stats.cache_lines_used * ideal_entries_per_line));
+
+        return @min(actual_efficiency, 1.0);
+    }
+
+    fn rebuildDecisionTree(self: *Self) !void {
+        if (self.decision_tree) |tree| {
+            self.freeDecisionTree(tree);
+            self.decision_tree = null;
+        }
+
+        if (self.entry_count > 4) { // Only build tree for larger tables
+            self.decision_tree = try self.buildOptimalDecisionTree(self.entries[0..self.entry_count]);
+        }
+    }
+
+    fn buildOptimalDecisionTree(self: *Self, entries: []DispatchEntry) !*DecisionTreeNode {
+        if (entries.len == 0) return error.EmptyEntries;
+
+        if (entries.len == 1) {
+            // Leaf node
+            const node = try self.allocator.create(DecisionTreeNode);
+            node.* = DecisionTreeNode{
+                .discriminator_type_index = 0,
+                .discriminator_type_id = 0,
+                .left_child = null,
+                .right_child = null,
+                .implementation = entries[0].implementation_ptr,
+                .is_leaf = true,
+                .access_count = 0,
+                .last_access_time = 0,
+            };
+            return node;
+        }
+
+        // Find best discriminator (type index that splits entries most evenly)
+        const best_discriminator = self.findBestDiscriminator(entries);
+
+        // Split entries based on discriminator
+        var left_entries = ArrayList(DispatchEntry).init(self.allocator);
+        var right_entries = ArrayList(DispatchEntry).init(self.allocator);
+        defer left_entries.deinit();
+        defer right_entries.deinit();
+
+        for (entries) |entry| {
+            const impl = entry.implementation_ptr;
+            if (best_discriminator.type_index < impl.param_type_ids.len) {
+                const type_id = impl.param_type_ids[best_discriminator.type_index];
+                if (type_id <= best_discriminator.type_id) {
+                    try left_entries.append(entry);
+                } else {
+                    try right_entries.append(entry);
+                }
+            } else {
+                try right_entries.append(entry);
+            }
+        }
+
+        // Create internal node
+        const node = try self.allocator.create(DecisionTreeNode);
+        node.* = DecisionTreeNode{
+            .discriminator_type_index = best_discriminator.type_index,
+            .discriminator_type_id = best_discriminator.type_id,
+            .left_child = null,
+            .right_child = null,
+            .implementation = null,
+            .is_leaf = false,
+            .access_count = 0,
+            .last_access_time = 0,
+        };
+
+        // Recursively build children
+        if (left_entries.items.len > 0) {
+            node.left_child = try self.buildOptimalDecisionTree(left_entries.items);
+        }
+
+        if (right_entries.items.len > 0) {
+            node.right_child = try self.buildOptimalDecisionTree(right_entries.items);
+        }
+
+        return node;
+    }
+
+    fn findBestDiscriminator(self: *const Self, entries: []DispatchEntry) struct { type_index: u16, type_id: TypeId } {
+        _ = self;
+
+        var best_index: u16 = 0;
+        var best_type_id: TypeId = 0;
+        var best_balance: f32 = std.math.floatMax(f32);
+
+        // Try each type position as discriminator
+        for (0..self.type_signature.len) |type_index| {
+            var type_counts = std.AutoHashMap(TypeId, u32).init(self.allocator);
+            defer type_counts.deinit();
+
+            // Count occurrences of each type at this position
+            for (entries) |entry| {
+                const impl = entry.implementation_ptr;
+                if (type_index < impl.param_type_ids.len) {
+                    const type_id = impl.param_type_ids[type_index];
+                    const count = type_counts.get(type_id) orelse 0;
+                    type_counts.put(type_id, count + 1) catch continue;
+                }
+            }
+
+            // Find type that splits most evenly
+            var type_iter = type_counts.iterator();
+            while (type_iter.next()) |type_entry| {
+                const type_id = type_entry.key_ptr.*;
+                var left_count: u32 = 0;
+                var right_count: u32 = 0;
+
+                for (entries) |entry| {
+                    const impl = entry.implementation_ptr;
+                    if (type_index < impl.param_type_ids.len) {
+                        const entry_type_id = impl.param_type_ids[type_index];
+                        if (entry_type_id <= type_id) {
+                            left_count += 1;
+                        } else {
+                            right_count += 1;
+                        }
+                    }
+                }
+
+                const balance = @abs(@as(f32, @floatFromInt(left_count)) - @as(f32, @floatFromInt(right_count)));
+                if (balance < best_balance) {
+                    best_balance = balance;
+                    best_index = @intCast(type_index);
+                    best_type_id = type_id;
+                }
+            }
+        }
+
+        return .{ .type_index = best_index, .type_id = best_type_id };
+    }
+
+    fn freeDecisionTree(self: *Self, node: *DecisionTreeNode) void {
+        if (node.left_child) |left| {
+            self.freeDecisionTree(left);
+        }
+
+        if (node.right_child) |right| {
+            self.freeDecisionTree(right);
+        }
+
+        self.allocator.destroy(node);
+    }
+
+    fn linearSearchLookup(self: *const Self, arg_types: []const TypeId) ?*const SignatureAnalyzer.Implementation {
+        for (self.entries[0..self.entry_count]) |entry| {
+            const impl = entry.implementation_ptr;
+            if (impl.param_type_ids.len == arg_types.len) {
+                var matches = true;
+                for (impl.param_type_ids, arg_types) |param_type, arg_type| {
+                    if (param_type != arg_type) {
+                        matches = false;
+                        break;
+                    }
+                }
+                if (matches) {
+                    return impl;
+                }
+            }
+        }
+        return null;
+    }
+
+    fn compressedPatternLookup(self: *const Self, arg_types: []const TypeId) ?*const SignatureAnalyzer.Implementation {
+        const pattern = compressTypePattern(arg_types);
+
+        for (self.entries[0..self.entry_count]) |entry| {
+            if (entry.type_pattern == pattern) {
+                return entry.implementation_ptr;
+            }
+        }
+
+        return null;
+    }
+
+    // INTEGRATION: Advanced compression integration methods
+
+    /// Replace table's internal storage with compressed representation
+    pub fn replaceWithCompressedData(self: *Self, compressed_data: []const u8, compression_system: *const @import("advanced_dispatch_compression.zig").AdvancedDispatchCompression) !void {
+        // Store reference to compression system for runtime decompression
+        self.compression_system = compression_system;
+
+        // Replace entries with compressed storage
+        self.allocator.free(self.entries);
+        self.entries = &.{}; // Empty slice - data is now compressed
+
+        // Store compressed data
+        self.compressed_data = try self.allocator.dupe(u8, compressed_data);
+        self.is_compressed = true;
+
+        // Update memory stats to reflect compression
+        try self.updateMemoryStats();
+    }
+
+    /// Decompress data on-demand for lookup operations
+    fn ensureDecompressed(self: *Self) !void {
+        if (!self.is_compressed or self.decompression_cache != null) {
+            return; // Already decompressed or not compressed
+        }
+
+        // Decompress the data using the compression system
+        if (self.compression_system) |compression_sys| {
+            const decompressed_entries = try compression_sys.decompressDispatchEntries(self.compressed_data, self.allocator);
+
+            // Convert back to DispatchEntry format
+            var entries = try self.allocator.alloc(DispatchEntry, decompressed_entries.len);
+            for (decompressed_entries, 0..) |decompressed_entry, i| {
+                entries[i] = DispatchEntry{
+                    .type_pattern = compressTypePattern(decompressed_entry.type_pattern),
+                    .implementation_ptr = undefined, // Would need to resolve from function name
+                    .specificity_score = decompressed_entry.specificity_score,
+                    .call_frequency = decompressed_entry.call_frequency,
+                };
+            }
+
+            self.decompression_cache = entries;
+        }
+    }
+
+    /// Override lookup to handle compressed tables
+    pub fn compressedLookup(self: *Self, arg_types: []const TypeId) !?*const SignatureAnalyzer.Implementation {
+        if (self.is_compressed) {
+            try self.ensureDecompressed();
+
+            if (self.decompression_cache) |cache| {
+                const pattern = compressTypePattern(arg_types);
+                for (cache) |entry| {
+                    if (entry.type_pattern == pattern) {
+                        return entry.implementation_ptr;
+                    }
+                }
+            }
+            return null;
+        } else {
+            // Use normal lookup for uncompressed tables
+            return self.lookup(arg_types);
+        }
+    }
+
+    /// Get compression statistics
+    pub fn getCompressionStats(self: *const Self) ?CompressionStats {
+        if (!self.is_compressed) return null;
+
+        const original_size = self.entry_count * @sizeOf(DispatchEntry);
+        const compressed_size = self.compressed_data.len;
+
+        return CompressionStats{
+            .original_bytes = original_size,
+            .compressed_bytes = compressed_size,
+            .compression_ratio = @as(f32, @floatFromInt(compressed_size)) / @as(f32, @floatFromInt(original_size)),
+            .memory_saved = if (compressed_size < original_size) original_size - compressed_size else 0,
+        };
+    }
+
+    pub const CompressionStats = struct {
+        original_bytes: usize,
+        compressed_bytes: usize,
+        compression_ratio: f32,
+        memory_saved: usize,
+
+        pub fn format(self: CompressionStats, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+            _ = fmt;
+            _ = options;
+            try writer.print("Compression: {} -> {} bytes ({d:.1}% ratio, {} saved)", .{
+                self.original_bytes,
+                self.compressed_bytes,
+                self.compression_ratio * 100.0,
+                self.memory_saved,
+            });
+        }
+    };
+};
+
+/// Compress type pattern into 64-bit hash for fast comparison
+fn compressTypePattern(types: []const TypeId) u64 {
+    var hasher = std.hash.Wyhash.init(0);
+    for (types) |type_id| {
+        hasher.update(std.mem.asBytes(&type_id));
+    }
+    return hasher.final();
+}
+
+/// Memory profiler for dispatch table optimization
+pub const DispatchMemoryProfiler = struct {
+    allocator: Allocator,
+    tables: ArrayList(*OptimizedDispatchTable),
+    total_memory_used: usize,
+    peak_memory_used: usize,
+    allocation_count: u32,
+
+    const Self = @This();
+
+    pub fn init(allocator: Allocator) Self {
+        return Self{
+            .allocator = allocator,
+            .tables = ArrayList(*OptimizedDispatchTable).init(allocator),
+            .total_memory_used = 0,
+            .peak_memory_used = 0,
+            .allocation_count = 0,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.tables.deinit();
+    }
+
+    pub fn registerTable(self: *Self, table: *OptimizedDispatchTable) !void {
+        try self.tables.append(table);
+        self.updateMemoryStats();
+    }
+
+    pub fn unregisterTable(self: *Self, table: *OptimizedDispatchTable) void {
+        for (self.tables.items, 0..) |registered_table, i| {
+            if (registered_table == table) {
+                _ = self.tables.swapRemove(i);
+                break;
+            }
+        }
+        self.updateMemoryStats();
+    }
+
+    pub fn generateReport(self: *Self, writer: anytype) !void {
+        try writer.print("Dispatch Table Memory Report\n");
+        try writer.print("============================\n");
+        try writer.print("Total Tables: {}\n", .{self.tables.items.len});
+        try writer.print("Total Memory: {} bytes\n", .{self.total_memory_used});
+        try writer.print("Peak Memory: {} bytes\n", .{self.peak_memory_used});
+        try writer.print("Allocations: {}\n", .{self.allocation_count});
+        try writer.print("\nPer-Table Breakdown:\n");
+
+        for (self.tables.items, 0..) |table, i| {
+            const stats = table.getMemoryStats();
+            try writer.print("  Table {}: {} - {}\n", .{ i, table.signature_name, stats });
+        }
+
+        try writer.print("\nOptimization Recommendations:\n");
+        try self.generateOptimizationRecommendations(writer);
+    }
+
+    fn updateMemoryStats(self: *Self) void {
+        self.total_memory_used = 0;
+
+        for (self.tables.items) |table| {
+            self.total_memory_used += table.getMemoryStats().total_bytes;
+        }
+
+        if (self.total_memory_used > self.peak_memory_used) {
+            self.peak_memory_used = self.total_memory_used;
+        }
+
+        self.allocation_count += 1;
+    }
+
+    fn generateOptimizationRecommendations(self: *Self, writer: anytype) !void {
+        var low_efficiency_count: u32 = 0;
+        var large_table_count: u32 = 0;
+
+        for (self.tables.items) |table| {
+            const stats = table.getMemoryStats();
+
+            if (stats.cache_efficiency < 0.5) {
+                low_efficiency_count += 1;
+            }
+
+            if (stats.total_bytes > 4096) {
+                large_table_count += 1;
+            }
+        }
+
+        if (low_efficiency_count > 0) {
+            try writer.print("  - {} tables have low cache efficiency (<50%)\n", .{low_efficiency_count});
+            try writer.print("    Consider optimizing layout or reducing entry size\n");
+        }
+
+        if (large_table_count > 0) {
+            try writer.print("  - {} tables are large (>4KB)\n", .{large_table_count});
+            try writer.print("    Consider table compression or splitting\n");
+        }
+
+        if (self.total_memory_used > 1024 * 1024) {
+            try writer.print("  - Total memory usage is high (>1MB)\n");
+            try writer.print("    Consider implementing table sharing or compression\n");
+        }
+    }
+};
+// Tests
+
+test "OptimizedDispatchTable basic functionality" {
+    const allocator = testing.allocator;
+
+    var type_registry = try TypeRegistry.init(allocator);
+    defer type_registry.deinit();
+
+    const int_type = try type_registry.registerType("int", .primitive, &.{});
+    const float_type = try type_registry.registerType("float", .primitive, &.{});
+
+    var table = try OptimizedDispatchTable.init(allocator, "test_func", &[_]TypeId{ int_type, int_type });
+    defer table.deinit();
+
+    // Create test implementation
+    const impl = SignatureAnalyzer.Implementation{
+        .function_id = SignatureAnalyzer.FunctionId{
+            .name = "test_func",
+            .module = "test",
+            .id = 1,
+        },
+        .param_type_ids = try allocator.dupe(TypeId, &[_]TypeId{ int_type, int_type }),
+        .return_type_id = int_type,
+        .effects = SignatureAnalyzer.EffectSet.init(SignatureAnalyzer.EffectSet.PURE),
+        .source_location = SignatureAnalyzer.SourceSpan.dummy(),
+        .specificity_rank = 100,
+    };
+    defer allocator.free(impl.param_type_ids);
+
+    // Add implementation to table
+    try table.addImplementation(&impl);
+
+    // Test lookup
+    const args = [_]TypeId{ int_type, int_type };
+    const result = table.lookup(&args);
+
+    try testing.expect(result != null);
+    try testing.expectEqual(@as(u32, 1), result.?.function_id.id);
+
+    // Test memory stats
+    const stats = table.getMemoryStats();
+    try testing.expect(stats.total_bytes > 0);
+    try testing.expect(stats.entry_bytes > 0);
+    try testing.expect(stats.cache_lines_used > 0);
+}
+
+test "OptimizedDispatchTable decision tree optimization" {
+    const allocator = testing.allocator;
+
+    var type_registry = try TypeRegistry.init(allocator);
+    defer type_registry.deinit();
+
+    const int_type = try type_registry.registerType("int", .primitive, &.{});
+    const float_type = try type_registry.registerType("float", .primitive, &.{});
+    const string_type = try type_registry.registerType("string", .primitive, &.{});
+
+    var table = try OptimizedDispatchTable.init(allocator, "multi_func", &[_]TypeId{int_type});
+    defer table.deinit();
+
+    // Create multiple implementations to trigger decision tree building
+    const implementations = [_]SignatureAnalyzer.Implementation{
+        SignatureAnalyzer.Implementation{
+            .function_id = SignatureAnalyzer.FunctionId{ .name = "multi_func", .module = "test", .id = 1 },
+            .param_type_ids = try allocator.dupe(TypeId, &[_]TypeId{int_type}),
+            .return_type_id = int_type,
+            .effects = SignatureAnalyzer.EffectSet.init(SignatureAnalyzer.EffectSet.PURE),
+            .source_location = SignatureAnalyzer.SourceSpan.dummy(),
+            .specificity_rank = 100,
+        },
+        SignatureAnalyzer.Implementation{
+            .function_id = SignatureAnalyzer.FunctionId{ .name = "multi_func", .module = "test", .id = 2 },
+            .param_type_ids = try allocator.dupe(TypeId, &[_]TypeId{float_type}),
+            .return_type_id = float_type,
+            .effects = SignatureAnalyzer.EffectSet.init(SignatureAnalyzer.EffectSet.PURE),
+            .source_location = SignatureAnalyzer.SourceSpan.dummy(),
+            .specificity_rank = 100,
+        },
+        SignatureAnalyzer.Implementation{
+            .function_id = SignatureAnalyzer.FunctionId{ .name = "multi_func", .module = "test", .id = 3 },
+            .param_type_ids = try allocator.dupe(TypeId, &[_]TypeId{string_type}),
+            .return_type_id = string_type,
+            .effects = SignatureAnalyzer.EffectSet.init(SignatureAnalyzer.EffectSet.PURE),
+            .source_location = SignatureAnalyzer.SourceSpdummy(),
+            .specificity_rank = 100,
+        },
+        SignatureAnalyzer.Implementation{
+            .function_id = SignatureAnalyzer.FunctionId{ .name = "multi_func", .module = "test", .id = 4 },
+            .param_type_ids = try allocator.dupe(TypeId, &[_]TypeId{ int_type, int_type }),
+            .return_type_id = int_type,
+            .effects = SignatureAnalyzer.EffectSet.init(SignatureAnalyzer.EffectSet.PURE),
+            .source_location = SignatureAnalyzer.SourceSpan.dummy(),
+            .specificity_rank = 150,
+        },
+        SignatureAnalyzer.Implementation{
+            .function_id = SignatureAnalyzer.FunctionId{ .name = "multi_func", .module = "test", .id = 5 },
+            .param_type_ids = try allocator.dupe(TypeId, &[_]TypeId{ float_type, string_type }),
+            .return_type_id = string_type,
+            .effects = SignatureAnalyzer.EffectSet.init(SignatureAnalyzer.EffectSet.PURE),
+            .source_location = SignatureAnalyzer.SourceSpan.dummy(),
+            .specificity_rank = 150,
+        },
+    };
+
+    // Clean up implementation memory
+    defer {
+        for (implementations) |impl| {
+            allocator.free(impl.param_type_ids);
+        }
+    }
+
+    // Add all implementations (should trigger decision tree building)
+    for (implementations) |*impl| {
+        try table.addImplementation(impl);
+    }
+
+    // Verify decision tree was built
+    try testing.expect(table.decision_tree != null);
+
+    // Test lookups work correctly
+    const int_args = [_]TypeId{int_type};
+    const int_result = table.lookup(&int_args);
+    try testing.expect(int_result != null);
+    try testing.expectEqual(@as(u32, 1), t_result.?.function_id.id);
+
+    const float_args = [_]TypeId{float_type};
+    const float_result = table.lookup(&float_args);
+    try testing.expect(float_result != null);
+    try testing.expectEqual(@as(u32, 2), float_result.?.function_id.id);
+
+    const two_arg_args = [_]TypeId{ int_type, int_type };
+    const two_arg_result = table.lookup(&two_arg_args);
+    try testing.expect(two_arg_result != null);
+    try testing.expectEqual(@as(u32, 4), two_arg_result.?.function_id.id);
+}
+
+test "OptimizedDispatchTable layout optimization" {
+    const allocator = testing.allocator;
+
+    var type_registry = try TypeRegistry.init(allocator);
+    defer type_registry.deinit();
+
+    const int_type = try type_registry.registerType("int", .primitive, &.{});
+
+    var table = try OptimizedDispatchTable.init(allocator, "freq_func", &[_]TypeId{int_type});
+    defer table.deinit();
+
+    // Create implementations with different expected frequencies
+    const impl1 = SignatureAnalyzer.Implementation{
+        .function_id = SignatureAnalyzer.FunctionId{ .name = "freq_func", .module = "test", .id = 1 },
+        .param_type_ids = try allocator.dupe(TypeId, &[_]TypeId{int_type}),
+        .return_type_id = int_type,
+        .effects = SignatureAnalyzer.EffectSet.init(SignatureAnalyzer.EffectSet.PURE),
+        .source_location = SignatureAnalyzer.SourceSpan.dummy(),
+        .specificity_rank = 100,
+    };
+    defer allocator.free(impl1.param_type_ids);
+
+    const impl2 = SignatureAnalyzer.Implementation{
+        .function_id = SignatureAnalyzer.FunctionId{ .name = "freq_func", .module = "test", .id = 2 },
+        .param_type_ids = try allocator.dupe(TypeId, &[_]TypeId{int_type}),
+        .return_type_id = int_type,
+        .effects = SignatureAnalyzer.EffectSet.init(SignatureAnalyzer.EffectSet.PURE),
+        .source_location = SignatureAnalyzer.SourceSmmy(),
+        .specificity_rank = 90,
+    };
+    defer allocator.free(impl2.param_type_ids);
+
+    try table.addImplementation(&impl1);
+    try table.addImplementation(&impl2);
+
+    // Simulate different call frequencies
+    const args = [_]TypeId{int_type};
+
+    // Call impl1 more frequently
+    for (0..10) |_| {
+        _ = table.lookup(&args);
+    }
+
+    // Call impl2 less frequently
+    for (0..3) |_| {
+        _ = table.lookup(&args);
+    }
+
+    // Optimize layout based on frequency
+    try table.optimizeLayout();
+
+    // Verify hot entry is first
+    try testing.expect(table.entries[0].call_frequency >= table.entries[1].call_frequency);
+
+    // Test memory stats
+    const stats = table.getMemoryStats();
+    try testing.expect(stats.cache_efficiency > 0.0);
+    try testing.expect(stats.cache_efficiency <= 1.0);
+}
+
+test "OptimizedDispatchTable benchmarking" {
+    const allocator = testing.allocator;
+
+    var type_registry = try TypeRegistry.init(allocator);
+    defer type_registry.deinit();
+
+    const int_type = try type_registry.registerType("int", .primitive, &.{});
+    const float_type = try type_registry.registerType("float", .primitive, &.{});
+
+    var table = try OptimizedDispatchTable.init(allocator, "bench_func", &[_]TypeId{int_type});
+    defer table.deinit();
+
+    // Add several implementations
+    const implementations = [_]SignatureAnalyzer.Implementation{
+        SignatureAnalyzer.Implementation{
+            .func_id = .{ .name = "bench_func", .module = "test" },
+            .param_type_ids = try allocator.dupe(TypeId, &[_]TypeId{int_type}),
+            .return_type_id = int_type,
+            .effects = SignatureAnalyzer.EffectSet.init(SignatureAnalyzer.EffectSet.PURE),
+            .source_location = SignatureAnalyzer.SourceSpan.dummy(),
+            .specificity_rank = 100,
+        },
+        SignatureAnalyzer.Implementation{
+            .function_id = SignatureAnalyzer.FunctionId{ .name = "bench_func", .module = "test", .id = 2 },
+            .param_type_ids = try allocator.dupe(TypeId, &[_]TypeId{float_type}),
+            .return_type_id = float_type,
+            .effects = SignatureAnalyzer.EffectSet.init(SignatureAnalyzer.EffectSet.PURE),
+            .source_location = SignatureAnalyzer.SourceSpan.dummy(),
+            .specificity_rank = 100,
+        },
+    };
+
+    defer {
+        for (implementations) |impl| {
+            allocator.free(impl.param_type_ids);
+        }
+    }
+
+    for (implementations) |*impl| {
+        try table.addImplementation(impl);
+    }
+
+    // Create test cases
+    const test_cases = [_][]const TypeId{
+        &[_]TypeId{int_type},
+        &[_]TypeId{float_type},
+    };
+
+    // Run benchmark
+    const results = try table.benchmarkLookupStrategies(&test_cases, 1000);
+
+    // Verify benchmark ran
+    try testing.expect(results.linear_search_ns > 0);
+    try testing.expect(results.compressed_pattern_ns > 0);
+
+    // Decision tree benchmark only runs if tree exists
+    if (table.decision_tree != null) {
+        try testing.expect(results.decision_tree_ns > 0);
+    }
+}
+
+test "DispatchMemoryProfiler functionality" {
+    const allocator = testing.allocator;
+
+    var type_registry = try TypeRegistry.init(allocator);
+    defer type_registry.deinit();
+
+    const int_type = try type_registry.registerType("int", .primitive, &.{});
+
+    var profiler = DispatchMemoryProfiler.init(allocator);
+    defer profiler.deinit();
+
+    // Create and register tables
+    var table1 = try OptimizedDispatchTable.init(allocator, "func1", &[_]TypeId{int_type});
+    defer table1.deinit();
+
+    var table2 = try OptimizedDispatchTable.init(allocator, "func2", &[_]TypeId{int_type});
+    defer table2.deinit();
+
+    try profiler.registerTable(&table1);
+    try profiler.registerTable(&table2);
+
+    // Verify tracking
+    try testing.expectEqual(@as(usize, 2), profiler.tables.items.len);
+    try testing.expect(profiler.total_memory_used > 0);
+
+    // Test report generation
+    var buffer: std.ArrayList(u8) = .empty;
+    defer buffer.deinit();
+
+    try profiler.generateReport(buffer.writer());
+    try testing.expect(buffer.items.len > 0);
+    try testing.expect(std.mem.indexOf(u8, buffer.items, "Dispatch Table Memory Report") != null);
+
+    // Unregister table
+    profiler.unregisterTable(&table1);
+    try testing.expectEqual(@as(usize, 1), profiler.tables.items.len);
+}
+
+test "Cache-friendly memory alignment" {
+    const allocator = testing.allocator;
+
+    var type_registry = try TypeRegistry.init(allocator);
+    defer type_registry.deinit();
+
+    const int_type = try type_registry.registerType("int", .primitive, &.{});
+
+    var table = try OptimizedDispatchTable.init(allocator, "aligned_func", &[_]TypeId{int_type});
+    defer table.deinit();
+
+    const impl = SignatureAnalyzer.Implementation{
+        .func_id = .{ .name = "aligned_func", .module = "test" },
+        .param_type_ids = try allocator.dupe(TypeId, &[_]TypeId{int_type}),
+        .return_type_id = int_type,
+        .effects = SignatureAnalyzer.EffectSet.init(SignatureAnalyzer.EffectSet.PURE),
+        .source_location = SignatureAnalyzer.SourceSpan.dummy(),
+        .specificity_rank = 100,
+    };
+    defer allocator.free(impl.param_type_ids);
+
+    try table.addImplementation(&impl);
+
+    // Verify cache line alignment
+    const entry_ptr = @intFromPtr(table.entries.ptr);
+    try testing.expectEqual(@as(usize, 0), entry_ptr % 64); // 64-byte aligned
+
+    // Verify entry size is cache-friendly
+    try testing.expectEqual(@as(usize, 64), @sizeOf(OptimizedDispatchTable.DispatchEntry));
+
+    // Verify decision tree node size is cache-friendly
+    try testing.expectEqual(@as(usize, 64), @sizeOf(OptimizedDispatchTable.DecisionTreeNode));
+}

@@ -171,7 +171,7 @@ test "comprehensive dispatch table compression" {
     defer compression.deinit();
 
     // Create realistic dispatch entries
-    var entries = std.ArrayList(AdvancedDispatchCompression.DispatchEntry).init(allocator);
+    var entries: std.ArrayList(AdvancedDispatchCompression.DispatchEntry) = .empty;
     defer entries.deinit();
 
     // Common patterns in a math library
@@ -335,7 +335,7 @@ test "compression effectiveness comparison" {
         defer compression.deinit();
 
         // Create entries from patterns
-        var entries = std.ArrayList(AdvancedDispatchCompression.DispatchEntry).init(allocator);
+        var entries: std.ArrayList(AdvancedDispatchCompression.DispatchEntry) = .empty;
         defer entries.deinit();
 
         for (scenario.patterns, 0..) |pattern, i| {

@@ -132,7 +132,7 @@ test "Pipeline component integration" {
     {
         const test_source = "func main() { print(\"hello\") }";
         var tokenizer = Tokenizer.init(allocator, test_source);
-        var tokens = std.ArrayList(Token).init(allocator);
+        var tokens: std.ArrayList(Token) = .empty;
         defer tokens.deinit();
 
         while (true) {
@@ -154,7 +154,7 @@ test "Pipeline component integration" {
     {
         const test_source = "func main() { print(\"hello\") }";
         var tokenizer = Tokenizer.init(allocator, test_source);
-        var tokens = std.ArrayList(Token).init(allocator);
+        var tokens: std.ArrayList(Token) = .empty;
         defer tokens.deinit();
 
         while (true) {
@@ -178,7 +178,7 @@ test "Pipeline component integration" {
     {
         const test_source = "func main() { print(\"hello\") }";
         var tokenizer = Tokenizer.init(allocator, test_source);
-        var tokens = std.ArrayList(Token).init(allocator);
+        var tokens: std.ArrayList(Token) = .empty;
         defer tokens.deinit();
 
         while (true) {

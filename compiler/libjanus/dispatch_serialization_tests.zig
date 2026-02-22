@@ -190,7 +190,7 @@ pub const DispatchSerializationTests = struct {
         defer table.deinit();
 
         // Add many implementations
-        var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer impl_storage.deinit();
 
         const impl_count = 1000;

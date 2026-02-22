@@ -116,10 +116,10 @@ pub const DispatchPerformanceBoundaryTests = struct {
         const string_type = try self.type_registry.registerType("string", .primitive, &.{});
 
         // Create small table (5 implementations)
-        var implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer implementations.deinit();
 
-        var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer impl_storage.deinit();
 
         const type_combinations = [_][2]TypeRegistry.TypeId{
@@ -180,10 +180,10 @@ pub const DispatchPerformanceBoundaryTests = struct {
         const int_type = try self.type_registry.registerType("int", .primitive, &.{});
 
         // Create medium table (50 implementations)
-        var implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer implementations.deinit();
 
-        var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer impl_storage.deinit();
 
         const medium_count = 50;
@@ -237,10 +237,10 @@ pub const DispatchPerformanceBoundaryTests = struct {
         const int_type = try self.type_registry.registerType("int", .primitive, &.{});
 
         // Create large table (500 implementations)
-        var implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer implementations.deinit();
 
-        var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer impl_storage.deinit();
 
         const large_count = 500;
@@ -302,10 +302,10 @@ pub const DispatchPerformanceBoundaryTests = struct {
         );
 
         // Create implementations for compression testing
-        var implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer implementations.deinit();
 
-        var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer impl_storage.deinit();
 
         const compression_test_count = 20;
@@ -392,15 +392,15 @@ pub const DispatchPerformanceBoundaryTests = struct {
 
         // Test different table sizes to verify algorithmic complexity
         const table_sizes = [_]u32{ 10, 50, 100, 500, 1000 };
-        var performance_results = ArrayList(ScalabilityResult).init(self.allocator);
+        var performance_results: ArrayList(ScalabilityResult) = .empty;
         defer performance_results.deinit();
 
         for (table_sizes) |size| {
             // Create table of specified size
-            var implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+            var implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
             defer implementations.deinit();
 
-            var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+            var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
             defer impl_storage.deinit();
 
             for (0..size) |i| {
@@ -482,10 +482,10 @@ pub const DispatchPerformanceBoundaryTests = struct {
         );
 
         // Create implementations for memory testing
-        var implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer implementations.deinit();
 
-        var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer impl_storage.deinit();
 
         const memory_test_count = 100;

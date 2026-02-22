@@ -285,7 +285,7 @@ pub const SumShapeDispatcher = struct {
         };
 
         try self.sum_types.put(type_id, sum_type);
-        try self.sum_dispatch_patterns.put(type_id, ArrayList(SumDispatchPattern).init(self.allocator));
+        try self.sum_dispatch_patterns.put(type_id, ArrayList(SumDispatchPattern).empty);
     }
 
     /// Register a shape type
@@ -388,13 +388,13 @@ pub const SumShapeDispatcher = struct {
         }
 
         // Both are shape types - compare fields
-        var missing_fields = ArrayList([]const u8).init(self.allocator);
+        var missing_fields: ArrayList([]const u8) = .empty;
         defer missing_fields.deinit();
 
-        var extra_fields = ArrayList([]const u8).init(self.allocator);
+        var extra_fields: ArrayList([]const u8) = .empty;
         defer extra_fields.deinit();
 
-        var type_mismatches = ArrayList(ShapeCompatibility.FieldTypeMismatch).init(self.allocator);
+        var type_mismatches: ArrayList(ShapeCompatibility.FieldTypeMismatch) = .empty;
         defer type_mismatches.deinit();
 
         // Check required fields in shape_type are present in target
@@ -491,7 +491,7 @@ pub const SumShapeDispatcher = struct {
         var covered_variants = std.StringHashMap(bool).init(self.allocator);
         defer covered_variants.deinit();
 
-        var unreachable_patterns = ArrayList(SumDispatchPattern.VariantPattern).init(self.allocator);
+        var unreachable_patterns: ArrayList(SumDispatchPattern.VariantPattern) = .empty;
         defer unreachable_patterns.deinit();
 
         // Mark covered variants
@@ -507,7 +507,7 @@ pub const SumShapeDispatcher = struct {
         }
 
         // Find missing variants
-        var missing_variants = ArrayList(SumVariant).init(self.allocator);
+        var missing_variants: ArrayList(SumVariant) = .empty;
         defer missing_variants.deinit();
 
         for (sum_type.variants) |variant| {
@@ -538,7 +538,7 @@ pub const SumShapeDispatcher = struct {
         }
 
         // Find the most specific implementation that accepts the target type
-        var candidates = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var candidates: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer candidates.deinit();
 
         for (implementations) |*impl| {
@@ -564,7 +564,7 @@ pub const SumShapeDispatcher = struct {
 
     /// Get all sum types
     pub fn getAllSumTypes(self: *Self) ![]const SumType {
-        var types = ArrayList(SumType).init(self.allocator);
+        var types: ArrayList(SumType) = .empty;
         defer types.deinit();
 
         var iter = self.sum_types.iterator();
@@ -577,7 +577,7 @@ pub const SumShapeDispatcher = struct {
 
     /// Get all shape types
     pub fn getAllShapeTypes(self: *Self) ![]const ShapeType {
-        var types = ArrayList(ShapeType).init(self.allocator);
+        var types: ArrayList(ShapeType) = .empty;
         defer types.deinit();
 
         var iter = self.shape_types.iterator();
@@ -887,7 +887,7 @@ test "SumShapeDispatcher formatting" {
         .payload_type = 2,
     };
 
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit();
 
     try std.fmt.format(buffer.writer(), "{}", .{variant});

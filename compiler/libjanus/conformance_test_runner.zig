@@ -436,7 +436,7 @@ test "conformance test runner - report generation" {
     try results.addResult("Stress Tests", .passed);
     results.total_duration_ms = 5000;
 
-    var report_buffer = std.ArrayList(u8).init(testing.allocator);
+    var report_buffer: std.ArrayList(u8) = .empty;
     defer report_buffer.deinit();
 
     try runner.generateConformanceReport(results, report_buffer.writer());

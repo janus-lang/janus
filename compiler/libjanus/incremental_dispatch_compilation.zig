@@ -202,7 +202,7 @@ pub const IncrementalDispatchCompilation = struct {
         pub fn updateDependencies(self: *DependencyTracker, source_files: []const []const u8, signatures: []const []const u8) !void {
             // Simplified dependency tracking - in practice would parse source files
             for (source_files) |file| {
-                var file_signatures = ArrayList([]const u8).init(self.allocator);
+                var file_signatures: ArrayList([]const u8) = .empty;
 
                 // For each signature, assume it could be in any file (simplified)
                 for (signatures) |sig| {
@@ -214,7 +214,7 @@ pub const IncrementalDispatchCompilation = struct {
         }
 
         pub fn getAffectedSignatures(self: *DependencyTracker, changed_files: []const []const u8) ![]const []const u8 {
-            var affected = ArrayList([]const u8).init(self.allocator);
+            var affected: ArrayList([]const u8) = .empty;
             defer affected.deinit();
 
             for (changed_files) |file| {
@@ -225,7 +225,7 @@ pub const IncrementalDispatchCompilation = struct {
                 }
             }
 
-            return affected.toOwnedSlice();
+            return try affected.toOwnedSlice(alloc);
         }
     };
 
@@ -246,7 +246,7 @@ pub const IncrementalDispatchCompilation = struct {
         }
 
         pub fn detectChanges(self: *ChangeDetector, source_files: []const []const u8) ![]const []const u8 {
-            var changed_files = ArrayList([]const u8).init(self.allocator);
+            var changed_files: ArrayList([]const u8) = .empty;
             defer changed_files.deinit();
 
             for (source_files) |file_path| {
@@ -268,7 +268,7 @@ pub const IncrementalDispatchCompilation = struct {
                 }
             }
 
-            return changed_files.toOwnedSlice();
+            return try changed_files.toOwnedSlice(alloc);
         }
     };
 
@@ -284,11 +284,11 @@ pub const IncrementalDispatchCompilation = struct {
         pub fn init(allocator: Allocator) IncrementalCompileResult {
             return IncrementalCompileResult{
                 .allocator = allocator,
-                .recompiled_signatures = ArrayList([]const u8).init(allocator),
-                .cached_signatures = ArrayList([]const u8).init(allocator),
-                .cache_misses = ArrayList([]const u8).init(allocator),
-                .new_tables = ArrayList(*OptimizedDispatchTable).init(allocator),
-                .cached_tables = ArrayList(*OptimizedDispatchTable).init(allocator),
+                .recompiled_signatures = .empty,
+                .cached_signatures = .empty,
+                .cache_misses = .empty,
+                .new_tables = .empty,
+                .cached_tables = .empty,
             };
         }
 

@@ -146,7 +146,7 @@ pub const NodeView = struct {
 
     pub fn modulePath(self: NodeView, allocator: std.mem.Allocator) ![]const u8 {
         if (self.kind() != .use_stmt and self.kind() != .module) return allocator.dupe(u8, "");
-        var builder = std.ArrayList(u8).init(allocator);
+        var builder: std.ArrayList(u8) = .empty;
         var writer = builder.writer();
         const child_nodes = self.children();
         var first = true;
@@ -158,7 +158,7 @@ pub const NodeView = struct {
                 first = false;
             }
         }
-        return builder.toOwnedSlice();
+        return try builder.toOwnedSlice(allocator);
     }
 
     fn tokenText(self: NodeView, token_id: TokenId) ?[]const u8 {

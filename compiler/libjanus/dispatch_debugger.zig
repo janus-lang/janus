@@ -164,14 +164,14 @@ pub const DispatchDebugger = struct {
                 .timestamp = @intCast(std.time.nanoTimestamp()),
                 .call_site = call_site,
                 .argument_types = argument_types,
-                .resolution_steps = ArrayList(ResolutionStep).init(allocator),
-                .candidates = ArrayList(CandidateInfo).init(allocator),
+                .resolution_steps = .empty,
+                .candidates = .empty,
                 .selected_implementation = null,
                 .dispatch_time_ns = 0,
                 .cache_hit = false,
-                .debug_notes = ArrayList([]const u8).init(allocator),
-                .warnings = ArrayList([]const u8).init(allocator),
-                .errors = ArrayList([]const u8).init(allocator),
+                .debug_notes = .empty,
+                .warnings = .empty,
+                .errors = .empty,
             };
         }
 
@@ -402,9 +402,9 @@ pub const DispatchDebugger = struct {
             .allocator = allocator,
             .config = config,
             .current_session = null,
-            .breakpoints = ArrayList(Breakpoint).init(allocator),
-            .watches = ArrayList(Watch).init(allocator),
-            .execution_history = ArrayList(ExecutionFrame).init(allocator),
+            .breakpoints = .empty,
+            .watches = .empty,
+            .execution_history = .empty,
             .profiler = null,
             .visualizer = null,
         };

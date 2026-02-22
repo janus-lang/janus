@@ -288,7 +288,7 @@ pub const DispatchTableSerializer = struct {
         defer self.allocator.free(file_path);
 
         // Serialize to memory buffer first
-        var buffer = ArrayList(u8).init(self.allocator);
+        var buffer: ArrayList(u8) = .empty;
         defer buffer.deinit();
 
         try self.serializeToBuffer(table, optimization_result, &buffer);
@@ -399,7 +399,7 @@ pub const DispatchTableSerializer = struct {
         var total_cache_size: usize = 0;
 
         // Collect entries for cleanup
-        var entries_to_remove = ArrayList(CacheIndex.CacheKey).init(self.allocator);
+        var entries_to_remove: ArrayList(CacheIndex.CacheKey) = .empty;
         defer entries_to_remove.deinit();
 
         var iter = self.cache_index.entries.iterator();
@@ -674,7 +674,7 @@ pub const DispatchTableSerializer = struct {
         try writer.writeStruct(tree_header);
 
         // Serialize nodes in breadth-first order
-        var nodes = ArrayList(*OptimizedDispatchTable.DecisionTreeNode).init(self.allocator);
+        var nodes: ArrayList(*OptimizedDispatchTable.DecisionTreeNode) = .empty;
         defer nodes.deinit();
 
         try nodes.append(root);
@@ -854,7 +854,7 @@ pub const DispatchTableSerializer = struct {
 
     fn cleanupBySize(self: *Self, max_size_bytes: usize) !void {
         // Collect entries sorted by last access time (LRU)
-        var entries = ArrayList(struct { key: CacheIndex.CacheKey, entry: *CacheIndex.CacheEntry }).init(self.allocator);
+        var entries: ArrayList(struct { key: CacheIndex.CacheKey, entry: *CacheIndex.CacheEntry }) = .empty;
         defer entries.deinit();
 
         var iter = self.cache_index.entries.iterator();

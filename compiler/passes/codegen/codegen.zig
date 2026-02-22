@@ -55,8 +55,8 @@ pub const LLVMCodegen = struct {
     pub fn init(allocator: std.mem.Allocator) LLVMCodegen {
         return LLVMCodegen{
             .allocator = allocator,
-            .output = std.ArrayList(u8).init(allocator),
-            .string_constants = std.ArrayList(StringConstant).init(allocator),
+            .output = .empty,
+            .string_constants = .empty,
             .next_string_id = 0,
         };
     }
@@ -313,7 +313,7 @@ pub const LLVMCodegen = struct {
     fn generateFunctions(self: *LLVMCodegen, ir_module: *IR.Module) !void {
         const writer = self.output.writer();
         var current_function: ?IR.Value = null;
-        var required_capabilities = std.ArrayList([]const u8).init(self.allocator);
+        var required_capabilities: std.ArrayList([]const u8) = .empty;
         defer required_capabilities.deinit();
 
         // First pass: collect all required capabilities
@@ -416,7 +416,7 @@ pub const LLVMCodegen = struct {
         try writer.print("  ; The compiler automatically provides required capabilities\n", .{});
 
         // Create all required capabilities
-        var cap_vars = std.ArrayList([]const u8).init(self.allocator);
+        var cap_vars: std.ArrayList([]const u8) = .empty;
         defer {
             for (cap_vars.items) |var_name| {
                 self.allocator.free(var_name);
@@ -460,7 +460,7 @@ pub const LLVMCodegen = struct {
         try debug_file.writeAll(llvm_ir);
 
         // Create a real executable that uses the parsed ASTDB data
-        var c_program = std.ArrayList(u8).init(self.allocator);
+        var c_program: std.ArrayList(u8) = .empty;
         defer c_program.deinit();
 
         const writer = c_program.writer();

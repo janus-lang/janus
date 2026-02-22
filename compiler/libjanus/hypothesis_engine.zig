@@ -113,7 +113,7 @@ pub const HypothesisEngine = struct {
         argument_types: []const TypeId,
         available_functions: []const ErrorContext.SymbolInfo,
     ) ![]Hypothesis {
-        var hypotheses = ArrayList(Hypothesis).init(self.allocator);
+        var hypotheses: ArrayList(Hypothesis) = .empty;
         errdefer {
             for (hypotheses.items) |*h| {
                 h.deinit(self.allocator);
@@ -167,7 +167,7 @@ pub const HypothesisEngine = struct {
             hypotheses.shrinkRetainingCapacity(self.config.max_hypotheses);
         }
 
-        return hypotheses.toOwnedSlice();
+        return try hypotheses.toOwnedSlice(alloc);
     }
 
     /// Generate hypotheses for an "ambiguous call" error
@@ -176,7 +176,7 @@ pub const HypothesisEngine = struct {
         function_name: []const u8,
         candidates: []const CandidateInfo,
     ) ![]Hypothesis {
-        var hypotheses = ArrayList(Hypothesis).init(self.allocator);
+        var hypotheses: ArrayList(Hypothesis) = .empty;
         errdefer {
             for (hypotheses.items) |*h| {
                 h.deinit(self.allocator);
@@ -193,7 +193,7 @@ pub const HypothesisEngine = struct {
         // Normalize probabilities
         self.normalizeHypotheses(hypotheses.items);
 
-        return hypotheses.toOwnedSlice();
+        return try hypotheses.toOwnedSlice(alloc);
     }
 
     /// Generate hypotheses for a type mismatch error
@@ -203,7 +203,7 @@ pub const HypothesisEngine = struct {
         actual: TypeId,
         context: ErrorContext,
     ) ![]Hypothesis {
-        var hypotheses = ArrayList(Hypothesis).init(self.allocator);
+        var hypotheses: ArrayList(Hypothesis) = .empty;
         errdefer {
             for (hypotheses.items) |*h| {
                 h.deinit(self.allocator);
@@ -234,7 +234,7 @@ pub const HypothesisEngine = struct {
             }
         }.lessThan);
 
-        return hypotheses.toOwnedSlice();
+        return try hypotheses.toOwnedSlice(alloc);
     }
 
     // =========================================================================
@@ -261,7 +261,7 @@ pub const HypothesisEngine = struct {
             const hypothesis_id = self.nextId();
 
             // Create evidence
-            var evidence = ArrayList(Evidence).init(self.allocator);
+            var evidence: ArrayList(Evidence) = .empty;
             try evidence.append(.{
                 .evidence_type = .name_similarity,
                 .description = try std.fmt.allocPrint(self.allocator, "'{s}' is similar to '{s}' (edit distance: {d})", .{ target_name, match.name, best_distance }),
@@ -270,7 +270,7 @@ pub const HypothesisEngine = struct {
             });
 
             // Create fix
-            var fixes = ArrayList(FixSuggestion).init(self.allocator);
+            var fixes: ArrayList(FixSuggestion) = .empty;
             var edits = try self.allocator.alloc(TextEdit, 1);
             edits[0] = .{
                 .span = .{},
@@ -312,7 +312,7 @@ pub const HypothesisEngine = struct {
             if (std.mem.eql(u8, symbol.name, function_name)) {
                 const hypothesis_id = self.nextId();
 
-                var evidence = ArrayList(Evidence).init(self.allocator);
+                var evidence: ArrayList(Evidence) = .empty;
                 try evidence.append(.{
                     .evidence_type = .signature_match,
                     .description = try std.fmt.allocPrint(self.allocator, "Function '{s}' exists with different parameter types", .{function_name}),
@@ -320,7 +320,7 @@ pub const HypothesisEngine = struct {
                     .strength = 0.7,
                 });
 
-                var fixes = ArrayList(FixSuggestion).init(self.allocator);
+                var fixes: ArrayList(FixSuggestion) = .empty;
 
                 // Generate cast suggestion for each argument
                 for (argument_types, 0..) |_, i| {
@@ -359,7 +359,7 @@ pub const HypothesisEngine = struct {
     fn generateMissingImportHypothesis(self: *HypothesisEngine, function_name: []const u8) !?Hypothesis {
         const hypothesis_id = self.nextId();
 
-        var evidence = ArrayList(Evidence).init(self.allocator);
+        var evidence: ArrayList(Evidence) = .empty;
         try evidence.append(.{
             .evidence_type = .pattern_match,
             .description = try std.fmt.allocPrint(self.allocator, "'{s}' might be defined in an external module", .{function_name}),
@@ -367,7 +367,7 @@ pub const HypothesisEngine = struct {
             .strength = 0.4,
         });
 
-        var fixes = ArrayList(FixSuggestion).init(self.allocator);
+        var fixes: ArrayList(FixSuggestion) = .empty;
         var edits = try self.allocator.alloc(TextEdit, 1);
         edits[0] = .{
             .span = .{},
@@ -405,7 +405,7 @@ pub const HypothesisEngine = struct {
 
         const hypothesis_id = self.nextId();
 
-        var evidence = ArrayList(Evidence).init(self.allocator);
+        var evidence: ArrayList(Evidence) = .empty;
         try evidence.append(.{
             .evidence_type = .pattern_match,
             .description = try self.allocator.dupe(u8, "Multiple arguments of different types may be swapped"),
@@ -413,7 +413,7 @@ pub const HypothesisEngine = struct {
             .strength = 0.3,
         });
 
-        var fixes = ArrayList(FixSuggestion).init(self.allocator);
+        var fixes: ArrayList(FixSuggestion) = .empty;
 
         // Suggest swapping first two arguments as a common case
         if (argument_types.len >= 2) {
@@ -452,13 +452,13 @@ pub const HypothesisEngine = struct {
     ) !Hypothesis {
         const hypothesis_id = self.nextId();
 
-        var evidence = ArrayList(Evidence).init(self.allocator);
+        var evidence: ArrayList(Evidence) = .empty;
         // This is the fallback - low evidence but always possible
 
-        var fixes = ArrayList(FixSuggestion).init(self.allocator);
+        var fixes: ArrayList(FixSuggestion) = .empty;
 
         // Generate function definition template
-        var sig_buf = ArrayList(u8).init(self.allocator);
+        var sig_buf: ArrayList(u8) = .empty;
         try sig_buf.writer().print("func {s}(", .{function_name});
         for (argument_types, 0..) |_, i| {
             if (i > 0) try sig_buf.appendSlice(", ");
@@ -502,7 +502,7 @@ pub const HypothesisEngine = struct {
     ) !Hypothesis {
         const hypothesis_id = self.nextId();
 
-        var evidence = ArrayList(Evidence).init(self.allocator);
+        var evidence: ArrayList(Evidence) = .empty;
         try evidence.append(.{
             .evidence_type = .signature_match,
             .description = try std.fmt.allocPrint(self.allocator, "Candidate from {s} matches with conversion", .{candidate.module_path}),
@@ -510,7 +510,7 @@ pub const HypothesisEngine = struct {
             .strength = 0.5,
         });
 
-        var fixes = ArrayList(FixSuggestion).init(self.allocator);
+        var fixes: ArrayList(FixSuggestion) = .empty;
 
         // Fix 1: Use qualified name
         if (candidate.module_path.len > 0) {
@@ -565,7 +565,7 @@ pub const HypothesisEngine = struct {
     fn generateCastHypothesis(self: *HypothesisEngine, expected: TypeId, actual: TypeId) !Hypothesis {
         const hypothesis_id = self.nextId();
 
-        var evidence = ArrayList(Evidence).init(self.allocator);
+        var evidence: ArrayList(Evidence) = .empty;
         try evidence.append(.{
             .evidence_type = .conversion_available,
             .description = try self.allocator.dupe(u8, "Types may be convertible with explicit cast"),
@@ -573,7 +573,7 @@ pub const HypothesisEngine = struct {
             .strength = 0.7,
         });
 
-        var fixes = ArrayList(FixSuggestion).init(self.allocator);
+        var fixes: ArrayList(FixSuggestion) = .empty;
         var edits = try self.allocator.alloc(TextEdit, 1);
         edits[0] = .{
             .span = .{},
@@ -612,7 +612,7 @@ pub const HypothesisEngine = struct {
                 // In a real implementation, we'd check the symbol's type
                 const hypothesis_id = self.nextId();
 
-                var evidence = ArrayList(Evidence).init(self.allocator);
+                var evidence: ArrayList(Evidence) = .empty;
                 try evidence.append(.{
                     .evidence_type = .pattern_match,
                     .description = try std.fmt.allocPrint(self.allocator, "Variable '{s}' exists in scope", .{symbol.name}),
@@ -620,7 +620,7 @@ pub const HypothesisEngine = struct {
                     .strength = 0.4,
                 });
 
-                var fixes = ArrayList(FixSuggestion).init(self.allocator);
+                var fixes: ArrayList(FixSuggestion) = .empty;
                 var edits = try self.allocator.alloc(TextEdit, 1);
                 edits[0] = .{
                     .span = .{},
@@ -663,7 +663,7 @@ pub const HypothesisEngine = struct {
 
         const hypothesis_id = self.nextId();
 
-        var evidence = ArrayList(Evidence).init(self.allocator);
+        var evidence: ArrayList(Evidence) = .empty;
         try evidence.append(.{
             .evidence_type = .pattern_match,
             .description = try self.allocator.dupe(u8, "Error occurs in function context"),
@@ -671,7 +671,7 @@ pub const HypothesisEngine = struct {
             .strength = 0.5,
         });
 
-        var fixes = ArrayList(FixSuggestion).init(self.allocator);
+        var fixes: ArrayList(FixSuggestion) = .empty;
 
         // Fix 1: Change return type
         var edits1 = try self.allocator.alloc(TextEdit, 1);

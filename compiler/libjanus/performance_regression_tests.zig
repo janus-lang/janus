@@ -143,7 +143,7 @@ pub const PerformanceRegressionTester = struct {
         return Self{
             .allocator = allocator,
             .baseline_results = null,
-            .test_configurations = ArrayList(TestConfiguration).init(allocator),
+            .test_configurations = .empty,
         };
     }
 
@@ -225,7 +225,7 @@ pub const PerformanceRegressionTester = struct {
         try writer.print("Current:  {s}\n\n", .{current_version});
 
         var all_passed = true;
-        var results = ArrayList(RegressionResult).init(self.allocator);
+        var results: ArrayList(RegressionResult) = .empty;
         defer results.deinit();
 
         // Run current benchmarks
@@ -284,7 +284,7 @@ pub const PerformanceRegressionTester = struct {
         try writer.print("Comprehensive Performance Test Suite\n");
         try writer.print("===================================\n\n");
 
-        var results = ArrayList(TestResults).init(self.allocator);
+        var results: ArrayList(TestResults) = .empty;
 
         // Add default test configurations if none exist
         if (self.test_configurations.items.len == 0) {
@@ -300,7 +300,7 @@ pub const PerformanceRegressionTester = struct {
             try writer.print("{}\n\n", .{test_result});
         }
 
-        return results.toOwnedSlice();
+        return try results.toOwnedSlice(alloc);
     }
 
     /// Generate performance report comparing multiple test runs
@@ -346,7 +346,7 @@ pub const PerformanceRegressionTester = struct {
         defer table.deinit();
 
         // Create implementations
-        var implementations = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer {
             for (implementations.items) |impl| {
                 self.allocator.free(impl.param_type_ids);
@@ -657,7 +657,7 @@ test "PerformanceRegressionTester regression testing" {
     try tester.establishBaseline("v1.0.0");
 
     // Run regression tests
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit();
 
     const passed = try tester.runRegressionTests("v1.1.0", buffer.writer());
@@ -674,7 +674,7 @@ test "PerformanceRegressionTester performance test suite" {
     var tester = PerformanceRegressionTester.init(allocator);
     defer tester.deinit();
 
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit();
 
     const results = try tester.runPerformanceTestSuite(buffer.writer());
@@ -721,7 +721,7 @@ test "PerformanceRegressionTester report generation" {
         },
     };
 
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit();
 
     try tester.generatePerformanceReport(&test_results, buffer.writer());
@@ -747,7 +747,7 @@ test "BaselineResults and TestResults formatting" {
         .dispatch_overhead_ratio = 0.03,
     };
 
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit();
 
     try std.fmt.format(buffer.writer(), "{}", .{baseline});
@@ -802,7 +802,7 @@ test "RegressionResult pass/fail logic" {
     try testing.expectEqual(@as(f64, 1.2), fail_result.regression_ratio);
 
     // Test formatting
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit();
 
     try std.fmt.format(buffer.writer(), "{}", .{pass_result});

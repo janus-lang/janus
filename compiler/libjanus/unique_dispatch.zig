@@ -250,7 +250,7 @@ pub const UniqueDispatcher = struct {
         capability_requirements: []const CapabilityRequirement,
     ) !void {
         // Generate move semantics for parameter types
-        var move_semantics = ArrayList(MoveSemantics).init(self.allocator);
+        var move_semantics: ArrayList(MoveSemantics) = .empty;
         defer move_semantics.deinit();
 
         for (base_implementation.param_type_ids) |type_id| {
@@ -282,7 +282,7 @@ pub const UniqueDispatcher = struct {
         try self.updateAvailableCapabilities(available_capabilities);
 
         // Find candidate implementations
-        var candidates = ArrayList(UniqueImplementation).init(self.allocator);
+        var candidates: ArrayList(UniqueImplementation) = .empty;
         defer candidates.deinit();
 
         var impl_iter = self.unique_implementations.iterator();
@@ -304,10 +304,10 @@ pub const UniqueDispatcher = struct {
         }
 
         // Check ownership constraints for each candidate
-        var valid_candidates = ArrayList(UniqueImplementation).init(self.allocator);
+        var valid_candidates: ArrayList(UniqueImplementation) = .empty;
         defer valid_candidates.deinit();
 
-        var all_violations = ArrayList(OwnershipViolation).init(self.allocator);
+        var all_violations: ArrayList(OwnershipViolation) = .empty;
         defer all_violations.deinit();
 
         for (candidates.items) |candidate| {
@@ -456,7 +456,7 @@ pub const UniqueDispatcher = struct {
         impl: *const UniqueImplementation,
         argument_ownership_states: []const OwnershipState,
     ) ![]OwnershipViolation {
-        var violations = ArrayList(OwnershipViolation).init(self.allocator);
+        var violations: ArrayList(OwnershipViolation) = .empty;
 
         for (impl.parameter_ownership, 0..) |param_ownership, i| {
             if (i >= argument_ownership_states.len) continue;
@@ -482,7 +482,7 @@ pub const UniqueDispatcher = struct {
             }
         }
 
-        return violations.toOwnedSlice();
+        return try violations.toOwnedSlice(alloc);
     }
 
     /// Check a single ownership constraint
@@ -547,7 +547,7 @@ pub const UniqueDispatcher = struct {
         if (candidates.len == 1) return candidates[0];
 
         // Convert to base implementations for specificity analysis
-        var base_impls = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var base_impls: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer base_impls.deinit();
 
         for (candidates) |candidate| {
@@ -579,7 +579,7 @@ pub const UniqueDispatcher = struct {
         impl: *const UniqueImplementation,
         argument_ownership_states: []const OwnershipState,
     ) ![]u32 {
-        var required_moves = ArrayList(u32).init(self.allocator);
+        var required_moves: ArrayList(u32) = .empty;
 
         for (impl.parameter_ownership, 0..) |param_ownership, i| {
             if (param_ownership.ownership_mode == .take_ownership and
@@ -590,7 +590,7 @@ pub const UniqueDispatcher = struct {
             }
         }
 
-        return required_moves.toOwnedSlice();
+        return try required_moves.toOwnedSlice(alloc);
     }
 
     /// Calculate capability grants for an implementation
@@ -600,7 +600,7 @@ pub const UniqueDispatcher = struct {
         available_capabilities: []const []const u8,
     ) ![]UniqueDispatchResult.CapabilityGrant {
         _ = impl;
-        var grants = ArrayList(UniqueDispatchResult.CapabilityGrant).init(self.allocator);
+        var grants: ArrayList(UniqueDispatchResult.CapabilityGrant) = .empty;
 
         for (available_capabilities, 0..) |cap, i| {
             try grants.append(UniqueDispatchResult.CapabilityGrant{
@@ -610,7 +610,7 @@ pub const UniqueDispatcher = struct {
             });
         }
 
-        return grants.toOwnedSlice();
+        return try grants.toOwnedSlice(alloc);
     }
 
     /// Free unique implementation memory
@@ -837,7 +837,7 @@ test "UniqueDispatcher formatting" {
         .destructor_required = true,
     };
 
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit();
 
     try std.fmt.format(buffer.writer(), "{}", .{semantics});

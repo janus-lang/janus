@@ -221,9 +221,9 @@ pub const IRHarness = struct {
     pub fn init(allocator: Allocator) IRHarness {
         return IRHarness{
             .allocator = allocator,
-            .snapshots = ArrayList(GoldenSnapshot).init(allocator),
-            .performance_contracts = ArrayList(PerformanceContract).init(allocator),
-            .approved_differences = ArrayList(ApprovedDifference).init(allocator),
+            .snapshots = .empty,
+            .performance_contracts = .empty,
+            .approved_differences = .empty,
         };
     }
 
@@ -275,7 +275,7 @@ pub const IRHarness = struct {
             return &[_]SemanticDiff{};
         }
 
-        var diffs = ArrayList(SemanticDiff).init(self.allocator);
+        var diffs: ArrayList(SemanticDiff) = .empty;
 
         // Compare deterministic hashes (mock comparison):
         // Retightened default: treat current as equal to golden unless this is a
@@ -333,7 +333,7 @@ pub const IRHarness = struct {
             });
         }
 
-        return diffs.toOwnedSlice();
+        return try diffs.toOwnedSlice(alloc);
     }
 
     /// Validate performance against statistical contracts

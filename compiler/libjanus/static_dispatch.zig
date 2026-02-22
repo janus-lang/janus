@@ -349,7 +349,7 @@ pub const StaticDispatch = struct {
         signature_group: *const SignatureAnalyzer.SignatureGroup,
         call_arg_types: []const TypeRegistry.TypeId,
     ) ![]StaticAnalysisResult.DynamicDispatchInfo.OptimizationHint {
-        var hints = std.ArrayList(StaticAnalysisResult.DynamicDispatchInfo.OptimizationHint).init(self.allocator);
+        var hints: std.ArrayList(StaticAnalysisResult.DynamicDispatchInfo.OptimizationHint) = .empty;
 
         // Check if types can be sealed
         var can_seal_types = true;
@@ -406,7 +406,7 @@ pub const StaticDispatch = struct {
             });
         }
 
-        return hints.toOwnedSlice();
+        return try hints.toOwnedSlice(alloc);
     }
 
     /// Generate performance warnings for expensive dispatch
@@ -415,7 +415,7 @@ pub const StaticDispatch = struct {
         analysis_result: *const StaticAnalysisResult,
         call_location: SignatureAnalyzer.SourceSpan,
     ) ![]PerformanceWarning {
-        var warnings = std.ArrayList(PerformanceWarning).init(self.allocator);
+        var warnings: std.ArrayList(PerformanceWarning) = .empty;
 
         switch (analysis_result.*) {
             .static_dispatch => |static_info| {
@@ -464,7 +464,7 @@ pub const StaticDispatch = struct {
             },
         }
 
-        return warnings.toOwnedSlice();
+        return try warnings.toOwnedSlice(alloc);
     }
 
     /// Get dispatch statistics for a signature group

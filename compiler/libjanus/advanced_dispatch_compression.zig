@@ -54,7 +54,7 @@ pub const AdvancedDispatchCompression = struct {
         pub fn init(allocator: Allocator) TypeDictionary {
             return TypeDictionary{
                 .type_to_index = AutoHashMap(TypeId, u16).init(allocator),
-                .index_to_type = ArrayList(TypeId).init(allocator),
+                .index_to_type = .empty,
                 .frequency_map = AutoHashMap(TypeId, u32).init(allocator),
             };
         }
@@ -96,7 +96,7 @@ pub const AdvancedDispatchCompression = struct {
         /// Optimize dictionary by frequency (Huffman-like encoding)
         pub fn optimizeByFrequency(self: *TypeDictionary) !void {
             // Create frequency-sorted list
-            var freq_pairs = ArrayList(FrequencyPair).init(self.index_to_type.allocator);
+            var freq_pairs: ArrayList(FrequencyPair) = .empty;
             defer freq_pairs.deinit();
 
             for (self.index_to_type.items, 0..) |type_id, i| {
@@ -153,7 +153,7 @@ pub const AdvancedDispatchCompression = struct {
 
         pub fn init(allocator: Allocator) PatternDictionary {
             return PatternDictionary{
-                .patterns = ArrayList(TypePattern).init(allocator),
+                .patterns = .empty,
                 .pattern_to_index = AutoHashMap(u64, u16).init(allocator),
                 .frequency_map = AutoHashMap(u16, u32).init(allocator),
             };
@@ -221,7 +221,7 @@ pub const AdvancedDispatchCompression = struct {
 
         pub fn init(allocator: Allocator) ImplementationPool {
             return ImplementationPool{
-                .implementations = ArrayList(Implementation).init(allocator),
+                .implementations = .empty,
                 .impl_to_index = AutoHashMap(u64, u16).init(allocator),
             };
         }
@@ -625,8 +625,8 @@ pub const AdvancedDispatchCompression = struct {
         const best_predicate = try self.findBestPredicate(entries);
 
         // Split entries based on predicate
-        var true_entries = ArrayList(CompressedDispatchEntry).init(self.allocator);
-        var false_entries = ArrayList(CompressedDispatchEntry).init(self.allocator);
+        var true_entries: ArrayList(CompressedDispatchEntry) = .empty;
+        var false_entries: ArrayList(CompressedDispatchEntry) = .empty;
         defer true_entries.deinit();
         defer false_entries.deinit();
 

@@ -131,7 +131,7 @@ pub const CIDHistory = struct {
             if (!std.mem.eql(u8, &existing.cid, &snapshot.cid)) {
                 // CID changed - archive the old one
                 const history_ptr = self.snapshots.getPtr(name) orelse blk: {
-                    try self.snapshots.put(name, ArrayList(CIDSnapshot).init(self.allocator));
+                    try self.snapshots.put(name, ArrayList(CIDSnapshot).empty);
                     break :blk self.snapshots.getPtr(name).?;
                 };
                 try history_ptr.append(try existing.clone(self.allocator));
@@ -162,7 +162,7 @@ pub const CIDHistory = struct {
 
     /// Get all entities that changed since a timestamp
     pub fn getChangesSince(self: *const CIDHistory, since_timestamp: i64) ![]const CIDSnapshot {
-        var changes = ArrayList(CIDSnapshot).init(self.allocator);
+        var changes: ArrayList(CIDSnapshot) = .empty;
 
         var iter = self.current.iterator();
         while (iter.next()) |entry| {
@@ -171,7 +171,7 @@ pub const CIDHistory = struct {
             }
         }
 
-        return changes.toOwnedSlice();
+        return try changes.toOwnedSlice(alloc);
     }
 };
 
@@ -201,7 +201,7 @@ pub const SemanticCorrelator = struct {
             .allocator = allocator,
             .config = config,
             .history = CIDHistory.init(allocator),
-            .active_diagnostics = ArrayList(ActiveDiagnostic).init(allocator),
+            .active_diagnostics = .empty,
             .cascades = std.AutoHashMap(DiagnosticId, ArrayList(DiagnosticId)).init(allocator),
         };
     }
@@ -228,7 +228,7 @@ pub const SemanticCorrelator = struct {
         related_entities: []const []const u8,
     ) !SemanticContext {
         // Collect related CIDs
-        var related_cids = ArrayList(RelatedCID).init(self.allocator);
+        var related_cids: ArrayList(RelatedCID) = .empty;
         errdefer {
             for (related_cids.items) |*cid| {
                 cid.deinit(self.allocator);
@@ -255,7 +255,7 @@ pub const SemanticCorrelator = struct {
         const now = std.time.timestamp();
         const window_start = now - self.config.change_window_seconds;
 
-        var detected_changes = ArrayList(SemanticChange).init(self.allocator);
+        var detected_changes: ArrayList(SemanticChange) = .empty;
         errdefer {
             for (detected_changes.items) |*change| {
                 change.deinit(self.allocator);
@@ -317,7 +317,7 @@ pub const SemanticCorrelator = struct {
         diagnostic_id: DiagnosticId,
         error_site_cid: CID,
     ) ![]CorrelatedError {
-        var correlated = ArrayList(CorrelatedError).init(self.allocator);
+        var correlated: ArrayList(CorrelatedError) = .empty;
         errdefer correlated.deinit();
 
         // Look for diagnostics with similar error sites
@@ -348,7 +348,7 @@ pub const SemanticCorrelator = struct {
             }
         }
 
-        return correlated.toOwnedSlice();
+        return try correlated.toOwnedSlice(alloc);
     }
 
     /// Identify the root cause among a group of errors
@@ -497,7 +497,7 @@ pub const SemanticCorrelator = struct {
             if (has_overlap) {
                 // existing error might have caused new error
                 var caused = self.cascades.get(existing.id) orelse blk: {
-                    const list = ArrayList(DiagnosticId).init(self.allocator);
+                    const list = ArrayList(DiagnosticId).empty;
                     try self.cascades.put(existing.id, list);
                     break :blk self.cascades.get(existing.id).?;
                 };
@@ -523,7 +523,7 @@ fn entityKindToRelationship(kind: CIDSnapshot.EntityKind) RelatedCID.Relationshi
 
 /// Format semantic context for display
 pub fn formatSemanticContext(allocator: Allocator, context: SemanticContext) ![]const u8 {
-    var output = ArrayList(u8).init(allocator);
+    var output: ArrayList(u8) = .empty;
     const writer = output.writer();
 
     if (context.detected_changes.len > 0) {
@@ -549,7 +549,7 @@ pub fn formatSemanticContext(allocator: Allocator, context: SemanticContext) ![]
         }
     }
 
-    return output.toOwnedSlice();
+    return try output.toOwnedSlice(alloc);
 }
 
 /// Format a CID as a short hex string

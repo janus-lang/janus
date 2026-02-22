@@ -91,7 +91,7 @@ pub const ConversionArena = struct {
     pub fn init(backing_allocator: Allocator) ConversionArena {
         return ConversionArena{
             .arena = std.heap.ArenaAllocator.init(backing_allocator),
-            .paths = std.ArrayList(ConversionPath).init(backing_allocator),
+            .paths = .empty,
         };
     }
 

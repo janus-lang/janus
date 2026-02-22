@@ -285,7 +285,7 @@ test "when performance with large input" {
     const allocator = testing.allocator;
 
     // Generate large source with many when keywords
-    var large_source = std.ArrayList(u8).init(allocator);
+    var large_source: std.ArrayList(u8) = .empty;
     defer large_source.deinit();
 
     try large_source.appendSlice("match value do\\n");

@@ -222,7 +222,7 @@ pub const RuntimeDispatch = struct {
 
         pub fn init(allocator: std.mem.Allocator) PerformanceMonitor {
             return PerformanceMonitor{
-                .timings = std.ArrayList(DispatchTiming).init(allocator),
+                .timings = .empty,
                 .total_dispatches = 0,
                 .total_time_ns = 0,
                 .max_time_ns = 0,

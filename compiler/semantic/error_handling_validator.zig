@@ -65,7 +65,7 @@ pub const ErrorHandlingValidator = struct {
             .astdb_snapshot = astdb_snapshot,
             .type_system = type_system_ptr,
             .symbol_table = symbol_table_ptr,
-            .errors = std.ArrayList(ValidationError).init(allocator),
+            .errors = .empty,
             .current_function_return_type = null,
         };
     }

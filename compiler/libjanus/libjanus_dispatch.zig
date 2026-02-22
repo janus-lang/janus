@@ -38,7 +38,7 @@ pub const Multimethod = struct {
     pub fn init(name: []const u8, allocator: std.mem.Allocator) Multimethod {
         return Multimethod{
             .name = name,
-            .methods = std.ArrayList(Method).init(allocator),
+            .methods = .empty,
             .dispatch_table = null,
             .is_sealed = false,
             .allocator = allocator,
@@ -214,7 +214,7 @@ pub const DispatchTable = struct {
 
     pub fn init(allocator: std.mem.Allocator) DispatchTable {
         return DispatchTable{
-            .entries = std.ArrayList(DispatchEntry).init(allocator),
+            .entries = .empty,
             .type_cache = std.StringHashMap(*Method).init(allocator),
             .allocator = allocator,
         };
@@ -280,7 +280,7 @@ pub const DispatchTable = struct {
     }
 
     fn createCacheKey(self: *DispatchTable, signature: Signature) ![]u8 {
-        var key = std.ArrayList(u8).init(self.allocator);
+        var key: std.ArrayList(u8) = .empty;
         defer key.deinit();
 
         for (signature.parameter_types, 0..) |param_type, i| {
@@ -288,7 +288,7 @@ pub const DispatchTable = struct {
             try key.appendSlice(param_type.name);
         }
 
-        return key.toOwnedSlice();
+        return try key.toOwnedSlice(alloc);
     }
 };
 
@@ -352,7 +352,7 @@ pub const DispatchRegistry = struct {
 
     // Create signature from function declaration
     fn createSignatureFromFunction(self: *DispatchRegistry, function_node: astdb.NodeId) !Signature {
-        var param_types = std.ArrayList(TypeInfo).init(self.allocator);
+        var param_types: std.ArrayList(TypeInfo) = .empty;
         defer param_types.deinit();
 
         for (function_node.parameters) |param| {
@@ -489,7 +489,7 @@ pub fn createDispatchRegistry(allocator: std.mem.Allocator) DispatchRegistry {
 
 // Analyze ambiguity in a multimethod
 pub fn analyzeAmbiguity(multimethod: *const Multimethod, allocator: std.mem.Allocator) ![]AmbiguityReport {
-    var reports = std.ArrayList(AmbiguityReport).init(allocator);
+    var reports: std.ArrayList(AmbiguityReport) = .empty;
 
     // Check all pairs of methods for potential ambiguity
     for (multimethod.methods.items, 0..) |method1, i| {
@@ -504,7 +504,7 @@ pub fn analyzeAmbiguity(multimethod: *const Multimethod, allocator: std.mem.Allo
         }
     }
 
-    return reports.toOwnedSlice();
+    return try reports.toOwnedSlice(alloc);
 }
 
 pub const AmbiguityReport = struct {

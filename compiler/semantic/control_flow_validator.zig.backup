@@ -1,0 +1,594 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+//! Control Flow Validation for Janus Semantic Engine
+//!
+//! Implements control flow analysis including:
+//! - Return statement validation for all code paths
+//! - Unreachable code detection in conditional branches
+//! -idation for break and continue statements
+//! - Variable initialization before use tracking
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+const TypeSystem = @import("type_system.zig").TypeSystem;
+const SymbolTable = @import("symbol_table.zig").SymbolTable;
+const source_span_utils = @import("source_span_utils.zig");
+
+const SourceSpan = source_span_utils.SourceSpan;
+const SourcePosition = source_span_utils.SourcePosition;
+const AstNode = source_span_utils.AstNode;
+
+/// Control flow analysis result
+pub const ControlFlowResult = struct {
+    has_return: bool,
+    has_unreachable_code: bool,
+    uninitialized_variables: []UninitializedVariable,
+    errors: []ControlFlowError,
+
+    pub fn deinit(self: *ControlFlowResult, allocator: Allocator) void {
+        for (self.uninitialized_variables) |uninit_var| {
+            allocator.free(uninit_var.variable_name);
+        }
+        allocator.free(self.uninitialized_variables);
+        allocator.free(self.errors);
+    }
+};
+
+/// Represents an uninitialized variable usage
+pub const UninitializedVariable = struct {
+    variable_name: []const u8,
+    usage_span: SourceSpan,
+    declaration_span: ?SourceSpan = null,
+};
+
+/// Control flow validation errors
+pub const ControlFlowError = struct {
+    kind: ErrorKind,
+    message: []const u8,
+    span: SourceSpan,
+
+    pub const ErrorKind = enum {
+        missing_return,
+        unreachable_code,
+        uninitialized_variable,
+        invalid_break,
+        invalid_continue,
+        use_before_initialization,
+        multiple_initialization,
+    };
+};
+
+/// Control flow context for tracking state
+const ControlFlowContext = struct {
+    in_loop: bool = false,
+    in_function: bool = false,
+    function_return_type: ?u32 = null,
+    initialized_vars: std.StringHashMap(bool),
+    declared_vars: std.StringHashMap(bool),
+    uninitialized_usage: std.ArrayList(UninitializedUsage),
+
+    pub fn init(allocator: Allocator) ControlFlowContext {
+        return ControlFlowContext{
+            .initialized_vars = std.StringHashMap(bool).init(allocator),
+            .declared_vars = std.StringHashMap(bool).init(allocator),
+            .uninitialized_usage = std.ArrayList(UninitializedUsage).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *ControlFlowContext) void {
+        self.initialized_vars.deinit();
+        self.declared_vars.deinit();
+        self.uninitialized_usage.deinit();
+    }
+
+    /// Mark a variable as declared but not initialized
+    pub fn declareVariable(self: *ControlFlowContext, name: []const u8) !void {
+        try self.declared_vars.put(name, true);
+        try self.initialized_vars.put(name, false);
+    }
+
+    /// Mark a variable as initialized
+    pub fn initializeVariable(self: *ControlFlowContext, name: []const u8) !void {
+        try self.initialized_vars.put(name, true);
+    }
+
+    /// Check if a variable is initialized
+    pub fn isVariableInitialized(self: *ControlFlowContext, name: []const u8) bool {
+        return self.initialized_vars.get(name) orelse false;
+    }
+
+    /// Check if a variable is declared
+    pub fn isVariableDeclared(self: *ControlFlowContext, name: []const u8) bool {
+        return self.declared_vars.get(name) orelse false;
+    }
+
+    /// Record uninitialized variable usage
+    pub fn recordUninitializedUsage(self: *ControlFlowContext, name: []const u8, span: SourceSpan) !void {
+        try self.uninitialized_usage.append(UninitializedUsage{
+            .variable_name = name,
+            .usage_span = span,
+        });
+    }
+};
+
+/// Tracks uninitialized variable usage
+const UninitializedUsage = struct {
+    variable_name: []const u8,
+    usage_span: SourceSpan,
+};
+
+/// Control flow validator for Janus language constructs
+pub const ControlFlowValidator = struct {
+    allocator: Allocator,
+    type_system: *TypeSystem,
+    symbol_table: *SymbolTable,
+    errors: std.ArrayList(ControlFlowError),
+
+    pub fn init(allocator: Allocator, type_system: *TypeSystem, symbol_table: *SymbolTable) ControlFlowValidator {
+        return ControlFlowValidator{
+            .allocator = allocator,
+            .type_system = type_system,
+            .symbol_table = symbol_table,
+            .errors = std.ArrayList(ControlFlowError).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *ControlFlowValidator) void {
+        self.errors.deinit();
+    }
+
+    /// Main entry point for control flow validation
+    pub fn validateControlFlow(self: *ControlFlowValidator, node: *AstNode) !ControlFlowResult {
+        self.errors.clearRetainingCapacity();
+
+        var context = ControlFlowContext.init(self.allocator);
+        defer context.deinit();
+
+        const has_return = try self.analyzeNode(node, &context);
+
+        // Convert uninitialized usage to result format
+        var uninitialized_vars: std.ArrayList(UninitializedVariable) = .empty;
+        for (context.uninitialized_usage.items) |usage| {
+            const var_name = try self.allocator.dupe(u8, usage.variable_name);
+            try uninitialized_vars.append(UninitializedVariable{
+                .variable_name = var_name,
+                .usage_span = usage.usage_span,
+                .declaration_span = null, // TODO: Track declaration spans
+            });
+        }
+
+        return ControlFlowResult{
+            .has_return = has_return,
+            .has_unreachable_code = false, // TODO: Implement unreachable code detection
+            .uninitialized_variables = try uninitialized_vars.toOwnedSlice(),
+            .errors = try self.errors.toOwnedSlice(),
+        };
+    }
+
+    /// Analyze a node for control flow patterns
+    fn analyzeNode(self: *ControlFlowValidator, node: *AstNode, context: *ControlFlowContext) (Allocator.Error || error{OutOfMemory})!bool {
+        switch (node.kind) {
+            .function_declaration => return try self.analyzeFunctionDeclaration(node, context),
+            .return_statement => return try self.analyzeReturnStatement(node, context),
+            .if_statement => return try self.analyzeIfStatement(node, context),
+            .while_loop => return try self.analyzeWhileLoop(node, context),
+            .for_loop => return try self.analyzeForLoop(node, context),
+            .break_statement => return try self.analyzeBreakStatement(node, context),
+            .continue_statement => return try self.analyzeContinueStatement(node, context),
+            .variable_declaration => return try self.analyzeVariableDeclaration(node, context),
+            .assignment => return try self.analyzeAssignment(node, context),
+            .variable_reference => return try self.analyzeVariableReference(node, context),
+            .block => return try self.analyzeBlock(node, context),
+            else => {
+                // For other nodes, recursively analyze children
+                var has_return = false;
+                for (node.children) |child| {
+                    if (try self.analyzeNode(child, context)) {
+                        has_return = true;
+                    }
+                }
+                return has_return;
+            },
+        }
+    }
+
+    /// Analyze function declaration for return path validation
+    fn analyzeFunctionDeclaration(self: *ControlFlowValidator, node: *AstNode, context: *ControlFlowContext) !bool {
+        const old_in_function = context.in_function;
+        const old_return_type = context.function_return_type;
+
+        context.in_function = true;
+        context.function_return_type = null; // TODO: Get from function signature
+
+        defer {
+            context.in_function = old_in_function;
+            context.function_return_type = old_return_type;
+        }
+
+        // Analyze function body
+        var has_return = false;
+        for (node.children) |child| {
+            if (try self.analyzeNode(child, context)) {
+                has_return = true;
+            }
+        }
+
+        // Check if function needs return statement
+        if (context.function_return_type != null and !has_return) {
+            try self.errors.append(ControlFlowError{
+                .kind = .missing_return,
+                .message = "Function must return a value on all code paths",
+                .span = self.getNodeSpan(node),
+            });
+        }
+
+        return false; // Function declarations don't affect outer control flow
+    }
+
+    /// Analyze return statements
+    fn analyzeReturnStatement(self: *ControlFlowValidator, node: *AstNode, context: *ControlFlowContext) !bool {
+        if (!context.in_function) {
+            try self.errors.append(ControlFlowError{
+                .kind = .missing_return,
+                .message = "Return statement outside of function",
+                .span = self.getNodeSpan(node),
+            });
+        }
+
+        // TODO: Validate return type matches function signature
+        return true;
+    }
+
+    /// Analyze if statements for control flow
+    fn analyzeIfStatement(self: *ControlFlowValidator, node: *AstNode, context: *ControlFlowContext) !bool {
+        if (node.children.len < 2) return false;
+
+        // Analyze condition
+        _ = try self.analyzeNode(node.children[0], context);
+
+        // Save current initialization state
+        var saved_init_state = std.StringHashMap(bool).init(self.allocator);
+        defer saved_init_state.deinit();
+
+        var init_iter = context.initialized_vars.iterator();
+        while (init_iter.next()) |entry| {
+            try saved_init_state.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
+
+        // Analyze then branch
+        const then_returns = try self.analyzeNode(node.children[1], context);
+
+        // Save then branch initialization state
+        var then_init_state = std.StringHashMap(bool).init(self.allocator);
+        defer then_init_state.deinit();
+
+        init_iter = context.initialized_vars.iterator();
+        while (init_iter.next()) |entry| {
+            try then_init_state.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
+
+        // Restore state for else branch analysis
+        context.initialized_vars.clearRetainingCapacity();
+        var saved_iter = saved_init_state.iterator();
+        while (saved_iter.next()) |entry| {
+            try context.initialized_vars.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
+
+        // Analyze else branch if present
+        var else_returns = false;
+        var else_init_state = std.StringHashMap(bool).init(self.allocator);
+        defer else_init_state.deinit();
+
+        if (node.children.len > 2) {
+            else_returns = try self.analyzeNode(node.children[2], context);
+
+            // Save else branch initialization state
+            init_iter = context.initialized_vars.iterator();
+            while (init_iter.next()) |entry| {
+                try else_init_state.put(entry.key_ptr.*, entry.value_ptr.*);
+            }
+        } else {
+            // No else branch - copy current state
+            init_iter = context.initialized_vars.iterator();
+            while (init_iter.next()) |entry| {
+                try else_init_state.put(entry.key_ptr.*, entry.value_ptr.*);
+            }
+        }
+
+        // Merge initialization states: a variable is initialized after if-else
+        // only if it's initialized in both branches
+        context.initialized_vars.clearRetainingCapacity();
+        var then_iter = then_init_state.iterator();
+        while (then_iter.next()) |entry| {
+            const var_name = entry.key_ptr.*;
+            const then_initialized = entry.value_ptr.*;
+            const else_initialized = else_init_state.get(var_name) orelse false;
+
+            // Variable is initialized after if-else only if initialized in both paths
+            try context.initialized_vars.put(var_name, then_initialized and else_initialized);
+        }
+
+        // Both branches must return for the if statement to guarantee return
+        return then_returns and else_returns;
+    }
+
+    /// Analyze while loops
+    fn analyzeWhileLoop(self: *ControlFlowValidator, node: *AstNode, context: *ControlFlowContext) !bool {
+        const old_in_loop = context.in_loop;
+        context.in_loop = true;
+        defer context.in_loop = old_in_loop;
+
+        // Analyze loop body
+        var has_return = false;
+        for (node.children) |child| {
+            if (try self.analyzeNode(child, context)) {
+                has_return = true;
+            }
+        }
+
+        return has_return;
+    }
+
+    /// Analyze for loops
+    fn analyzeForLoop(self: *ControlFlowValidator, node: *AstNode, context: *ControlFlowContext) !bool {
+        const old_in_loop = context.in_loop;
+        context.in_loop = true;
+        defer context.in_loop = old_in_loop;
+
+        // Analyze loop body
+        var has_return = false;
+        for (node.children) |child| {
+            if (try self.analyzeNode(child, context)) {
+                has_return = true;
+            }
+        }
+
+        return has_return;
+    }
+
+    /// Analyze break statements
+    fn analyzeBreakStatement(self: *ControlFlowValidator, node: *AstNode, context: *ControlFlowContext) !bool {
+        if (!context.in_loop) {
+            try self.errors.append(ControlFlowError{
+                .kind = .invalid_break,
+                .message = "Break statement outside of loop",
+                .span = self.getNodeSpan(node),
+            });
+        }
+        return false;
+    }
+
+    /// Analyze continue statements
+    fn analyzeContinueStatement(self: *ControlFlowValidator, node: *AstNode, context: *ControlFlowContext) !bool {
+        if (!context.in_loop) {
+            try self.errors.append(ControlFlowError{
+                .kind = .invalid_continue,
+                .message = "Continue statement outside of loop",
+                .span = self.getNodeSpan(node),
+            });
+        }
+        return false;
+    }
+
+    /// Analyze variable declarations
+    fn analyzeVariableDeclaration(self: *ControlFlowValidator, node: *AstNode, context: *ControlFlowContext) !bool {
+        if (node.token_text) |var_name| {
+            // Check if variable is already declared in current scope
+            if (context.isVariableDeclared(var_name)) {
+                try self.errors.append(ControlFlowError{
+                    .kind = .multiple_initialization,
+                    .message = "Variable already declared in this scope",
+                    .span = self.getNodeSpan(node),
+                });
+            }
+
+            // Declare the variable
+            try context.declareVariable(var_name);
+
+            // Check if there's an initializer
+            var has_initializer = false;
+            for (node.children) |child| {
+                // Analyze the initializer expression
+                _ = try self.analyzeNode(child, context);
+                has_initializer = true;
+            }
+
+            // Mark as initialized if it has an initializer
+            if (has_initializer) {
+                try context.initializeVariable(var_name);
+            }
+        }
+
+        return false;
+    }
+
+    /// Analyze assignments
+    fn analyzeAssignment(self: *ControlFlowValidator, node: *AstNode, context: *ControlFlowContext) !bool {
+        if (node.children.len >= 2) {
+            // First analyze the value expression (right-hand side)
+            _ = try self.analyzeNode(node.children[1], context);
+
+            // Then handle the target (left-hand side)
+            const target = node.children[0];
+            if (target.kind == .variable_reference and target.token_text != null) {
+                const var_name = target.token_text.?;
+
+                // Check if variable is declared
+                if (!context.isVariableDeclared(var_name)) {
+                    try self.errors.append(ControlFlowError{
+                        .kind = .uninitialized_variable,
+                        .message = "Assignment to undeclared variable",
+                        .span = self.getNodeSpan(target),
+                    });
+                } else {
+                    // Mark variable as initialized
+                    try context.initializeVariable(var_name);
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// Analyze variable references for initialization checking
+    fn analyzeVariableReference(self: *ControlFlowValidator, node: *AstNode, context: *ControlFlowContext) !bool {
+        if (node.token_text) |var_name| {
+            if (!context.isVariableDeclared(var_name)) {
+                try self.errors.append(ControlFlowError{
+                    .kind = .uninitialized_variable,
+                    .message = "Reference to undeclared variable",
+                    .span = self.getNodeSpan(node),
+                });
+            } else if (!context.isVariableInitialized(var_name)) {
+                try self.errors.append(ControlFlowError{
+                    .kind = .use_before_initialization,
+                    .message = "Variable used before initialization",
+                    .span = self.getNodeSpan(node),
+                });
+
+                // Record this uninitialized usage
+                try context.recordUninitializedUsage(var_name, self.getNodeSpan(node));
+            }
+        }
+        return false;
+    }
+
+    /// Analyze block statements
+    fn analyzeBlock(self: *ControlFlowValidator, node: *AstNode, context: *ControlFlowContext) !bool {
+        var has_return = false;
+        for (node.children) |child| {
+            if (try self.analyzeNode(child, context)) {
+                has_return = true;
+            }
+        }
+        return has_return;
+    }
+
+    /// Get source span for a node (placeholder implementation)
+    fn getNodeSpan(self: *ControlFlowValidator, node: *AstNode) SourceSpan {
+        _ = self;
+        return node.span;
+    }
+};
+
+test "control flow validator basic operations" {
+    const allocator = std.testing.allocator;
+
+    // Create mock dependencies
+    var type_system = try @import("type_system.zig").TypeSystem.init(allocator);
+    defer type_system.deinit();
+
+    var symbol_table = try @import("symbol_table.zig").SymbolTable.init(allocator);
+    defer symbol_table.deinit();
+
+    var validator = ControlFlowValidator.init(allocator, &type_system, symbol_table);
+    defer validator.deinit();
+
+    // Test basic initialization tracking
+    var test_node = AstNode{
+        .kind = .variable_declaration,
+        .span = SourceSpan{ .start = SourcePosition{ .line = 1, .column = 1, .offset = 0 }, .end = SourcePosition{ .line = 1, .column = 10, .offset = 9 }, .file_path = "test.jan" },
+        .token_text = "test_var",
+        .children = &[_]*AstNode{},
+    };
+
+    const result = try validator.validateControlFlow(&test_node);
+    defer {
+        var mut_result = result;
+        mut_result.deinit(allocator);
+    }
+
+    // Should have no errors for simple declaration
+    try std.testing.expect(result.errors.len == 0);
+}
+
+test "initialization before use analysis" {
+    const allocator = std.testing.allocator;
+
+    var type_system = try @import("type_system.zig").TypeSystem.init(allocator);
+    defer type_system.deinit();
+
+    var symbol_table = try @import("symbol_table.zig").SymbolTable.init(allocator);
+    defer symbol_table.deinit();
+
+    var validator = ControlFlowValidator.init(allocator, &type_system, symbol_table);
+    defer validator.deinit();
+
+    // Test use before initialization
+    var use_node = AstNode{
+        .kind = .variable_reference,
+        .span = SourceSpan{ .start = SourcePosition{ .line = 1, .column = 1, .offset = 0 }, .end = SourcePosition{ .line = 1, .column = 16, .offset = 15 }, .file_path = "test.jan" },
+        .token_text = "uninitialized_var",
+        .children = &[_]*AstNode{},
+    };
+
+    const result = try validator.validateControlFlow(&use_node);
+    defer {
+        var mut_result = result;
+        mut_result.deinit(allocator);
+    }
+
+    // Should detect use before initialization
+    try std.testing.expect(result.errors.len > 0);
+    try std.testing.expect(result.errors[0].kind == .uninitialized_variable);
+}
+
+test "conditional initialization analysis" {
+    const allocator = std.testing.allocator;
+
+    var type_system = try @import("type_system.zig").TypeSystem.init(allocator);
+    defer type_system.deinit();
+
+    var symbol_table = try @import("symbol_table.zig").SymbolTable.init(allocator);
+    defer symbol_table.deinit();
+
+    var validator = ControlFlowValidator.init(allocator, &type_system, symbol_table);
+    defer validator.deinit();
+
+    // Test that variables initialized in only one branch are not considered initialized
+    var condition_node = AstNode{
+        .kind = .literal,
+        .span = SourceSpan{ .start = SourcePosition{ .line = 1, .column = 4, .offset = 3 }, .end = SourcePosition{ .line = 1, .column = 8, .offset = 7 }, .file_path = "test.jan" },
+        .token_text = "true",
+        .children = &[_]*AstNode{},
+    };
+
+    var var_ref_node = AstNode{
+        .kind = .variable_reference,
+        .span = SourceSpan{ .start = SourcePosition{ .line = 1, .column = 1, .offset = 0 }, .end = SourcePosition{ .line = 1, .column = 15, .offset = 14 }, .file_path = "test.jan" },
+        .token_text = "conditional_var",
+        .children = &[_]*AstNode{},
+    };
+
+    var literal_node = AstNode{
+        .kind = .literal,
+        .span = SourceSpan{ .start = SourcePosition{ .line = 1, .column = 20, .offset = 19 }, .end = SourcePosition{ .line = 1, .column = 22, .offset = 21 }, .file_path = "test.jan" },
+        .token_text = "42",
+        .children = &[_]*AstNode{},
+    };
+
+    var assignment_node = AstNode{
+        .kind = .assignment,
+        .span = SourceSpan{ .start = SourcePosition{ .line = 1, .column = 1, .offset = 0 }, .end = SourcePosition{ .line = 1, .column = 22, .offset = 21 }, .file_path = "test.jan" },
+        .token_text = null,
+        .children = &[_]*AstNode{ &var_ref_node, &literal_node },
+    };
+
+    const if_node = AstNode{
+        .kind = .if_statement,
+        .span = SourceSpan{ .start = SourcePosition{ .line = 1, .column = 1, .offset = 0 }, .end = SourcePosition{ .line = 1, .column = 30, .offset = 29 }, .file_path = "test.jan" },
+        .token_text = null,
+        .children = &[_]*AstNode{ &condition_node, &assignment_node },
+    };
+
+    const result = try validator.validateControlFlow(@constCast(&if_node));
+    defer {
+        var mut_result = result;
+        mut_result.deinit(allocator);
+    }
+
+    // Should detect assignment to undeclared variable
+    try std.testing.expect(result.errors.len > 0);
+}

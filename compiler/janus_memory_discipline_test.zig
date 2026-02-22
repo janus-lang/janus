@@ -29,7 +29,7 @@ test "Janus Memory Discipline: Arena Allocator Sovereignty" {
     std.log.info("🔍 Step 1: Tokenization (Arena-based)", .{});
 
     var tokenizer = Tokenizer.init(allocator, source);
-    var tokens = std.ArrayList(Token).init(allocator);
+    var tokens: std.ArrayList(Token) = .empty;
     // No defer needed - arena cleanup handles everything
 
     while (true) {
@@ -65,7 +65,7 @@ test "Janus Memory Discipline: Arena Allocator Sovereignty" {
     defer c_file.close();
 
     // Generate C code with bounded string operations
-    var c_code = std.ArrayList(u8).init(allocator);
+    var c_code: std.ArrayList(u8) = .empty;
     // No defer needed - arena cleanup handles everything
 
     try c_code.appendSlice("#include <stdio.h>\\n\\n");

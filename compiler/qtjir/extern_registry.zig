@@ -119,12 +119,12 @@ pub const ExternRegistry = struct {
 
     /// Get all registered function names
     pub fn getFunctionNames(self: *const ExternRegistry, allocator: std.mem.Allocator) ![]const []const u8 {
-        var names = std.ArrayList([]const u8).init(allocator);
+        var names: std.ArrayList([]const u8) = .empty;
         var it = self.functions.keyIterator();
         while (it.next()) |key| {
             try names.append(key.*);
         }
-        return names.toOwnedSlice();
+        return try names.toOwnedSlice(allocator);
     }
 };
 

@@ -234,11 +234,11 @@ pub const CIDValidator = struct {
         var diagnostics = CIDDiagnostics{
             .comparison_type = comparison_result.comparison_type,
             .summary = if (comparison_result.are_equal) "CIDs are identical" else "CIDs differ",
-            .recommendations = std.ArrayList([]const u8).init(self.allocator),
+            .recommendations = .empty,
             .performance_analysis = PerformanceAnalysis{
                 .is_fast = comparison_result.metrics.comparison_time_ns < 1000000, // < 1ms
                 .memory_efficient = comparison_result.metrics.memory_used_bytes < 1024,
-                .optimization_suggestions = std.ArrayList([]const u8).init(self.allocator),
+                .optimization_suggestions = .empty,
             },
         };
 

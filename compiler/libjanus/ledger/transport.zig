@@ -79,7 +79,7 @@ pub const TransportRegistry = struct {
 
     pub fn init(allocator: std.mem.Allocator) TransportRegistry {
         return TransportRegistry{
-            .transports = std.ArrayList(*const TransportInterface).init(allocator),
+            .transports = .empty,
             .allocator = allocator,
         };
     }
@@ -407,7 +407,7 @@ fn createNormalizedArchive(dir_path: []const u8, allocator: std.mem.Allocator) !
     // - Directory traversal order
     // - Line ending differences
 
-    var files = std.ArrayList(ArchiveEntry).init(allocator);
+    var files: std.ArrayList(ArchiveEntry) = .empty;
     defer {
         for (files.items) |*entry| {
             allocator.free(entry.path);
@@ -423,7 +423,7 @@ fn createNormalizedArchive(dir_path: []const u8, allocator: std.mem.Allocator) !
     std.sort.insertion(ArchiveEntry, files.items, {}, compareArchiveEntries);
 
     // Create normalized archive
-    var archive = std.ArrayList(u8).init(allocator);
+    var archive: std.ArrayList(u8) = .empty;
     defer archive.deinit();
 
     for (files.items) |entry| {
@@ -439,7 +439,7 @@ fn createNormalizedArchive(dir_path: []const u8, allocator: std.mem.Allocator) !
         try archive.appendSlice(entry.content);
     }
 
-    return archive.toOwnedSlice();
+    return try archive.toOwnedSlice(alloc);
 }
 
 const ArchiveEntry = struct {

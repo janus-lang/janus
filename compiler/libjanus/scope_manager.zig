@@ -64,7 +64,7 @@ pub const Scope = struct {
             .module_path = if (module_path) |path| try allocator.dupe(u8, path) else null,
             .parent = null,
             .functions = std.HashMap([]const u8, std.ArrayList(*FunctionDecl), StringContext, std.hash_map.default_max_load_percentage).init(allocator),
-            .child_scopes = std.ArrayList(*Scope).init(allocator),
+            .child_scopes = .empty,
             .is_module_root = module_path != null,
             .allocator = allocator,
         };
@@ -104,7 +104,7 @@ pub const Scope = struct {
 
         const result = try self.functions.getOrPut(function.name);
         if (!result.found_existing) {
-            result.value_ptr.* = std.ArrayList(*FunctionDecl).init(self.allocator);
+            result.value_ptr.* = std.ArrayList(*FunctionDecl).empty;
         }
         try result.value_ptr.append(owned_function);
     }
@@ -193,7 +193,7 @@ pub const ScopeManager = struct {
             .allocator = allocator,
             .root_scope = root,
             .current_scope = root,
-            .imports = std.ArrayList(Import).init(allocator),
+            .imports = .empty,
             .module_registry = std.HashMap([]const u8, *Scope, StringContext, std.hash_map.default_max_load_percentage).init(allocator),
         };
     }
@@ -251,7 +251,7 @@ pub const ScopeManager = struct {
     }
 
     pub fn getAccessibleScopes(self: *const ScopeManager, allocator: Allocator) ![]const *Scope {
-        var scopes = std.ArrayList(*Scope).init(allocator);
+        var scopes: std.ArrayList(*Scope) = .empty;
 
         // Add current scope (simplified for now)
         // TODO: Add parent traversal when we have proper scope hierarchies
@@ -261,7 +261,7 @@ pub const ScopeManager = struct {
         // TODO: Add proper import handling when we have imports
         _ = self.imports;
 
-        return scopes.toOwnedSlice();
+        return try scopes.toOwnedSlice(alloc);
     }
 
     pub fn isVisible(self: *const ScopeManager, function: *const FunctionDecl, from_scope: *const Scope) bool {
