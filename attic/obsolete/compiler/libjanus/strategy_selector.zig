@@ -321,7 +321,7 @@ pub const StrategySelector = struct {
 
     /// Generate strategy selection report
     pub fn generateReport(self: *const StrategySelector, allocator: Allocator) ![]u8 {
-        var report = std.ArrayList(u8).init(allocator);
+        var report: std.ArrayList(u8) = .empty;
         defer report.deinit();
 
         const writer = report.writer();

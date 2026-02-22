@@ -227,7 +227,7 @@ pub const IRGenerator = struct {
             .llvm_module = module,
             .llvm_builder = builder,
             .symbol_manager = SymbolManager.init(allocator),
-            .optimization_decisions = std.ArrayList(OptimizationDecision).init(allocator),
+            .optimization_decisions = .empty,
         };
     }
 

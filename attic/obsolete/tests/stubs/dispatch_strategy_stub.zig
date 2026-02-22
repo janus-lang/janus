@@ -24,7 +24,7 @@ pub const AdvancedStrategySelector = struct {
     strategy_history: std.ArrayList(StrategyDecision),
 
     pub fn init(allocator: std.mem.Allocator) AdvancedStrategySelector {
-        return .{ .allocator = allocator, .strategy_history = std.ArrayList(StrategyDecision).init(allocator) };
+        return .{ .allocator = allocator, .strategy_history = .empty };
     }
 
     pub fn deinit(self: *AdvancedStrategySelector) void {

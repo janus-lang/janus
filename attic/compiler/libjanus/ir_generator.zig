@@ -217,8 +217,8 @@ pub const IRGenerator = struct {
             .next_block_id = 0,
             .current_block_id = 0,
             .current_block_label = "entry",
-            .current_instructions = ArrayList(JanusIR.Instruction).init(allocator),
-            .current_blocks = ArrayList(JanusIR.BasicBlock).init(allocator),
+            .current_instructions = .empty,
+            .current_blocks = .empty,
             .variable_map = std.AutoHashMap(StrId, u32).init(allocator),
             .next_local_index = 0,
         };
@@ -294,7 +294,7 @@ pub const IRGenerator = struct {
 
     /// Generate parameter list from function node
     fn generateParameters(self: *Self, function_node: *const AstNode) IRGeneratorError![]JanusIR.Parameter {
-        var parameters = ArrayList(JanusIR.Parameter).init(self.allocator);
+        var parameters: ArrayList(JanusIR.Parameter) = .empty;
         defer parameters.deinit();
 
         // Find parameter list in function node children
