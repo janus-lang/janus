@@ -47,9 +47,9 @@ Functions with the same name and arity form a **function family**:
 
 ```janus
 // These form a function family for "add" with arity 2
-func add(x: int, y: int) -> int { x + y }
-func add(x: float, y: float) -> float { x + y }
-func add(x: string, y: string) -> string { x ++ y }
+func add(x: int, y: int) -> int do x + y end
+func add(x: float, y: float) -> float do x + y end
+func add(x: string, y: string) -> string do x ++ y end
 ```
 
 ### Dispatch Resolution
@@ -70,8 +70,8 @@ More specific types are preferred over less specific ones:
 type Number = int | float
 type SpecificInt = int
 
-func process(x: Number) -> string { "generic number" }
-func process(x: SpecificInt) -> string { "specific int" }
+func process(x: Number) -> string do "generic number" end
+func process(x: SpecificInt) -> string do "specific int" end
 
 let result = process(42)  // Calls process(SpecificInt) - more specific
 ```
@@ -82,9 +82,9 @@ let result = process(42)  // Calls process(SpecificInt) - more specific
 
 ```janus
 // Vector operations with multiple dispatch
-func add(a: Vec2, b: Vec2) -> Vec2 { Vec2(a.x + b.x, a.y + b.y) }
-func add(a: Vec3, b: Vec3) -> Vec3 { Vec3(a.x + b.x, a.y + b.y, a.z + b.z) }
-func add(a: Matrix2, b: Matrix2) -> Matrix2 { /* matrix addition */ }
+func add(a: Vec2, b: Vec2) -> Vec2 do Vec2(a.x + b.x, a.y + b.y) end
+func add(a: Vec3, b: Vec3) -> Vec3 do Vec3(a.x + b.x, a.y + b.y, a.z + b.z) end
+func add(a: Matrix2, b: Matrix2) -> Matrix2 do /* matrix addition */ end
 
 // Usage is clean and intuitive
 let v2_result = add(vec2_a, vec2_b)
@@ -96,10 +96,10 @@ let mat_result = add(matrix_a, matrix_b)
 
 ```janus
 // Collision detection between different shape types
-func collide(a: Sphere, b: Sphere) -> CollisionInfo { /* sphere-sphere */ }
-func collide(a: Sphere, b: Box) -> CollisionInfo { /* sphere-box */ }
-func collide(a: Box, b: Sphere) -> CollisionInfo { /* box-sphere */ }
-func collide(a: Box, b: Box) -> CollisionInfo { /* box-box */ }
+func collide(a: Sphere, b: Sphere) -> CollisionInfo do /* sphere-sphere */ end
+func collide(a: Sphere, b: Box) -> CollisionInfo do /* sphere-box */ end
+func collide(a: Box, b: Sphere) -> CollisionInfo do /* box-sphere */ end
+func collide(a: Box, b: Box) -> CollisionInfo do /* box-box */ end
 
 // Symmetric dispatch - order doesn't matter for the API
 let collision1 = collide(sphere, box)
@@ -110,14 +110,14 @@ let collision2 = collide(box, sphere)  // Different implementation, same API
 
 ```janus
 // Type-specific serialization
-func serialize(value: int, writer: Writer) { writer.writeInt(value) }
-func serialize(value: string, writer: Writer) { writer.writeString(value) }
-func serialize(value: Array[T], writer: Writer) {
+func serialize(value: int, writer: Writer) do writer.writeInt(value) end
+func serialize(value: string, writer: Writer) do writer.writeString(value) end
+func serialize(value: Array[T], writer: Writer) do
     writer.writeLength(value.length)
-    for item in value {
+    for item in value do
         serialize(item, writer)  // Recursive dispatch
-    }
-}
+    end
+end
 ```
 
 ### 4. Visitor Pattern Replacement
@@ -126,22 +126,22 @@ func serialize(value: Array[T], writer: Writer) {
 // Instead of traditional visitor pattern
 type ASTNode = Expression | Statement | Declaration
 
-func analyze(node: Expression, context: AnalysisContext) -> AnalysisResult {
+func analyze(node: Expression, context: AnalysisContext) -> AnalysisResult do
     // Expression-specific analysis
-}
+end
 
-func analyze(node: Statement, context: AnalysisContext) -> AnalysisResult {
+func analyze(node: Statement, context: AnalysisContext) -> AnalysisResult do
     // Statement-specific analysis
-}
+end
 
-func analyze(node: Declaration, context: AnalysisContext) -> AnalysisResult {
+func analyze(node: Declaration, context: AnalysisContext) -> AnalysisResult do
     // Declaration-specific analysis
-}
+end
 
 // Clean usage without visitor boilerplate
-for node in ast_nodes {
+for node in ast_nodes do
     let result = analyze(node, context)
-}
+end
 ```
 
 ## Best Practices
@@ -155,26 +155,26 @@ type Shape = Circle | Rectangle | Triangle
 type Circle = { radius: float }
 type Rectangle = { width: float, height: float }
 
-func area(shape: Shape) -> float {
+func area(shape: Shape) -> float do
     // Generic fallback - should rarely be called
     panic("Unknown shape type")
-}
+end
 
-func area(circle: Circle) -> float {
+func area(circle: Circle) -> float do
     PI * circle.radius * circle.radius
-}
+end
 
-func area(rect: Rectangle) -> float {
+func area(rect: Rectangle) -> float do
     rect.width * rect.height
-}
+end
 ```
 
 **Bad**: Flat type hierarchies that cause ambiguity
 
 ```janus
 // These will be ambiguous for mixed calls
-func process(a: TypeA, b: TypeB) -> Result { /* ... */ }
-func process(a: TypeB, b: TypeA) -> Result { /* ... */ }
+func process(a: TypeA, b: TypeB) -> Result do /* ... */ end
+func process(a: TypeB, b: TypeA) -> Result do /* ... */ end
 
 // Calling process(typeA, typeB) vs process(typeB, typeA) is clear,
 // but process(union_value, union_value) might be ambiguous
@@ -184,34 +184,34 @@ func process(a: TypeB, b: TypeA) -> Result { /* ... */ }
 
 ```janus
 // Provide explicit fallbacks for extensibility
-func convert(from: any, to: Type) -> any {
+func convert(from: any, to: Type) -> any do
     // Generic conversion fallback
     error("No conversion available from {} to {}", typeof(from), to)
-}
+end
 
-func convert(from: int, to: Type.String) -> string {
+func convert(from: int, to: Type.String) -> string do
     toString(from)
-}
+end
 
-func convert(from: string, to: Type.Int) -> int {
+func convert(from: string, to: Type.Int) -> int do
     parseInt(from)
-}
+end
 ```
 
 ### 3. Leverage Cross-Module Extension
 
 ```janus
 // In graphics module
-func render(shape: Shape, renderer: Renderer) -> void {
+func render(shape: Shape, renderer: Renderer) -> void do
     // Default rendering
-}
+end
 
 // In advanced_graphics module - extends the signature
 import graphics.{render}
 
-func render(shape: ComplexShape, renderer: AdvancedRenderer) -> void {
+func render(shape: ComplexShape, renderer: AdvancedRenderer) -> void do
     // Advanced rendering for new types
-}
+end
 ```
 
 ### 4. Design for Performance
@@ -220,16 +220,16 @@ func render(shape: ComplexShape, renderer: AdvancedRenderer) -> void {
 // Prefer sealed types for static dispatch
 type sealed Color = Red | Green | Blue
 
-func blend(a: Color, b: Color) -> Color {
+func blend(a: Color, b: Color) -> Color do
     // Static dispatch - zero overhead
-}
+end
 
 // Use open types only when extensibility is needed
 type open Drawable = Shape | Text | Image
 
-func draw(item: Drawable, canvas: Canvas) -> void {
+func draw(item: Drawable, canvas: Canvas) -> void do
     // Runtime dispatch - small overhead
-}
+end
 ```
 
 ## Common Pitfalls
@@ -242,8 +242,8 @@ func draw(item: Drawable, canvas: Canvas) -> void {
 type A = { value: int }
 type B = { value: int }
 
-func process(a: A, b: B) -> string { "A-B" }
-func process(a: B, b: A) -> string { "B-A" }
+func process(a: A, b: B) -> string do "A-B" end
+func process(a: B, b: A) -> string do "B-A" end
 
 // This will be ambiguous if we have A|B union types
 let mixed: A | B = getUnknownType()
@@ -254,8 +254,8 @@ let result = process(mixed, mixed)  // ERROR: Ambiguous dispatch
 
 ```janus
 // Add specific implementations for ambiguous cases
-func process(a: A, b: A) -> string { "A-A" }
-func process(a: B, b: B) -> string { "B-B" }
+func process(a: A, b: A) -> string do "A-A" end
+func process(a: B, b: B) -> string do "B-B" end
 
 // Or use explicit type annotations
 let result = process(mixed as A, mixed as B)
@@ -266,7 +266,7 @@ let result = process(mixed as A, mixed as B)
 **Problem**: Only implementing one direction
 
 ```janus
-func combine(a: TypeA, b: TypeB) -> Result { /* ... */ }
+func combine(a: TypeA, b: TypeB) -> Result do /* ... */ end
 // Missing: func combine(a: TypeB, b: TypeA) -> Result
 
 let result = combine(typeB, typeA)  // ERROR: No matching implementation
@@ -275,8 +275,8 @@ let result = combine(typeB, typeA)  // ERROR: No matching implementation
 **Solution**: Implement all necessary combinations
 
 ```janus
-func combine(a: TypeA, b: TypeB) -> Result { combineAB(a, b) }
-func combine(a: TypeB, b: TypeA) -> Result { combineAB(b, a) }  // Delegate to avoid duplication
+func combine(a: TypeA, b: TypeB) -> Result do combineAB(a, b) end
+func combine(a: TypeB, b: TypeA) -> Result do combineAB(b, a) end  // Delegate to avoid duplication
 ```
 
 ### 3. Over-Specific Implementations
@@ -285,18 +285,18 @@ func combine(a: TypeB, b: TypeA) -> Result { combineAB(b, a) }  // Delegate to a
 
 ```janus
 // Too specific - hard to maintain
-func format(value: int, precision: 0) -> string { /* ... */ }
-func format(value: int, precision: 1) -> string { /* ... */ }
-func format(value: int, precision: 2) -> string { /* ... */ }
+func format(value: int, precision: 0) -> string do /* ... */ end
+func format(value: int, precision: 1) -> string do /* ... */ end
+func format(value: int, precision: 2) -> string do /* ... */ end
 // ... many more cases
 ```
 
 **Solution**: Use generic implementations with parameters
 
 ```janus
-func format(value: int, precision: int) -> string {
+func format(value: int, precision: int) -> string do
     // Single implementation handles all cases
-}
+end
 ```
 
 ### 4. Hidden Performance Costs
@@ -305,23 +305,23 @@ func format(value: int, precision: int) -> string {
 
 ```janus
 // This looks innocent but might be expensive if types are not sealed
-func processMany(items: Array[Drawable]) -> void {
-    for item in items {
+func processMany(items: Array[Drawable]) -> void do
+    for item in items do
         process(item)  // Runtime dispatch on every iteration
-    }
-}
+    end
+end
 ```
 
 **Solution**: Use performance annotations and profiling
 
 ```janus
-func processMany(items: Array[Drawable]) -> void {
+func processMany(items: Array[Drawable]) -> void do
     // Use dispatch profiling to identify hot paths
     @profile_dispatch
-    for item in items {
+    for item in items do
         process(item)
-    }
-}
+    end
+end
 ```
 
 ## Performance Guidelines
@@ -336,9 +336,9 @@ func processMany(items: Array[Drawable]) -> void {
 ```janus
 type sealed Color = Red | Green | Blue
 
-func blend(a: Color, b: Color) -> Color {
+func blend(a: Color, b: Color) -> Color do
     // Static dispatch - compiled to direct function calls
-}
+end
 
 let result = blend(Red, Blue)  // Zero overhead
 ```
@@ -351,9 +351,9 @@ let result = blend(Red, Blue)  // Zero overhead
 ```janus
 type open Drawable = Shape | Text | Image
 
-func render(item: Drawable) -> void {
+func render(item: Drawable) -> void do
     // Runtime dispatch - small lookup overhead
-}
+end
 ```
 
 ### 2. Optimization Strategies
@@ -371,20 +371,20 @@ type open Operation = Add | Subtract | Multiply | Divide
 ```janus
 // Identify expensive dispatch sites
 @profile_dispatch
-func hotFunction(items: Array[ProcessableItem]) -> void {
-    for item in items {
+func hotFunction(items: Array[ProcessableItem]) -> void do
+    for item in items do
         process(item)  // This will be profiled
-    }
-}
+    end
+end
 ```
 
 **Use Compression for Large Signatures**:
 ```janus
 // Large signature groups automatically use compression
 // No code changes needed - handled by the system
-func render(shape: Shape, material: Material, lighting: Lighting) -> void {
+func render(shape: Shape, material: Material, lighting: Lighting) -> void do
     // System automatically compresses dispatch tables for large signatures
-}
+end
 ```
 
 ### 3. Performance Monitoring
@@ -393,29 +393,29 @@ func render(shape: Shape, material: Material, lighting: Lighting) -> void {
 ```janus
 import std.profiling.{measureDispatch}
 
-func benchmarkDispatch() -> void {
+func benchmarkDispatch() -> void do
     let stats = measureDispatch {
-        for i in 0..10000 {
+        for i in 0..10000 do
             process(getRandomItem())
-        }
+        end
     }
 
     println("Average dispatch time: {} ns", stats.averageDispatchTime)
     println("Static dispatch ratio: {:.1}%", stats.staticDispatchRatio * 100)
-}
+end
 ```
 
 **Memory Usage Analysis**:
 ```janus
 import std.profiling.{analyzeDispatchMemory}
 
-func analyzeMemoryUsage() -> void {
+func analyzeMemoryUsage() -> void do
     let analysis = analyzeDispatchMemory("process")
 
     println("Dispatch table size: {} bytes", analysis.tableSize)
     println("Compression ratio: {:.1}%", analysis.compressionRatio * 100)
     println("Cache efficiency: {:.1}%", analysis.cacheEfficiency * 100)
-}
+end
 ```
 
 ## Advanced Features
@@ -424,26 +424,26 @@ func analyzeMemoryUsage() -> void {
 
 ```janus
 // Dispatch can consider effects
-func process(data: Data) -> Result {.pure} {
+func process(data: Data) -> Result {.pure} do
     // Pure implementation
-}
+end
 
-func process(data: Data) -> Result {.io} {
+func process(data: Data) -> Result {.io} do
     // I/O implementation - different signature due to effects
-}
+end
 ```
 
 ### 2. Generic Dispatch
 
 ```janus
 // Generic functions participate in dispatch after monomorphization
-func convert[T, U](from: T, to: Type[U]) -> U {
+func convert[T, U](from: T, to: Type[U]) -> U do
     // Generic conversion
-}
+end
 
-func convert(from: int, to: Type[string]) -> string {
+func convert(from: int, to: Type[string]) -> string do
     // Specific implementation for int -> string
-}
+end
 
 let result = convert(42, Type[string])  // Uses specific implementation
 ```
@@ -452,13 +452,13 @@ let result = convert(42, Type[string])  // Uses specific implementation
 
 ```janus
 // Dispatch based on type constraints
-func sort[T: Comparable](items: Array[T]) -> Array[T] {
+func sort[T: Comparable](items: Array[T]) -> Array[T] do
     // Generic sort for comparable types
-}
+end
 
-func sort(items: Array[int]) -> Array[int] {
+func sort(items: Array[int]) -> Array[int] do
     // Optimized sort for integers
-}
+end
 ```
 
 ## Debugging and Introspection
@@ -468,7 +468,7 @@ func sort(items: Array[int]) -> Array[int] {
 ```janus
 import std.dispatch.{queryDispatch}
 
-func debugDispatch() -> void {
+func debugDispatch() -> void do
     // Query which implementation would be chosen
     let resolution = queryDispatch("process", [Type[int], Type[string]])
 
@@ -476,13 +476,13 @@ func debugDispatch() -> void {
         case .unique(impl) => println("Would call: {}", impl.signature)
         case .ambiguous(impls) => {
             println("Ambiguous between:")
-            for impl in impls {
+            for impl in impls do
                 println("  - {}", impl.signature)
-            }
+            end
         }
         case .noMatch => println("No matching implementation")
     }
-}
+end
 ```
 
 ### 2. Dispatch Tracing
@@ -490,13 +490,13 @@ func debugDispatch() -> void {
 ```janus
 import std.dispatch.{traceDispatch}
 
-func traceExample() -> void {
+func traceExample() -> void do
     traceDispatch(true)  // Enable dispatch tracing
 
     process(someValue)   // This will log dispatch decisions
 
     traceDispatch(false) // Disable tracing
-}
+end
 ```
 
 ### 3. Signature Inspection
@@ -504,16 +504,16 @@ func traceExample() -> void {
 ```janus
 import std.dispatch.{inspectSignature}
 
-func inspectExample() -> void {
+func inspectExample() -> void do
     let signature = inspectSignature("process")
 
     println("Signature: {}", signature.name)
     println("Implementations: {}", signature.implementations.length)
 
-    for impl in signature.implementations {
+    for impl in signature.implementations do
         println("  {} at {}:{}", impl.signature, impl.location.file, impl.location.line)
-    }
-}
+    end
+end
 ```
 
 ## Cross-Module Dispatch
@@ -522,8 +522,8 @@ func inspectExample() -> void {
 
 ```janus
 // math_module.jan
-export func add(x: int, y: int) -> int { x + y }
-export func add(x: float, y: float) -> float { x + y }
+export func add(x: int, y: int) -> int do x + y end
+export func add(x: float, y: float) -> float do x + y end
 ```
 
 ### 2. Extending Signatures
@@ -533,7 +533,7 @@ export func add(x: float, y: float) -> float { x + y }
 import math.{add}  // Import existing signature
 
 // Extend with string implementation
-func add(x: string, y: string) -> string { x ++ y }
+func add(x: string, y: string) -> string do x ++ y end
 ```
 
 ### 3. Conflict Resolution
@@ -555,17 +555,17 @@ resolve_conflict("process", prefer: module1)
 
 ```janus
 // graphics_module.jan
-func render(shape: Shape, renderer: Renderer) -> void {
+func render(shape: Shape, renderer: Renderer) -> void do
     // Basic rendering
-}
+end
 
 // advanced_graphics_module.jan
 import graphics.{render}
 
 // Add advanced rendering without modifying original module
-func render(shape: ComplexShape, renderer: AdvancedRenderer) -> void {
+func render(shape: ComplexShape, renderer: AdvancedRenderer) -> void do
     // Advanced rendering
-}
+end
 ```
 
 ## Examples and Tutorials
@@ -574,19 +574,19 @@ func render(shape: ComplexShape, renderer: AdvancedRenderer) -> void {
 
 ```janus
 // Step 1: Define basic operations
-func calculate(op: Add, a: float, b: float) -> float { a + b }
-func calculate(op: Subtract, a: float, b: float) -> float { a - b }
-func calculate(op: Multiply, a: float, b: float) -> float { a * b }
-func calculate(op: Divide, a: float, b: float) -> float { a / b }
+func calculate(op: Add, a: float, b: float) -> float do a + b end
+func calculate(op: Subtract, a: float, b: float) -> float do a - b end
+func calculate(op: Multiply, a: float, b: float) -> float do a * b end
+func calculate(op: Divide, a: float, b: float) -> float do a / b end
 
 // Step 2: Add integer optimizations
-func calculate(op: Add, a: int, b: int) -> int { a + b }
-func calculate(op: Subtract, a: int, b: int) -> int { a - b }
-func calculate(op: Multiply, a: int, b: int) -> int { a * b }
-func calculate(op: Divide, a: int, b: int) -> int { a / b }
+func calculate(op: Add, a: int, b: int) -> int do a + b end
+func calculate(op: Subtract, a: int, b: int) -> int do a - b end
+func calculate(op: Multiply, a: int, b: int) -> int do a * b end
+func calculate(op: Divide, a: int, b: int) -> int do a / b end
 
 // Step 3: Add string operations
-func calculate(op: Add, a: string, b: string) -> string { a ++ b }
+func calculate(op: Add, a: string, b: string) -> string do a ++ b end
 
 // Usage
 let result1 = calculate(Add, 5, 3)        // int version: 8
@@ -603,51 +603,51 @@ type Rectangle = { width: float, height: float }
 type Triangle = { base: float, height: float }
 
 // Step 2: Implement area calculations
-func area(circle: Circle) -> float {
+func area(circle: Circle) -> float do
     PI * circle.radius * circle.radius
-}
+end
 
-func area(rect: Rectangle) -> float {
+func area(rect: Rectangle) -> float do
     rect.width * rect.height
-}
+end
 
-func area(triangle: Triangle) -> float {
+func area(triangle: Triangle) -> float do
     0.5 * triangle.base * triangle.height
-}
+end
 
 // Step 3: Implement perimeter calculations
-func perimeter(circle: Circle) -> float {
+func perimeter(circle: Circle) -> float do
     2.0 * PI * circle.radius
-}
+end
 
-func perimeter(rect: Rectangle) -> float {
+func perimeter(rect: Rectangle) -> float do
     2.0 * (rect.width + rect.height)
-}
+end
 
-func perimeter(triangle: Triangle) -> float {
+func perimeter(triangle: Triangle) -> float do
     // Assuming equilateral for simplicity
     3.0 * triangle.base
-}
+end
 
 // Step 4: Add collision detection
-func collides(a: Circle, b: Circle) -> bool {
+func collides(a: Circle, b: Circle) -> bool do
     let distance = sqrt((a.center.x - b.center.x)^2 + (a.center.y - b.center.y)^2)
     distance <= (a.radius + b.radius)
-}
+end
 
-func collides(a: Rectangle, b: Rectangle) -> bool {
+func collides(a: Rectangle, b: Rectangle) -> bool do
     // AABB collision detection
     !(a.right < b.left || b.right < a.left || a.bottom < b.top || b.bottom < a.top)
-}
+end
 
-func collides(a: Circle, b: Rectangle) -> bool {
+func collides(a: Circle, b: Rectangle) -> bool do
     // Circle-rectangle collision
     // Implementation details...
-}
+end
 
-func collides(a: Rectangle, b: Circle) -> bool {
+func collides(a: Rectangle, b: Circle) -> bool do
     collides(b, a)  // Symmetric - delegate to circle-rectangle
-}
+end
 
 // Usage
 let shapes = [
@@ -656,15 +656,15 @@ let shapes = [
     Triangle{base: 6.0, height: 4.0}
 ]
 
-for shape in shapes {
+for shape in shapes do
     println("Area: {}", area(shape))      // Dispatches to correct implementation
     println("Perimeter: {}", perimeter(shape))
-}
+end
 
 // Collision detection
-if collides(shapes[0], shapes[1]) {
+if collides(shapes[0], shapes[1]) do
     println("Circle and rectangle collide!")
-}
+end
 ```
 
 ### Tutorial 3: Extensible Serialization System
@@ -679,55 +679,55 @@ type Writer = {
 }
 
 // Step 2: Implement basic serialization
-func serialize(value: int, writer: Writer) -> void {
+func serialize(value: int, writer: Writer) -> void do
     writer.writeInt(value)
-}
+end
 
-func serialize(value: float, writer: Writer) -> void {
+func serialize(value: float, writer: Writer) -> void do
     writer.writeFloat(value)
-}
+end
 
-func serialize(value: string, writer: Writer) -> void {
+func serialize(value: string, writer: Writer) -> void do
     writer.writeString(value)
-}
+end
 
 // Step 3: Add collection serialization
-func serialize[T](array: Array[T], writer: Writer) -> void {
+func serialize[T](array: Array[T], writer: Writer) -> void do
     writer.writeInt(array.length)
-    for item in array {
+    for item in array do
         serialize(item, writer)  // Recursive dispatch
-    }
-}
+    end
+end
 
-func serialize[K, V](map: Map[K, V], writer: Writer) -> void {
+func serialize[K, V](map: Map[K, V], writer: Writer) -> void do
     writer.writeInt(map.size)
-    for (key, value) in map {
+    for (key, value) in map do
         serialize(key, writer)
         serialize(value, writer)
-    }
-}
+    end
+end
 
 // Step 4: Add custom type serialization
 type Person = { name: string, age: int, email: string }
 
-func serialize(person: Person, writer: Writer) -> void {
+func serialize(person: Person, writer: Writer) -> void do
     serialize(person.name, writer)
     serialize(person.age, writer)
     serialize(person.email, writer)
-}
+end
 
 // Step 5: Add format-specific serialization
 type JsonWriter = Writer & { /* JSON-specific methods */ }
 type BinaryWriter = Writer & { /* Binary-specific methods */ }
 
-func serialize(value: Person, writer: JsonWriter) -> void {
+func serialize(value: Person, writer: JsonWriter) -> void do
     // JSON-specific person serialization
     writer.writeString("{")
     writer.writeString("\"name\":\"" ++ value.name ++ "\",")
     writer.writeString("\"age\":" ++ toString(value.age) ++ ",")
     writer.writeString("\"email\":\"" ++ value.email ++ "\"")
     writer.writeString("}")
-}
+end
 
 // Usage
 let person = Person{name: "Alice", age: 30, email: "alice@example.com"}

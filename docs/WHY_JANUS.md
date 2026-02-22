@@ -56,12 +56,12 @@ Every declaration has a **permanent UUID**:
 ### 3. Explicit Everything
 
 ```janus
-func process(allocator: Allocator, data: []u8) !Result {
+func process(allocator: Allocator, data: []u8) !Result do
     // AI can see:
     // - Takes allocator (memory effect visible)
     // - Can fail (! = error union)
     // - Data is a slice (no hidden copies)
-}
+end
 ```
 
 **AI knows:**
@@ -97,14 +97,14 @@ All without string parsing!
 ### Simple, Honest Syntax
 
 ```janus
-func fibonacci(n: i64) !i64 {
-    if n < 0 { fail DomainError }
-    if n <= 1 { return n }
+func fibonacci(n: i64) !i64 do
+    if n < 0 do fail DomainError end
+    if n <= 1 do return n end
 
     let a = fibonacci(n - 1)?
     let b = fibonacci(n - 2)?
     return a + b
-}
+end
 ```
 
 Reads like Python. Compiles like C. Performs like Rust.
@@ -125,19 +125,19 @@ No FFI overhead. Just works.
 
 **Start simple:**
 ```janus
-func hello() {
+func hello() do
     print("Hello, World!")
-}
+end
 ```
 
 **Scale to complex:**
 ```janus
-func processStream(ctx: Context, stream: AsyncStream) !void {
-    using ctx.region {
+func processStream(ctx: Context, stream: AsyncStream) !void do
+    using ctx.region do
         let buffer = Buffer.with(ctx.allocator)
         // Sophisticated, but still readable
-    }
-}
+    end
+end
 ```
 
 ---
@@ -294,18 +294,18 @@ AND current_profile = 'core'  -- Forbidden!
 ```janus
 use zig "std/ArrayList"
 
-func main() !void {
+func main() !void do
     var list = zig.ArrayList(i64).init(allocator)
     defer list.deinit()
 
-    for i in 0..100 {
+    for i in 0..100 do
         try list.append(i * i)
-    }
+    end
 
-    for item in list.items {
+    for item in list.items do
         print_int(item)
-    }
-}
+    end
+end
 ```
 
 **This compiles and runs today.**

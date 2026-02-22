@@ -955,7 +955,7 @@ end
 
 **Example:**
 ```janus
-let add = func(a: i32, b: i32) -> i32 { a + b }
+let add = func(a: i32, b: i32) -> i32 do a + b end
 let add5 = add(5, _)        // Captures first arg
 let doubled = map(numbers, multiply(_, 2))
 ```
@@ -974,7 +974,7 @@ let doubled = map(numbers, multiply(_, 2))
 let add5 = add(5, _)
 
 // Desugars to
-let add5 = func(x: i32) -> i32 { add(5, x) }
+let add5 = func(x: i32) -> i32 do add(5, x) end
 ```
 
 **Profile:** `:core` and above
@@ -1050,19 +1050,19 @@ V proves you don't need a Garbage Collector (Java/Go) to be safe, and you don't 
 ```janus
 // v0.2.5: Region Allocators
 profile :sovereign
-func process(req: Request) -> Response {
+func process(req: Request) -> Response do
   with_scratchpad |scratch| do
     let data = scratch.alloc(parse(req))
     return process(data)
   end  // ALL allocations freed here
-}
+end
 
 // v0.2.6: Mutable Value Semantics
-func transform(data: LargeStruct) -> LargeStruct {
+func transform(data: LargeStruct) -> LargeStruct do
   var modified = data  // Looks like copy, actually move (COW)
   modified.field = 42  // In-place mutation (proven unique)
   return modified      // Transfer ownership
-}  // Auto-destructor runs
+end  // Auto-destructor runs
 
 // v0.2.8: Hot Reloading
 // Developer changes function in editor
@@ -1071,12 +1071,12 @@ func transform(data: LargeStruct) -> LargeStruct {
 // NO full recompile needed!
 
 // v0.2.11: Capability-Based Sharing
-func restricted_read(path: string) 
+func restricted_read(path: string)
   requires cap FileSystem { read: true, prefix: "/safe/" }
-  -> Result[string, Error] 
-{
+  -> Result[string, Error]
+do
   return std.fs.read(path)
-}
+end
 ```
 
 ### Integration Points
@@ -1201,20 +1201,20 @@ func get(map: Map<K, V>, key: K) -> V {
 **The Requirement:**
 ```janus
 // ✅ TOTAL FUNCTION (returns Option)
-func head(list: [T]) -> T? {
+func head(list: [T]) -> T? do
     return if list.len > 0 then Some(list[0]) else None
-}
+end
 
 // ✅ TOTAL FUNCTION (returns Result)
-func divide(a: i32, b: i32) -> Result<i32, MathError> {
+func divide(a: i32, b: i32) -> Result<i32, MathError> do
     return Err(MathError.DivisionByZero) when b == 0
     return Ok(a / b)
-}
+end
 
 // ✅ TOTAL FUNCTION (returns Option)
-func get(map: Map<K, V>, key: K) -> V? {
+func get(map: Map<K, V>, key: K) -> V? do
     return map.data.get(key)  // Returns None if missing
-}
+end
 ```
 
 ### The _unchecked Escape Hatch
@@ -1223,10 +1223,10 @@ For performance-critical code in `:service` and `:sovereign` profiles, we provid
 
 ```janus
 // ✅ ALLOWED in :service with {.safety: raw}
-func head_unchecked(list: [T]) -> T {
+func head_unchecked(list: [T]) -> T do
     requires list.len > 0;  // Runtime assertion
     return list[0]
-}
+end
 
 // Usage requires explicit annotation
 {.safety: raw}
@@ -1659,10 +1659,10 @@ The LSP server (`janusd`) is **not just IDE support**. It's the **Smalltalk imag
 
 **Janus's equivalent (coming in Tag Functions RFC-015):**
 ```janus
-comptime fn sql(template: string) -> Query {
+comptime fn sql(template: string) -> Query do
   // Parse SQL at compile time
   // Return type-safe query builder
-}
+end
 
 // Usage:
 let query = sql`SELECT * FROM users WHERE id = ${user_id}`

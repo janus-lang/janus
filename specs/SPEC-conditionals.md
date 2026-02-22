@@ -13,11 +13,11 @@ Conditional statements allow the execution of different code paths based on a bo
 The syntax for a conditional statement is: [COND-02]
 
 ```janus
-if condition {
+if condition do
     // true path
-} else {
+else do
     // false path (optional)
-}
+end
 ```
 
 ## 3. Semantics

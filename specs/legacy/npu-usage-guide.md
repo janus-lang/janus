@@ -201,11 +201,11 @@ defer ctx.deinit()
 const manifest = try ctx.capabilityManifest(allocator)
 defer allocator.free(manifest)
 
-for (manifest) |entry| {
-  if (entry.capability == "CapApu") {
+for (manifest) |entry| do
+  if (entry.capability == "CapApu") do
     log.info("Unified fabric available; zero-copy = {}", .{entry.zero_copy})
-  }
-}
+  end
+end
 ```
 
 **Environment Overrides (for testing and CI):**
@@ -380,9 +380,9 @@ let tensor_data: tensor<f32, 128 x 128> on sram  // ✅ With :compute
 ```janus
 // Handle device-specific errors
 let result := try compute_on_npu(input) or do |err|
-  log.warn("NPU computation failed", err: err)
-  let fallback := compute_on_cpu(input)
-  fallback
+    log.warn("NPU computation failed", err: err)
+    let fallback := compute_on_cpu(input)
+    fallback
 end
 ```
 
@@ -512,7 +512,7 @@ log.info("Profile results", profile: profile_result)
 ### Batch Inference
 
 ```janus
-func batch_infer(model: Model, batch: []Tensor) -> []Tensor {
+func batch_infer(model: Model, batch: []Tensor) -> []Tensor do
   let results := []
 
   // Prefetch model weights to fast memory
@@ -531,13 +531,13 @@ func batch_infer(model: Model, batch: []Tensor) -> []Tensor {
   end
 
   return results
-}
+end
 ```
 
 ### Model Training Loop
 
 ```janus
-func train_model(model: Model, dataset: Dataset) -> Model {
+func train_model(model: Model, dataset: Dataset) -> Model do
   let optimizer := Adam(learning_rate: 0.001)
 
   for epoch in 0..<100 do
@@ -559,13 +559,13 @@ func train_model(model: Model, dataset: Dataset) -> Model {
   end
 
   return model
-}
+end
 ```
 
 ### Real-time Processing
 
 ```janus
-func real_time_pipeline(input_stream: InputStream) -> OutputStream {
+func real_time_pipeline(input_stream: InputStream) -> OutputStream do
   stream processing_stream on device(npu)
   stream output_stream on device(cpu)
 
@@ -586,7 +586,7 @@ func real_time_pipeline(input_stream: InputStream) -> OutputStream {
       output_stream.send(result)
     }
   end
-}
+end
 ```
 
 ## Troubleshooting

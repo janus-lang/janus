@@ -46,22 +46,22 @@ The ultimate proof of this epic is the correct execution of recursive integer ma
 
 ### 3.1 Factorial
 ```janus
-func factorial(n: i32) -> i32 {
-    if n < 2 {
+func factorial(n: i32) -> i32 do
+    if n < 2 do
         return 1
-    }
+    end
     return n * factorial(n - 1)
-}
+end
 ```
 
 ### 3.2 Fibonacci
 ```janus
-func fib(n: i32) -> i32 {
-    if n < 2 {
+func fib(n: i32) -> i32 do
+    if n < 2 do
         return n
-    }
+    end
     return fib(n-1) + fib(n-2)
-}
+end
 ```
 
 ---

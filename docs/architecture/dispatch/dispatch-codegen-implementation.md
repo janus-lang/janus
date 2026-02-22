@@ -154,8 +154,8 @@ Memory Layout:    Cache-friendly, aligned structures
 ### Static Dispatch (Zero Overhead)
 
 ```janus
-func add(a: i32, b: i32) -> i32 { return a + b; }
-func add(a: f64, b: f64) -> f64 { return a + b; }
+func add(a: i32, b: i32) -> i32 do return a + b end
+func add(a: f64, b: f64) -> f64 do return a + b end
 
 // Resolved at compile time → direct call
 let result = add(1, 2);  // Generates: call @add_i32_i32
@@ -169,9 +169,9 @@ let result = add(1, 2);  // Generates: call @add_i32_i32
 ### Dynamic Dispatch (Runtime Resolution)
 
 ```janus
-func process(x: any) -> string {
+func process(x: any) -> string do
     // Multiple overloads for different types
-}
+end
 
 // Generates dispatch stub
 let result = process(value);  // Runtime type checking + jump

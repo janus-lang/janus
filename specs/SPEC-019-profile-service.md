@@ -193,30 +193,30 @@ cancel_trigger   := IDENT '.cancel()'
 
 **Example:**
 ```janus
-func main() {
+func main() do
     let token = CancelToken.new()
 
-    nursery {
+    nursery do
         spawn worker(token)
         spawn timeout_canceller(token, 5000)  // Cancel after 5s
-    }
-}
+    end
+end
 
-async func worker(token: CancelToken) {
-    while !token.is_cancelled() {
+async func worker(token: CancelToken) do
+    while !token.is_cancelled() do
         // Do work
         let result = await fetch_next_item()
         process(result)
 
         // Cooperative yield point
         token.check()  // Throws CancellationError if cancelled
-    }
-}
+    end
+end
 
-async func timeout_canceller(token: CancelToken, ms: i64) {
+async func timeout_canceller(token: CancelToken, ms: i64) do
     await sleep(ms)
     token.cancel()  // Signal cancellation to all holders
-}
+end
 ```
 
 **Semantics:**
@@ -234,32 +234,32 @@ async func timeout_canceller(token: CancelToken, ms: i64) {
 
 **Example (Nursery Integration):**
 ```janus
-nursery |n| {
+nursery |n| do
     // n.token is the nursery's cancellation token
     spawn task_a(n.token)
     spawn task_b(n.token)
 
     // If task_a fails, n.token.cancel() is called automatically
     // task_b will see cancellation on next check
-}
+end
 ```
 
 **Example (Linked Tokens):**
 ```janus
-func fetch_with_timeout(url: String, timeout_ms: i64) !Data {
+func fetch_with_timeout(url: String, timeout_ms: i64) !Data do
     let token = CancelToken.new()
 
-    nursery {
-        spawn async {
+    nursery do
+        spawn async do
             await sleep(timeout_ms)
             token.cancel()
-        }
+        end
 
-        spawn async {
+        spawn async do
             return await fetch_data(url, token)
-        }
-    }
-}
+        end
+    end
+end
 ```
 
 **CancelToken API:**

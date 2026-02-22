@@ -48,7 +48,7 @@ Static dispatch occurs when:
 ```janus
 type sealed Color = Red | Green | Blue
 
-func blend(a: Color, b: Color) -> Color {
+func blend(a: Color, b: Color) -> Color do
     // Static dispatch - compiled to direct function calls
     match (a, b) {
         case (Red, Green) => Yellow
@@ -56,7 +56,7 @@ func blend(a: Color, b: Color) -> Color {
         case (Blue, Red) => Magenta
         // ... other combinations
     }
-}
+end
 
 // This compiles to a direct function call - zero overhead
 let result = blend(Red, Blue)
@@ -74,15 +74,15 @@ Dynamic dispatch occurs when:
 ```janus
 type open Drawable = Shape | Text | Image
 
-func render(item: Drawable, canvas: Canvas) -> void {
+func render(item: Drawable, canvas: Canvas) -> void do
     // Runtime dispatch - small lookup overhead
-}
+end
 
 // This requires runtime dispatch table lookup
 let items: Array[Drawable] = getDrawableItems()
-for item in items {
+for item in items do
     render(item, canvas)  // ~10-50ns overhead per call
-}
+end
 ```
 
 **Performance**: Small constant-time lookup overhead.
@@ -97,7 +97,7 @@ for item in items {
 // Good: Sealed type enables static dispatch
 type sealed Operation = Add | Subtract | Multiply | Divide
 
-func calculate(op: Operation, a: float, b: float) -> float {
+func calculate(op: Operation, a: float, b: float) -> float do
     // Static dispatch - zero overhead
     match op {
         case Add => a + b
@@ -105,7 +105,7 @@ func calculate(op: Operation, a: float, b: float) -> float {
         case Multiply => a * b
         case Divide => a / b
     }
-}
+end
 ```
 
 **Avoid open types in hot paths:**
@@ -114,9 +114,9 @@ func calculate(op: Operation, a: float, b: float) -> float {
 // Avoid in performance-critical code
 type open Operation = Add | Subtract | Multiply | Divide
 
-func calculate(op: Operation, a: float, b: float) -> float {
+func calculate(op: Operation, a: float, b: float) -> float do
     // Runtime dispatch - small overhead
-}
+end
 ```
 
 ### 2. Minimize Dispatch in Tight Loops
@@ -124,35 +124,35 @@ func calculate(op: Operation, a: float, b: float) -> float {
 **Bad: Dispatch inside tight loop**
 
 ```janus
-func processArray(items: Array[Processable]) -> void {
-    for item in items {
+func processArray(items: Array[Processable]) -> void do
+    for item in items do
         process(item)  // Dispatch overhead on every iteration
-    }
-}
+    end
+end
 ```
 
 **Good: Batch processing or type-specific loops**
 
 ```janus
-func processArray(items: Array[Processable]) -> void {
+func processArray(items: Array[Processable]) -> void do
     // Group by type to minimize dispatch
     let grouped = groupByType(items)
 
-    for (type, type_items) in grouped {
+    for (type, type_items) in grouped do
         match type {
             case TypeA => processTypeABatch(type_items as Array[TypeA])
             case TypeB => processTypeBBatch(type_items as Array[TypeB])
             // ... other types
         }
-    }
-}
+    end
+end
 
-func processTypeABatch(items: Array[TypeA]) -> void {
+func processTypeABatch(items: Array[TypeA]) -> void do
     // No dispatch overhead - direct calls
-    for item in items {
+    for item in items do
         processTypeA(item)
-    }
-}
+    end
+end
 ```
 
 ### 3. Use Specific Types When Known
@@ -160,10 +160,10 @@ func processTypeABatch(items: Array[TypeA]) -> void {
 **Bad: Using generic types when specific type is known**
 
 ```janus
-func processKnownType(item: Drawable) -> void {
+func processKnownType(item: Drawable) -> void do
     // Runtime dispatch even though we know it's a Circle
     render(item, canvas)
-}
+end
 
 let circle = Circle{radius: 5.0}
 processKnownType(circle)  // Unnecessary dispatch
@@ -172,10 +172,10 @@ processKnownType(circle)  // Unnecessary dispatch
 **Good: Use specific types**
 
 ```janus
-func processCircle(circle: Circle) -> void {
+func processCircle(circle: Circle) -> void do
     // Direct call - no dispatch
     renderCircle(circle, canvas)
-}
+end
 
 let circle = Circle{radius: 5.0}
 processCircle(circle)  // Zero overhead
@@ -188,13 +188,13 @@ Use profiling to identify hot dispatch sites:
 ```janus
 import std.profiling.{profileDispatch}
 
-func hotFunction() -> void {
+func hotFunction() -> void do
     profileDispatch("hotFunction") {
-        for i in 0..1000000 {
+        for i in 0..1000000 do
             process(getItem(i))  // This will be profiled
-        }
+        end
     }
-}
+end
 ```
 
 ## Profiling and Measurement
@@ -204,12 +204,12 @@ func hotFunction() -> void {
 ```janus
 import std.profiling.{measureDispatch, DispatchStats}
 
-func benchmarkDispatch() -> void {
+func benchmarkDispatch() -> void do
     let stats = measureDispatch {
         // Code to benchmark
-        for i in 0..10000 {
+        for i in 0..10000 do
             process(getRandomItem())
-        }
+        end
     }
 
     println("Dispatch Statistics:")
@@ -218,7 +218,7 @@ func benchmarkDispatch() -> void {
     println("  Dynamic dispatch: {} ({:.1}%)", stats.dynamicCalls, stats.dynamicRatio * 100)
     println("  Average dispatch time: {} ns", stats.averageDispatchTime)
     println("  Total dispatch overhead: {} ns", stats.totalOverhead)
-}
+end
 ```
 
 ### 2. Memory Usage Analysis
@@ -226,7 +226,7 @@ func benchmarkDispatch() -> void {
 ```janus
 import std.profiling.{analyzeDispatchMemory}
 
-func analyzeMemoryUsage() -> void {
+func analyzeMemoryUsage() -> void do
     let analysis = analyzeDispatchMemory("process")
 
     println("Memory Analysis for 'process' signature:")
@@ -235,7 +235,7 @@ func analyzeMemoryUsage() -> void {
     println("  Compression ratio: {:.1}%", analysis.compressionRatio * 100)
     println("  Cache efficiency: {:.1}%", analysis.cacheEfficiency * 100)
     println("  Memory per implementation: {} bytes", analysis.bytesPerImplementation)
-}
+end
 ```
 
 ### 3. Hot Path Identification
@@ -243,19 +243,19 @@ func analyzeMemoryUsage() -> void {
 ```janus
 import std.profiling.{identifyHotPaths}
 
-func findHotPaths() -> void {
+func findHotPaths() -> void do
     let hotPaths = identifyHotPaths(threshold: 1000)  // Calls > 1000
 
     println("Hot Dispatch Paths:")
-    for path in hotPaths {
+    for path in hotPaths do
         println("  {}: {} calls, {} ns total", path.signature, path.callCount, path.totalTime)
 
-        if path.dynamicRatio > 0.5 {
+        if path.dynamicRatio > 0.5 do
             println("    ⚠️  High dynamic dispatch ratio: {:.1}%", path.dynamicRatio * 100)
             println("    💡 Consider using sealed types or specific implementations")
-        }
-    }
-}
+        end
+    end
+end
 ```
 
 ## Memory Optimization
@@ -266,10 +266,10 @@ Large signature groups automatically use compression:
 
 ```janus
 // Large signature groups (>50 implementations) automatically compressed
-func render(shape: Shape, material: Material, lighting: Lighting, camera: Camera) -> void {
+func render(shape: Shape, material: Material, lighting: Lighting, camera: Camera) -> void do
     // System automatically compresses dispatch tables
     // No code changes needed
-}
+end
 ```
 
 ### 2. Memory-Efficient Type Design
@@ -280,7 +280,7 @@ func render(shape: Shape, material: Material, lighting: Lighting, camera: Camera
 type sealed Color = Red | Green | Blue | Yellow | Cyan | Magenta
 
 // Efficient: Uses small enum representation
-func blend(a: Color, b: Color) -> Color { /* ... */ }
+func blend(a: Color, b: Color) -> Color do /* ... */ end
 ```
 
 **Avoid: Large type hierarchies when not needed**
@@ -326,11 +326,11 @@ type open Plugin = AudioPlugin | VideoPlugin | NetworkPlugin
 func process(item: Item) -> void
 
 // Avoid: Nested dispatch
-func process(container: Container) -> void {
-    for item in container.items {
+func process(container: Container) -> void do
+    for item in container.items do
         process(item)  // Dispatch inside dispatch
-    }
-}
+    end
+end
 ```
 
 ### 2. Code Organization
@@ -339,15 +339,15 @@ func process(container: Container) -> void {
 
 ```janus
 // Good: Related implementations together
-func serialize(value: int, writer: Writer) -> void { /* ... */ }
-func serialize(value: float, writer: Writer) -> void { /* ... */ }
-func serialize(value: string, writer: Writer) -> void { /* ... */ }
+func serialize(value: int, writer: Writer) -> void do /* ... */ end
+func serialize(value: float, writer: Writer) -> void do /* ... */ end
+func serialize(value: string, writer: Writer) -> void do /* ... */ end
 
 // Better: Use modules to organize
 module serialization {
-    func serialize(value: int, writer: Writer) -> void { /* ... */ }
-    func serialize(value: float, writer: Writer) -> void { /* ... */ }
-    func serialize(value: string, writer: Writer) -> void { /* ... */ }
+    func serialize(value: int, writer: Writer) -> void do /* ... */ end
+    func serialize(value: float, writer: Writer) -> void do /* ... */ end
+    func serialize(value: string, writer: Writer) -> void do /* ... */ end
 }
 ```
 
@@ -358,21 +358,21 @@ module serialization {
 ```janus
 import std.benchmark.{benchmark}
 
-func benchmarkProcessing() -> void {
+func benchmarkProcessing() -> void do
     let items = generateTestItems(10000)
 
     benchmark("Direct processing") {
-        for item in items {
+        for item in items do
             processSpecific(item)  // Direct calls
-        }
+        end
     }
 
     benchmark("Dispatch processing") {
-        for item in items {
+        for item in items do
             process(item)  // Dispatch calls
-        }
+        end
     }
-}
+end
 ```
 
 ## Common Performance Pitfalls
@@ -385,9 +385,9 @@ func benchmarkProcessing() -> void {
 // Inefficient: Open type when closed set is known
 type open Color = Red | Green | Blue
 
-func blend(a: Color, b: Color) -> Color {
+func blend(a: Color, b: Color) -> Color do
     // Runtime dispatch even though all colors are known
-}
+end
 ```
 
 **Solution**: Use sealed types
@@ -396,9 +396,9 @@ func blend(a: Color, b: Color) -> Color {
 // Efficient: Sealed type enables static dispatch
 type sealed Color = Red | Green | Blue
 
-func blend(a: Color, b: Color) -> Color {
+func blend(a: Color, b: Color) -> Color do
     // Static dispatch - zero overhead
-}
+end
 ```
 
 ### 2. Dispatch in Hot Loops
@@ -407,25 +407,25 @@ func blend(a: Color, b: Color) -> Color {
 
 ```janus
 // Inefficient: Dispatch on every iteration
-func processPixels(pixels: Array[Pixel]) -> void {
-    for pixel in pixels {
+func processPixels(pixels: Array[Pixel]) -> void do
+    for pixel in pixels do
         process(pixel)  // Dispatch overhead × pixel count
-    }
-}
+    end
+end
 ```
 
 **Solution**: Batch processing or loop hoisting
 
 ```janus
 // Efficient: Minimize dispatch
-func processPixels(pixels: Array[Pixel]) -> void {
+func processPixels(pixels: Array[Pixel]) -> void do
     // Group by type to reduce dispatch
     let (red_pixels, green_pixels, blue_pixels) = groupPixelsByType(pixels)
 
     processRedPixels(red_pixels)    // Direct calls
     processGreenPixels(green_pixels)
     processBluePixels(blue_pixels)
-}
+end
 ```
 
 ### 3. Over-Specific Implementations
@@ -434,9 +434,9 @@ func processPixels(pixels: Array[Pixel]) -> void {
 
 ```janus
 // Inefficient: Too many specific cases
-func format(value: int, precision: 0) -> string { /* ... */ }
-func format(value: int, precision: 1) -> string { /* ... */ }
-func format(value: int, precision: 2) -> string { /* ... */ }
+func format(value: int, precision: 0) -> string do /* ... */ end
+func format(value: int, precision: 1) -> string do /* ... */ end
+func format(value: int, precision: 2) -> string do /* ... */ end
 // ... 20 more implementations
 ```
 
@@ -444,9 +444,9 @@ func format(value: int, precision: 2) -> string { /* ... */ }
 
 ```janus
 // Efficient: Single implementation with parameters
-func format(value: int, precision: int) -> string {
+func format(value: int, precision: int) -> string do
     // Handle all precisions in one implementation
-}
+end
 ```
 
 ### 4. Ignoring Compression Opportunities
@@ -456,9 +456,9 @@ func format(value: int, precision: int) -> string {
 ```janus
 // Large signature group - should use compression
 func transform(shape: Shape, operation: Operation, context: Context,
-              settings: Settings, cache: Cache) -> Result {
+              settings: Settings, cache: Cache) -> Result do
     // 100+ implementations - needs compression
-}
+end
 ```
 
 **Solution**: Enable compression monitoring
@@ -466,15 +466,15 @@ func transform(shape: Shape, operation: Operation, context: Context,
 ```janus
 import std.profiling.{monitorCompression}
 
-func checkCompressionStatus() -> void {
+func checkCompressionStatus() -> void do
     let status = monitorCompression("transform")
 
-    if status.shouldCompress && !status.isCompressed {
+    if status.shouldCompress && !status.isCompressed do
         println("⚠️  Large signature 'transform' should use compression")
         println("   Implementations: {}", status.implementationCount)
         println("   Memory usage: {} bytes", status.memoryUsage)
-    }
-}
+    end
+end
 ```
 
 ## Advanced Optimization Techniques
@@ -484,7 +484,7 @@ func checkCompressionStatus() -> void {
 ```janus
 import std.optimization.{optimizeDispatchTables}
 
-func optimizeForProduction() -> void {
+func optimizeForProduction() -> void do
     // Collect runtime profile data
     let profile = collectDispatchProfile(duration: 60_seconds)
 
@@ -495,7 +495,7 @@ func optimizeForProduction() -> void {
     println("  Hot paths optimized: {}", profile.hotPathCount)
     println("  Memory saved: {} bytes", profile.memorySaved)
     println("  Performance improvement: {:.1}%", profile.performanceGain * 100)
-}
+end
 ```
 
 ### 2. Custom Dispatch Strategies
@@ -504,7 +504,7 @@ func optimizeForProduction() -> void {
 import std.dispatch.{customDispatchStrategy}
 
 // For very specific performance requirements
-func setupCustomDispatch() -> void {
+func setupCustomDispatch() -> void do
     customDispatchStrategy("render") {
         // Use perfect hashing for graphics rendering
         strategy: .perfectHash,
@@ -518,7 +518,7 @@ func setupCustomDispatch() -> void {
         compressionLevel: .maximum,
         decompressOnDemand: true
     }
-}
+end
 ```
 
 ### 3. Dispatch Table Precomputation
@@ -527,7 +527,7 @@ func setupCustomDispatch() -> void {
 import std.dispatch.{precomputeDispatchTables}
 
 // For applications with known type sets
-func precomputeForDeployment() -> void {
+func precomputeForDeployment() -> void do
     let knownTypes = [
         typeof(Circle), typeof(Rectangle), typeof(Triangle),
         typeof(Sphere), typeof(Cube), typeof(Cylinder)
@@ -539,7 +539,7 @@ func precomputeForDeployment() -> void {
 
     println("Precomputed dispatch tables for {} type combinations",
             knownTypes.length * knownTypes.length)
-}
+end
 ```
 
 ## Performance Monitoring in Production
@@ -549,7 +549,7 @@ func precomputeForDeployment() -> void {
 ```janus
 import std.metrics.{dispatchMetrics}
 
-func monitorProductionPerformance() -> void {
+func monitorProductionPerformance() -> void do
     let metrics = dispatchMetrics.collect()
 
     // Log performance metrics
@@ -560,10 +560,10 @@ func monitorProductionPerformance() -> void {
     log.info("  99th percentile: {} ns", metrics.p99Time)
 
     // Alert on performance degradation
-    if metrics.averageTime > 100 {  // 100ns threshold
+    if metrics.averageTime > 100 do  // 100ns threshold
         alert.warn("Dispatch performance degraded: {} ns average", metrics.averageTime)
-    }
-}
+    end
+end
 ```
 
 ### 2. Memory Usage Monitoring
@@ -571,7 +571,7 @@ func monitorProductionPerformance() -> void {
 ```janus
 import std.metrics.{memoryMetrics}
 
-func monitorMemoryUsage() -> void {
+func monitorMemoryUsage() -> void do
     let memory = memoryMetrics.dispatchTables()
 
     log.info("Dispatch Memory Usage:")
@@ -580,10 +580,10 @@ func monitorMemoryUsage() -> void {
     log.info("  Cache hit rate: {:.1}%", memory.cacheHitRate * 100)
 
     // Alert on memory issues
-    if memory.totalBytes > 100_000_000 {  // 100MB threshold
+    if memory.totalBytes > 100_000_000 do  // 100MB threshold
         alert.warn("Dispatch tables using {} MB memory", memory.totalBytes / 1_000_000)
-    }
-}
+    end
+end
 ```
 
 ## Conclusion

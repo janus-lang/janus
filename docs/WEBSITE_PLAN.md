@@ -49,13 +49,13 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 ┌──────────────────────┬──────────────────────┐
 │  Human Writes:       │  AI Understands:     │
 ├──────────────────────┼──────────────────────┤
-│ func fibonacci(n) {  │ • Pure function      │
-│   if n <= 1 {        │ • No allocations     │
+│ func fibonacci(n) do │ • Pure function      │
+│   if n <= 1 do       │ • No allocations     │
 │     return n         │ • Error handling via │
-│   }                  │   result type        │
+│   end                │   result type        │
 │   return fib(n-1) +  │ • Recursive (tail    │
 │          fib(n-2)    │   call optimizable)  │
-│ }                    │                      │
+│ end                  │                      │
 └──────────────────────┴──────────────────────┘
 ```
 
@@ -98,7 +98,7 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 curl -sSf https://janus-lang.org/install.sh | sh
 
 # Create your first program
-echo 'func main() { print("Hello, Janus!") }' > hello.jan
+echo 'func main() do print("Hello, Janus!") end' > hello.jan
 
 # Run it
 janus run hello.jan

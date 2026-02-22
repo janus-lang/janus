@@ -212,9 +212,9 @@ table.set_layout_strategy(LayoutStrategy.CacheFriendly)
 
 // Monitor cache performance
 let stats = table.get_cache_stats()
-if stats.miss_rate > 0.1 {
+if stats.miss_rate > 0.1 do
   table.reoptimize_layout()
-}
+end
 ```
 
 **Strategy: Table Compression**
@@ -348,9 +348,9 @@ let stats = memory_profiler.get_memory_stats()
 println("Total dispatch table memory: {stats.total_memory_mb}MB")
 println("Cache efficiency: {stats.cache_efficiency * 100}%")
 
-if stats.total_memory_mb > 50 {
+if stats.total_memory_mb > 50 do
   println("⚠️ High memory usage - consider table optimization")
-}
+end
 ```
 
 ### Real-time Monitoring
@@ -407,10 +407,10 @@ compact_table.enable_compression()
 
 // Monitor memory vs performance trade-off
 let metrics = compact_table.get_performance_metrics()
-if metrics.lookup_time_ns > 50 {
+if metrics.lookup_time_ns > 50 do
   // Revert to faster representation
   compact_table.disable_compression()
-}
+end
 ```
 
 ### Garbage Collection Integration
@@ -482,9 +482,9 @@ func performance_critical_function() do
   // Your code here...
 
   let metrics = profiler.stop_profiling()
-  if metrics.overhead_ratio > 0.05 {
+  if metrics.overhead_ratio > 0.05 do
     println("⚠️ Performance regression detected")
-  }
+  end
 end
 ```
 
@@ -512,15 +512,15 @@ end
 func monitor_dispatch_memory() do
   let memory_stats = get_dispatch_memory_stats()
 
-  if memory_stats.total_mb > 100 {
+  if memory_stats.total_mb > 100 do
     println("⚠️ High dispatch table memory usage")
     optimize_dispatch_tables()
-  }
+  end
 
-  if memory_stats.fragmentation > 0.3 {
+  if memory_stats.fragmentation > 0.3 do
     println("⚠️ High memory fragmentation")
     compact_dispatch_tables()
-  }
+  end
 end
 ```
 
@@ -529,13 +529,13 @@ end
 ```janus
 // ✅ Good: Choose optimal table structure based on usage
 func create_optimized_table(family_name: string, expected_size: usize) -> DispatchTable do
-  if expected_size < 10 {
+  if expected_size < 10 do
     return LinearDispatchTable.init(family_name)  // Simple linear search
-  } else if expected_size < 100 {
+  else if expected_size < 100 do
     return HashDispatchTable.init(family_name)    // Hash table lookup
-  } else {
+  else do
     return TreeDispatchTable.init(family_name)    // Balanced tree
-  }
+  end
 end
 ```
 

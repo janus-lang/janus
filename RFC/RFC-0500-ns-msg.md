@@ -973,16 +973,16 @@ Contract agents (smart contract endpoints) subscribe to their own DID path:
 // Contract agent subscribes to invocations targeting itself
 let invocations = subscribe(Query.Contract."contract-did-here".*);
 
-for msg in invocations {
+for msg in invocations do
     // Check if this is a Will-execution
-    if msg.metadata.will_execution_proof {
+    if msg.metadata.will_execution_proof do
         validateExecutionProof(msg.metadata.will_execution_proof);
         checkIdempotencyKey(msg.payload.idempotency_key);
-    }
-    
+    end
+
     // Execute contract method
     execute(msg.payload.method, msg.payload.args);
-}
+end
 ```
 
 ### 5.3.4 Integration Test Vector
@@ -1102,13 +1102,13 @@ $LTP/
 use ns_msg
 use ltp  // LTP profile extensions
 
-func solar_monitor(device_id: DID, location: Geohash) !void {
+func solar_monitor(device_id: DID, location: Geohash) !void do
     // Publish power output every 30 seconds
     let power_topic = $LTP.sensor.{location}.power
-    
-    loop {
+
+    loop do
         let reading = sensor.read_power();
-        
+
         publish(power_topic, SensorReading {
             value: reading.watts,
             unit: "W",
@@ -1118,26 +1118,26 @@ func solar_monitor(device_id: DID, location: Geohash) !void {
             lamport_clock = clock.next(),
             ttl_seconds = 300,       // 5 minute freshness
         })
-        
+
         sleep(Duration.seconds(30))
-    }
-}
+    end
+end
 
 // Grid operator receiving aggregated data
-func grid_operator() !void {
+func grid_operator() !void do
     // Subscribe to all power sensors in Berlin (geohash u33)
     let sub = subscribe($LTP.sensor.u33.*.power)
-    
+
     // Immediately receive all retained values
-    for retained in sub.retained_values {
+    for retained in sub.retained_values do
         update_grid_map(retained.path.geohash, retained.value)
-    }
-    
+    end
+
     // Then process live updates
-    for reading in sub {
+    for reading in sub do
         update_grid_map(reading.path.geohash, reading.payload.value)
-    }
-}
+    end
+end
 ```
 
 ---

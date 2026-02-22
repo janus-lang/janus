@@ -25,27 +25,27 @@
 profile :sovereign
 
 // 1. Scratchpad (Frame-Scoped Arena)
-func process_request(req: Request) -> Response {
+func process_request(req: Request) -> Response do
   with_scratchpad |scratch| do
     let parsed = scratch.alloc(parse(req))
     let validated = scratch.alloc(validate(parsed))
     return process(validated)
   end
   // ALL scratch allocations freed here. Zero cost.
-}
+end
 
 // 2. Owned (Unique Value)
-func create_user() -> User {
+func create_user() -> User do
   let user = User.new()  // Heap allocated, uniquely owned
   return user  // Ownership transferred
-}
+end
 
 // 3. Capability-Gated Shared
-func shared_cache() -> Cache {
+func shared_cache() -> Cache do
   cap SharedMemory
   let cache = Cache.new_shared()
   return cache  // Ref-counted, capability required
-}
+end
 ```
 
 **Tasks:**
@@ -68,21 +68,21 @@ func shared_cache() -> Cache {
 ```janus
 profile :sovereign
 
-func transform_data(data: LargeStruct) -> LargeStruct {
+func transform_data(data: LargeStruct) -> LargeStruct do
   // Looks like a copy, but compiler proves uniqueness
   var modified = data  // NO actual copy (COW)
   modified.field = 42  // In-place mutation (unique!)
   return modified      // Move, not copy
-}
+end
 // data destructor runs here automatically
 
-func pipeline_example() {
+func pipeline_example() do
   let data = load_huge_dataset()  // Heap allocation
   let cleaned = clean(data)        // Logical copy, physical move
   let processed = process(cleaned) // Same
   save(processed)
   // All destructors run in reverse order
-}
+end
 ```
 
 **Tasks:**
@@ -104,13 +104,13 @@ func pipeline_example() {
 ```janus
 profile :core
 
-func safe_example() {
+func safe_example() do
   let numbers = [1, 2, 3, 4, 5]  // Stack or arena-backed
   for n in numbers do
     print(n)
   end
   // Array auto-freed
-}
+end
 ```
 
 ---
@@ -167,19 +167,19 @@ profile :service  // C interop requires :service or higher
 import c "stdlib.h"
 import c "pthread.h"
 
-func use_c_stdlib() {
+func use_c_stdlib() do
     let ptr = c.malloc(1024)  // Direct C call
     defer c.free(ptr)         // Defer works with C
-    
+
     // Janus structs are repr(C) by default in :service+
     let thread: c.pthread_t = undefined
     c.pthread_create(&thread, null, worker_func, null)
-}
+end
 
 // Export to C
-export "C" func janus_api(x: i32) -> i32 {
+export "C" func janus_api(x: i32) -> i32 do
     return x * 2
-}
+end
 ```
 
 **Tasks:**
@@ -199,16 +199,16 @@ export "C" func janus_api(x: i32) -> i32 {
 ```janus
 profile :service
 
-func optimized_memcpy(dest: []u8, src: []u8) {
+func optimized_memcpy(dest: []u8, src: []u8) do
     requires dest.len >= src.len
-    
+
     unsafe {
         // Raw pointer access
         let dest_ptr = dest.ptr()
         let src_ptr = src.ptr()
         @memcpy(dest_ptr, src_ptr, src.len)
     }
-}
+end
 ```
 
 **Rules:**
@@ -233,24 +233,24 @@ capability FileSystem {
     path_prefix: string,
 }
 
-func restricted_read(path: string) 
+func restricted_read(path: string)
     requires cap FileSystem { read: true, path_prefix: "/safe/" }
-    -> Result[string, IoError] 
-{
+    -> Result[string, IoError]
+do
     // Can only read from /safe/ prefix
     return std.fs.read_file(path)
-}
+end
 
-func main() {
-    grant cap FileSystem { 
-        read: true, 
+func main() do
+    grant cap FileSystem {
+        read: true,
         write: false,
         path_prefix: "/safe/"
     } do
         let content = restricted_read("/safe/data.txt")
     end
     // Capability revoked here
-}
+end
 ```
 
 **Tasks:**
@@ -271,11 +271,11 @@ func main() {
 profile :script
 
 // Simple GC for short-lived scripts
-func prototype() {
+func prototype() do
     let data = load_json("config.json")  // GC-managed
     process(data)
     // No manual cleanup needed
-}
+end
 ```
 
 **Implementation:**
@@ -294,17 +294,17 @@ func prototype() {
 ```janus
 struct File {
     handle: FileHandle,
-    
-    destructor() {
+
+    destructor() do
         self.handle.close()
         print("File closed automatically")
-    }
+    end
 }
 
-func use_file() {
+func use_file() do
     let file = File.open("data.txt")
     // Use file...
-}  // Destructor runs here, file.handle.close() called
+end  // Destructor runs here, file.handle.close() called
 ```
 
 **Tasks:**
@@ -321,18 +321,18 @@ func use_file() {
 **Track ownership explicitly:**
 
 ```janus
-func transfer_example() {
+func transfer_example() do
     let data = allocate_big_buffer()  // data owns buffer
-    
+
     process(move data)  // Ownership transferred
-    
+
     // ERROR: use after move
     // print(data.len)  // Compile error!
-}
+end
 
-func process(owned buffer: Buffer) {
+func process(owned buffer: Buffer) do
     // buffer is now owned here
-}  // buffer freed automatically
+end  // buffer freed automatically
 ```
 
 **Tasks:**
@@ -351,22 +351,22 @@ func process(owned buffer: Buffer) {
 ```janus
 profile :sovereign
 
-func high_performance() {
+func high_performance() do
     // Direct memory control
     let allocator = ArenaAllocator.init(page_size * 16)
     defer allocator.deinit()
-    
+
     // Manual allocation
     let buffer = allocator.alloc(Buffer, 1024)
-    
+
     // No automatic cleanup - you control everything
     unsafe {
         @memset(buffer.ptr, 0, buffer.len)
     }
-    
+
     // Explicit free (or use defer)
     allocator.free(buffer)
-}
+end
 ```
 
 **Features:**
@@ -422,12 +422,12 @@ func high_performance() {
 // State preserved across hot reloads
 static mut cache: HashMap<string, Data> = HashMap.init(persistent_allocator)
 
-func api_handler(req: Request) -> Response {
+func api_handler(req: Request) -> Response do
     with_scratchpad |scratch| do
         let temp_data = scratch.alloc(process(req))
         cache.insert(req.id, temp_data.to_persistent())
     end
-}
+end
 // Hot reload: cache persists, scratchpad cleared
 ```
 

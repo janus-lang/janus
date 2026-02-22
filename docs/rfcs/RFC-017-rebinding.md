@@ -86,14 +86,14 @@ let data = i32.parse(data)  // data: i32 (different type!)
 
 ### Data Transformation Pipeline
 ```janus
-func fetch_user(id: i32) -> User!Error {
+func fetch_user(id: i32) -> User!Error do
     let response = http.get($"/api/users/{id}")
     let response = response?             // Propagate error
-    let response = json.parse(response)? 
+    let response = json.parse(response)?
     let user = User.from_json(response)?
     let user = user.validate()?
     return user
-}
+end
 ```
 
 ### Configuration Refinement
@@ -132,11 +132,11 @@ print(x)          // Prints: 1 (outer x unchanged)
 
 ### Function Scope
 ```janus
-func process(input: string) -> string {
+func process(input: string) -> string do
     let input = input.trim()      // Shadows parameter
     let input = input.to_upper()  // Shadows previous
     return input
-}
+end
 ```
 
 ### No Cross-Scope Bleeding
@@ -180,13 +180,13 @@ $ janus query desugar file.jan
 Rebinding pairs elegantly with error propagation:
 
 ```janus
-func load_config(path: string) -> Config!Error {
+func load_config(path: string) -> Config!Error do
     let content = fs.read(path)?
     let content = content.trim()
     let config = toml.parse(content)?
     let config = config.validate()?
     return config
-}
+end
 ```
 
 Each `?` can transform the type, and the shadow keeps the name clean.

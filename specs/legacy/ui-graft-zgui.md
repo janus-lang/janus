@@ -249,7 +249,7 @@ type UiCapabilities = {
 }
 
 // Usage in application
-func create_ui_dashboard(data: ScientificData, caps: UiCapabilities) -> void !UiError {
+func create_ui_dashboard(data: ScientificData, caps: UiCapabilities) -> void !UiError do
     with caps do
         let window_open = zgui.begin_window("Scientific Dashboard")
         if window_open do
@@ -272,14 +272,14 @@ func create_ui_dashboard(data: ScientificData, caps: UiCapabilities) -> void !Ui
             zgui.end_window()
         end
     end
-}
+end
 ```
 
 ### ASTDB Synchronization
 
 ```janus
 // Live UI synchronization with semantic database
-func setup_ui_subscriptions(db: ASTDB, caps: UiCapabilities) -> void !DbError {
+func setup_ui_subscriptions(db: ASTDB, caps: UiCapabilities) -> void !DbError do
     with caps do
         // Subscribe to function definitions
         db.subscribe("func where effects.contains('io.fs.write')") { |results|
@@ -296,7 +296,7 @@ func setup_ui_subscriptions(db: ASTDB, caps: UiCapabilities) -> void !DbError {
             update_performance_gauge(results)
         }
     end
-}
+end
 ```
 
 ---
@@ -306,7 +306,7 @@ func setup_ui_subscriptions(db: ASTDB, caps: UiCapabilities) -> void !DbError {
 ### Basic Interactive Window
 
 ```janus
-func create_demo_window(caps: UiCapabilities) -> void !UiError {
+func create_demo_window(caps: UiCapabilities) -> void !UiError do
     with caps do
         let open = zgui.begin_window("Janus Demo")
         if open do
@@ -326,13 +326,13 @@ func create_demo_window(caps: UiCapabilities) -> void !UiError {
             zgui.end_window()
         end
     end
-}
+end
 ```
 
 ### Scientific Visualization
 
 ```janus
-func render_scientific_plot(data: ND[f64], caps: UiCapabilities) -> void !UiError {
+func render_scientific_plot(data: ND[f64], caps: UiCapabilities) -> void !UiError do
     with caps do
         let plot_open = zgui.begin_window("Scientific Plot", zgui.WindowFlags.NoCollapse)
         if plot_open do
@@ -360,13 +360,13 @@ func render_scientific_plot(data: ND[f64], caps: UiCapabilities) -> void !UiErro
             zgui.end_window()
         end
     end
-}
+end
 ```
 
 ### LSP Integration Example
 
 ```janus
-func create_lsp_panel(diagnostics: [Diagnostic], caps: UiCapabilities) -> void !UiError {
+func create_lsp_panel(diagnostics: [Diagnostic], caps: UiCapabilities) -> void !UiError do
     with caps do
         let panel_open = zgui.begin_window("LSP Diagnostics")
         if panel_open do
@@ -385,7 +385,7 @@ func create_lsp_panel(diagnostics: [Diagnostic], caps: UiCapabilities) -> void !
             zgui.end_window()
         end
     end
-}
+end
 ```
 
 ---
@@ -414,7 +414,7 @@ func zgui.input_text(label: str, buf: []u8, flags: u32) -> bool !UiEffect[ui.int
 ### Arena-Based Resource Management
 
 ```janus
-func run_ui_session(ctx: Context) -> void !UiError {
+func run_ui_session(ctx: Context) -> void !UiError do
     let ui_arena = ArenaAllocator.init(ctx.alloc)
     defer ui_arena.deinit()
 
@@ -422,7 +422,7 @@ func run_ui_session(ctx: Context) -> void !UiError {
         create_main_window(ui_arena.allocator())
         // All UI resources automatically freed on scope exit
     end
-}
+end
 ```
 
 ---
@@ -433,7 +433,7 @@ func run_ui_session(ctx: Context) -> void !UiError {
 
 ```janus
 // Explicit frame timing with budget enforcement
-func render_ui_frame(data: UiData, caps: UiCapabilities) -> FrameResult !UiError {
+func render_ui_frame(data: UiData, caps: UiCapabilities) -> FrameResult !UiError do
     let frame_start = clock.now()
     let budget_remaining = 16ms - (clock.now() - frame_start)
 
@@ -455,14 +455,14 @@ func render_ui_frame(data: UiData, caps: UiCapabilities) -> FrameResult !UiError
 
     let frame_time = clock.now() - frame_start
     return FrameResult.Completed(frame_time)
-}
+end
 ```
 
 ### Cost Monitoring
 
 ```janus
 // Real-time cost tracking
-func monitor_ui_costs() -> CostReport !PerfError {
+func monitor_ui_costs() -> CostReport !PerfError do
     let query = "
         func where effects.contains('ui')
         | group_by func_name
@@ -471,7 +471,7 @@ func monitor_ui_costs() -> CostReport !PerfError {
 
     let results = try astdb.query(query)
     return format_cost_report(results)
-}
+end
 ```
 
 ---
@@ -481,7 +481,7 @@ func monitor_ui_costs() -> CostReport !PerfError {
 ### Unit Tests (Widget Functionality)
 
 ```janus
-test "zgui button interaction" {
+test "zgui button interaction" do
     let ctx = create_test_ui_context()
     defer ctx.deinit()
 
@@ -494,13 +494,13 @@ test "zgui button interaction" {
 
         zgui.end_window()
     end
-}
+end
 ```
 
 ### Integration Tests (ASTDB Sync)
 
 ```janus
-test "ui synchronization with semantic changes" {
+test "ui synchronization with semantic changes" do
     let db = create_test_astdb()
     let ui = create_test_ui()
 
@@ -512,20 +512,20 @@ test "ui synchronization with semantic changes" {
     // Modify function and verify UI updates
     modify_test_function(db)
     assert ui.received_update()
-}
+end
 ```
 
 ### Performance Tests (Frame Budget)
 
 ```janus
-test "ui frame budget compliance" {
+test "ui frame budget compliance" do
     let ui = create_heavy_ui_scene()
 
     for i in 0..100 do
         let frame_time = measure_frame_time(ui.render_frame)
         assert frame_time < 16ms, "Frame exceeded budget: {}", frame_time
     end
-}
+end
 ```
 
 ---

@@ -80,11 +80,11 @@ print x
 At compile time, these are wrapped in an implicit `func main()`:
 
 ```janus
-func main() {
+func main() do
   print "Hello, world!"
   let x := 1 + 2
   print x
-}
+end
 ```
 
 ### 3.2 Entry-Point Allocator Injection

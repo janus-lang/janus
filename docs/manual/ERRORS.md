@@ -29,9 +29,9 @@ A function that can fail **must confess this in its signature**. It does this by
 
 ```janus
 // This function can fail with an 'IoError' or succeed with a 'string'.
-func read_file(path: string, cap: CapFsRead) -> IoError!string {
+func read_file(path: string, cap: CapFsRead) -> IoError!string do
     // ... implementation
-}
+end
 ```
 
 This compile-time contract makes it impossible to ignore the possibility of failure.
@@ -45,7 +45,7 @@ You have two primary, disciplined ways to interact with a function that returns 
 To propagate an error up the call stack, use the `try` keyword. This is the most common case. If the called function returns an error, your function will immediately return that same error. The compiler automatically and safely wraps the error with contextual information (file, line, function name) at each step.
 
 ```janus
-func load_config(cap: CapFsRead) -> Config!Error {
+func load_config(cap: CapFsRead) -> Config!Error do
     // If fs.read fails, try propagates the error out of load_config immediately.
     let text := try fs.read("config.jan", cap)
 
@@ -53,7 +53,7 @@ func load_config(cap: CapFsRead) -> Config!Error {
     let cfg := try parse_config(text)
 
     return cfg
-}
+end
 ```
 
 #### 2\. Handling (`or`)

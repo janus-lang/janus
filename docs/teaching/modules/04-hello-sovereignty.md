@@ -9,9 +9,9 @@ Create a file named `hello.jan` in your editor.
 
 ```janus
 // hello.jan
-func main() {
+func main() do
     print("I think, therefore I am Sovereign.")
-}
+end
 ```
 
 ## 2. The Compilation

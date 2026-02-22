@@ -68,12 +68,12 @@ Janus syntax is designed for **pedagogical clarity**:
 
 ```janus
 // Simple, honest, explicit
-func factorial(n: i32) -> i32 {
-    if n <= 1 {
+func factorial(n: i32) -> i32 do
+    if n <= 1 do
         return 1
-    }
+    end
     return n * factorial(n - 1)
-}
+end
 ```
 
 **No magic:**
@@ -92,7 +92,7 @@ use zig "std/AutoHashMap"
 use zig "std/fs"
 use zig "std/json"
 
-func processData() {
+func processData() do
     var allocator = zig.heap.page_allocator
 
     // Production-grade ArrayList
@@ -104,13 +104,13 @@ func processData() {
     defer map.deinit()
 
     // Production-grade file I/O
-    var file = zig.fs.cwd().openFile("data.txt", .{}) catch |_| {
+    var file = zig.fs.cwd().openFile("data.txt", .{}) catch |_| do
         return
-    }
+    end
     defer file.close()
 
     // You get the idea...
-}
+end
 ```
 
 **Students learn:**
@@ -127,9 +127,9 @@ func processData() {
 
 **Week 1:** Learn loops and functions in clean Janus syntax
 ```janus
-for i in 0..10 {
+for i in 0..10 do
     print(i)
-}
+end
 ```
 
 **Week 2:** Need a dynamic array? Use Zig's ArrayList
@@ -139,7 +139,7 @@ use zig "std/ArrayList"
 var numbers = zig.ArrayList(i32).init(allocator)
 defer numbers.deinit()
 
-numbers.append(42) catch |_| {}
+numbers.append(42) catch |_| do end
 ```
 
 **Week 3:** Build a real CLI tool with file I/O
@@ -147,15 +147,15 @@ numbers.append(42) catch |_| {}
 use zig "std/fs"
 use zig "std/process"
 
-func main() {
+func main() do
     var args = zig.process.args()
-    var file = zig.fs.cwd().openFile(args[1], .{}) catch |_| {
+    var file = zig.fs.cwd().openFile(args[1], .{}) catch |_| do
         println("Could not open file")
         return
-    }
+    end
     defer file.close()
     // ... real file processing
-}
+end
 ```
 
 **By Week 4:** Deploy production code with confidence
@@ -251,10 +251,10 @@ Zig's type system is **compatible** with Janus:
 
 Zig's `catch` syntax works in Janus:
 ```janus
-var file = zig.fs.cwd().openFile("data.txt", .{}) catch |err| {
+var file = zig.fs.cwd().openFile("data.txt", .{}) catch |err| do
     println("Error opening file")
     return
-}
+end
 ```
 
 Students learn **explicit error handling** from day one.
@@ -265,13 +265,13 @@ Students learn **explicit error handling** from day one.
 
 **Janus syntax (clean, pedagogical):**
 ```janus
-func find_files(pattern: String) {
-    for file in directory {
-        if file.matches(pattern) {
+func find_files(pattern: String) do
+    for file in directory do
+        if file.matches(pattern) do
             println(file.name)
-        }
-    }
-}
+        end
+    end
+end
 ```
 
 **With Zig stdlib (production-ready):**
@@ -279,19 +279,19 @@ func find_files(pattern: String) {
 use zig "std/fs"
 use zig "std/mem"
 
-func find_files(pattern: []const u8) {
-    var dir = zig.fs.cwd().openIterableDir(".", .{}) catch |_| {
+func find_files(pattern: []const u8) do
+    var dir = zig.fs.cwd().openIterableDir(".", .{}) catch |_| do
         return
-    }
+    end
     defer dir.close()
 
     var iter = dir.iterate()
-    while iter.next() catch null |entry| {
-        if (zig.mem.indexOf(u8, entry.name, pattern) != null) {
+    while iter.next() catch null |entry| do
+        if (zig.mem.indexOf(u8, entry.name, pattern) != null) do
             println(entry.name)
-        }
-    }
-}
+        end
+    end
+end
 ```
 
 **Students learn:**

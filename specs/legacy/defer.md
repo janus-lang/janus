@@ -26,11 +26,11 @@ Janus uses **Block-Scoped Defer**.
 **Given** a function `main`
 **When** I execute:
 ```janus
-func main() {
+func main() do
     defer println(10)
     defer println(20)
     println(30)
-}
+end
 ```
 
 **Then** the output MUST be:
@@ -47,14 +47,14 @@ func main() {
 **When** I execute:
 
 ```janus
-func main() {
+func main() do
     print("A")
     {
         defer print("B")
         print("C")
     }
     print("D")
-}
+end
 ```
 
 **Then** the output MUST be:
@@ -74,13 +74,13 @@ D
 **When** I execute:
 
 ```janus
-func main() {
+func main() do
     defer println("cleanup")
-    if true {
+    if true do
         return
-    }
+    end
     println("unreachable")
-}
+end
 ```
 
 **Then** the output MUST be:
@@ -95,15 +95,15 @@ cleanup
 **When** I execute:
 
 ```janus
-func main() {
+func main() do
     var i = 0
-    while i < 1 {
+    while i < 1 do
         defer println("loop_exit")
         println("loop_start")
         break
-    }
+    end
     println("after_loop")
-}
+end
 ```
 
 **Then** the output MUST be:

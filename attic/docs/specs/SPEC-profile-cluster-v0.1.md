@@ -226,7 +226,7 @@ supervisor ChatSupervisor, strategy: :one_for_one do
     child ChatRoom, args: ["general"], id: :chat_room
 end
 
-func main(ctx: Context) -> void {
+func main(ctx: Context) -> void do
     // Start supervision tree
     let sup = try ChatSupervisor.start_link(ctx)
 

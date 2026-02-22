@@ -40,9 +40,9 @@ Editor → didOpen/didChange → Parse → Error? → publishDiagnostics → Red
 ### Function Declaration: `greet`
 
 ​```janus
-func greet() {
+func greet() do
     let message = "Hello"
-}
+end
 ​```
 ```
 
@@ -56,11 +56,11 @@ func greet() {
 
 **Example:**
 ```janus
-func greet() { }
+func greet() do end
 
-func main() {
+func main() do
     greet()  // F12 here → jumps to line 1
-}
+end
 ```
 
 ### **Phase 2.5: Semantic Binder Integration**

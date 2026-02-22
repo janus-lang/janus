@@ -212,19 +212,19 @@ type ~Buffer = struct {
     capacity: usize
 }
 
-func process(buf: ~Buffer) -> ~Buffer {
+func process(buf: ~Buffer) -> ~Buffer do
     // Compiler inserts retain/release automatically
     return buf
-}
+end
 ```
 
 **Phase 2: Flow Analysis (v0.3.5)**
 ```janus
-func borrow_only(buf: ~Buffer) -> i32 {
+func borrow_only(buf: ~Buffer) -> i32 do
     // Compiler detects: buf not stored, not returned
     // Optimization: Elide retain/release (95% of ops)
     return buf.data.len
-}
+end
 ```
 
 **Implementation:**
@@ -238,19 +238,19 @@ func borrow_only(buf: ~Buffer) -> i32 {
 Extend existing null-safety to all type checks:
 
 ```janus
-func process(x: ?File) {
-    if x != null {
+func process(x: ?File) do
+    if x != null do
         x.read()  // x narrowed to File in this block
-    }
-}
+    end
+end
 
-func handle(value: any) {
-    if value is i32 {
+func handle(value: any) do
+    if value is i32 do
         let n = value * 2  // value is i32 here
-    } else if value is string {
+    else if value is string do
         println(value)     // value is string here
-    }
-}
+    end
+end
 ```
 
 **Implementation:**
@@ -337,15 +337,15 @@ fn head(list: [T]) -> T {
 }
 
 // ✅ REQUIRED
-fn head(list: [T]) -> T? {
+fn head(list: [T]) -> T? do
     return if list.len > 0 then Some(list[0]) else None
-}
+end
 
 // ✅ ALTERNATIVE (explicit panic in raw mode)
-fn head_unchecked(list: [T]) -> T {
+fn head_unchecked(list: [T]) -> T do
     requires list.len > 0;  // Runtime assertion (only in {.safety: raw})
     return list[0]
-}
+end
 ```
 
 **Profile-Gated Safety:**
@@ -455,12 +455,12 @@ end
 
 **Janus Style (Explicit):**
 ```janus
-func to(i: i32, j: i32) -> Iterator[i32] {
-    while i <= j {
+func to(i: i32, j: i32) -> Iterator[i32] do
+    while i <= j do
         yield i
         i += 1
-    }
-}
+    end
+end
 ```
 
 ###### 2. The Tactic: "Pull" Backtracking
@@ -533,15 +533,15 @@ You want Janus to be malleable. We achieve this via **Comptime Introspection** (
 
 **Janus Style:**
 ```janus
-func serialize(x: any) -> string {
+func serialize(x: any) -> string do
     comptime {
         // Query the ASTDB for the type structure
         let type_info = reflection.type_of(x)
-        for field in type_info.fields {
+        for field in type_info.fields do
              // Generate serialization code
-        }
+        end
     }
-}
+end
 ```
 
 This gives you the power to "extend the language" (e.g., auto-serialization, ORM mapping) without breaking the grammar.
@@ -703,17 +703,17 @@ When `{.verify: true.}` is active in `:sovereign` profile:
 **The Transformation:**
 ```janus
 // Standard Mode (:core/:script) -> Panics at runtime
-func divide(x: i32, y: i32) -> i32 {
+func divide(x: i32, y: i32) -> i32 do
     requires y != 0
     return x / y
-}
+end
 
 // Aegis Mode (:sovereign + verify) -> Compiler Error
 // "Error: Caller 'main' fails precondition 'y != 0' (y could be 0 here)"
-func divide(x: i32, y: i32) -> i32 {
+func divide(x: i32, y: i32) -> i32 do
     requires y != 0
     return x / y
-}
+end
 ```
 
 **The Straitjacket (Verification Subset):**

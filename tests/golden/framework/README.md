@@ -115,13 +115,13 @@ zig run tests/golden/framework/test_runner.zig -- --generate-golden test_case_na
 // @optimization-levels: release_safe, release_fast
 // @validate: ir_structure:validate_static_dispatch:Must contain direct calls only
 
-func example(x: i32) -> i32 {
+func example(x: i32) -> i32 do
     x * 2
-}
+end
 
-func main() {
+func main() do
     let result = example(42)
-}
+end
 ```
 
 ### Error Code Reference

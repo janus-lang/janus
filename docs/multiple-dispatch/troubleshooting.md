@@ -245,9 +245,9 @@ memory_profiler.register_table(dispatch_table)
 // Run your application...
 
 let stats = memory_profiler.get_memory_stats()
-if stats.total_memory_mb > 100 {
+if stats.total_memory_mb > 100 do
   println("⚠️ High dispatch table memory usage: {stats.total_memory_mb}MB")
-}
+end
 ```
 
 **Solutions:**
@@ -279,9 +279,9 @@ module_dispatcher.refresh_dispatch_tables()
 2. **Version-aware dispatch:**
 ```janus
 // Check module versions before dispatch
-if module_dispatcher.has_version_mismatch("serialization") {
+if module_dispatcher.has_version_mismatch("serialization") do
   module_dispatcher.reload_module("serialization")
-}
+end
 ```
 
 ## Performance Problems
@@ -298,9 +298,9 @@ profiler.config.measure_dispatch_overhead = true
 // Your code...
 
 let counters = profiler.get_counters()
-if counters.get_dispatch_overhead_ratio() > 0.05 {  // 5% threshold
+if counters.get_dispatch_overhead_ratio() > 0.05 do  // 5% threshold
   println("⚠️ High dispatch overhead: {counters.get_dispatch_overhead_ratio() * 100}%")
-}
+end
 ```
 
 **Solutions:**
@@ -347,9 +347,9 @@ cache_profiler.monitor_dispatch_tables()
 // Your code...
 
 let cache_stats = cache_profiler.get_cache_stats()
-if cache_stats.miss_rate > 0.2 {  // 20% miss rate threshold
+if cache_stats.miss_rate > 0.2 do  // 20% miss rate threshold
   println("⚠️ High cache miss rate: {cache_stats.miss_rate * 100}%")
-}
+end
 ```
 
 **Solutions:**

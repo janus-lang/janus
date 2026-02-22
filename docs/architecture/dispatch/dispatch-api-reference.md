@@ -27,14 +27,14 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 
 ```janus
 // Basic function definition - automatically participates in dispatch
-func function_name(param1: Type1, param2: Type2) -> ReturnType {
+func function_name(param1: Type1, param2: Type2) -> ReturnType do
     // Implementation
-}
+end
 
 // Multiple implementations form a function family
-func function_name(param1: SpecificType1, param2: Type2) -> ReturnType {
+func function_name(param1: SpecificType1, param2: Type2) -> ReturnType do
     // More specific implementation
-}
+end
 ```
 
 ### Type Annotations for Dispatch Control
@@ -47,8 +47,8 @@ type sealed FastType = Variant1 | Variant2 | Variant3
 type open ExtensibleType = Variant1 | Variant2 | Variant3
 
 // Effect annotations affect dispatch signatures
-func process(data: Data) -> Result {.pure} { /* pure implementation */ }
-func process(data: Data) -> Result {.io} { /* I/O implementation */ }
+func process(data: Data) -> Result {.pure} do /* pure implementation */ end
+func process(data: Data) -> Result {.io} do /* I/O implementation */ end
 ```
 
 ### Explicit Type Annotations
@@ -265,9 +265,9 @@ type DispatchMeasurement = {
 
 // Example usage
 let (result, measurement) = measureDispatch {
-    for i in 0..10000 {
+    for i in 0..10000 do
         process(getItem(i))
-    }
+    end
 }
 
 println("Dispatch overhead: {} ns ({:.1}% of total)",
@@ -284,9 +284,9 @@ func profileDispatch[T](scope_name: string, block: () -> T) -> T
 
 // Example usage
 profileDispatch("image_processing") {
-    for pixel in pixels {
+    for pixel in pixels do
         process(pixel)  // These calls will be profiled
-    }
+    end
 }
 
 // View results
@@ -340,12 +340,12 @@ type HotPath = {
 
 // Example usage
 let hot_paths = identifyHotPaths(threshold: 1000)  // Calls > 1000
-for path in hot_paths {
+for path in hot_paths do
     println("Hot path: {} ({} calls)", path.signature_name, path.call_count)
-    if path.dynamic_ratio > 0.8 {
+    if path.dynamic_ratio > 0.8 do
         println("  ⚠️  High dynamic dispatch ratio: {:.1}%", path.dynamic_ratio * 100)
-    }
-}
+    end
+end
 ```
 
 ## Optimization APIs
@@ -482,13 +482,13 @@ enableCompression("large_signature", CompressionConfig{
 
 ```janus
 // Export signature for cross-module use
-export func signature_name(params...) -> ReturnType { /* ... */ }
+export func signature_name(params...) -> ReturnType do /* ... */ end
 
 // Import existing signature for extension
 import module_name.{signature_name}
 
 // Extend imported signature
-func signature_name(new_param_types...) -> ReturnType { /* ... */ }
+func signature_name(new_param_types...) -> ReturnType do /* ... */ end
 ```
 
 ### Qualified Calls
@@ -533,10 +533,10 @@ type ConflictResolution = enum {
 
 // Example usage
 let conflicts = getConflicts()
-for conflict in conflicts {
+for conflict in conflicts do
     println("Conflict in signature: {}", conflict.signature_name)
     resolveConflict(conflict.signature_name, .preferModule("core"))
-}
+end
 ```
 
 ## Error Handling
@@ -616,9 +616,9 @@ Error E0020: No matching implementation for call to 'process'
 **Solutions:**
 1. Add missing implementation:
    ```janus
-   func process(custom: CustomType, value: int) -> Result {
+   func process(custom: CustomType, value: int) -> Result do
        // Implementation for CustomType
-   }
+   end
    ```
 
 2. Add type conversion:
@@ -628,9 +628,9 @@ Error E0020: No matching implementation for call to 'process'
 
 3. Use explicit fallback:
    ```janus
-   func process(value: any, number: int) -> Result {
+   func process(value: any, number: int) -> Result do
        // Generic fallback implementation
-   }
+   end
    ```
 
 #### Issue: "Ambiguous dispatch" error
@@ -649,8 +649,8 @@ Error E0021: Ambiguous dispatch for call to 'combine'
 **Solutions:**
 1. Add specific implementations for all combinations:
    ```janus
-   func combine(a: TypeA, b: TypeA) -> Result { /* ... */ }
-   func combine(a: TypeB, b: TypeB) -> Result { /* ... */ }
+   func combine(a: TypeA, b: TypeA) -> Result do /* ... */ end
+   func combine(a: TypeB, b: TypeB) -> Result do /* ... */ end
    ```
 
 2. Use explicit type annotations:
@@ -661,9 +661,9 @@ Error E0021: Ambiguous dispatch for call to 'combine'
 3. Redesign type hierarchy to avoid ambiguity:
    ```janus
    type CombinableType = TypeA | TypeB
-   func combine(a: CombinableType, b: CombinableType) -> Result {
+   func combine(a: CombinableType, b: CombinableType) -> Result do
        // Handle all combinations in one implementation
-   }
+   end
    ```
 
 #### Issue: Poor dispatch performance
@@ -676,12 +676,12 @@ Error E0021: Ambiguous dispatch for call to 'combine'
 **Diagnosis:**
 ```janus
 let hot_paths = identifyHotPaths(threshold: 1000)
-for path in hot_paths {
-    if path.dynamic_ratio > 0.8 {
+for path in hot_paths do
+    if path.dynamic_ratio > 0.8 do
         println("Performance issue: {} has {:.1}% dynamic dispatch",
                 path.signature_name, path.dynamic_ratio * 100)
-    }
-}
+    end
+end
 ```
 
 **Solutions:**
@@ -693,15 +693,15 @@ for path in hot_paths {
 2. Batch processing to reduce dispatch frequency:
    ```janus
    // Instead of dispatching on every item
-   for item in items {
+   for item in items do
        process(item)  // Dispatch × item count
-   }
+   end
 
    // Group by type and batch process
    let grouped = groupByType(items)
-   for (type, type_items) in grouped {
+   for (type, type_items) in grouped do
        processType(type, type_items)  // Dispatch × type count
-   }
+   end
    ```
 
 3. Enable compression for large signatures:
