@@ -58,9 +58,34 @@ fn directoriesEqual(a: cache_support.CacheDirectory, bdir: cache_support.CacheDi
     return false;
 }
 
+/// Link an LLVM shared library with explicit system paths.
+/// When using an explicit target triple (GCC-15 sframe workaround),
+/// zig does not auto-discover system paths — add /usr/lib and /usr/include.
+fn linkLLVMLib(mod: *std.Build.Module, name: []const u8) void {
+    mod.addLibraryPath(.{ .cwd_relative = "/usr/lib" });
+    mod.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    mod.linkSystemLibrary(name, .{});
+}
+
 pub fn build(b: *std.Build) void {
     ensureWritableGlobalCache(b);
-    const target = b.standardTargetOptions(.{});
+
+    // Resolve target: On native linux-gnu, force explicit target triple so zig
+    // uses its bundled glibc crt objects instead of the system's crt1.o.
+    // GCC 15's crt1.o contains .sframe sections with R_X86_64_PC64 relocations
+    // that zig's LLD cannot handle. Bundled crt objects have no such issue.
+    // The glibc ABI is preserved, so system shared libraries (LLVM-21) still work.
+    const target = blk: {
+        const raw = b.standardTargetOptions(.{});
+        if (raw.query.os_tag == null and raw.result.os.tag == .linux and raw.result.abi == .gnu) {
+            var q = raw.query;
+            q.cpu_arch = raw.result.cpu.arch;
+            q.os_tag = .linux;
+            q.abi = .gnu;
+            break :blk b.resolveTargetQuery(q);
+        }
+        break :blk raw;
+    };
 
     const optimize = b.standardOptimizeOption(.{});
     const enable_full_suite = b.option(bool, "enable-full-tests", "Run full compiler/unit test suite") orelse false;
@@ -206,6 +231,9 @@ pub fn build(b: *std.Build) void {
     qtjir_mod.addImport("compat_time", compat_time_mod);
     qtjir_mod.addImport("compat_fs", compat_fs_mod);
     qtjir_mod.addOptions("compiler_options", compiler_options);
+    // System include path for LLVM-C headers (@cImport in llvm_bindings.zig).
+    // Required when explicit target triple disables native path discovery.
+    qtjir_mod.addIncludePath(.{ .cwd_relative = "/usr/include" });
 
     // Add qtjir to libjanus for core_profile_codegen
     lib_mod.addImport("qtjir", qtjir_mod);
@@ -458,8 +486,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("runtime/runtime_embed.zig"),
     });
     janus_cli.root_module.link_objects.append(b.allocator, .{ .other_step = blake3_lib }) catch @panic("OOM");
-    janus_cli.root_module.linkSystemLibrary("LLVM-21", .{}); // For pipeline LLVM emitter
-    janus_cli.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" }); // For LLVM headers
+    linkLLVMLib(janus_cli.root_module, "LLVM-21"); // For pipeline LLVM emitter
     janus_cli.root_module.addIncludePath(b.path("third_party/blake3/c"));
     if (enable_sanitizers) {
         // janus_cli.root_module.addCSourceFiles(.{
@@ -942,9 +969,8 @@ pub fn build(b: *std.Build) void {
     verify_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     verify_tests.root_module.addImport("qtjir", qtjir_mod);
 
-    verify_tests.root_module.linkSystemLibrary("LLVM-21", .{});
+    linkLLVMLib(verify_tests.root_module, "LLVM-21");
     // Some systems need explicit include path for LLVM-C headers if not in standard path
-    verify_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
 
     const run_verify_tests = b.addRunArtifact(verify_tests);
     test_step.dependOn(&run_verify_tests.step);
@@ -1293,12 +1319,11 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    forge_hello_tests.root_module.linkSystemLibrary("LLVM-21", .{}); // Pipeline needs LLVM
+    linkLLVMLib(forge_hello_tests.root_module, "LLVM-21"); // Pipeline needs LLVM
     forge_hello_tests.root_module.addImport("janus_lib", lib_mod);
     forge_hello_tests.root_module.addImport("qtjir", qtjir_mod);
     forge_hello_tests.root_module.addImport("astdb_core", astdb_core_mod);
     forge_hello_tests.root_module.addImport("pipeline", pipeline_mod);
-    forge_hello_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" }); // For LLVM headers
 
     const run_forge_hello = b.addRunArtifact(forge_hello_tests);
     run_forge_hello.cwd = b.path(".");
@@ -1589,7 +1614,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     qtjir_llvm_emitter_tests.root_module.addImport("astdb_core", astdb_core_mod);
-    qtjir_llvm_emitter_tests.root_module.linkSystemLibrary("LLVM", .{});
+    linkLLVMLib(qtjir_llvm_emitter_tests.root_module, "LLVM");
     const run_qtjir_llvm_emitter_tests = b.addRunArtifact(qtjir_llvm_emitter_tests);
 
     const test_llvm_emitter_step = b.step("test-llvm-emitter", "Run QTJIR LLVM-C emitter tests");
@@ -1606,7 +1631,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     qtjir_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
-    qtjir_e2e_tests.root_module.linkSystemLibrary("LLVM", .{});
+    linkLLVMLib(qtjir_e2e_tests.root_module, "LLVM");
     const run_qtjir_e2e_tests = b.addRunArtifact(qtjir_e2e_tests);
 
     const test_e2e_step = b.step("test-e2e", "Run QTJIR End-to-End compilation tests");
@@ -1622,7 +1647,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     qtjir_jfind_hello_tests.root_module.addImport("astdb_core", astdb_core_mod);
-    qtjir_jfind_hello_tests.root_module.linkSystemLibrary("LLVM", .{});
+    linkLLVMLib(qtjir_jfind_hello_tests.root_module, "LLVM");
     const run_qtjir_jfind_hello_tests = b.addRunArtifact(qtjir_jfind_hello_tests);
 
     const test_jfind_hello_step = b.step("test-jfind-hello", "Run QTJIR JFind Hello compilation tests");
@@ -1685,8 +1710,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    hello_world_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    hello_world_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(hello_world_e2e_tests.root_module, "LLVM-21");
     hello_world_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     hello_world_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     hello_world_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -1705,8 +1729,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    error_handling_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    error_handling_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(error_handling_e2e_tests.root_module, "LLVM-21");
     error_handling_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     error_handling_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     error_handling_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -1725,8 +1748,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    jfind_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    jfind_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(jfind_e2e_tests.root_module, "LLVM-21");
     jfind_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     jfind_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     jfind_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -1744,8 +1766,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    for_loop_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    for_loop_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(for_loop_e2e_tests.root_module, "LLVM-21");
     for_loop_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     for_loop_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     for_loop_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -1764,8 +1785,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    range_operators_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    range_operators_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(range_operators_e2e_tests.root_module, "LLVM-21");
     range_operators_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     range_operators_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     range_operators_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -1784,8 +1804,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    if_else_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    if_else_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(if_else_e2e_tests.root_module, "LLVM-21");
     if_else_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     if_else_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     if_else_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -1804,8 +1823,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    while_loop_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    while_loop_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(while_loop_e2e_tests.root_module, "LLVM-21");
     while_loop_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     while_loop_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     while_loop_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -1824,8 +1842,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    function_call_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    function_call_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(function_call_e2e_tests.root_module, "LLVM-21");
     function_call_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     function_call_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     function_call_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -1844,8 +1861,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    continue_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    continue_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(continue_e2e_tests.root_module, "LLVM-21");
     continue_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     continue_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     continue_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -1864,8 +1880,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    match_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    match_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(match_e2e_tests.root_module, "LLVM-21");
     match_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     match_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     match_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -1884,8 +1899,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    struct_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    struct_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(struct_e2e_tests.root_module, "LLVM-21");
     struct_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     struct_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     struct_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -1940,8 +1954,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    string_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    string_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(string_e2e_tests.root_module, "LLVM-21");
     string_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     string_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     string_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -1960,8 +1973,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    type_annotation_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    type_annotation_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(type_annotation_e2e_tests.root_module, "LLVM-21");
     type_annotation_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     type_annotation_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     type_annotation_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -1980,8 +1992,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    array_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    array_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(array_e2e_tests.root_module, "LLVM-21");
     array_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     array_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     array_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -2000,8 +2011,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    import_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    import_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(import_e2e_tests.root_module, "LLVM-21");
     import_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     import_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     import_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -2020,8 +2030,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    unary_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    unary_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(unary_e2e_tests.root_module, "LLVM-21");
     unary_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     unary_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     unary_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -2040,8 +2049,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    logical_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    logical_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(logical_e2e_tests.root_module, "LLVM-21");
     logical_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     logical_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     logical_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -2060,8 +2068,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    modulo_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    modulo_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(modulo_e2e_tests.root_module, "LLVM-21");
     modulo_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     modulo_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     modulo_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -2080,8 +2087,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    bitwise_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    bitwise_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(bitwise_e2e_tests.root_module, "LLVM-21");
     bitwise_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     bitwise_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     bitwise_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -2100,8 +2106,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    numeric_literals_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    numeric_literals_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(numeric_literals_e2e_tests.root_module, "LLVM-21");
     numeric_literals_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     numeric_literals_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     numeric_literals_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -2120,8 +2125,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    compound_assignment_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    compound_assignment_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(compound_assignment_e2e_tests.root_module, "LLVM-21");
     compound_assignment_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     compound_assignment_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     compound_assignment_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -2140,8 +2144,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    async_await_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    async_await_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(async_await_e2e_tests.root_module, "LLVM-21");
     async_await_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     async_await_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     async_await_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -2160,8 +2163,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    using_e2e_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    using_e2e_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(using_e2e_tests.root_module, "LLVM-21");
     using_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     using_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     using_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -2458,8 +2460,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    qtjir_arrays_integration_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    qtjir_arrays_integration_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(qtjir_arrays_integration_tests.root_module, "LLVM-21");
     qtjir_arrays_integration_tests.root_module.addImport("astdb_core", astdb_core_mod);
     qtjir_arrays_integration_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     qtjir_arrays_integration_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -2478,8 +2479,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    panic_tests.root_module.linkSystemLibrary("LLVM-21", .{}); // Assuming LLVM-21 as used above
-    panic_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(panic_tests.root_module, "LLVM-21"); // Assuming LLVM-21 as used above
     panic_tests.root_module.addImport("astdb_core", astdb_core_mod);
     panic_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     panic_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -2498,8 +2498,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    string_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    string_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(string_tests.root_module, "LLVM-21");
     string_tests.root_module.addImport("astdb_core", astdb_core_mod);
     string_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     string_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -2518,8 +2517,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    allocator_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    allocator_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(allocator_tests.root_module, "LLVM-21");
     allocator_tests.root_module.addImport("astdb_core", astdb_core_mod);
     allocator_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     allocator_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -2538,8 +2536,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    recursion_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    recursion_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(recursion_tests.root_module, "LLVM-21");
     recursion_tests.root_module.addImport("astdb_core", astdb_core_mod);
     recursion_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     recursion_tests.root_module.addImport("qtjir", qtjir_mod);
@@ -2558,8 +2555,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    while_tests.root_module.linkSystemLibrary("LLVM-21", .{});
-    while_tests.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    linkLLVMLib(while_tests.root_module, "LLVM-21");
     while_tests.root_module.addImport("astdb_core", astdb_core_mod);
     while_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     while_tests.root_module.addImport("qtjir", qtjir_mod);
