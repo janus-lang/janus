@@ -1913,6 +1913,24 @@ pub fn build(b: *std.Build) void {
     test_enum_lower_step.dependOn(&run_enum_lower_tests.step);
     test_step.dependOn(&run_enum_lower_tests.step);
 
+    // Union IR Lowering Tests (SPEC-023 Phase B)
+    const union_lower_tests = b.addTest(.{
+        .name = "union_lower_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("compiler/qtjir/test_union_lower.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    union_lower_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    union_lower_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    union_lower_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_union_lower_tests = b.addRunArtifact(union_lower_tests);
+
+    const test_union_lower_step = b.step("test-union-lower", "Run Union lowering IR-level tests");
+    test_union_lower_step.dependOn(&run_union_lower_tests.step);
+    test_step.dependOn(&run_union_lower_tests.step);
+
     // String Literals E2E Tests
     const string_e2e_tests = b.addTest(.{
         .name = "string_e2e_tests",

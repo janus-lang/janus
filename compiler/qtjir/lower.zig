@@ -2842,9 +2842,45 @@ fn lowerArrayLiteral(ctx: *LoweringContext, node_id: NodeId, node: *const AstNod
 }
 
 /// Lower struct literal: Point { x: 10, y: 20 }
-/// Parser produces children as interleaved [name1, value1, name2, value2, ...]
+/// Also handles union variant construction: Option.Some { value: 42 }
+/// Parser produces children as interleaved [type, name1, value1, name2, value2, ...]
 fn lowerStructLiteral(ctx: *LoweringContext, node_id: NodeId) LowerError!u32 {
     const children = ctx.snapshot.getChildren(node_id);
+
+    // Check if first child is a field_expr (qualified union variant like Option.Some)
+    if (children.len >= 1) {
+        const type_id = children[0];
+        const type_node = ctx.snapshot.getNode(type_id) orelse return error.InvalidNode;
+
+        if (type_node.kind == .field_expr) {
+            // Qualified access: get type name and variant name
+            const fe_children = ctx.snapshot.getChildren(type_id);
+            if (fe_children.len >= 2) {
+                const left_node = ctx.snapshot.getNode(fe_children[0]) orelse return error.InvalidNode;
+                const right_node = ctx.snapshot.getNode(fe_children[1]) orelse return error.InvalidNode;
+
+                if (left_node.kind == .identifier and right_node.kind == .identifier) {
+                    const left_tok = ctx.snapshot.getToken(left_node.first_token) orelse return error.InvalidToken;
+                    const right_tok = ctx.snapshot.getToken(right_node.first_token) orelse return error.InvalidToken;
+                    const type_name = if (left_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+                    const variant_name = if (right_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+
+                    if (try findUnionVariantInfo(ctx, type_name, variant_name)) |info| {
+                        // Union variant with payload — lower first value as payload
+                        var payload_id: ?u32 = null;
+                        if (info.has_payload and children.len >= 3) {
+                            // children: [type, field_name, field_value, ...]
+                            // Grab the first value (children[2])
+                            const val_id = children[2];
+                            const val_node = ctx.snapshot.getNode(val_id) orelse return error.InvalidNode;
+                            payload_id = try lowerExpression(ctx, val_id, val_node);
+                        }
+                        return try ctx.builder.createUnionConstruct(info.tag_index, payload_id);
+                    }
+                }
+            }
+        }
+    }
 
     // Collect field names and values (interleaved: name, value, name, value)
     var field_names = std.ArrayListUnmanaged([]const u8){};
@@ -2933,7 +2969,18 @@ fn lowerFieldExpr(ctx: *LoweringContext, node_id: NodeId) LowerError!u32 {
             if (try findEnumVariantValue(ctx, error_type_name, field_node)) |tag_value| {
                 return try ctx.builder.createConstant(.{ .integer = tag_value });
             }
-            // If not found as error/enum variant, fall through to regular field access
+            // Check if this is a union unit variant access (UnionType.Variant)
+            const field_token_u = ctx.snapshot.getToken(field_node.first_token) orelse return error.InvalidToken;
+            const variant_name_u = if (field_token_u.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+            if (try findUnionVariantInfo(ctx, error_type_name, variant_name_u)) |info| {
+                if (!info.has_payload) {
+                    // Unit variant — emit Union_Construct with tag and zero payload
+                    return try ctx.builder.createUnionConstruct(info.tag_index, null);
+                }
+                // Variant with payload — requires struct literal syntax (Option.Some { value: 42 })
+                // Fall through to regular field access which will be handled by lowerStructLiteral
+            }
+            // If not found as error/enum/union variant, fall through to regular field access
             // which will fail with UndefinedVariable (correct behavior)
         }
     }
@@ -3052,6 +3099,56 @@ fn findEnumVariantValue(ctx: *LoweringContext, enum_type_name: []const u8, varia
                 }
 
                 auto_value += 1;
+            }
+        }
+    }
+
+    return null;
+}
+
+/// Tagged union variant info (SPEC-023 Phase B)
+const UnionVariantInfo = struct {
+    tag_index: i64,
+    has_payload: bool,
+};
+
+/// Find union variant info in AST
+/// Returns tag index (0-indexed) and whether the variant has payload fields
+fn findUnionVariantInfo(ctx: *LoweringContext, type_name: []const u8, variant_name: []const u8) !?UnionVariantInfo {
+    const unit = ctx.snapshot.astdb.getUnitConst(ctx.unit_id) orelse return null;
+
+    for (unit.nodes, 0..) |node, i| {
+        if (node.kind != .union_decl) continue;
+
+        const union_node_id: NodeId = @enumFromInt(@as(u32, @intCast(i)));
+        const union_children = ctx.snapshot.getChildren(union_node_id);
+        if (union_children.len == 0) continue;
+
+        // First child is union type name
+        const name_node = ctx.snapshot.getNode(union_children[0]) orelse continue;
+        const name_token = ctx.snapshot.getToken(name_node.first_token) orelse continue;
+        const decl_name = if (name_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+        if (std.mem.eql(u8, decl_name, type_name)) {
+            // Found union — search variants (children[1..])
+            var tag: i64 = 0;
+            for (union_children[1..]) |variant_id| {
+                const var_node = ctx.snapshot.getNode(variant_id) orelse continue;
+                if (var_node.kind != .variant) continue;
+
+                const var_token = ctx.snapshot.getToken(var_node.first_token) orelse continue;
+                const var_name = if (var_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+                if (std.mem.eql(u8, var_name, variant_name)) {
+                    // Has payload if variant has children (field name/type pairs)
+                    const var_children = ctx.snapshot.getChildren(variant_id);
+                    return .{
+                        .tag_index = tag,
+                        .has_payload = var_children.len > 0,
+                    };
+                }
+
+                tag += 1;
             }
         }
     }
@@ -3249,9 +3346,88 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
             }
         }
 
+        // Track optional payload binding for union destructuring
+        var union_payload_binding: ?[]const u8 = null;
+
         if (is_wildcard) {
             // Always matches
             pattern_matches_val = try ctx.builder.createConstant(.{ .boolean = true });
+        } else if (pattern_node.kind == .struct_literal) {
+            // Union destructuring pattern: Option.Some { value: v }
+            // First child of struct_literal is the type (field_expr)
+            const pat_children = ctx.snapshot.getChildren(pattern_id);
+            if (pat_children.len >= 1) {
+                const pat_type_id = pat_children[0];
+                const pat_type_node = ctx.snapshot.getNode(pat_type_id) orelse return error.InvalidNode;
+
+                if (pat_type_node.kind == .field_expr) {
+                    const fe_children = ctx.snapshot.getChildren(pat_type_id);
+                    if (fe_children.len >= 2) {
+                        const left_n = ctx.snapshot.getNode(fe_children[0]) orelse return error.InvalidNode;
+                        const right_n = ctx.snapshot.getNode(fe_children[1]) orelse return error.InvalidNode;
+
+                        if (left_n.kind == .identifier and right_n.kind == .identifier) {
+                            const l_tok = ctx.snapshot.getToken(left_n.first_token) orelse return error.InvalidToken;
+                            const r_tok = ctx.snapshot.getToken(right_n.first_token) orelse return error.InvalidToken;
+                            const t_name = if (l_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+                            const v_name = if (r_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+
+                            if (try findUnionVariantInfo(ctx, t_name, v_name)) |info| {
+                                // Emit Union_Tag_Check
+                                pattern_matches_val = try ctx.builder.createUnionTagCheck(scrutinee_val, info.tag_index);
+
+                                // Capture binding variable name from pattern fields
+                                // Pattern: Option.Some { value: v } — children[2] is the binding identifier
+                                if (info.has_payload and pat_children.len >= 3) {
+                                    const binding_node = ctx.snapshot.getNode(pat_children[2]) orelse return error.InvalidNode;
+                                    if (binding_node.kind == .identifier) {
+                                        const b_tok = ctx.snapshot.getToken(binding_node.first_token) orelse return error.InvalidToken;
+                                        union_payload_binding = if (b_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // If not a union pattern, fall through with pattern_matches_val = 0
+            // which will be handled by the generic branch below
+            if (pattern_matches_val == 0) {
+                const pattern_val = try lowerExpression(ctx, pattern_id, pattern_node);
+                const eq_node_id = try ctx.builder.createNode(.Equal);
+                var eq_node = &ctx.builder.graph.nodes.items[eq_node_id];
+                try eq_node.inputs.append(ctx.allocator, scrutinee_val);
+                try eq_node.inputs.append(ctx.allocator, pattern_val);
+                pattern_matches_val = eq_node_id;
+            }
+        } else if (pattern_node.kind == .field_expr) {
+            // Union unit variant pattern: Option.None
+            const fe_children = ctx.snapshot.getChildren(pattern_id);
+            if (fe_children.len >= 2) {
+                const left_n = ctx.snapshot.getNode(fe_children[0]) orelse return error.InvalidNode;
+                const right_n = ctx.snapshot.getNode(fe_children[1]) orelse return error.InvalidNode;
+
+                if (left_n.kind == .identifier and right_n.kind == .identifier) {
+                    const l_tok = ctx.snapshot.getToken(left_n.first_token) orelse return error.InvalidToken;
+                    const r_tok = ctx.snapshot.getToken(right_n.first_token) orelse return error.InvalidToken;
+                    const t_name = if (l_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+                    const v_name = if (r_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+
+                    if (try findUnionVariantInfo(ctx, t_name, v_name)) |info| {
+                        // Emit Union_Tag_Check for unit variant
+                        pattern_matches_val = try ctx.builder.createUnionTagCheck(scrutinee_val, info.tag_index);
+                    }
+                }
+            }
+            // Fallback to regular equality if not a union
+            if (pattern_matches_val == 0) {
+                const pattern_val = try lowerExpression(ctx, pattern_id, pattern_node);
+                const eq_node_id = try ctx.builder.createNode(.Equal);
+                var eq_node = &ctx.builder.graph.nodes.items[eq_node_id];
+                try eq_node.inputs.append(ctx.allocator, scrutinee_val);
+                try eq_node.inputs.append(ctx.allocator, pattern_val);
+                pattern_matches_val = eq_node_id;
+            }
         } else if (pattern_node.kind == .unary_expr) {
             // Check for negation pattern: !value means scrutinee != value
             const pattern_token = ctx.snapshot.getToken(pattern_node.first_token) orelse return error.InvalidToken;
@@ -3315,6 +3491,12 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
         const body_label_id = try ctx.builder.createNode(.Label);
         // Backpatch True
         ctx.builder.graph.nodes.items[branch_id].inputs.items[1] = body_label_id;
+
+        // Union payload extraction: bind destructured variable before body
+        if (union_payload_binding) |binding_name| {
+            const extract_id = try ctx.builder.createUnionPayloadExtract(scrutinee_val);
+            try ctx.scope.put(binding_name, extract_id);
+        }
 
         const body = ctx.snapshot.getNode(body_id) orelse continue;
         if (body.kind == .block_stmt) {

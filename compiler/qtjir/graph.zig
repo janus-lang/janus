@@ -57,6 +57,11 @@ pub const OpCode = enum {
     Error_Union_Unwrap, // Unwrap payload (asserts not error, panics if error)
     Error_Union_Get_Error, // Extract error value (asserts is_error)
 
+    // --- Tagged Unions (SPEC-023 Phase B) ---
+    Union_Construct, // inputs[0] = payload value, data.integer = tag index → { i32, i64 }
+    Union_Tag_Check, // inputs[0] = union value, data.integer = expected tag → i1 (bool)
+    Union_Payload_Extract, // inputs[0] = union value → i32 (extracted payload)
+
     // --- Control Flow ---
     Call, // Function call
     Return,
@@ -1014,6 +1019,40 @@ pub const IRBuilder = struct {
         const id = try self.createNode(.Error_Union_Get_Error);
         var node = &self.graph.nodes.items[id];
         try node.inputs.append(self.graph.allocator, error_union_id);
+        return id;
+    }
+
+    // =========================================================================
+    // Tagged Union Operations (SPEC-023 Phase B)
+    // =========================================================================
+
+    /// Construct tagged union: { tag_index, payload }
+    /// For unit variants (no payload), pass null for payload_id
+    pub fn createUnionConstruct(self: *IRBuilder, tag_index: i64, payload_id: ?u32) !u32 {
+        const id = try self.createNode(.Union_Construct);
+        var node = &self.graph.nodes.items[id];
+        node.data = .{ .integer = tag_index };
+        if (payload_id) |pid| {
+            try node.inputs.append(self.graph.allocator, pid);
+        }
+        return id;
+    }
+
+    /// Check if tagged union has expected tag: tag == expected
+    /// Returns: boolean (true if tag matches)
+    pub fn createUnionTagCheck(self: *IRBuilder, union_id: u32, expected_tag: i64) !u32 {
+        const id = try self.createNode(.Union_Tag_Check);
+        var node = &self.graph.nodes.items[id];
+        node.data = .{ .integer = expected_tag };
+        try node.inputs.append(self.graph.allocator, union_id);
+        return id;
+    }
+
+    /// Extract payload from tagged union (truncated to i32)
+    pub fn createUnionPayloadExtract(self: *IRBuilder, union_id: u32) !u32 {
+        const id = try self.createNode(.Union_Payload_Extract);
+        var node = &self.graph.nodes.items[id];
+        try node.inputs.append(self.graph.allocator, union_id);
         return id;
     }
 };

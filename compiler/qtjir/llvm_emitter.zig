@@ -289,6 +289,10 @@ pub const LLVMEmitter = struct {
             .Error_Union_Is_Error => try self.emitErrorUnionIsError(node),
             .Error_Union_Unwrap => try self.emitErrorUnionUnwrap(node),
             .Error_Union_Get_Error => try self.emitErrorUnionGetError(node),
+            // Tagged unions (SPEC-023 Phase B)
+            .Union_Construct => try self.emitUnionConstruct(node),
+            .Union_Tag_Check => try self.emitUnionTagCheck(node),
+            .Union_Payload_Extract => try self.emitUnionPayloadExtract(node),
             // :service profile - Structured Concurrency (Blocking Model Phase 1)
             .Await => try self.emitAwait(node),
             .Spawn => try self.emitSpawn(node),
@@ -1799,6 +1803,87 @@ pub const LLVMEmitter = struct {
         // Extract error value
         const error_val = llvm.c.LLVMBuildExtractValue(self.builder, eu_val, 1, "eu_error");
         const result = llvm.c.LLVMBuildTrunc(self.builder, error_val, i32_type, "error");
+
+        try self.values.put(node.id, result);
+    }
+
+    // =========================================================================
+    // Tagged Union Emission (SPEC-023 Phase B)
+    // =========================================================================
+    // Tagged unions are { i32 tag, i64 payload }
+    // i32 discriminant supports >256 variants, i64 payload holds zero-extended i32
+
+    /// Get tagged union struct type: { i32 tag, i64 payload }
+    fn getTaggedUnionType(self: *LLVMEmitter) llvm.Type {
+        const i32_type = llvm.int32TypeInContext(self.context);
+        const i64_type = llvm.c.LLVMInt64TypeInContext(self.context);
+        var member_types = [_]llvm.Type{ i32_type, i64_type };
+        return llvm.structTypeInContext(self.context, &member_types, 2, false);
+    }
+
+    /// Emit Union_Construct: creates { tag, payload }
+    fn emitUnionConstruct(self: *LLVMEmitter, node: *const IRNode) !void {
+        const tu_type = self.getTaggedUnionType();
+        const i32_type = llvm.int32TypeInContext(self.context);
+        const i64_type = llvm.c.LLVMInt64TypeInContext(self.context);
+
+        // Tag from data.integer
+        const tag_val = switch (node.data) {
+            .integer => |v| llvm.c.LLVMConstInt(i32_type, @bitCast(@as(i64, v)), 0),
+            else => llvm.c.LLVMConstInt(i32_type, 0, 0),
+        };
+
+        // Payload: from input[0] if present, else i64 0
+        const payload_val = if (node.inputs.items.len > 0) blk: {
+            const input_val = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+            const input_type = llvm.c.LLVMTypeOf(input_val);
+            if (input_type == i64_type) {
+                break :blk input_val;
+            } else if (llvm.c.LLVMGetTypeKind(input_type) == llvm.c.LLVMIntegerTypeKind) {
+                break :blk llvm.c.LLVMBuildZExt(self.builder, input_val, i64_type, "tu_payload");
+            } else {
+                break :blk llvm.c.LLVMBuildPtrToInt(self.builder, input_val, i64_type, "tu_payload_ptr");
+            }
+        } else llvm.c.LLVMConstInt(i64_type, 0, 0);
+
+        // Build struct { tag, payload }
+        var tu_val = llvm.getUndef(tu_type);
+        tu_val = llvm.c.LLVMBuildInsertValue(self.builder, tu_val, tag_val, 0, "tu_tag");
+        tu_val = llvm.c.LLVMBuildInsertValue(self.builder, tu_val, payload_val, 1, "tu_val");
+
+        try self.values.put(node.id, tu_val);
+    }
+
+    /// Emit Union_Tag_Check: tag == expected_tag → i1
+    fn emitUnionTagCheck(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+        const tu_val = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        const i32_type = llvm.int32TypeInContext(self.context);
+
+        // Extract tag at index 0
+        const tag = llvm.c.LLVMBuildExtractValue(self.builder, tu_val, 0, "tu_tag");
+
+        // Expected tag from data.integer
+        const expected = switch (node.data) {
+            .integer => |v| llvm.c.LLVMConstInt(i32_type, @bitCast(@as(i64, v)), 0),
+            else => llvm.c.LLVMConstInt(i32_type, 0, 0),
+        };
+
+        const result = llvm.c.LLVMBuildICmp(self.builder, llvm.c.LLVMIntEQ, tag, expected, "tag_match");
+        try self.values.put(node.id, result);
+    }
+
+    /// Emit Union_Payload_Extract: extract i64 payload, truncate to i32
+    fn emitUnionPayloadExtract(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+        const tu_val = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        const i32_type = llvm.int32TypeInContext(self.context);
+
+        // Extract payload at index 1
+        const payload = llvm.c.LLVMBuildExtractValue(self.builder, tu_val, 1, "tu_payload");
+        const result = llvm.c.LLVMBuildTrunc(self.builder, payload, i32_type, "tu_unwrap");
 
         try self.values.put(node.id, result);
     }

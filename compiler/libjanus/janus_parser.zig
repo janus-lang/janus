@@ -689,6 +689,11 @@ fn parseCompilationUnit(parser: *ParserState) !void {
             const enum_index = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, enum_node);
             try top_level_declarations.append(parser.allocator, enum_index);
+        } else if (parser.match(.union_)) {
+            const union_node = try parseUnionDeclaration(parser, nodes);
+            const union_index = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, union_node);
+            try top_level_declarations.append(parser.allocator, union_index);
         } else if (parser.match(.error_)) {
             const error_node = try parseErrorDeclaration(parser, nodes);
             const error_index = @as(u32, @intCast(nodes.items.len));
@@ -1073,6 +1078,144 @@ fn parseEnumDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
     };
 
     return enum_node;
+}
+
+/// Parse union declaration: union Option { Some { value: i32 }, None }
+/// Produces .union_decl node with edges: [name, variant0, variant1, ...]
+/// Variants with payloads have child edges to field (name, type) pairs
+fn parseUnionDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) !astdb_core.AstNode {
+    const union_start_token = parser.current;
+
+    // Consume 'union' keyword
+    _ = try parser.consume(.union_);
+
+    // Parse union type name (required)
+    const name_token = parser.current;
+    _ = try parser.consume(.identifier);
+    const name_node = astdb_core.AstNode{
+        .kind = .identifier,
+        .first_token = @enumFromInt(name_token),
+        .last_token = @enumFromInt(name_token),
+        .child_lo = 0,
+        .child_hi = 0,
+    };
+    const name_idx = @as(u32, @intCast(nodes.items.len));
+    try nodes.append(parser.allocator, name_node);
+
+    // Consume '{'
+    _ = try parser.consume(.left_brace);
+
+    // Parse variants: Some { value: i32 }, None, ...
+    const variants_start = @as(u32, @intCast(nodes.items.len));
+    while (!parser.match(.right_brace) and parser.peek() != null) {
+        // Skip newlines
+        while (parser.match(.newline)) {
+            _ = parser.advance();
+        }
+
+        // Check for closing brace after newlines
+        if (parser.match(.right_brace)) break;
+
+        // Parse variant name
+        if (parser.match(.identifier)) {
+            const variant_token = parser.current;
+            _ = parser.advance();
+
+            // Check for payload fields: { name: type, ... }
+            var variant_child_lo: u32 = 0;
+            var variant_child_hi: u32 = 0;
+            if (parser.match(.left_brace)) {
+                _ = parser.advance(); // consume '{'
+
+                variant_child_lo = @intCast(parser.edges.items.len);
+
+                // Parse field pairs: name: type
+                while (!parser.match(.right_brace) and parser.peek() != null) {
+                    while (parser.match(.newline)) _ = parser.advance();
+                    if (parser.match(.right_brace)) break;
+
+                    // Field name
+                    if (!parser.match(.identifier)) return error.UnexpectedToken;
+                    const field_name_token = parser.current;
+                    _ = parser.advance();
+                    const field_name_node = astdb_core.AstNode{
+                        .kind = .identifier,
+                        .first_token = @enumFromInt(field_name_token),
+                        .last_token = @enumFromInt(field_name_token),
+                        .child_lo = 0,
+                        .child_hi = 0,
+                    };
+                    const field_name_idx = @as(u32, @intCast(nodes.items.len));
+                    try nodes.append(parser.allocator, field_name_node);
+                    try parser.edges.append(parser.allocator, @enumFromInt(field_name_idx));
+
+                    // Colon
+                    _ = try parser.consume(.colon);
+
+                    // Field type
+                    const type_node = try parseType(parser, nodes);
+                    const type_idx = @as(u32, @intCast(nodes.items.len));
+                    try nodes.append(parser.allocator, type_node);
+                    try parser.edges.append(parser.allocator, @enumFromInt(type_idx));
+
+                    // Optional comma
+                    if (parser.match(.comma)) {
+                        _ = parser.advance();
+                    }
+                }
+
+                _ = try parser.consume(.right_brace);
+                variant_child_hi = @intCast(parser.edges.items.len);
+            }
+
+            const variant_node = astdb_core.AstNode{
+                .kind = .variant,
+                .first_token = @enumFromInt(variant_token),
+                .last_token = @enumFromInt(variant_token),
+                .child_lo = variant_child_lo,
+                .child_hi = variant_child_hi,
+            };
+            try nodes.append(parser.allocator, variant_node);
+
+            // Optional comma
+            if (parser.match(.comma)) {
+                _ = parser.advance();
+            }
+
+            // Skip newlines after comma
+            while (parser.match(.newline)) {
+                _ = parser.advance();
+            }
+        } else {
+            // Skip unexpected tokens
+            _ = parser.advance();
+        }
+    }
+
+    // Consume '}'
+    _ = try parser.consume(.right_brace);
+
+    // Build edges: name + variants
+    const child_lo = @as(u32, @intCast(parser.edges.items.len));
+    try parser.edges.append(parser.allocator, @enumFromInt(name_idx));
+    for (variants_start..@as(u32, @intCast(nodes.items.len))) |i| {
+        // Only add variant nodes (skip field name/type nodes)
+        if (nodes.items[i].kind == .variant) {
+            try parser.edges.append(parser.allocator, @enumFromInt(i));
+        }
+    }
+    const child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+    // Create union declaration node
+    const union_node = astdb_core.AstNode{
+        .kind = .union_decl,
+        .first_token = @enumFromInt(union_start_token),
+        .last_token = @enumFromInt(parser.current - 1),
+        .child_lo = child_lo,
+        .child_hi = child_hi,
+    };
+
+    return union_node;
 }
 
 /// Parse import statement: import module.path;
@@ -3515,6 +3658,89 @@ fn parseExpression(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNod
                     .child_lo = child_lo,
                     .child_hi = child_hi,
                 };
+
+                // Postfix struct literal: Option.Some { value: 42 }
+                // Disambiguate: { ident : ... } is struct literal, else not
+                if (parser.match(.left_brace)) {
+                    const brace_next = parser.current + 1;
+                    var is_qualified_struct = false;
+                    if (brace_next < parser.tokens.len) {
+                        const peek_tok = parser.tokens[brace_next];
+                        if (peek_tok.kind == .right_brace) {
+                            is_qualified_struct = true; // T.V {}
+                        } else if (peek_tok.kind == .identifier) {
+                            const after_ident = parser.current + 2;
+                            if (after_ident < parser.tokens.len) {
+                                if (parser.tokens[after_ident].kind == .colon) {
+                                    is_qualified_struct = true; // T.V { f: ... }
+                                }
+                            }
+                        }
+                    }
+
+                    if (is_qualified_struct) {
+                        _ = try parser.consume(.left_brace);
+
+                        var struct_edges = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 8);
+                        defer struct_edges.deinit(parser.allocator);
+
+                        // First child: the field_expr as type qualifier
+                        const type_idx = @as(u32, @intCast(nodes.items.len));
+                        try nodes.append(parser.allocator, left);
+                        try struct_edges.append(parser.allocator, @enumFromInt(type_idx));
+
+                        // Parse field initializers: name ':' expr
+                        while (!parser.match(.right_brace) and parser.peek() != null) {
+                            while (parser.match(.newline)) _ = parser.advance();
+                            if (parser.match(.right_brace)) break;
+
+                            // Field Name
+                            if (!parser.match(.identifier)) return error.UnexpectedToken;
+                            const sl_field_name_idx = parser.current;
+                            _ = parser.advance();
+
+                            const sl_field_name = astdb_core.AstNode{
+                                .kind = .identifier,
+                                .first_token = @enumFromInt(sl_field_name_idx),
+                                .last_token = @enumFromInt(sl_field_name_idx),
+                                .child_lo = 0,
+                                .child_hi = 0,
+                            };
+                            const sl_name_node_idx = @as(u32, @intCast(nodes.items.len));
+                            try nodes.append(parser.allocator, sl_field_name);
+                            try struct_edges.append(parser.allocator, @enumFromInt(sl_name_node_idx));
+
+                            // Colon
+                            _ = try parser.consume(.colon);
+
+                            // Value
+                            const sl_value_expr = try parseExpression(parser, nodes, .none);
+                            const sl_val_node_idx = @as(u32, @intCast(nodes.items.len));
+                            try nodes.append(parser.allocator, sl_value_expr);
+                            try struct_edges.append(parser.allocator, @enumFromInt(sl_val_node_idx));
+
+                            // Comma
+                            if (parser.match(.comma)) {
+                                _ = parser.advance();
+                            } else if (!parser.match(.right_brace)) {
+                                // lenient
+                            }
+                        }
+                        _ = try parser.consume(.right_brace);
+
+                        const sl_child_lo = @as(u32, @intCast(parser.edges.items.len));
+                        try parser.edges.appendSlice(parser.allocator, struct_edges.items);
+                        const sl_child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+                        left = astdb_core.AstNode{
+                            .kind = .struct_literal,
+                            .first_token = left.first_token,
+                            .last_token = @enumFromInt(parser.current - 1),
+                            .child_lo = sl_child_lo,
+                            .child_hi = sl_child_hi,
+                        };
+                    }
+                }
             },
             .left_bracket => {
                 // Indexing: left[expr] OR left[range_expr]
