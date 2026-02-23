@@ -553,6 +553,8 @@ fn convertTokenType(janus_type: tokenizer.TokenType) TokenKind {
         .struct_kw => .struct_,
         .enum_kw => .enum_,
         .union_kw => .union_,
+        .trait_kw => .trait,
+        .impl_kw => .impl,
         .type_kw => .type_,
 
         // Special
@@ -694,6 +696,16 @@ fn parseCompilationUnit(parser: *ParserState) !void {
             const union_index = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, union_node);
             try top_level_declarations.append(parser.allocator, union_index);
+        } else if (parser.match(.trait)) {
+            const trait_node = try parseTraitDeclaration(parser, nodes);
+            const trait_index = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, trait_node);
+            try top_level_declarations.append(parser.allocator, trait_index);
+        } else if (parser.match(.impl)) {
+            const impl_node = try parseImplBlock(parser, nodes);
+            const impl_index = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, impl_node);
+            try top_level_declarations.append(parser.allocator, impl_index);
         } else if (parser.match(.error_)) {
             const error_node = try parseErrorDeclaration(parser, nodes);
             const error_index = @as(u32, @intCast(nodes.items.len));
@@ -3346,6 +3358,318 @@ fn parseFunctionDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_co
     };
 
     return func_node;
+}
+
+/// Parse a method signature (bodyless func): func name(params) -> RetType
+/// Used inside trait declarations for method signatures without a body.
+fn parseMethodSignature(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) !astdb_core.AstNode {
+    _ = nodes;
+    const start_token = parser.current;
+
+    // Consume 'func' keyword
+    _ = try parser.consume(.func);
+
+    // Parse method name
+    var has_name = false;
+    var name_token_index: usize = 0;
+    if (parser.match(.identifier)) {
+        _ = try parser.consume(.identifier);
+        name_token_index = parser.current - 1;
+        has_name = true;
+    }
+
+    // Consume '('
+    _ = try parser.consume(.left_paren);
+
+    // Parse parameter list
+    var parameters = try std.ArrayList(astdb_core.AstNode).initCapacity(parser.allocator, 0);
+    defer parameters.deinit(parser.allocator);
+
+    while (parser.current < parser.tokens.len and
+        parser.tokens[parser.current].kind != .right_paren)
+    {
+        if (parser.tokens[parser.current].kind == .identifier) {
+            const param_node = astdb_core.AstNode{
+                .kind = .parameter,
+                .first_token = @enumFromInt(parser.current),
+                .last_token = @enumFromInt(parser.current),
+                .child_lo = 0,
+                .child_hi = 0,
+            };
+            try parameters.append(parser.allocator, param_node);
+            _ = parser.advance();
+
+            // Consume ':' and skip type tokens
+            if (parser.current < parser.tokens.len and
+                parser.tokens[parser.current].kind == .colon)
+            {
+                _ = parser.advance();
+                while (parser.current < parser.tokens.len and
+                    parser.tokens[parser.current].kind != .comma and
+                    parser.tokens[parser.current].kind != .right_paren)
+                {
+                    _ = parser.advance();
+                }
+            }
+
+            // Consume comma if present
+            if (parser.current < parser.tokens.len and
+                parser.tokens[parser.current].kind == .comma)
+            {
+                _ = parser.advance();
+            }
+        } else {
+            _ = parser.advance();
+        }
+    }
+
+    // Consume ')'
+    _ = try parser.consume(.right_paren);
+
+    // Parse optional return type: -> Type
+    var return_type_node: ?astdb_core.AstNode = null;
+    if (parser.current < parser.tokens.len and
+        parser.tokens[parser.current].kind == .arrow)
+    {
+        _ = parser.advance(); // consume ->
+        return_type_node = try parseType(parser, &parser.nodes);
+    }
+
+    // Build edges: name + params + optional return type (no body)
+    var sig_edges = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 0);
+    defer sig_edges.deinit(parser.allocator);
+
+    if (has_name) {
+        const func_name_node = astdb_core.AstNode{
+            .kind = .identifier,
+            .first_token = @enumFromInt(name_token_index),
+            .last_token = @enumFromInt(name_token_index),
+            .child_lo = 0,
+            .child_hi = 0,
+        };
+        const idx = @as(u32, @intCast(parser.nodes.items.len));
+        try parser.nodes.append(parser.allocator, func_name_node);
+        try sig_edges.append(parser.allocator, @enumFromInt(idx));
+    }
+
+    for (parameters.items) |param_node| {
+        const idx = @as(u32, @intCast(parser.nodes.items.len));
+        try parser.nodes.append(parser.allocator, param_node);
+        try sig_edges.append(parser.allocator, @enumFromInt(idx));
+    }
+
+    if (return_type_node) |ret_type| {
+        const idx = @as(u32, @intCast(parser.nodes.items.len));
+        try parser.nodes.append(parser.allocator, ret_type);
+        try sig_edges.append(parser.allocator, @enumFromInt(idx));
+    }
+
+    const child_lo = @as(u32, @intCast(parser.edges.items.len));
+    try parser.edges.appendSlice(parser.allocator, sig_edges.items);
+    const child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+    return astdb_core.AstNode{
+        .kind = .func_decl,
+        .first_token = @enumFromInt(start_token),
+        .last_token = @enumFromInt(parser.current - 1),
+        .child_lo = child_lo,
+        .child_hi = child_hi,
+    };
+}
+
+/// Parse a trait declaration: trait TraitName { method_signatures... }
+/// Per SPEC-017 Law 2: trait uses { } (declarative shape).
+fn parseTraitDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) !astdb_core.AstNode {
+    const start_token = parser.current;
+
+    // Consume 'trait' keyword
+    _ = try parser.consume(.trait);
+
+    // Parse trait name (required)
+    const name_token = parser.current;
+    _ = try parser.consume(.identifier);
+    const name_node = astdb_core.AstNode{
+        .kind = .identifier,
+        .first_token = @enumFromInt(name_token),
+        .last_token = @enumFromInt(name_token),
+        .child_lo = 0,
+        .child_hi = 0,
+    };
+    const name_idx = @as(u32, @intCast(nodes.items.len));
+    try nodes.append(parser.allocator, name_node);
+
+    // Consume '{'
+    _ = try parser.consume(.left_brace);
+
+    // Parse method signatures and default implementations
+    var method_indices: std.ArrayList(u32) = .empty;
+    defer method_indices.deinit(parser.allocator);
+
+    while (!parser.match(.right_brace) and parser.peek() != null) {
+        // Skip newlines
+        while (parser.match(.newline)) {
+            _ = parser.advance();
+        }
+        if (parser.match(.right_brace)) break;
+
+        if (parser.match(.func)) {
+            // Peek ahead: does this method have a body (do/left_brace)?
+            // Save position, scan forward past func sig to check
+            const saved_pos = parser.current;
+            _ = parser.advance(); // skip 'func'
+            // Skip name
+            if (parser.match(.identifier)) _ = parser.advance();
+            // Skip parens
+            if (parser.match(.left_paren)) {
+                _ = parser.advance();
+                var depth: u32 = 1;
+                while (depth > 0 and parser.peek() != null) {
+                    if (parser.match(.left_paren)) depth += 1;
+                    if (parser.match(.right_paren)) depth -= 1;
+                    _ = parser.advance();
+                }
+            }
+            // Skip optional return type (-> Type)
+            if (parser.match(.arrow)) {
+                _ = parser.advance(); // ->
+                // Skip type tokens until newline, do_, left_brace, or right_brace
+                while (parser.peek() != null and
+                    !parser.match(.newline) and
+                    !parser.match(.do_) and
+                    !parser.match(.left_brace) and
+                    !parser.match(.right_brace) and
+                    !parser.match(.func))
+                {
+                    _ = parser.advance();
+                }
+            }
+
+            // Now check: is next token do_ or left_brace?
+            const has_body = parser.match(.do_) or parser.match(.left_brace);
+
+            // Restore position
+            parser.current = saved_pos;
+
+            const method_node = if (has_body)
+                try parseFunctionDeclaration(parser, nodes, false)
+            else
+                try parseMethodSignature(parser, nodes);
+
+            const method_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, method_node);
+            try method_indices.append(parser.allocator, method_idx);
+        } else {
+            _ = parser.advance();
+        }
+    }
+
+    // Consume '}'
+    _ = try parser.consume(.right_brace);
+
+    // Build edges: [name, method1, method2, ...]
+    const child_lo = @as(u32, @intCast(parser.edges.items.len));
+    try parser.edges.append(parser.allocator, @enumFromInt(name_idx));
+    for (method_indices.items) |idx| {
+        try parser.edges.append(parser.allocator, @enumFromInt(idx));
+    }
+    const child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+    return astdb_core.AstNode{
+        .kind = .trait_decl,
+        .first_token = @enumFromInt(start_token),
+        .last_token = @enumFromInt(parser.current - 1),
+        .child_lo = child_lo,
+        .child_hi = child_hi,
+    };
+}
+
+/// Parse an impl block: impl TraitName for TypeName { methods... }
+///                    or: impl TypeName { methods... }
+/// Per SPEC-017 Law 2: impl uses { } (declarative container).
+/// Method bodies inside use do...end (imperative).
+fn parseImplBlock(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) !astdb_core.AstNode {
+    const start_token = parser.current;
+
+    // Consume 'impl' keyword
+    _ = try parser.consume(.impl);
+
+    // Parse first identifier (either TraitName or TypeName)
+    const first_name_token = parser.current;
+    _ = try parser.consume(.identifier);
+    const first_name_node = astdb_core.AstNode{
+        .kind = .identifier,
+        .first_token = @enumFromInt(first_name_token),
+        .last_token = @enumFromInt(first_name_token),
+        .child_lo = 0,
+        .child_hi = 0,
+    };
+    const first_name_idx = @as(u32, @intCast(nodes.items.len));
+    try nodes.append(parser.allocator, first_name_node);
+
+    // Check for 'for' keyword → trait impl: impl Trait for Type
+    var second_name_idx: ?u32 = null;
+    if (parser.match(.for_)) {
+        _ = parser.advance(); // consume 'for'
+        const second_name_token = parser.current;
+        _ = try parser.consume(.identifier);
+        const second_name_node = astdb_core.AstNode{
+            .kind = .identifier,
+            .first_token = @enumFromInt(second_name_token),
+            .last_token = @enumFromInt(second_name_token),
+            .child_lo = 0,
+            .child_hi = 0,
+        };
+        second_name_idx = @as(u32, @intCast(nodes.items.len));
+        try nodes.append(parser.allocator, second_name_node);
+    }
+
+    // Consume '{'
+    _ = try parser.consume(.left_brace);
+
+    // Parse methods (all must have bodies in impl blocks)
+    var method_indices: std.ArrayList(u32) = .empty;
+    defer method_indices.deinit(parser.allocator);
+
+    while (!parser.match(.right_brace) and parser.peek() != null) {
+        // Skip newlines
+        while (parser.match(.newline)) {
+            _ = parser.advance();
+        }
+        if (parser.match(.right_brace)) break;
+
+        if (parser.match(.func)) {
+            const method_node = try parseFunctionDeclaration(parser, nodes, false);
+            const method_idx = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, method_node);
+            try method_indices.append(parser.allocator, method_idx);
+        } else {
+            _ = parser.advance();
+        }
+    }
+
+    // Consume '}'
+    _ = try parser.consume(.right_brace);
+
+    // Build edges:
+    //   Trait impl:      [trait_name, type_name, method1, method2, ...]
+    //   Standalone impl: [type_name, method1, method2, ...]
+    const child_lo = @as(u32, @intCast(parser.edges.items.len));
+    try parser.edges.append(parser.allocator, @enumFromInt(first_name_idx));
+    if (second_name_idx) |idx| {
+        try parser.edges.append(parser.allocator, @enumFromInt(idx));
+    }
+    for (method_indices.items) |idx| {
+        try parser.edges.append(parser.allocator, @enumFromInt(idx));
+    }
+    const child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+    return astdb_core.AstNode{
+        .kind = .impl_decl,
+        .first_token = @enumFromInt(start_token),
+        .last_token = @enumFromInt(parser.current - 1),
+        .child_lo = child_lo,
+        .child_hi = child_hi,
+    };
 }
 
 /// Parse extern function declaration: extern func name(params) -> type

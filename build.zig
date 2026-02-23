@@ -2016,6 +2016,23 @@ pub fn build(b: *std.Build) void {
     test_closure_e2e_step.dependOn(&run_closure_e2e_tests.step);
     test_step.dependOn(&run_closure_e2e_tests.step);
 
+    // Trait/Impl Parser Tests (SPEC-025 Phase A)
+    const trait_parser_tests = b.addTest(.{
+        .name = "trait_parser_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("compiler/qtjir/test_trait_parser.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    trait_parser_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    trait_parser_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    const run_trait_parser_tests = b.addRunArtifact(trait_parser_tests);
+
+    const test_trait_parser_step = b.step("test-trait-parser", "Run Trait/Impl parser tests (SPEC-025 Phase A)");
+    test_trait_parser_step.dependOn(&run_trait_parser_tests.step);
+    test_step.dependOn(&run_trait_parser_tests.step);
+
     // String Literals E2E Tests
     const string_e2e_tests = b.addTest(.{
         .name = "string_e2e_tests",
