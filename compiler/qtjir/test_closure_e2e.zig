@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LCL-1.0
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
-// E2E Smoke Tests: Zero-Capture Closures (SPEC-024 Phase A)
+// E2E Smoke Tests: Closures (SPEC-024 Phase A + Phase B)
 // Pipeline: Janus Source → Parser → ASTDB → QTJIR Lower → LLVM Emit → Verify
 //
 // These tests prove the FULL compiler pipeline generates valid, verifiable
@@ -120,4 +120,93 @@ test "CLO-E2E-03: multi-param closure compiles to correct LLVM function signatur
 
     // add instruction should appear in closure body
     try testing.expect(std.mem.indexOf(u8, ir, "add") != null);
+}
+
+// =========================================================================
+// Phase B: Captured Closures — LLVM IR Verification (SPEC-024 Phase B-b)
+// =========================================================================
+
+test "CLO-E2E-B01: single capture produces verified LLVM IR with env struct" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() -> i32 do
+        \\    let x = 42
+        \\    let f = func(y: i32) -> i32 do
+        \\        return x + y
+        \\    end
+        \\    let result = f(5)
+        \\    return result
+        \\end
+    ;
+
+    const ir = try compileToLLVM(allocator, source, "closure_e2e_b01");
+    defer allocator.free(ir);
+
+    // Closure function has ptr as first param (__env)
+    try testing.expect(std.mem.indexOf(u8, ir, "define i32 @__closure_0(ptr %0, i32 %1)") != null);
+
+    // Main allocates env struct on the stack
+    try testing.expect(std.mem.indexOf(u8, ir, "alloca") != null);
+
+    // Main stores captured value into env via GEP
+    try testing.expect(std.mem.indexOf(u8, ir, "getelementptr") != null);
+
+    // Main calls closure with env_ptr as first argument
+    try testing.expect(std.mem.indexOf(u8, ir, "call i32 @__closure_0(ptr") != null);
+
+    // Closure body loads capture from env via GEP
+    // (add instruction from x + y)
+    try testing.expect(std.mem.indexOf(u8, ir, "add") != null);
+}
+
+test "CLO-E2E-B02: multiple captures produce verified LLVM IR" {
+    const allocator = testing.allocator;
+
+    const source =
+        \\func main() -> i32 do
+        \\    let a = 10
+        \\    let b = 20
+        \\    let f = func() -> i32 do
+        \\        return a + b
+        \\    end
+        \\    return f()
+        \\end
+    ;
+
+    const ir = try compileToLLVM(allocator, source, "closure_e2e_b02");
+    defer allocator.free(ir);
+
+    // Closure has ptr param (env with 2 captures), no user params
+    try testing.expect(std.mem.indexOf(u8, ir, "define i32 @__closure_0(ptr %0)") != null);
+
+    // Main should have env alloca and call with ptr
+    try testing.expect(std.mem.indexOf(u8, ir, "call i32 @__closure_0(ptr") != null);
+}
+
+test "CLO-E2E-B03: zero-capture closure regression — Phase A still works" {
+    const allocator = testing.allocator;
+
+    // Re-verify that zero-capture closures still use direct call (no env)
+    const source =
+        \\func main() -> i32 do
+        \\    let double = func(x: i32) -> i32 do
+        \\        return x * 2
+        \\    end
+        \\    return double(21)
+        \\end
+    ;
+
+    const ir = try compileToLLVM(allocator, source, "closure_e2e_b03");
+    defer allocator.free(ir);
+
+    // Zero-capture closure: no ptr param, just i32
+    try testing.expect(std.mem.indexOf(u8, ir, "define i32 @__closure_0(i32 %0)") != null);
+
+    // Direct call without env
+    try testing.expect(std.mem.indexOf(u8, ir, "call i32 @__closure_0(i32") != null);
+
+    // No env alloca for zero-capture
+    // (alloca may exist for variable bindings, but not "closure_env")
+    try testing.expect(std.mem.indexOf(u8, ir, "closure_env") == null);
 }

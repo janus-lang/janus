@@ -46,6 +46,12 @@ pub const LLVMEmitter = struct {
     // Function signature mapping: function_name -> return_type
     function_return_types: std.StringHashMap([]const u8),
 
+    // Closure emission state (SPEC-024 Phase B)
+    // Tracks the LLVM struct type for the current closure's env (set per-function)
+    current_env_type: ?llvm.Type = null,
+    // Maps Closure_Create node ID → function name for emitClosureCall dispatch
+    closure_fn_names: std.AutoHashMap(u32, []const u8),
+
     const DeferredPhi = struct {
         phi_value: llvm.Value,
         input_ids: []const u32,
@@ -83,6 +89,7 @@ pub const LLVMEmitter = struct {
             .struct_info = std.AutoHashMap(u32, StructInfo).init(allocator),
             .alloca_types = std.AutoHashMap(u32, void).init(allocator),
             .function_return_types = std.StringHashMap([]const u8).init(allocator),
+            .closure_fn_names = std.AutoHashMap(u32, []const u8).init(allocator),
         };
     }
 
@@ -99,6 +106,7 @@ pub const LLVMEmitter = struct {
         self.struct_info.deinit();
         self.alloca_types.deinit();
         self.function_return_types.deinit();
+        self.closure_fn_names.deinit();
         for (self.deferred_phis.items) |phi| {
             self.allocator.free(phi.input_ids);
         }
@@ -149,9 +157,8 @@ pub const LLVMEmitter = struct {
         if (is_main) {
             // main() has no params for now
         } else {
-            const i32_type = llvm.int32TypeInContext(self.context);
-            for (ir_graph.parameters) |_| {
-                try param_types.append(self.allocator, i32_type); // MVP: Assume i32
+            for (ir_graph.parameters) |param| {
+                try param_types.append(self.allocator, self.llvmTypeFromStr(param.type_name));
             }
         }
 
@@ -192,6 +199,16 @@ pub const LLVMEmitter = struct {
         }
         self.deferred_phis.clearRetainingCapacity();
         self.node_blocks.clearRetainingCapacity();
+
+        // Build env struct type for closures with captures (SPEC-024 Phase B)
+        if (ir_graph.captures.len > 0) {
+            const env_fields = try self.allocator.alloc(llvm.Type, ir_graph.captures.len);
+            defer self.allocator.free(env_fields);
+            for (env_fields) |*f| f.* = llvm.int32TypeInContext(self.context); // MVP: all i32
+            self.current_env_type = llvm.structTypeInContext(self.context, env_fields.ptr, @intCast(ir_graph.captures.len), false);
+        } else {
+            self.current_env_type = null;
+        }
 
         // Emit all nodes, tracking which block each is in
         for (ir_graph.nodes.items) |*node| {
@@ -239,7 +256,6 @@ pub const LLVMEmitter = struct {
     }
 
     fn emitNode(self: *LLVMEmitter, node: *const IRNode, ir_graph: *const QTJIRGraph) !void {
-        _ = ir_graph; // Will be used for more complex operations
         switch (node.op) {
             .Constant => try self.emitConstant(node),
             .Add => try self.emitBinaryOp(node, llvm.buildAdd),
@@ -296,6 +312,11 @@ pub const LLVMEmitter = struct {
             .Union_Payload_Extract => try self.emitUnionPayloadExtract(node),
             // Closures (SPEC-024 Phase A)
             .Fn_Ref => try self.emitFnRef(node),
+            // Closures (SPEC-024 Phase B) — Captured closures
+            .Closure_Create => try self.emitClosureCreate(node),
+            .Closure_Call => try self.emitClosureCall(node, ir_graph),
+            .Closure_Env_Load => try self.emitClosureEnvLoad(node),
+            .Closure_Env_Store => {}, // Mutable captures — deferred to Phase C
             // :service profile - Structured Concurrency (Blocking Model Phase 1)
             .Await => try self.emitAwait(node),
             .Spawn => try self.emitSpawn(node),
@@ -1923,6 +1944,120 @@ pub const LLVMEmitter = struct {
     /// The actual call dispatch resolves the name at lowering time via Call node,
     /// so this handler primarily prevents unknown-opcode errors and stores
     /// the function pointer for future use (Phase B: closures as values).
+    // =========================================================================
+    // Closures — SPEC-024 Phase B (Captured Closures)
+    // =========================================================================
+    //
+    // MVP: Direct call with stack-allocated env struct.
+    // Closure_Create → alloca env + GEP/store captures
+    // Closure_Call   → direct call with env_ptr as first arg
+    // Closure_Env_Load → GEP + load from __env parameter
+    // =========================================================================
+
+    /// Emit Closure_Create: alloca env struct, store captured values via GEP
+    fn emitClosureCreate(self: *LLVMEmitter, node: *const IRNode) !void {
+        const capture_count = node.inputs.items.len;
+        if (capture_count == 0) return; // Zero-capture → should be Fn_Ref, not Closure_Create
+
+        // Get closure function name from node data
+        const func_name = switch (node.data) {
+            .string => |s| s,
+            else => return,
+        };
+
+        // Build env struct type: { i32 x N } (MVP: all captures are i32)
+        const i32_type = llvm.int32TypeInContext(self.context);
+        const env_fields = try self.allocator.alloc(llvm.Type, capture_count);
+        defer self.allocator.free(env_fields);
+        for (env_fields) |*f| f.* = i32_type;
+
+        const env_type = llvm.structTypeInContext(self.context, env_fields.ptr, @intCast(capture_count), false);
+
+        // Alloca the env struct on the stack
+        const env_alloca = llvm.buildAlloca(self.builder, env_type, "closure_env");
+
+        // Store each captured value via GEP
+        for (node.inputs.items, 0..) |input_id, i| {
+            const captured_val = self.values.get(input_id) orelse return error.MissingOperand;
+            const field_ptr = llvm.buildStructGEP2(self.builder, env_type, env_alloca, @intCast(i), "env_field");
+            _ = llvm.buildStore(self.builder, captured_val, field_ptr);
+        }
+
+        // Store env_alloca in values map (Closure_Call retrieves it)
+        try self.values.put(node.id, env_alloca);
+
+        // Record function name for Closure_Call dispatch
+        try self.closure_fn_names.put(node.id, func_name);
+    }
+
+    /// Emit Closure_Call: direct call with env_ptr as first argument
+    fn emitClosureCall(self: *LLVMEmitter, node: *const IRNode, ir_graph: *const QTJIRGraph) !void {
+        _ = ir_graph;
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+
+        const closure_create_id = node.inputs.items[0];
+
+        // Get env pointer (the alloca from Closure_Create)
+        const env_ptr = self.values.get(closure_create_id) orelse return error.MissingOperand;
+
+        // Get function name from Closure_Create
+        const func_name = self.closure_fn_names.get(closure_create_id) orelse return error.MissingOperand;
+
+        // Build argument list: [env_ptr, user_arg1, user_arg2, ...]
+        var args = std.ArrayListUnmanaged(llvm.Value){};
+        defer args.deinit(self.allocator);
+        var call_param_types = std.ArrayListUnmanaged(llvm.Type){};
+        defer call_param_types.deinit(self.allocator);
+
+        // First arg: env pointer (opaque ptr)
+        const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+        const ptr_type = llvm.c.LLVMPointerType(i8_type, 0);
+        try args.append(self.allocator, env_ptr);
+        try call_param_types.append(self.allocator, ptr_type);
+
+        // Remaining args: user arguments (MVP: all i32)
+        const i32_type = llvm.int32TypeInContext(self.context);
+        for (node.inputs.items[1..]) |input_id| {
+            const val = self.values.get(input_id) orelse return error.MissingOperand;
+            try args.append(self.allocator, val);
+            try call_param_types.append(self.allocator, i32_type);
+        }
+
+        // Look up return type from function signature map
+        const return_type_str = self.function_return_types.get(func_name) orelse "i32";
+        const return_type = self.llvmTypeFromStr(return_type_str);
+
+        const func_type = llvm.functionType(return_type, call_param_types.items.ptr, @intCast(call_param_types.items.len), false);
+
+        // Get or declare the closure function
+        const name_z = try self.allocator.dupeZ(u8, func_name);
+        defer self.allocator.free(name_z);
+
+        var func_fn = llvm.c.LLVMGetNamedFunction(self.module, name_z.ptr);
+        if (func_fn == null) {
+            func_fn = llvm.addFunction(self.module, name_z.ptr, func_type);
+        }
+
+        const result = llvm.c.LLVMBuildCall2(self.builder, func_type, func_fn, args.items.ptr, @intCast(args.items.len), "");
+        try self.values.put(node.id, result);
+    }
+
+    /// Emit Closure_Env_Load: GEP + load from __env parameter (param 0)
+    fn emitClosureEnvLoad(self: *LLVMEmitter, node: *const IRNode) !void {
+        const capture_index: u32 = @intCast(node.data.integer);
+
+        // __env is always parameter 0 of the current closure function
+        const env_param = llvm.c.LLVMGetParam(self.current_function, 0);
+
+        // Use env struct type set during emitFunction
+        const env_type = self.current_env_type orelse return error.MissingOperand;
+
+        const field_ptr = llvm.buildStructGEP2(self.builder, env_type, env_param, capture_index, "env_load");
+        const i32_type = llvm.int32TypeInContext(self.context);
+        const value = llvm.buildLoad2(self.builder, i32_type, field_ptr, "captured_val");
+        try self.values.put(node.id, value);
+    }
+
     fn emitFnRef(self: *LLVMEmitter, node: *const IRNode) !void {
         const func_name = switch (node.data) {
             .string => |s| s,
