@@ -6,10 +6,12 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 # State of Janus
 
 **Version:** 0.2.0 (v0.2.6 Alpha)
-**Date:** 2026-02-22
+**Date:** 2026-02-23
 **Zig:** 0.16.0-dev.2645+cd02b1703
 **Toolchain:** `zig cc` + clang/LLVM (no GCC)
 **Tests:** 477/478 passing (99.8%)
+
+**Recent:** SPEC-023 (enum/union codegen) completed ✅
 
 ---
 
@@ -70,6 +72,8 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 | `while` / `for` / `loop` | All loop forms |
 | `match` | Pattern matching (integer/enum arms) |
 | `struct` | Struct declarations + field access + construction |
+| `enum` | Enum declarations + match arms (SPEC-023 ✅) |
+| `union` (tagged) | Tagged union declarations + construction (SPEC-023 ✅) |
 | `let` / `var` / `const` | Variable bindings |
 | `return` / `break` / `continue` | Control flow |
 | `using` | Resource management (RAII-style) |
@@ -93,8 +97,6 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 
 | Feature | Tier | What Works | What's Missing |
 |---------|------|------------|----------------|
-| `enum` | `[S]` | Parser + sema | No QTJIR lowering, no codegen |
-| `union` (tagged) | `[S]` | Parser + sema | No QTJIR lowering, no codegen |
 | `trait` | `[S]` | Parser only | Minimal sema, no IR, no codegen |
 | `impl` | `[S]` | Parser only | Minimal sema, no IR, no codegen |
 | `graft` | `[S]` | Parser + tokenizer | No IR, no codegen |
@@ -366,8 +368,6 @@ Doctrines are architectural principles, not implementation items. Active doctrin
 
 | Gap | Impact | Spec |
 |-----|--------|------|
-| `enum` codegen | Can parse enums but can't compile them | SPEC-017 |
-| `union` codegen | Can parse tagged unions but can't compile them | SPEC-017 |
 | Closures / first-class functions | Parser recognizes fn literals, no codegen | SPEC-017 |
 | `trait` / `impl` codegen | Parser recognizes, minimal sema, no codegen | SPEC-015, SPEC-017 |
 | Generics / type parameters | Not implemented at any stage | SPEC-001 |
