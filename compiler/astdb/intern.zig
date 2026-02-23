@@ -4,6 +4,40 @@
 const std = @import("std");
 const Blake3 = std.crypto.hash.Blake3;
 
+/// Minimal fixed-buffer writer for Zig 0.16 (replaces removed std.io.fixedBufferStream).
+/// Provides writeAll/writeInt/writeByte + getWritten for canonicalBytes hashing.
+const FixedBufferWriter = struct {
+    buf: []u8,
+    pos: usize = 0,
+
+    fn init(buf: []u8) FixedBufferWriter {
+        return .{ .buf = buf, .pos = 0 };
+    }
+
+    fn writeAll(self: *FixedBufferWriter, bytes: []const u8) !void {
+        if (self.pos + bytes.len > self.buf.len) return error.NoSpaceLeft;
+        @memcpy(self.buf[self.pos..][0..bytes.len], bytes);
+        self.pos += bytes.len;
+    }
+
+    fn writeByte(self: *FixedBufferWriter, byte: u8) !void {
+        if (self.pos >= self.buf.len) return error.NoSpaceLeft;
+        self.buf[self.pos] = byte;
+        self.pos += 1;
+    }
+
+    fn writeInt(self: *FixedBufferWriter, comptime T: type, value: T, endian: std.builtin.Endian) !void {
+        const bytes = @sizeOf(T);
+        if (self.pos + bytes > self.buf.len) return error.NoSpaceLeft;
+        std.mem.writeInt(T, self.buf[self.pos..][0..bytes], value, endian);
+        self.pos += bytes;
+    }
+
+    fn getWritten(self: *const FixedBufferWriter) []const u8 {
+        return self.buf[0..self.pos];
+    }
+};
+
 // Strongly typed IDs to prevent confusion
 pub const StrId = enum(u32) { _ };
 pub const TypeId = enum(u32) { _ };
@@ -111,10 +145,18 @@ pub const TypeInterner = struct {
     arena: std.heap.ArenaAllocator, // Type storage arena
     types: std.ArrayList(Type),
     map: std.HashMap([32]u8, TypeId, Blake3Context, std.hash_map.default_max_load_percentage),
-    mutex: compat.Mutex = .{},
+    // Atomic spinlock — same pattern as StrInterner (no libc dependency)
+    lock: std.atomic.Value(u32) = .init(0),
 
-    const compat = @import("compat_mutex");
     const Blake3Context = StrInterner.Blake3Context;
+
+    fn acquireLock(self: *Self) void {
+        while (self.lock.cmpxchgWeak(0, 1, .acquire, .monotonic) != null) {}
+    }
+
+    fn releaseLock(self: *Self) void {
+        self.lock.store(0, .release);
+    }
 
     pub const Type = struct {
         kind: TypeKind,
@@ -228,11 +270,11 @@ pub const TypeInterner = struct {
     /// Intern a type, returning stable ID. Thread-safe.
     pub fn intern(self: *Self, type_data: Type) !TypeId {
         var buf: [1024]u8 = undefined;
-        var stream = std.io.fixedBufferStream(&buf);
-        try type_data.canonicalBytes(stream.writer());
+        var writer = FixedBufferWriter.init(&buf);
+        try type_data.canonicalBytes(&writer);
 
         var hash: [32]u8 = undefined;
-        Blake3.hash(stream.getWritten(), &hash, .{});
+        Blake3.hash(writer.getWritten(), &hash, .{});
 
         self.acquireLock();
         defer self.releaseLock();
@@ -268,10 +310,18 @@ pub const SymInterner = struct {
     arena: std.heap.ArenaAllocator, // Symbol storage arena
     symbols: std.ArrayList(Symbol),
     map: std.HashMap([32]u8, SymId, Blake3Context, std.hash_map.default_max_load_percentage),
-    mutex: compat_mutex.Mutex = .{},
+    // Atomic spinlock — same pattern as StrInterner (no libc dependency)
+    lock: std.atomic.Value(u32) = .init(0),
 
-    const compat_mutex = @import("compat_mutex");
     const Blake3Context = StrInterner.Blake3Context;
+
+    fn acquireLock(self: *Self) void {
+        while (self.lock.cmpxchgWeak(0, 1, .acquire, .monotonic) != null) {}
+    }
+
+    fn releaseLock(self: *Self) void {
+        self.lock.store(0, .release);
+    }
 
     pub const Symbol = struct {
         scope_chain: []u32, // scope IDs from root to immediate parent
@@ -312,11 +362,11 @@ pub const SymInterner = struct {
 
     pub fn intern(self: *Self, symbol: Symbol) !SymId {
         var buf: [1024]u8 = undefined;
-        var stream = std.io.fixedBufferStream(&buf);
-        try symbol.canonicalBytes(stream.writer());
+        var writer = FixedBufferWriter.init(&buf);
+        try symbol.canonicalBytes(&writer);
 
         var hash: [32]u8 = undefined;
-        Blake3.hash(stream.getWritten(), &hash, .{});
+        Blake3.hash(writer.getWritten(), &hash, .{});
 
         self.acquireLock();
         defer self.releaseLock();
