@@ -256,7 +256,7 @@ pub const ConversionRegistry = struct {
     }
 
     pub fn getAvailableConversions(self: *const ConversionRegistry, from: TypeId, allocator: Allocator) ![]TypeId {
-        var available = std.ArrayList(TypeId).init(allocator);
+        var available: std.ArrayList(TypeId) = .empty;
 
         var iterator = self.conversions.iterator();
         while (iterator.next()) |entry| {
@@ -265,7 +265,7 @@ pub const ConversionRegistry = struct {
             }
         }
 
-        return available.toOwnedSlice();
+        return try available.toOwnedSlice(alloc);
     }
 
     pub fn registerTraitConversion(

@@ -15,6 +15,7 @@
 //! compiler learns from user behavior.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 const nextgen = @import("nextgen_diagnostic.zig");
@@ -187,7 +188,7 @@ pub const FixLearningEngine = struct {
             .config = config,
             .error_patterns = std.AutoHashMap(u64, ErrorPatternStats).init(allocator),
             .preferences = UserPreferences.default(),
-            .recent_acceptances = ArrayList(FixAcceptance).init(allocator),
+            .recent_acceptances = .empty,
             .total_suggestions = 0,
             .total_acceptances = 0,
         };
@@ -239,7 +240,7 @@ pub const FixLearningEngine = struct {
         category: FixAcceptance.FixCategory,
         verbatim: bool,
     ) !void {
-        const timestamp = std.time.timestamp();
+        const timestamp = compat_time.timestamp();
 
         // Update error pattern stats
         if (self.error_patterns.getPtr(error_pattern)) |stats| {
@@ -285,7 +286,7 @@ pub const FixLearningEngine = struct {
         const stats = self.error_patterns.get(error_pattern);
 
         // Build preference signals
-        var signals = ArrayList(LearningContext.PreferenceSignal).init(self.allocator);
+        var signals: ArrayList(LearningContext.PreferenceSignal) = .empty;
 
         if (self.preferences.prefers_explicit_casts > 0.6) {
             signals.append(.{

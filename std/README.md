@@ -47,6 +47,31 @@ The string module eliminates entire classes of encoding bugs through design:
 - **Zero-Copy Operations**: Slicing and iteration without unnecessary allocation
 - **String Building**: Explicit allocator control for dynamic construction
 
+### `std/time.jan` - Time and Duration Operations
+
+The time module provides essential time utilities for the :core profile:
+
+- **System Time**: Unix timestamps in seconds, milliseconds, microseconds, nanoseconds
+- **Monotonic Time**: High-resolution clocks that never go backwards (for benchmarking)
+- **Sleep Operations**: Pause execution for specified durations
+- **Duration Calculations**: Convert between time units, calculate elapsed time
+- **Calendar Functions**: Leap year detection, days in month, year extraction
+- **Constants**: Common time units (MS_PER_SECOND, SECS_PER_DAY, etc.)
+
+**Example Usage**:
+```janus
+import std.core.time
+
+func benchmarkExample() do
+    let start = time.monotonic_millis()
+    
+    // ... some work ...
+    
+    let elapsed = time.elapsed_millis(start, time.monotonic_millis())
+    io.println("Operation took: " + convert.toString(elapsed) + " ms")
+end
+```
+
 ## Design Principles
 
 ### Allocator Sovereignty
@@ -99,7 +124,7 @@ String operations are explicit about encoding assumptions:
 ### Arena-Based Processing
 
 ```janus
-func processFile(arena_buffer: []u8, path: String, read_cap: FileRead) -> IoError!String {
+func processFile(arena_buffer: []u8, path: String, read_cap: FileRead) -> IoError!String do
     var arena = ArenaAllocator.init(arena_buffer);
     let alloc = arena.allocator();
 
@@ -110,7 +135,7 @@ func processFile(arena_buffer: []u8, path: String, read_cap: FileRead) -> IoErro
 
     // O(1) cleanup when arena goes out of scope
     return processed;
-}
+end
 ```
 
 ### Capability Flow
@@ -122,7 +147,7 @@ func secureOperation(
     output_path: String,
     read_cap: FileRead,
     write_cap: FileWrite
-) -> (IoError | StringError)!void {
+) -> (IoError | StringError)!void do
     let content = io.readFile(allocator, input_path, read_cap)?;
     defer content.deinit();
 
@@ -133,14 +158,14 @@ func secureOperation(
     defer processed.deinit();
 
     io.writeFile(output_path, WriteBuffer{.data = processed.bytes}, write_cap)?;
-}
+end
 ```
 
 ### Error Handling
 
 ```janus
-func robustStringOperation(allocator: Allocator, input: []const u8) -> void {
-    let result = string.fromUtf8(allocator, input) catch |err| {
+func robustStringOperation(allocator: Allocator, input: []const u8) -> void do
+    let result = string.fromUtf8(allocator, input) catch |err| do
         switch (err) {
             .InvalidUtf8 => |info| {
                 stderr.write("Invalid UTF-8 at position {}: {:02x}\n",
@@ -152,11 +177,11 @@ func robustStringOperation(allocator: Allocator, input: []const u8) -> void {
                 return;
             }
         }
-    };
+    end;
     defer result.deinit();
 
     // Process valid UTF-8 string...
-}
+end
 ```
 
 ## Testing

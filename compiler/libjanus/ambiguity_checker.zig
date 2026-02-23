@@ -234,7 +234,7 @@ pub const AmbiguityChecker = struct {
 
     /// Perform comprehensive ambiguity analysis on all signature groups
     pub fn analyzeAllSignatures(self: *AmbiguityChecker) ![]AmbiguityReport {
-        var reports = std.ArrayList(AmbiguityReport).init(self.allocator);
+        var reports: std.ArrayList(AmbiguityReport) = .empty;
 
         var signature_iterator = self.signature_analyzer.getAllSignatureGroups();
         while (signature_iterator.next()) |entry| {
@@ -246,7 +246,7 @@ pub const AmbiguityChecker = struct {
             }
         }
 
-        return reports.toOwnedSlice();
+        return try reports.toOwnedSlice(alloc);
     }
 
     /// Analyze a specific signature group for ambiguities
@@ -278,7 +278,7 @@ pub const AmbiguityChecker = struct {
 
     /// Detect all ambiguity conflicts in a signature group
     fn detectAmbiguityConflicts(self: *AmbiguityChecker, signature_group: *const SignatureAnalyzer.SignatureGroup) ![]AmbiguityConflict {
-        var conflicts = std.ArrayList(AmbiguityConflict).init(self.allocator);
+        var conflicts: std.ArrayList(AmbiguityConflict) = .empty;
 
         const implementations = signature_group.implementations.items;
 
@@ -297,7 +297,7 @@ pub const AmbiguityChecker = struct {
             try conflicts.append(conflict);
         }
 
-        return conflicts.toOwnedSlice();
+        return try conflicts.toOwnedSlice(alloc);
     }
 
     /// Check if two implementations have a conflict
@@ -402,13 +402,13 @@ pub const AmbiguityChecker = struct {
 
     /// Generate test type combinations for overlap detection
     fn generateTestTypeCombinations(self: *AmbiguityChecker, arity: usize) ![][]TypeRegistry.TypeId {
-        var combinations = std.ArrayList([]TypeRegistry.TypeId).init(self.allocator);
+        var combinations: std.ArrayList([]TypeRegistry.TypeId) = .empty;
 
         // Get all registered types
         const all_types = try self.getAllRegisteredTypes();
         defer self.allocator.free(all_types);
 
-        if (all_types.len == 0) return combinations.toOwnedSlice();
+        if (all_types.len == 0) return try combinations.toOwnedSlice(alloc);
 
         // Generate combinations up to the limit
         var count: usize = 0;
@@ -416,7 +416,7 @@ pub const AmbiguityChecker = struct {
 
         try self.generateCombinationsRecursive(&combinations, all_types, arity, &.{}, &count, max_per_position);
 
-        return combinations.toOwnedSlice();
+        return try combinations.toOwnedSlice(alloc);
     }
 
     /// Recursive helper for generating type combinations
@@ -452,7 +452,7 @@ pub const AmbiguityChecker = struct {
 
     /// Get all registered type IDs
     fn getAllRegisteredTypes(self: *AmbiguityChecker) ![]TypeRegistry.TypeId {
-        var types = std.ArrayList(TypeRegistry.TypeId).init(self.allocator);
+        var types: std.ArrayList(TypeRegistry.TypeId) = .empty;
 
         // Add primitive types (we know these exist)
         const primitive_names = [_][]const u8{ "i32", "i64", "f32", "f64", "bool", "string" };
@@ -462,7 +462,7 @@ pub const AmbiguityChecker = struct {
             }
         }
 
-        return types.toOwnedSlice();
+        return try types.toOwnedSlice(alloc);
     }
 
     /// Create conflict report for exact duplicates
@@ -553,7 +553,7 @@ pub const AmbiguityChecker = struct {
         impl: *const SignatureAnalyzer.Implementation,
         example_types: []const TypeRegistry.TypeId,
     ) ![]u8 {
-        var explanation = std.ArrayList(u8).init(self.allocator);
+        var explanation: std.ArrayList(u8) = .empty;
         defer explanation.deinit();
 
         try explanation.writer().print("Parameters: (", .{});
@@ -568,12 +568,12 @@ pub const AmbiguityChecker = struct {
         }
         try explanation.appendSlice(")");
 
-        return explanation.toOwnedSlice();
+        return try explanation.toOwnedSlice(alloc);
     }
 
     /// Generate code example for resolution
     fn generateCodeExample(self: *AmbiguityChecker, example_types: []const TypeRegistry.TypeId) ![]u8 {
-        var example = std.ArrayList(u8).init(self.allocator);
+        var example: std.ArrayList(u8) = .empty;
         defer example.deinit();
 
         try example.appendSlice("func specific_implementation(");
@@ -583,7 +583,7 @@ pub const AmbiguityChecker = struct {
         }
         try example.appendSlice(") { /* implementation */ }");
 
-        return example.toOwnedSlice();
+        return try example.toOwnedSlice(alloc);
     }
 
     /// Get human-readable type name
@@ -614,7 +614,7 @@ pub const AmbiguityChecker = struct {
 
     /// Find optimization opportunities
     fn findOptimizationOpportunities(self: *AmbiguityChecker, signature_group: *const SignatureAnalyzer.SignatureGroup) ![]OptimizationOpportunity {
-        var opportunities = std.ArrayList(OptimizationOpportunity).init(self.allocator);
+        var opportunities: std.ArrayList(OptimizationOpportunity) = .empty;
 
         // Check if signature can be sealed
         if (!signature_group.is_sealed and signature_group.canUseStaticDispatch(self.type_registry)) {
@@ -636,12 +636,12 @@ pub const AmbiguityChecker = struct {
             });
         }
 
-        return opportunities.toOwnedSlice();
+        return try opportunities.toOwnedSlice(alloc);
     }
 
     /// Generate a comprehensive diagnostic report
     pub fn generateDiagnosticReport(self: *AmbiguityChecker, reports: []const AmbiguityReport) ![]u8 {
-        var diagnostic = std.ArrayList(u8).init(self.allocator);
+        var diagnostic: std.ArrayList(u8) = .empty;
         defer diagnostic.deinit();
 
         try diagnostic.appendSlice("=== Multiple Dispatch Ambiguity Analysis ===\n\n");
@@ -682,7 +682,7 @@ pub const AmbiguityChecker = struct {
             }
         }
 
-        return diagnostic.toOwnedSlice();
+        return try diagnostic.toOwnedSlice(alloc);
     }
 };
 

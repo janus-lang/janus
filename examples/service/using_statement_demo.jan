@@ -1,0 +1,250 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// :service Profile - Resource Management with `using` Statement
+// Demonstrates deterministic cleanup, error safety, and RAII patterns
+
+profile :service
+
+use janus "std/fs"
+use janus "std/net"
+use janus "std/log"
+
+// Main: Various using statement patterns
+async func main() !void do
+    log.info("=== Using Statement Demo ===")
+    
+    // Example 1: Basic using statement
+    log.info("\\n1. Basic file handling:")
+    using file := try fs.open("data.txt", .{ .read = true }) do
+        let content = try file.read_all()
+        log.info("Read {content.len} bytes")
+    end  // file.close() called automatically
+    
+    // Example 2: Using with walrus operator (:=)
+    log.info("\\n2. Using with walrus operator:")
+    using conn := net.connect("example.com", 80) do
+        try conn.send("GET / HTTP/1.1\\r\\n\\r\\n")
+        let response = try conn.recv()
+        log.info("Received {response.len} bytes")
+    end  // conn.close() called automatically
+    
+    // Example 3: Multiple using statements (LIFO cleanup)
+    log.info("\\n3. Multiple resources (LIFO cleanup):")
+    using file1 := fs.open("a.txt", .{ .read = true }) do
+        using file2 := fs.open("b.txt", .{ .read = true }) do
+            using file3 := fs.open("c.txt", .{ .read = true }) do
+                log.info("  Processing files...")
+            end  // file3 closes first
+        end  // file2 closes second
+    end  // file1 closes third
+    log.info("  All files closed in reverse order")
+    
+    // Example 4: Using with async operations
+    log.info("\\n4. Async resource operations:")
+    using session := try create_session("user-123") do
+        // Async operations within using block
+        let data = await session.fetch_data()
+        await session.save_data(data)
+    end  // session.cleanup() called even if async ops fail
+    
+    // Example 5: Using in nursery (structured concurrency + resources)
+    log.info("\\n5. Using with nursery:")
+    nursery do
+        using shared db := try database.connect("localhost") do
+            // Spawn tasks that share the database connection
+            spawn fetch_users(db)
+            spawn fetch_orders(db)
+        end  // db.close() called after both tasks complete
+    end
+    
+    // Example 6: Error handling - cleanup always runs
+    log.info("\\n6. Error safety:")
+    let result = try_might_fail()
+    match result {
+        ok -> log.info("  Operation succeeded"),
+        error -> log.info("  Operation failed, but cleanup ran!")
+    }
+    
+    // Example 7: Early return - cleanup still runs
+    log.info("\\n7. Early return safety:")
+    early_return_demo(true)
+    log.info("  Cleanup ran despite early return")
+    
+    log.info("\\n=== Demo Complete ===")
+end
+
+// Async task: Fetch users from database
+async func fetch_users(db: database) -> void do
+    log.info("  Fetching users...")
+    await db.query("SELECT * FROM users")
+end
+
+// Async task: Fetch orders from database  
+async func fetch_orders(db: database) -> void do
+    log.info("  Fetching orders...")
+    await db.query("SELECT * FROM orders")
+end
+
+// Demonstrates error safety
+async func try_might_fail() -> void ! error do
+    using resource := acquire_critical_resource() do
+        log.info("  Using critical resource...")
+        // This error will propagate, but resource cleanup still runs
+        return error.operation_failed
+    end  // resource.cleanup() called BEFORE error propagates
+end
+
+// Demonstrates early return safety
+func early_return_demo(early: bool) -> void do
+    using resource := acquire_critical_resource() do
+        if early do
+            log.info("  Early return...")
+            return  // resource.cleanup() called before return
+        end
+        log.info("  Normal completion...")
+    end
+end
+
+// ============================================================================
+// Mock Types and Functions
+// ============================================================================
+
+// File system mock
+namespace fs {
+    struct file {
+        path: []const u8,
+        mode: file_mode
+    }
+    
+    struct file_mode {
+        read: bool,
+        write: bool
+    }
+    
+    func open(path: []const u8, mode: file_mode) -> file ! io_error do
+        log.info("  [fs.open] Opening {path}")
+        return file { path = path, mode = mode }
+    end
+    
+    func close(f: file) -> void do
+        log.info("  [fs.close] Closing {f.path}")
+    end
+    
+    func read_all(f: file) -> []const u8 ! io_error do
+        _ = f
+        return "file contents"
+    end
+}
+
+enum io_error {
+    file_not_found,
+    permission_denied
+}
+
+// Network mock
+namespace net {
+    struct connection {
+        host: []const u8,
+        port: u16
+    }
+    
+    func connect(host: []const u8, port: u16) -> connection do
+        log.info("  [net.connect] Connecting to {host}:{port}")
+        return connection { host = host, port = port }
+    end
+    
+    func close(c: connection) -> void do
+        log.info("  [net.close] Closing connection to {c.host}")
+    end
+    
+    func send(c: connection, data: []const u8) -> void ! net_error do
+        _ = c
+        log.info("  [net.send] Sending {data.len} bytes")
+    end
+    
+    func recv(c: connection) -> []const u8 ! net_error do
+        _ = c
+        return "HTTP/1.1 200 OK"
+    end
+}
+
+enum net_error {
+    connection_refused,
+    timeout
+}
+
+// Session mock
+struct session {
+    user_id: []const u8
+}
+
+func create_session(user_id: []const u8) -> session ! session_error do
+    log.info("  [session.create] Creating session for {user_id}")
+    return session { user_id = user_id }
+end
+
+func cleanup(s: session) -> void do
+    log.info("  [session.cleanup] Cleaning up session for {s.user_id}")
+end
+
+async func fetch_data(s: session) -> []const u8 do
+    _ = s
+    return "user data"
+end
+
+async func save_data(s: session, data: []const u8) -> void do
+    _ = s
+    _ = data
+end
+
+enum session_error {
+    invalid_user
+}
+
+// Database mock
+struct database {
+    host: []const u8
+}
+
+namespace database {
+    func connect(host: []const u8) -> database ! db_error do
+        log.info("  [db.connect] Connecting to {host}")
+        return database { host = host }
+    end
+    
+    func close(db: database) -> void do
+        log.info("  [db.close] Closing connection to {db.host}")
+    end
+    
+    async func query(db: database, sql: []const u8) -> void do
+        _ = db
+        log.info("  [db.query] Executing: {sql}")
+    end
+}
+
+enum db_error {
+    connection_failed
+}
+
+// Critical resource for error/return demos
+struct critical_resource {
+    id: u32
+}
+
+var next_resource_id: u32 = 1
+
+func acquire_critical_resource() -> critical_resource do
+    let id = next_resource_id
+    next_resource_id = next_resource_id + 1
+    log.info("  [resource.acquire] Acquiring resource {id}")
+    return critical_resource { id = id }
+end
+
+func cleanup(r: critical_resource) -> void do
+    log.info("  [resource.cleanup] Cleaning up resource {r.id}")
+end
+
+enum error {
+    operation_failed
+}

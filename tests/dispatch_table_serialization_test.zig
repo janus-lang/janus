@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
@@ -24,7 +26,7 @@ const SerializationTestSuite = struct {
 
     pub fn init(allocator: Allocator) !Self {
         const cache_dir = "test_serialization_cache";
-        std.fs.cwd().makeDir(cache_dir) catch {};
+        compat_fs.makeDir(cache_dir) catch {};
 
         var type_registry = try allocator.create(TypeRegistry);
         type_registry.* = try TypeRegistry.init(allocator);
@@ -47,7 +49,7 @@ const SerializationTestSuite = struct {
         self.type_registry.deinit();
         self.allocator.destroy(self.type_registry);
 
-        std.fs.cwd().deleteTree(self.cache_dir) catch {};
+        compat_fs.deleteTree(self.cache_dir) catch {};
     }
 
     /// Test basic serialization and deserialization
@@ -158,7 +160,7 @@ const SerializationTestSuite = struct {
         }
 
         // Serialize all tables
-        var cache_paths = ArrayList([]const u8).init(self.allocator);
+        var cache_paths: ArrayList([]const u8) = .empty;
         defer {
             for (cache_paths.items) |path| {
                 self.allocator.free(path);
@@ -272,7 +274,7 @@ const SerializationTestSuite = struct {
         try testing.expectEqual(DispatchTableSerializer.CURRENT_FORMAT_VERSION, self.serializer.format_version);
 
         // Read cache file and verify magic number and version
-        const file_data = try std.fs.cwd().readFileAlloc(self.allocator, cache_path, std.math.maxInt(usize));
+        const file_data = try compat_fs.readFileAlloc(self.allocator, cache_path, std.math.maxInt(usize));
         defer self.allocator.free(file_data);
 
         if (file_data.len >= @sizeOf(DispatchTableSerializer.SerializedDispatchTable)) {
@@ -299,7 +301,7 @@ const SerializationTestSuite = struct {
         defer self.allocator.free(cache_path);
 
         // Read and corrupt the cache file
-        var file_data = try std.fs.cwd().readFileAlloc(self.allocator, cache_path, std.math.maxInt(usize));
+        var file_data = try compat_fs.readFileAlloc(self.allocator, cache_path, std.math.maxInt(usize));
         defer self.allocator.free(file_data);
 
         // Corrupt some data (change a byte in the middle)
@@ -308,7 +310,7 @@ const SerializationTestSuite = struct {
         }
 
         // Write corrupted data back
-        const corrupted_file = try std.fs.cwd().createFile(cache_path, .{});
+        const corrupted_file = try compat_fs.createFile(cache_path, .{});
         defer corrupted_file.close();
         try corrupted_file.writeAll(file_data);
 
@@ -341,9 +343,9 @@ const SerializationTestSuite = struct {
         self.serializer.resetStats();
 
         // Measure serialization performance
-        const serialize_start = std.time.nanoTimestamp();
+        const serialize_start = compat_time.nanoTimestamp();
         const cache_path = try self.serializer.serializeTable(&large_table, null);
-        const serialize_end = std.time.nanoTimestamp();
+        const serialize_end = compat_time.nanoTimestamp();
         defer self.allocator.free(cache_path);
 
         const serialize_time = serialize_end - serialize_start;
@@ -351,9 +353,9 @@ const SerializationTestSuite = struct {
         // Measure deserialization performance
         const cache_key = try self.serializer.calculateCacheKey(&large_table);
 
-        const deserialize_start = std.time.nanoTimestamp();
+        const deserialize_start = compat_time.nanoTimestamp();
         const deserialized_table = try self.serializer.deserializeTable(cache_key, self.type_registry);
-        const deserialize_end = std.time.nanoTimestamp();
+        const deserialize_end = compat_time.nanoTimestamp();
 
         if (deserialized_table) |dt| {
             defer dt.deinit();
@@ -399,7 +401,7 @@ const SerializationTestSuite = struct {
         }
 
         // Serialize all tables (simulating concurrent builds)
-        var cache_paths = ArrayList([]const u8).init(self.allocator);
+        var cache_paths: ArrayList([]const u8) = .empty;
         defer {
             for (cache_paths.items) |path| {
                 self.allocator.free(path);
@@ -550,7 +552,7 @@ test "SerializationStats calculations" {
 }
 
 test "CacheEntry validation" {
-    const current_time = @as(u64, @intCast(std.time.nanoTimestamp()));
+    const current_time = @as(u64, @intCast(compat_time.nanoTimestamp()));
     const one_hour_ago = current_time - (60 * 60 * std.time.ns_per_s);
     const one_day_ago = current_time - (24 * 60 * 60 * std.time.ns_per_s);
 

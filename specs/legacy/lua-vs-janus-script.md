@@ -101,28 +101,28 @@ end
 
 **Janus :script (Honest Sugar):**
 ```janus
-fn fib(n) {
+fn fib(n) do
     let cache = hashmap()
-    if cache[n] { return cache[n] }
+    if cache[n] do return cache[n] end
     let res = n <= 1 ? n : fib(n-1) + fib(n-2)
     cache[n] = res
     res
-}
+end
 ```
 
 **Desugared Truth:**
 ```janus
-fn fib(alloc: Allocator, n: i64) -> i64 {
-    using alloc {
+fn fib(alloc: Allocator, n: i64) -> i64 do
+    using alloc do
         let cache: &mut HashMap[i64, i64] = hashmap()
-        if cache.contains_key(n) {
+        if cache.contains_key(n) do
             return cache.get(n).unwrap()
-        }
-        let res: i64 = if n <= 1 { n } else { fib(alloc, n-1)? + fib(alloc, n-2)? }
+        end
+        let res: i64 = if n <= 1 do n end else do fib(alloc, n-1)? + fib(alloc, n-2)? end
         cache.put(n, res, alloc)?
         return res
-    }
-}
+    end
+end
 ```
 
 **Analysis:**
@@ -139,17 +139,17 @@ local result = add(5)(3)  -- 8
 
 **Janus :script (Honest Sugar):**
 ```janus
-fn add(x) { fn(y) { x + y } }
+fn add(x) do fn(y) do x + y end end
 let result = add(5)(3)  // 8
 ```
 
 **Desugared Truth:**
 ```janus
-fn add(alloc: Allocator, x: i64) -> fn(i64) -> i64 {
-    using alloc {
+fn add(alloc: Allocator, x: i64) -> fn(i64) -> i64 do
+    using alloc do
         return |y: i64| -> i64 { return x + y }
-    }
-}
+    end
+end
 ```
 
 **Analysis:**
@@ -172,20 +172,20 @@ end
 
 **Janus :script (Honest Sugar):**
 ```janus
-fn load_and_process() {
+fn load_and_process() do
     let data = load_data("file.txt")?
     process(data)?
-}
+end
 ```
 
 **Desugared Truth:**
 ```janus
-fn load_and_process(alloc: Allocator, caps: Capabilities) -> !void {
-    using alloc + caps {
+fn load_and_process(alloc: Allocator, caps: Capabilities) -> !void do
+    using alloc + caps do
         let data = load_data("file.txt", caps.cap_fs_read)?
         process(data, caps)?
-    }
-}
+    end
+end
 ```
 
 **Analysis:**
@@ -211,29 +211,29 @@ end
 
 **Janus :script (Honest Sugar):**
 ```janus
-fn producer() {
-    @async for i in 1..10 {
+fn producer() do
+    @async for i in 1..10 do
         send(channel, i)
-    }
-}
+    end
+end
 
 let channel = spawn(producer)
-@async while let value = receive(channel) {
+@async while let value = receive(channel) do
     consume(value)
-}
+end
 ```
 
 **Desugared Truth:**
 ```janus
-fn producer(alloc: Allocator, caps: Capabilities) -> !void {
-    using alloc + caps {
+fn producer(alloc: Allocator, caps: Capabilities) -> !void do
+    using alloc + caps do
         var channel = spawn_channel(caps.cap_actor_spawn, alloc)
-        for i in 1..10 {
+        for i in 1..10 do
             channel.send(i, caps.cap_actor_send)?
-        }
+        end
         channel.close(caps.cap_actor_close)?
-    }
-}
+    end
+end
 ```
 
 **Analysis:**
@@ -279,13 +279,13 @@ fn producer(alloc: Allocator, caps: Capabilities) -> !void {
 **Day 1-7: "This Feels Like Home"**
 ```janus
 -- Lua-like code in Janus :script
-fn process_data(items) {
+fn process_data(items) do
     let results = hashmap()
-    for item in items {
+    for item in items do
         results[item.id] = transform(item)?
-    }
+    end
     return results
-}
+end
 ```
 
 **Day 8-14: "Something Feels Different"**
@@ -300,25 +300,25 @@ $ janus query desugar process_data
 **Day 15-21: "I Can Optimize This"**
 ```janus
 # Add explicit types, same syntax structure
-fn process_data(items: [Data]) -> HashMap[Str, Result] {
+fn process_data(items: [Data]) -> HashMap[Str, Result] do
     let results = HashMap[Str, Result].with(custom_alloc)
-    for item in items {
+    for item in items do
         results[item.id] = transform(item)?
-    }
+    end
     return results
-}
+end
 ```
 
 **Day 22-30: "This Is Production Ready"**
 ```janus
 # Dial to :service profile for explicit error handling
-fn process_data(alloc: Allocator, items: [Data]) -> !HashMap[Str, Result] {
+fn process_data(alloc: Allocator, items: [Data]) -> !HashMap[Str, Result] do
     let results = HashMap[Str, Result].with(alloc)
-    for item in items {
+    for item in items do
         results.put(item.id, transform(item)?, alloc)?
-    }
+    end
     return results
-}
+end
 ```
 
 ### 5.2 The Systems Developer Validation
@@ -396,20 +396,20 @@ let config = {
     timeout: 30
 }
 
-fn load_config(filename: Str) -> Result!Config {
+fn load_config(filename: Str) -> Result!Config do
     let content = read_file(filename)?  // Implicit capability
     return parse_config(content)        // Type-safe parsing
-}
+end
 ```
 
 **Migration to :service:**
 ```janus
-fn load_config(alloc: Allocator, caps: Capabilities, filename: Str) -> !Config {
-    using alloc + caps {
+fn load_config(alloc: Allocator, caps: Capabilities, filename: Str) -> !Config do
+    using alloc + caps do
         let content = read_file(filename, caps.cap_fs_read)?
         return parse_config(content, alloc)
-    }
-}
+    end
+end
 ```
 
 ### 7.2 Plugin Systems
@@ -434,12 +434,12 @@ end
 
 **Janus :script (Honest Sugar):**
 ```janus
-fn load_plugin(name: Str) -> Result!Plugin {
-    if let plugin = plugins[name] { return plugin }
+fn load_plugin(name: Str) -> Result!Plugin do
+    if let plugin = plugins[name] do return plugin end
     let module = import(name)?  // Dynamic import
     plugins[name] = module
     return module
-}
+end
 ```
 
 **The Desugar Reveals:**

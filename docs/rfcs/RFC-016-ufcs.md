@@ -146,14 +146,14 @@ s.to_upper()  // Resolves to std.string.to_upper(s)
 struct User {
     name: string
     
-    func greet(self) -> string {
+    func greet(self) -> string do
         return $"Hello, {self.name}"
-    }
+    end
 }
 
-func greet(u: User) -> string {
+func greet(u: User) -> string do
     return $"Hi there, {u.name}"
-}
+end
 
 let u = User { name: "Markus" }
 u.greet()  // Calls User.greet (method wins)
@@ -222,7 +222,7 @@ s.length()            // Unambiguous
 
 ### Zero-Arg Rule Still Applies
 ```janus
-func len(s: string) -> i32 { ... }
+func len(s: string) -> i32 do ... end
 
 let s = "hello"
 s.len()   // ✅ Valid UFCS call

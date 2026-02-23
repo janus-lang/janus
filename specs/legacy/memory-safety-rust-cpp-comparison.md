@@ -68,9 +68,9 @@ fn insert(buf: &mut [u8; 1024], data: &[u8]) -> Result<(), &'static str> {
 ### Janus :script (Haiku, Dialed)
 
 ```janus
-fn insert(buf, data) @profile(.script) {
+fn insert(buf, data) @profile(.script) do
     buf[0..data.len()] = data?;  // Infers bounds, arenas
-}
+end
 ```
 
 **Desugar reveals the truth:**
@@ -80,12 +80,12 @@ $ janus query desugar insert
 ```
 
 ```janus
-fn insert(buf: &mut Slice[U8], data: Slice[U8]) -> Result[Void, Error] @profile(.go) {
-    if data.len() > buf.capacity() { return err("Overflow"); }
-    using std.mem.arena {  // Scoped, zero-leak
+fn insert(buf: &mut Slice[U8], data: Slice[U8]) -> Result[Void, Error] @profile(.go) do
+    if data.len() > buf.capacity() do return err("Overflow"); end
+    using std.mem.arena do  // Scoped, zero-leak
         try buf.copy_from_slice(data, 0, data.len());
-    }
-}
+    end
+end
 ```
 
 **No fights:** Inference dials safety; query reveals. Override: Add `&immut` for read-only.
@@ -95,12 +95,12 @@ fn insert(buf: &mut Slice[U8], data: Slice[U8]) -> Result[Void, Error] @profile(
 **Enhance with Lifetime Effects:** Track ref scopes in types (semantics: effects in types).
 
 ```janus
-fn insert(buf: &mut[lifetime='scope'] Slice[U8], data: Slice[U8]) 
-    |> Result[Void, Error] @profile(.full) {
-    using 'scope {  // Ties lifetime to arena
+fn insert(buf: &mut[lifetime='scope'] Slice[U8], data: Slice[U8])
+    |> Result[Void, Error] @profile(.full) do
+    using 'scope do  // Ties lifetime to arena
         buf.copy(data)?;  // Comptime checks dangling
-    }
-}
+    end
+end
 ```
 
 **Compiler audits:** No use-after-free (lifetime bounds). 

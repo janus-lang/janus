@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
@@ -233,7 +234,7 @@ pub fn benchmarkZguiContext(iteration_count: usize) !u64 {
     var ctx = try ZguiContext.init(test_allocator, cap_token);
     defer ctx.deinit();
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     for (0..iteration_count) |_| {
         _ = try ctx.beginWindow("Benchmark Window");
@@ -241,7 +242,7 @@ pub fn benchmarkZguiContext(iteration_count: usize) !u64 {
         try ctx.endWindow();
     }
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     return @intCast(end_time - start_time);
 }
 

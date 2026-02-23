@@ -27,7 +27,7 @@ test "ComptimeVM Memory Leak Fix Validation" {
 
         const test_name = try astdb_system.str_interner.get("TEST_CONSTANT");
 
-        var dependencies = std.ArrayList(astdb.NodeId).init(allocator);
+        var dependencies: std.ArrayList(astdb.NodeId) = .empty;
         defer dependencies.deinit();
 
         const input_contract = contracts.ComptimeVMInputContract{
@@ -74,7 +74,7 @@ test "ComptimeVM Memory Leak Fix Validation" {
                 var temp_arena = std.heap.ArenaAllocator.init(allocator);
                 defer temp_arena.deinit();
 
-                var dependencies = std.ArrayList(astdb.NodeId).init(temp_arena.allocator());
+                var dependencies: std.ArrayList(astdb.NodeId) = .empty);
 
                 const input_contract = contracts.ComptimeVMInputContract{
                     .decl_id = @enumFromInt(@as(u32, @intCast(i + 1))),

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const testing = std.testing;
 const CAS = @import("../../compiler/libjanus/ledger/cas.zig");
 
@@ -93,8 +94,8 @@ test "cas: store and retrieve content" {
     const test_cas_root = "test_cas";
 
     // Clean up any existing test directory
-    std.fs.cwd().deleteTree(test_cas_root) catch {};
-    defer std.fs.cwd().deleteTree(test_cas_root) catch {};
+    compat_fs.deleteTree(test_cas_root) catch {};
+    defer compat_fs.deleteTree(test_cas_root) catch {};
 
     var cas = CAS.CAS.init(test_cas_root, allocator);
     defer cas.deinit();
@@ -124,8 +125,8 @@ test "cas: content integrity verification" {
     const test_cas_root = "test_cas_integrity";
 
     // Clean up any existing test directory
-    std.fs.cwd().deleteTree(test_cas_root) catch {};
-    defer std.fs.cwd().deleteTree(test_cas_root) catch {};
+    compat_fs.deleteTree(test_cas_root) catch {};
+    defer compat_fs.deleteTree(test_cas_root) catch {};
 
     var cas = CAS.CAS.init(test_cas_root, allocator);
     defer cas.deinit();
@@ -194,14 +195,14 @@ test "cas: CAS initialization" {
     const test_cas_root = "test_cas_init";
 
     // Clean up any existing test directory
-    std.fs.cwd().deleteTree(test_cas_root) catch {};
-    defer std.fs.cwd().deleteTree(test_cas_root) catch {};
+    compat_fs.deleteTree(test_cas_root) catch {};
+    defer compat_fs.deleteTree(test_cas_root) catch {};
 
     // Initialize CAS
     try CAS.initializeCAS(test_cas_root);
 
     // Directory should exist
-    const dir = try std.fs.cwd().openDir(test_cas_root, .{});
+    const dir = try compat_fs.openDir(test_cas_root, .{});
     dir.close();
 
     // Should be idempotent
@@ -213,8 +214,8 @@ test "cas: large content handling" {
     const test_cas_root = "test_cas_large";
 
     // Clean up any existing test directory
-    std.fs.cwd().deleteTree(test_cas_root) catch {};
-    defer std.fs.cwd().deleteTree(test_cas_root) catch {};
+    compat_fs.deleteTree(test_cas_root) catch {};
+    defer compat_fs.deleteTree(test_cas_root) catch {};
 
     var cas = CAS.CAS.init(test_cas_root, allocator);
     defer cas.deinit();

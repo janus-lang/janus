@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const Parser = @import("compiler/libjanus/parser.zig");
 const Semantic = @import("compiler/libjanus/semantic.zig");
 const IR = @import("compiler/libjanus/ir.zig");
@@ -138,7 +139,7 @@ test "Revolutionary Capability Injection - Complete Pipeline" {
     std.debug.print("   ✅ Executable generated: {s}\n", .{output_path});
 
     // Verify executable exists and is executable
-    const file_stat = std.fs.cwd().statFile(output_path) catch |err| {
+    const file_stat = compat_fs.statFile(output_path) catch |err| {
         std.debug.print("   ❌ Failed to stat executable: {}\n", .{err});
         return err;
     };
@@ -162,8 +163,8 @@ test "Revolutionary Capability Injection - Complete Pipeline" {
     }
 
     // Clean up
-    std.fs.cwd().deleteFile(output_path) catch {};
-    std.fs.cwd().deleteFile("debug.ll") catch {};
+    compat_fs.deleteFile(output_path) catch {};
+    compat_fs.deleteFile("debug.ll") catch {};
 
     // Revolutionary Achievement Summary
     std.debug.print("\n🎉 REVOLUTIONARY CAPABILITY INJECTION - COMPLETE SUCCESS!\n", .{});

@@ -18,7 +18,7 @@ pub const WhenSemanticAnalyzer = struct {
     pub fn init(allocator: Allocator) WhenSemanticAnalyzer {
         return WhenSemanticAnalyzer{
             .allocator = allocator,
-            .diagnostics = ArrayList(Diagnostic).init(allocator),
+            .diagnostics = .empty,
         };
     }
 
@@ -186,49 +186,49 @@ pub const WhenSemanticAnalyzer = struct {
 
     /// Create suggestions for match guard fixes
     fn createMatchGuardSuggestions(self: *WhenSemanticAnalyzer) ![][]const u8 {
-        var suggestions = ArrayList([]const u8).init(self.allocator);
+        var suggestions: ArrayList([]const u8) = .empty;
 
         try suggestions.append(try self.allocator.dupe(u8, "Use format: pattern when condition => result"));
         try suggestions.append(try self.allocator.dupe(u8, "Example: n when n > 0 => \"positive\""));
 
-        return suggestions.toOwnedSlice();
+        return try suggestions.toOwnedSlice(alloc);
     }
 
     /// Create suggestions for missing conditions
     fn createConditionSuggestions(self: *WhenSemanticAnalyzer) ![][]const u8 {
-        var suggestions = ArrayList([]const u8).init(self.allocator);
+        var suggestions: ArrayList([]const u8) = .empty;
 
         try suggestions.append(try self.allocator.dupe(u8, "Add a boolean condition after 'when'"));
         try suggestions.append(try self.allocator.dupe(u8, "Example: when x > 0"));
         try suggestions.append(try self.allocator.dupe(u8, "Example: when user != null"));
 
-        return suggestions.toOwnedSlice();
+        return try suggestions.toOwnedSlice(alloc);
     }
 
     /// Create suggestions for missing statements
     fn createStatementSuggestions(self: *WhenSemanticAnalyzer) ![][]const u8 {
-        var suggestions = ArrayList([]const u8).init(self.allocator);
+        var suggestions: ArrayList([]const u8) = .empty;
 
         try suggestions.append(try self.allocator.dupe(u8, "Add a statement before 'when'"));
         try suggestions.append(try self.allocator.dupe(u8, "Example: return error when condition"));
         try suggestions.append(try self.allocator.dupe(u8, "Example: break when found"));
 
-        return suggestions.toOwnedSlice();
+        return try suggestions.toOwnedSlice(alloc);
     }
 
     /// Create suggestions for postfix statement improvements
     fn createPostfixStatementSuggestions(self: *WhenSemanticAnalyzer) ![][]const u8 {
-        var suggestions = ArrayList([]const u8).init(self.allocator);
+        var suggestions: ArrayList([]const u8) = .empty;
 
         try suggestions.append(try self.allocator.dupe(u8, "Consider using regular if statement for complex logic"));
         try suggestions.append(try self.allocator.dupe(u8, "Postfix when works best with: return, break, continue, assignments"));
 
-        return suggestions.toOwnedSlice();
+        return try suggestions.toOwnedSlice(alloc);
     }
 
     /// Provide code actions for when keyword improvements
     pub fn getCodeActions(self: *WhenSemanticAnalyzer, line: []const u8, position: Position) ![]CodeAction {
-        var actions = ArrayList(CodeAction).init(self.allocator);
+        var actions: ArrayList(CodeAction) = .empty;
 
         // Convert postfix when to regular if statement
         if (std.mem.indexOf(u8, line, "when") != null and std.mem.indexOf(u8, line, "=>") == null) {
@@ -252,7 +252,7 @@ pub const WhenSemanticAnalyzer = struct {
 
         _ = position; // Position-specific actions could be added here
 
-        return actions.toOwnedSlice();
+        return try actions.toOwnedSlice(alloc);
     }
 
     /// Check if if statement is simple enough for postfix conversion

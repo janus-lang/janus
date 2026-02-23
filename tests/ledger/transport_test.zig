@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const testing = std.testing;
 const transport = @import("../../compiler/libjanus/ledger/transport.zig");
 const cas = @import("../../compiler/libjanus/ledger/cas.zig");
@@ -101,18 +102,18 @@ test "transport: file transport with test directory" {
 
     // Create test directory structure
     const test_dir = "test_transport_dir";
-    std.fs.cwd().deleteTree(test_dir) catch {};
-    defer std.fs.cwd().deleteTree(test_dir) catch {};
+    compat_fs.deleteTree(test_dir) catch {};
+    defer compat_fs.deleteTree(test_dir) catch {};
 
-    try std.fs.cwd().makeDir(test_dir);
+    try compat_fs.makeDir(test_dir);
 
     // Create test files
-    try std.fs.cwd().writeFile(.{ .sub_path = test_dir ++ "/file1.txt", .data = "Hello, World!" });
-    try std.fs.cwd().writeFile(.{ .sub_path = test_dir ++ "/file2.txt", .data = "Janus Ledger" });
+    try compat_fs.writeFile(.{ .sub_path = test_dir ++ "/file1.txt", .data = "Hello, World!" });
+    try compat_fs.writeFile(.{ .sub_path = test_dir ++ "/file2.txt", .data = "Janus Ledger" });
 
     // Create subdirectory with file
-    try std.fs.cwd().makeDir(test_dir ++ "/subdir");
-    try std.fs.cwd().writeFile(.{ .sub_path = test_dir ++ "/subdir/file3.txt", .data = "Nested content" });
+    try compat_fs.makeDir(test_dir ++ "/subdir");
+    try compat_fs.writeFile(.{ .sub_path = test_dir ++ "/subdir/file3.txt", .data = "Nested content" });
 
     var registry = try transport.createDefaultRegistry(allocator);
     defer registry.deinit();
@@ -144,8 +145,8 @@ test "transport: file transport with single file" {
     const test_file = "test_transport_file.txt";
     const test_content = "This is test content for transport";
 
-    try std.fs.cwd().writeFile(.{ .sub_path = test_file, .data = test_content });
-    defer std.fs.cwd().deleteFile(test_file) catch {};
+    try compat_fs.writeFile(.{ .sub_path = test_file, .data = test_content });
+    defer compat_fs.deleteFile(test_file) catch {};
 
     var registry = try transport.createDefaultRegistry(allocator);
     defer registry.deinit();
@@ -174,8 +175,8 @@ test "transport: integrity verification" {
     const test_file = "test_integrity_file.txt";
     const test_content = "Content for integrity testing";
 
-    try std.fs.cwd().writeFile(.{ .sub_path = test_file, .data = test_content });
-    defer std.fs.cwd().deleteFile(test_file) catch {};
+    try compat_fs.writeFile(.{ .sub_path = test_file, .data = test_content });
+    defer compat_fs.deleteFile(test_file) catch {};
 
     var registry = try transport.createDefaultRegistry(allocator);
     defer registry.deinit();
@@ -228,26 +229,26 @@ test "transport: archive normalization determinism" {
 
     // Create test directory with files that have different timestamps
     const test_dir = "test_normalization_dir";
-    std.fs.cwd().deleteTree(test_dir) catch {};
-    defer std.fs.cwd().deleteTree(test_dir) catch {};
+    compat_fs.deleteTree(test_dir) catch {};
+    defer compat_fs.deleteTree(test_dir) catch {};
 
-    try std.fs.cwd().makeDir(test_dir);
+    try compat_fs.makeDir(test_dir);
 
     // Create files with different content but same logical structure
-    try std.fs.cwd().writeFile(.{ .sub_path = test_dir ++ "/a.txt", .data = "line1\r\nline2\r\n" });
-    try std.fs.cwd().writeFile(.{ .sub_path = test_dir ++ "/b.txt", .data = "content B" });
+    try compat_fs.writeFile(.{ .sub_path = test_dir ++ "/a.txt", .data = "line1\r\nline2\r\n" });
+    try compat_fs.writeFile(.{ .sub_path = test_dir ++ "/b.txt", .data = "content B" });
 
     // Wait a moment to ensure different timestamps
     std.time.sleep(1000000); // 1ms
 
     // Create the same files again in a different directory
     const test_dir2 = "test_normalization_dir2";
-    std.fs.cwd().deleteTree(test_dir2) catch {};
-    defer std.fs.cwd().deleteTree(test_dir2) catch {};
+    compat_fs.deleteTree(test_dir2) catch {};
+    defer compat_fs.deleteTree(test_dir2) catch {};
 
-    try std.fs.cwd().makeDir(test_dir2);
-    try std.fs.cwd().writeFile(.{ .sub_path = test_dir2 ++ "/a.txt", .data = "line1\nline2\n" }); // Different line endings
-    try std.fs.cwd().writeFile(.{ .sub_path = test_dir2 ++ "/b.txt", .data = "content B" });
+    try compat_fs.makeDir(test_dir2);
+    try compat_fs.writeFile(.{ .sub_path = test_dir2 ++ "/a.txt", .data = "line1\nline2\n" }); // Different line endings
+    try compat_fs.writeFile(.{ .sub_path = test_dir2 ++ "/b.txt", .data = "content B" });
 
     var registry = try transport.createDefaultRegistry(allocator);
     defer registry.deinit();

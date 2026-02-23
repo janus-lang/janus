@@ -88,7 +88,7 @@ pub const OracleGrpcClient = struct {
         const rc = grpc.c.janus_oracle_references_at(@ptrCast(self.c_handle), @ptrCast(uri_z.ptr), line, character, include_decl, @ptrCast(&arr_ptr), &count);
         if (rc != 0) return error.Transport;
         if (count == 0 or arr_ptr == null) return &[_]Location{};
-        var list = std.ArrayList(Location).init(self.allocator);
+        var list: std.ArrayList(Location) = .empty;
         defer list.deinit();
         var i: usize = 0;
         while (i < count) : (i += 1) {

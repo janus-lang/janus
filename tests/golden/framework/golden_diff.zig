@@ -215,7 +215,7 @@ pub const GoldenDiff = struct {
         const generated_analysis = try self.analyzeIR(generated_ir);
 
         // Find semantic differences
-        var differences = ArrayList(SemanticDifference).init(self.allocator);
+        var differences: ArrayList(SemanticDifference) = .empty;
         defer differences.deinit();
 
         try self.compareFunctions(&differences, golden_analysis.functions, generated_analysis.functions);
@@ -224,7 +224,7 @@ pub const GoldenDiff = struct {
         try self.comparePerformanceMetrics(&differences, golden_analysis.performance_metrics, generated_analysis.performance_metrics);
 
         // Check contract violations
-        var contract_violations = ArrayList(ComparisonResult.ContractViolation).init(self.allocator);
+        var contract_violations: ArrayList(ComparisonResult.ContractViolation) = .empty;
         defer contract_violations.deinit();
 
         try self.validateMetadataContracts(&contract_violations, generated_analysis, metadata);
@@ -243,13 +243,13 @@ pub const GoldenDiff = struct {
 
     /// Analyze LLVM IR to extract semantic information
     fn analyzeIR(self: *Self, ir: []const u8) !IRAnalysis {
-        var functions = ArrayList(IRAnalysis.FunctionAnalysis).init(self.allocator);
+        var functions: ArrayList(IRAnalysis.FunctionAnalysis) = .empty;
         defer functions.deinit();
 
-        var dispatch_tables = ArrayList(IRAnalysis.DispatchTableAnalysis).init(self.allocator);
+        var dispatch_tables: ArrayList(IRAnalysis.DispatchTableAnalysis) = .empty;
         defer dispatch_tables.deinit();
 
-        var call_patterns = ArrayList(IRAnalysis.CallPatternAnalysis).init(self.allocator);
+        var call_patterns: ArrayList(IRAnalysis.CallPatternAnalysis) = .empty;
         defer call_patterns.deinit();
 
         var performance_metrics = IRAnalysis.PerformanceMetrics{

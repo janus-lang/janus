@@ -1,0 +1,78 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Simple Calculator with Pattern Matching
+//
+// Demonstrates:
+// - Match expressions (declarative branching)
+// - Enum types
+// - Error handling (division by zero)
+// - Pattern matching on structured data
+// - Clean expression-based code
+
+enum Operation do
+    Add
+    Subtract
+    Multiply
+    Divide
+    Power
+end
+
+func calculate(op: Operation, a: i64, b: i64) !i64 do
+    return match op {
+        .Add => a + b,
+        .Subtract => a - b,
+        .Multiply => a * b,
+        .Divide => {
+            if b == 0 do
+                fail DivisionByZero
+            end
+            return a / b
+        },
+        .Power => {
+            var result = 1
+            for i in 0..<b do
+                result = result * a
+            end
+            return result
+        }
+    }
+end
+
+func operation_name(op: Operation) -> []const u8 do
+    return match op {
+        .Add => "add",
+        .Subtract => "subtract",
+        .Multiply => "multiply",
+        .Divide => "divide",
+        .Power => "raise to power"
+    }
+end
+
+func demo_calculation(op: Operation, a: i64, b: i64) do
+    print(a, " ", operation_name(op), " ", b, " = ")
+
+    let result = calculate(op, a, b) catch |err| do
+        println("ERROR: ", err)
+        return
+    end
+
+    print_int(result)
+    println("")
+end
+
+func main() do
+    println("🧮 Calculator Demo\n")
+
+    // Demonstrate various operations
+    demo_calculation(.Add, 10, 5)
+    demo_calculation(.Subtract, 10, 5)
+    demo_calculation(.Multiply, 10, 5)
+    demo_calculation(.Divide, 10, 5)
+    demo_calculation(.Power, 2, 10)
+
+    println("\nEdge cases:")
+    demo_calculation(.Divide, 10, 0)  // Division by zero
+
+    println("\n✓ Pattern matching with error handling!")
+end

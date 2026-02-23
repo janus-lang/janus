@@ -374,7 +374,7 @@ test "CID computation basic functionality" {
     // Use testing allocator for SemanticEncoder (needs dynamic growth)
     const encoder_allocator = std.testing.allocator;
 
-    var db = astdb.AstDB.init(astdb_allocator);
+    var db = try astdb.AstDB.init(astdb_allocator, false);
     defer db.deinit();
 
     var encoder = SemanticEncoder.init(encoder_allocator, &db, false);

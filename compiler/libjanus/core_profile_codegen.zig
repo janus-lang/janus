@@ -14,6 +14,7 @@
 //! - Literals (integers, floats, booleans, strings)
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const astdb_core = @import("astdb_core");
 const qtjir = @import("qtjir");
 
@@ -573,7 +574,7 @@ pub const CoreProfileCodeGen = struct {
         const ir = try self.emitLLVM(module_name);
         defer self.allocator.free(ir);
 
-        const file = std.fs.cwd().createFile(output_path, .{}) catch return CodeGenError.InternalError;
+        const file = compat_fs.createFile(output_path, .{}) catch return CodeGenError.InternalError;
         defer file.close();
 
         file.writeAll(ir) catch return CodeGenError.InternalError;

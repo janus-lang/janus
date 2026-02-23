@@ -329,26 +329,26 @@ fn isBuiltinModule(module_name: []const u8) bool {
 
 /// Find all references to a definition
 pub fn findReferences(query_ctx: *QueryCtx, definition_cid: CID) ![]DefinitionInfo.Reference {
-    var references = std.ArrayList(DefinitionInfo.Reference).init(query_ctx.allocator);
+    var references: std.ArrayList(DefinitionInfo.Reference) = .empty;
 
     // This would require a reverse index of all symbol usages
     // For now, return empty list
     _ = query_ctx;
     _ = definition_cid;
 
-    return references.toOwnedSlice();
+    return try references.toOwnedSlice(alloc);
 }
 
 /// Find all implementations of an interface or abstract method
 pub fn findImplementations(query_ctx: *QueryCtx, interface_cid: CID) ![]DefinitionInfo {
-    var implementations = std.ArrayList(DefinitionInfo).init(query_ctx.allocator);
+    var implementations: std.ArrayList(DefinitionInfo) = .empty;
 
     // This would require analysis of type hierarchy and interface implementations
     // For now, return empty list
     _ = query_ctx;
     _ = interface_cid;
 
-    return implementations.toOwnedSlice();
+    return try implementations.toOwnedSlice(alloc);
 }
 
 // Tests

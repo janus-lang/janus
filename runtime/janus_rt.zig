@@ -498,40 +498,57 @@ export fn janus_readFile(path: [*:0]const u8) callconv(.c) ?[*:0]u8 {
     const allocator = gpa.allocator();
     const path_slice = std.mem.span(path);
 
-    // Use std.fs.cwd() for blocking file read
-    const content = std.fs.cwd().readFileAlloc(
-        allocator,
-        path_slice,
-        std.math.maxInt(usize),
-    ) catch {
+    // Use POSIX openat for blocking file read (compatible with Zig 0.16)
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path_slice, .{}, 0) catch {
         return null;
     };
+    defer _ = std.os.linux.close(fd);
+
+    // fstat removed in Zig 0.16 — use statx with AT_EMPTY_PATH
+    var stx: std.os.linux.Statx = undefined;
+    if (std.os.linux.statx(fd, "", 0x1000, std.os.linux.STATX.BASIC_STATS, &stx) != 0) return null;
+    const size: usize = @intCast(stx.size);
+
+    const buffer = allocator.alloc(u8, size + 1) catch {
+        return null;
+    };
+
+    const bytes_read = std.os.linux.read(fd, buffer[0..size].ptr, size);
+    if (bytes_read != size) {
+        allocator.free(buffer);
+        return null;
+    }
+    
+    if (bytes_read != size) {
+        allocator.free(buffer);
+        return null;
+    }
+    buffer[size] = 0;
 
     // Allocate with C allocator for lifetime management
-    const c_buffer = std.c.malloc(content.len + 1) orelse {
-        allocator.free(content);
+    const c_buffer = std.c.malloc(size + 1) orelse {
+        allocator.free(buffer);
         return null;
     };
 
-    const result_slice: [*]u8 = @ptrCast(c_buffer);
-    @memcpy(result_slice[0..content.len], content);
-    result_slice[content.len] = 0;
-
-    allocator.free(content);
-    return @ptrCast(result_slice);
+    @memcpy(@as([*]u8, @ptrCast(c_buffer))[0 .. size + 1], buffer[0 .. size + 1]);
+    allocator.free(buffer);
+    return @ptrCast(c_buffer);
 }
 
 export fn janus_writeFile(path: [*:0]const u8, content: [*:0]const u8) callconv(.c) i32 {
     const path_slice = std.mem.span(path);
     const content_slice = std.mem.span(content);
 
-    // Use std.fs.cwd() for blocking file write
-    std.fs.cwd().writeFile(.{
-        .sub_path = path_slice,
-        .data = content_slice,
-    }) catch {
+    // Use POSIX openat for blocking file write (compatible with Zig 0.16)
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path_slice, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, 0o644) catch {
         return -1;
     };
+    defer _ = std.os.linux.close(fd);
+
+    // write removed from std.posix in 0.16 — use linux syscall
+    const written = std.os.linux.write(fd, content_slice.ptr, content_slice.len);
+    if (@as(isize, @bitCast(written)) < 0) return -1;
 
     return 0;
 }
@@ -835,6 +852,33 @@ export fn janus_nursery_task_count() callconv(.c) i32 {
     return @intCast(handle.nursery.activeChildCount());
 }
 
+/// Get the cancel token for the current nursery (SPEC-019 Section 3.6)
+/// Returns null if no active nursery
+export fn janus_nursery_get_token() callconv(.c) ?*scheduler.CancelToken {
+    if (rt_nursery_stack.items.len == 0) return null;
+
+    const handle = rt_nursery_stack.items[rt_nursery_stack.items.len - 1];
+    return handle.nursery.getToken();
+}
+
+/// Check if current nursery is cancelled (SPEC-019 Section 3.6)
+/// Returns true if cancelled OR if no active nursery (fail-safe)
+export fn janus_nursery_is_cancelled() callconv(.c) bool {
+    if (rt_nursery_stack.items.len == 0) return true; // No nursery = treat as cancelled
+
+    const handle = rt_nursery_stack.items[rt_nursery_stack.items.len - 1];
+    return handle.nursery.isCancelled();
+}
+
+/// Cancel the current nursery (SPEC-019 Section 3.6)
+/// No-op if no active nursery
+export fn janus_nursery_cancel() callconv(.c) void {
+    if (rt_nursery_stack.items.len == 0) return;
+
+    const handle = rt_nursery_stack.items[rt_nursery_stack.items.len - 1];
+    handle.nursery.getToken().cancel();
+}
+
 // ============================================================================
 // Channel API - Phase 3: CSP-style Message Passing
 // ============================================================================
@@ -861,12 +905,10 @@ pub fn Channel(comptime T: type) type {
         count: usize, // Current items in buffer
         capacity: usize,
 
-        // Synchronization
-        mutex: std.Thread.Mutex,
-        not_empty: std.Thread.Condition, // Signaled when data available
-        not_full: std.Thread.Condition, // Signaled when space available
-
-        // State
+        // Synchronization (compat Mutex/Condition for Zig 0.16 — std.Thread.Mutex removed)
+        mutex: @import("compat/mutex.zig").Mutex,
+        not_empty: @import("compat/mutex.zig").Condition,
+        not_full: @import("compat/mutex.zig").Condition,
         closed: std.atomic.Value(bool),
         allocator: std.mem.Allocator,
 
@@ -1275,8 +1317,10 @@ pub const SelectContext = struct {
     /// Wait for one case to become ready
     /// Returns the index of the ready case, or -1 on error
     fn wait(self: *SelectContext) i32 {
-        // Record start time for timeout handling
-        const start_time = std.time.nanoTimestamp();
+        // Record start time for timeout handling (Zig 0.16: use linux syscall directly)
+        var ts: std.os.linux.timespec = .{ .sec = 0, .nsec = 0 };
+        _ = std.os.linux.clock_gettime(.REALTIME, &ts);
+        const start_time = @as(u64, @intCast(ts.sec)) * 1_000_000_000 + @as(u64, @intCast(ts.nsec));
 
         // Find maximum timeout and set deadline
         var max_timeout_ns: u64 = 0;
@@ -1326,7 +1370,9 @@ pub const SelectContext = struct {
                         }
                     },
                     .timeout => {
-                        const now: u64 = @intCast(std.time.nanoTimestamp());
+                        var now_ts: std.os.linux.timespec = .{ .sec = 0, .nsec = 0 };
+                        _ = std.os.linux.clock_gettime(.REALTIME, &now_ts);
+                        const now: u64 = @as(u64, @intCast(now_ts.sec)) * 1_000_000_000 + @as(u64, @intCast(now_ts.nsec));
                         const elapsed = now -| @as(u64, @intCast(start_time));
                         if (elapsed >= c.timeout_ns) {
                             c.ready = true;
@@ -1352,7 +1398,9 @@ pub const SelectContext = struct {
 
             // Check timeout deadline
             if (self.has_timeout) {
-                const now: u64 = @intCast(std.time.nanoTimestamp());
+                var deadline_ts: std.os.linux.timespec = .{ .sec = 0, .nsec = 0 };
+                _ = std.os.linux.clock_gettime(.REALTIME, &deadline_ts);
+                const now: u64 = @as(u64, @intCast(deadline_ts.sec)) * 1_000_000_000 + @as(u64, @intCast(deadline_ts.nsec));
                 if (now >= self.timeout_deadline) {
                     // Find and return timeout case
                     for (self.cases[0..self.case_count], 0..) |*c, i| {
@@ -1364,8 +1412,8 @@ pub const SelectContext = struct {
                 }
             }
 
-            // Sleep with exponential backoff
-            std.Thread.sleep(sleep_ns);
+            // Sleep with exponential backoff (use nanosleep for blocking)
+            _ = std.c.nanosleep(&.{ .sec = 0, .nsec = @intCast(sleep_ns) }, null);
             sleep_ns = @min(sleep_ns * 2, max_sleep_ns);
         }
     }

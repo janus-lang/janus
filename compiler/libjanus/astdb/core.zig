@@ -42,6 +42,8 @@ pub const NodeKind = enum {
     block_stmt,
     fail_stmt, // fail ErrorType.Variant
     nursery_stmt, // :service profile - nursery { spawn tasks }
+    using_resource_stmt, // :service profile - using resource = open() do ... end
+    using_shared_stmt, // :service profile - using shared resource = open() do ... end
 
     // Expressions
     binary_expr,

@@ -5,6 +5,8 @@
 // Phase 1 Implementation - Basic query and diff commands
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 
 /// Oracle CLI entry point
@@ -228,7 +230,7 @@ const QueryResult = struct {
 };
 
 fn executeSemanticQuery(predicate: []const u8, allocator: Allocator) !QueryResult {
-    const start_time = std.time.milliTimestamp();
+    const start_time: i64 = @intCast(@divFloor(compat_time.nanoTimestamp(), 1_000_000));
 
     // REAL ASTDB QUERY EXECUTION - NO MOCKS
     const query_command = @import("query_command.zig");
@@ -240,7 +242,7 @@ fn executeSemanticQuery(predicate: []const u8, allocator: Allocator) !QueryResul
     var matches = std.ArrayList(QueryResult.QueryMatch){};
 
     // Find all .jan files in current directory
-    var dir = std.fs.cwd().openDir(".", .{ .iterate = true }) catch |err| {
+    var dir = compat_fs.openDir(".") catch |err| {
         std.log.err("Failed to open current directory: {}", .{err});
         return QueryResult{
             .matches = try matches.toOwnedSlice(allocator),
@@ -261,11 +263,11 @@ fn executeSemanticQuery(predicate: []const u8, allocator: Allocator) !QueryResul
     }
 
     // Also check test files
-    if (std.fs.cwd().access("test_simple.jan", .{})) {
+    if (compat_fs.statFile("test_simple.jan")) |_| {
         try executeQueryOnFile("test_simple.jan", predicate, &matches, allocator);
     } else |_| {}
 
-    const end_time = std.time.milliTimestamp();
+    const end_time: i64 = @intCast(@divFloor(compat_time.nanoTimestamp(), 1_000_000));
     const execution_time = @as(f64, @floatFromInt(end_time - start_time));
 
     return QueryResult{
@@ -285,7 +287,7 @@ fn executeQueryOnFile(file_path: []const u8, predicate: []const u8, matches: *st
     const parser = janus.parser;
 
     // Read source file
-    const source = std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024) catch |err| {
+    const source = compat_fs.readFileAlloc(allocator, file_path, 1024 * 1024) catch |err| {
         std.log.warn("Failed to read {s}: {}", .{ file_path, err });
         return;
     };

@@ -71,9 +71,9 @@ Janus employs a hierarchical comment system where each type serves a specific pu
 ///
 /// **Safety:** Any safety considerations or preconditions
 /// **Errors:** What errors can be returned and when
-func my_function(param1: i32, param2: String) -> Result[String, Error] {
+func my_function(param1: i32, param2: String) -> Result[String, Error] do
     // Implementation...
-}
+end
 ```
 
 ### 3. Implementation Comments (`//`)
@@ -89,7 +89,7 @@ func my_function(param1: i32, param2: String) -> Result[String, Error] {
 - Mark TODO items and technical debt
 
 ```janus
-func complex_algorithm(data: []i32) -> i32 {
+func complex_algorithm(data: []i32) -> i32 do
     // Using a two-pointer technique here because it reduces time complexity
     // from O(n²) to O(n log n) for this specific use case
     var left = 0;
@@ -97,10 +97,10 @@ func complex_algorithm(data: []i32) -> i32 {
 
     // TODO: This could be optimized further with SIMD instructions
     // See issue #123 for details
-    while left < right {
+    while left < right do
         // ... implementation
-    }
-}
+    end
+end
 ```
 
 ### 4. Architectural Comments (`// ARCHITECTURE:`)
@@ -110,7 +110,7 @@ func complex_algorithm(data: []i32) -> i32 {
 **Format**: Always prefixed with `// ARCHITECTURE:` for easy searching and tooling.
 
 ```janus
-func parse_expression(tokens: []Token) -> AstNode {
+func parse_expression(tokens: []Token) -> AstNode do
     // ARCHITECTURE: We use recursive descent here instead of operator
     // precedence parsing to maintain consistency with the error recovery
     // strategy defined in the language specification section 4.2
@@ -120,7 +120,7 @@ func parse_expression(tokens: []Token) -> AstNode {
     var arena = context.allocator.arena();
 
     // ... implementation
-}
+end
 ```
 
 ## Header Components Deep Dive

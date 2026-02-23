@@ -8,6 +8,7 @@
 //! across different exit paths and ensure LIFO cleanup ordering.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
@@ -61,8 +62,8 @@ const TestContext = struct {
     pub fn init(allocator: Allocator) TestContext {
         return TestContext{
             .allocator = allocator,
-            .cleanup_order = std.ArrayList(u32).init(allocator),
-            .resources = std.ArrayList(TestResource).init(allocator),
+            .cleanup_order = .empty,
+            .resources = .empty,
         };
     }
 
@@ -411,7 +412,7 @@ test "using statement - performance under 1ms" {
     var test_ctx = TestContext.init(testing.allocator);
     defer test_ctx.deinit();
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Simulate rapid resource acquisition and cleanup
     var i: u32 = 0;
@@ -420,7 +421,7 @@ test "using statement - performance under 1ms" {
         try resource.close();
     }
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const elapsed_ns = end_time - start_time;
     const elapsed_ms = @intToFloat(f64, elapsed_ns) / 1_000_000.0;
 

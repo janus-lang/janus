@@ -92,7 +92,7 @@ func add_input_field(parent: &Window, placeholder: str, caps: CapUiInteract) -> 
 **Live synchronization:**
 ```janus
 // Subscribe UI to semantic database changes
-func setup_ui_subscriptions(db: ASTDB, caps: CapUiDisplay) -> void !DbError {
+func setup_ui_subscriptions(db: ASTDB, caps: CapUiDisplay) -> void !DbError do
     db.subscribe("func where effects.contains('io.fs.write')") { |results|
         update_file_io_display(results)
     }
@@ -100,7 +100,7 @@ func setup_ui_subscriptions(db: ASTDB, caps: CapUiDisplay) -> void !DbError {
     db.subscribe("perf where latency > 10ms") { |results|
         update_performance_gauge(results)
     }
-}
+end
 ```
 
 ---
@@ -166,7 +166,7 @@ func zgui.begin_window(name: str, flags: u32) -> bool !UiEffect[ui.display + all
 ### Arena-Based Isolation
 
 ```janus
-func run_ui_session(ctx: Context) -> void !UiError {
+func run_ui_session(ctx: Context) -> void !UiError do
     let ui_arena = ArenaAllocator.init(ctx.alloc)
     defer ui_arena.deinit()  // Automatic cleanup
 
@@ -174,7 +174,7 @@ func run_ui_session(ctx: Context) -> void !UiError {
         create_dashboard(ui_arena.allocator())
         // All UI resources automatically freed
     end
-}
+end
 ```
 
 ---
@@ -187,7 +187,7 @@ func run_ui_session(ctx: Context) -> void !UiError {
 func create_simulation_dashboard(
     simulation: NBodySimulation,
     caps: UiCapabilities
-) -> void !UiError {
+) -> void !UiError do
     with caps do
         let window = zgui.begin_window("N-Body Simulation")
         if window do
@@ -204,7 +204,7 @@ func create_simulation_dashboard(
             zgui.end_window()
         end
     end
-}
+end
 ```
 
 ### Scenario 2: LSP Integration
@@ -213,7 +213,7 @@ func create_simulation_dashboard(
 func create_lsp_diagnostics_panel(
     diagnostics: [Diagnostic],
     caps: UiCapabilities
-) -> void !UiError {
+) -> void !UiError do
     with caps do
         let panel = zgui.begin_window("LSP Diagnostics")
         if panel do
@@ -232,13 +232,13 @@ func create_lsp_diagnostics_panel(
             zgui.end_window()
         end
     end
-}
+end
 ```
 
 ### Scenario 3: ASTDB Live Inspection
 
 ```janus
-func create_semantic_inspector(db: ASTDB, caps: UiCapabilities) -> void !UiError {
+func create_semantic_inspector(db: ASTDB, caps: UiCapabilities) -> void !UiError do
     with caps do
         let inspector = zgui.begin_window("Semantic Inspector")
         if inspector do
@@ -259,7 +259,7 @@ func create_semantic_inspector(db: ASTDB, caps: UiCapabilities) -> void !UiError
             zgui.end_window()
         end
     end
-}
+end
 ```
 
 ---

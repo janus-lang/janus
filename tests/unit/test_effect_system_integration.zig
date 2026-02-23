@@ -134,7 +134,7 @@ test "Effect System Integration Contract Structures" {
         .is_capability = false,
     };
 
-    var params = std.ArrayList(contracts.EffectSystemInputContract.ParameterInfo).init(allocator);
+    var params: std.ArrayList(contracts.EffectSystemInputContract.ParameterInfo) = .empty;
     defer params.deinit();
     try params.append(param_info);
 
@@ -159,11 +159,11 @@ test "Effect System Integration Contract Structures" {
     std.debug.print("✅ EffectSystemInputContract validation passed\n", .{});
 
     // Test creating a valid EffectSystemOutputContract
-    var effects = std.ArrayList(astdb.StrId).init(allocator);
+    var effects: std.ArrayList(astdb.StrId) = .empty;
     defer effects.deinit();
     try effects.append(@enumFromInt(1));
 
-    var capabilities = std.ArrayList(astdb.StrId).init(allocator);
+    var capabilities: std.ArrayList(astdb.StrId) = .empty;
     defer capabilities.deinit();
     try capabilities.append(@enumFromInt(2));
 

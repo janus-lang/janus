@@ -280,30 +280,44 @@ pub const Connection = struct {
     pub fn read(self: *Connection, buffer: []u8) SocketError!usize {
         if (!self.is_connected) return SocketError.ConnectionReset;
 
-        const bytes_read = std.posix.read(self.handle, buffer) catch |err| switch (err) {
-            error.WouldBlock => return 0,
-            error.ConnectionResetByPeer => return SocketError.ConnectionReset,
-            error.BrokenPipe => return SocketError.ConnectionReset,
-            error.NotOpenForReading => return SocketError.SystemError,
-            else => return SocketError.SystemError,
-        };
-
-        return bytes_read;
+        // std.posix.read removed in Zig 0.16 — use linux syscall
+        const rc = std.os.linux.read(self.handle, buffer.ptr, buffer.len);
+        const signed: isize = @bitCast(rc);
+        if (signed < 0) {
+            const e = std.os.linux.E;
+            const errno: e = @enumFromInt(@as(u16, @intCast(-signed)));
+            return switch (errno) {
+                e.AGAIN, e.WOULDBLOCK => 0,
+                e.CONNRESET => SocketError.ConnectionReset,
+                e.PIPE => SocketError.ConnectionReset,
+                e.BADF => SocketError.SystemError,
+                else => SocketError.SystemError,
+            };
+        }
+        return rc;
     }
 
     /// Write data to connection
     pub fn write(self: *Connection, data: []const u8) SocketError!usize {
         if (!self.is_connected) return SocketError.ConnectionReset;
 
-        const bytes_written = std.posix.write(self.handle, data) catch |err| switch (err) {
-            error.BrokenPipe => return SocketError.ConnectionReset,
-            error.ConnectionResetByPeer => return SocketError.ConnectionReset,
-            error.NotOpenForWriting => return SocketError.SystemError,
-            error.DiskQuota => return SocketError.ResourceExhausted,
-            error.FileTooBig => return SocketError.ResourceExhausted,
-            error.NoSpaceLeft => return SocketError.ResourceExhausted,
-            else => return SocketError.SystemError,
-        };
+        // std.posix.write removed in Zig 0.16 — use linux syscall
+        const wrc = std.os.linux.write(self.handle, data.ptr, data.len);
+        const wsigned: isize = @bitCast(wrc);
+        if (wsigned < 0) {
+            const e = std.os.linux.E;
+            const errno: e = @enumFromInt(@as(u16, @intCast(-wsigned)));
+            return switch (errno) {
+                e.PIPE => SocketError.ConnectionReset,
+                e.CONNRESET => SocketError.ConnectionReset,
+                e.BADF => SocketError.SystemError,
+                e.DQUOT => SocketError.ResourceExhausted,
+                e.FBIG => SocketError.ResourceExhausted,
+                e.NOSPC => SocketError.ResourceExhausted,
+                else => SocketError.SystemError,
+            };
+        }
+        const bytes_written = wrc;
 
         return bytes_written;
     }

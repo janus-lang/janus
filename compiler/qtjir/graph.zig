@@ -57,6 +57,11 @@ pub const OpCode = enum {
     Error_Union_Unwrap, // Unwrap payload (asserts not error, panics if error)
     Error_Union_Get_Error, // Extract error value (asserts is_error)
 
+    // --- Tagged Unions (SPEC-023 Phase B+C) ---
+    Union_Construct, // inputs[0..N] = payload values, data.integer = tag index → { i32, i64*N }
+    Union_Tag_Check, // inputs[0] = union value, data.integer = expected tag → i1 (bool)
+    Union_Payload_Extract, // inputs[0] = union value, data.integer = field_index|(is_float<<32) → i32 or f64
+
     // --- Control Flow ---
     Call, // Function call
     Return,
@@ -132,6 +137,10 @@ pub const OpCode = enum {
     Select_Wait, // Wait for one case to become ready (returns case index)
     Select_Get_Value, // Get received value from completed recv case
     Select_End, // End select statement (cleanup select context)
+
+    // --- :service Profile - Resource Management (Phase 3) ---
+    Using_Begin, // Begin using statement (acquire resource)
+    Using_End, // End using statement (cleanup resource)
 };
 
 /// Data types supported by tensor operations
@@ -1010,6 +1019,44 @@ pub const IRBuilder = struct {
         const id = try self.createNode(.Error_Union_Get_Error);
         var node = &self.graph.nodes.items[id];
         try node.inputs.append(self.graph.allocator, error_union_id);
+        return id;
+    }
+
+    // =========================================================================
+    // Tagged Union Operations (SPEC-023 Phase B+C)
+    // =========================================================================
+
+    /// Construct tagged union: { tag_index, payload_0, payload_1, ... }
+    /// For unit variants (no payload), pass empty slice
+    pub fn createUnionConstruct(self: *IRBuilder, tag_index: i64, payload_ids: []const u32) !u32 {
+        const id = try self.createNode(.Union_Construct);
+        var node = &self.graph.nodes.items[id];
+        node.data = .{ .integer = tag_index };
+        for (payload_ids) |pid| {
+            try node.inputs.append(self.graph.allocator, pid);
+        }
+        return id;
+    }
+
+    /// Check if tagged union has expected tag: tag == expected
+    /// Returns: boolean (true if tag matches)
+    pub fn createUnionTagCheck(self: *IRBuilder, union_id: u32, expected_tag: i64) !u32 {
+        const id = try self.createNode(.Union_Tag_Check);
+        var node = &self.graph.nodes.items[id];
+        node.data = .{ .integer = expected_tag };
+        try node.inputs.append(self.graph.allocator, union_id);
+        return id;
+    }
+
+    /// Extract payload field from tagged union by index
+    /// field_index selects which field slot (0-based), is_float triggers f64 bitcast
+    pub fn createUnionPayloadExtract(self: *IRBuilder, union_id: u32, field_index: u32, is_float: bool) !u32 {
+        const id = try self.createNode(.Union_Payload_Extract);
+        var node = &self.graph.nodes.items[id];
+        // Encode: lower 32 bits = field_index, bit 32 = is_float
+        const encoded: i64 = @as(i64, @intCast(field_index)) | (if (is_float) @as(i64, 1) << 32 else 0);
+        node.data = .{ .integer = encoded };
+        try node.inputs.append(self.graph.allocator, union_id);
         return id;
     }
 };

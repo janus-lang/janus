@@ -21,6 +21,7 @@
 //! - Zero-copy bias: Avoid unnecessary data movement
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const builtin = @import("builtin");
 
 // Context System import (for :service and :sovereign profiles)
@@ -295,7 +296,7 @@ pub fn writeFile(
         return IoError.PermissionDenied;
     }
 
-    const file = std.fs.cwd().createFile(path, .{}) catch |err| switch (err) {
+    const file = compat_fs.createFile(path, .{}) catch |err| switch (err) {
         error.AccessDenied => return IoError.PermissionDenied,
         error.FileNotFound => return IoError.FileNotFound,
         error.NameTooLong => return IoError.InvalidPath,
@@ -481,7 +482,7 @@ fn _readFileImpl(path: []const u8, allocator: std.mem.Allocator) IoError!ReadBuf
 /// Private: Write content to file
 /// All profile-specific writeFile functions delegate to this after validation.
 fn _writeFileImpl(path: []const u8, content: []const u8) IoError!void {
-    const file = std.fs.cwd().createFile(path, .{}) catch |err| switch (err) {
+    const file = compat_fs.createFile(path, .{}) catch |err| switch (err) {
         error.AccessDenied => return IoError.PermissionDenied,
         error.FileNotFound => return IoError.FileNotFound,
         error.NameTooLong => return IoError.InvalidPath,
@@ -748,7 +749,7 @@ pub const testing = struct {
     }
 
     pub fn deleteTestFile(path: []const u8) void {
-        std.fs.cwd().deleteFile(path) catch {};
+        compat_fs.deleteFile(path) catch {};
     }
 
     pub fn readTestFile(allocator: std.mem.Allocator, path: []const u8) !ReadBuffer {

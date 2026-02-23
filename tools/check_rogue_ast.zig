@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 
 const canonical_allowed = [_][]const u8{
     "compiler/astdb/core.zig",
@@ -31,7 +32,7 @@ pub fn main() !void {
     }
 
     var legacy_seen = [_]bool{false} ** legacy_allowed.len;
-    var root_dir = try std.fs.cwd().openDir(".", .{ .iterate = true });
+    var root_dir = try compat_fs.openDir(".", .{ .iterate = true });
     defer root_dir.close();
 
     try scanDir(allocator, &root_dir, "", &violations, &legacy_seen);

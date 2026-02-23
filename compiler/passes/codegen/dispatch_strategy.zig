@@ -10,6 +10,7 @@
 //! M6: Forge the Executable Artifact - Intelligence in Code Generation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 
@@ -203,8 +204,8 @@ pub const AdvancedStrategySelector = struct {
     pub fn init(allocator: Allocator) AdvancedStrategySelector {
         return AdvancedStrategySelector{
             .allocator = allocator,
-            .strategy_history = ArrayList(StrategyDecision).init(allocator),
-            .effectiveness_data = ArrayList(StrategyEffectiveness).init(allocator),
+            .strategy_history = .empty,
+            .effectiveness_data = .empty,
         };
     }
 
@@ -238,10 +239,10 @@ pub const AdvancedStrategySelector = struct {
         }
 
         // Analyze alternatives and select the best one
-        var alternatives = ArrayList(Strategy).init(self.allocator);
+        var alternatives: ArrayList(Strategy) = .empty;
         defer alternatives.deinit();
 
-        var fallback_chain = ArrayList(Strategy).init(self.allocator);
+        var fallback_chain: ArrayList(Strategy) = .empty;
         defer fallback_chain.deinit();
 
         var best_strategy: Strategy = undefined;
@@ -322,7 +323,7 @@ pub const AdvancedStrategySelector = struct {
             .alternatives_considered = try alternatives.toOwnedSlice(),
             .selection_rationale = try self.allocator.dupe(u8, rationale),
             .confidence_score = best_score,
-            .timestamp = std.time.timestamp(),
+            .timestamp = compat_time.timestamp(),
             .decision_factors = .{
                 .frequency_weight = 1.0,
                 .complexity_weight = 1.0,
@@ -571,7 +572,7 @@ pub const FamilyOptimizer = struct {
         const result = try self.families.getOrPut(family_id);
         if (!result.found_existing) {
             result.value_ptr.* = FamilyData{
-                .call_sites = ArrayList(CallSite).init(self.allocator),
+                .call_sites = .empty,
                 .collective_frequency = 0.0,
                 .optimization_strategy = null,
                 .effectiveness_score = 0.0,

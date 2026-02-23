@@ -153,18 +153,18 @@ QTJIR lowers to multiple backends simultaneously:
 ## 6. Example Graph
 
 ```janus
-func entanglement() -> bool {
+func entanglement() -> bool do
     // tenancy: CPU
     let q0 = qpu.alloc(1) // -> QPU
     let q1 = qpu.alloc(1) // -> QPU
-    
+
     // tenancy: QPU
     qpu.h(q0)             // Hadamard
     qpu.cnot(q0, q1)      // Entangle
-    
+
     // tenancy: CPU (via Measurement)
     return qpu.measure(q1) // Collapse
-}
+end
 ```
 
 **Generates:**

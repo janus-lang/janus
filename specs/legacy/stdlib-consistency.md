@@ -60,10 +60,10 @@ Code written in a lower profile continues to work when upgrading:
 
 ```janus
 // This code works in :core, :service, and :sovereign profiles
-func fetch_user_data() {
+func fetch_user_data() do
     let response = http_get("https://api.example.com/users")
     return parse_json(response)
-}
+end
 ```
 
 ### Progressive Enhancement
@@ -71,16 +71,16 @@ Add capabilities when ready:
 
 ```janus
 // Upgrade to :service profile - add context
-func fetch_user_data(ctx: Context) {
+func fetch_user_data(ctx: Context) do
     let response = http_get("https://api.example.com/users", ctx)
     return parse_json(response)
-}
+end
 
 // Upgrade to :sovereign profile - add capability
-func fetch_user_data(cap: Cap[NetHttp]) {
+func fetch_user_data(cap: Cap[NetHttp]) do
     let response = http_get("https://api.example.com/users", cap)
     return parse_json(response)
-}
+end
 ```
 
 ## Context Module (:service+ profiles)
@@ -99,9 +99,9 @@ let timeout_ctx = context.with_timeout(ctx, 5000)
 let cancel_ctx = context.with_cancel(ctx)
 
 // Check context state
-if ctx.is_done() {
+if ctx.is_done() do
     // Handle cancellation or timeout
-}
+end
 
 // Pass values
 let user_ctx = ctx.with_value("user_id", "12345")

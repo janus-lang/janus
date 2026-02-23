@@ -43,12 +43,12 @@ Every branch has a job, an ROI, and clear rules. No ambiguity, no excuses.
 - **CI:** Full production pipeline + signed packages + deployment
 - **Analogy:** The vault - locked down, audited, pristine assets only
 
-### 🗿 **lts/*** - The Bedrock (Enterprise)
-- **Purpose:** Monetizable stability for enterprise, embedded, regulated industries
-- **Rule:** Branched from stable main. Only critical security patches and major bug fixes
-- **Quality:** No new features. Ever. Predictability over novelty
-- **CI:** Enterprise-grade validation + long-term support packages
-- **Analogy:** Foundational pillar - doesn't change, which is its value
+### 🗿 **stable** - The Bedrock (Enterprise / LTS)
+- **Purpose:** Monetizable stability for enterprise, embedded, regulated industries.
+- **Rule:** Branched from main during LTS markers (Mars Cycle). Only critical security patches and major bug fixes.
+- **Quality:** No new features. Ever. Predictability over novelty.
+- **CI:** Enterprise-grade validation + long-term support packages.
+- **Analogy:** Foundational pillar - doesn't change, which is its value.
 
 ## 🔒 **Security & Access Control**
 
@@ -71,7 +71,7 @@ Every branch has a job, an ROI, and clear rules. No ambiguity, no excuses.
 
 ### Promotion Pipeline
 ```
-experimental/* → unstable → testing → main → lts/*
+experimental/* → unstable → testing → main → stable
 ```
 
 ### Quality Gates
@@ -86,7 +86,7 @@ Each promotion requires:
 - **Alpha (unstable):** Linux packages only
 - **Beta (testing):** All platforms (deb, rpm, msi, dmg)
 - **Production (main):** Signed packages + artifact repository
-- **LTS:** Enterprise packages + extended support
+- **LTS (stable):** Enterprise packages + extended support
 
 ## 🛠️ **Usage**
 

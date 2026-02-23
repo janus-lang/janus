@@ -13,6 +13,7 @@
 //! - Uses a static allocator for simplicity (single-threaded CLI use)
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 
 // Static allocator for directory iteration state
 // This is safe for single-threaded CLI tools like jfind
@@ -56,7 +57,7 @@ pub export fn fs_is_directory(
     @memcpy(buf[0..path_len], path);
     buf[path_len] = 0;
 
-    const stat = std.fs.cwd().statFile(buf[0..path_len :0]) catch return 0;
+    const stat = compat_fs.statFile(buf[0..path_len :0]) catch return 0;
     return if (stat.kind == .directory) 1 else 0;
 }
 
@@ -74,7 +75,7 @@ pub export fn fs_is_file(
     @memcpy(buf[0..path_len], path);
     buf[path_len] = 0;
 
-    const stat = std.fs.cwd().statFile(buf[0..path_len :0]) catch return 0;
+    const stat = compat_fs.statFile(buf[0..path_len :0]) catch return 0;
     return if (stat.kind == .file) 1 else 0;
 }
 
@@ -92,7 +93,7 @@ pub export fn fs_file_size(
     @memcpy(buf[0..path_len], path);
     buf[path_len] = 0;
 
-    const stat = std.fs.cwd().statFile(buf[0..path_len :0]) catch return 0;
+    const stat = compat_fs.statFile(buf[0..path_len :0]) catch return 0;
     return stat.size;
 }
 
@@ -132,7 +133,7 @@ pub export fn fs_dir_open(
 
     const state = allocator.create(DirIterState) catch return null;
 
-    state.dir = std.fs.cwd().openDir(pathz[0..path_len :0], .{ .iterate = true }) catch {
+    state.dir = compat_fs.openDir(pathz[0..path_len :0], .{ .iterate = true }) catch {
         allocator.destroy(state);
         return null;
     };
@@ -264,7 +265,7 @@ pub export fn fs_write_file(
     @memcpy(pathz[0..path_len], path);
     pathz[path_len] = 0;
 
-    const file = std.fs.cwd().createFile(pathz[0..path_len :0], .{}) catch return -1;
+    const file = compat_fs.createFile(pathz[0..path_len :0], .{}) catch return -1;
     defer file.close();
 
     file.writeAll(content_ptr[0..content_len]) catch return -1;

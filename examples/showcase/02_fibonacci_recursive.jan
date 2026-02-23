@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Fibonacci (Recursive)
+//
+// Demonstrates:
+// - Pure functions (no side effects)
+// - Recursion (clean and readable)
+// - Type inference (return type inferred)
+// - Teaching-friendly syntax (reads like pseudocode)
+
+func fibonacci(n: i64) -> i64 do
+    if n <= 1 do
+        return n
+    end
+
+    return fibonacci(n - 1) + fibonacci(n - 2)
+end
+
+func main() do
+    println("Fibonacci numbers (recursive):")
+
+    // Calculate and print first 15 numbers
+    for i in 0..15 do
+        let result = fibonacci(i)
+        print("fib(", i, ") = ")
+        print_int(result)
+    end
+
+    println("\n✓ Clean recursion - reads like mathematics!")
+end

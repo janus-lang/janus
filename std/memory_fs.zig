@@ -5,6 +5,7 @@
 // MemoryFS (test double) implementation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const Context = @import("std_context.zig").Context;
@@ -187,9 +188,9 @@ pub const MemoryFS = struct {
     pub fn init(allocator: Allocator) !MemoryFS {
         const root_metadata = MemoryFileMetadata{
             .file_type = .directory,
-            .created_time = std.time.timestamp(),
-            .modified_time = std.time.timestamp(),
-            .accessed_time = std.time.timestamp(),
+            .created_time = compat_time.timestamp(),
+            .modified_time = compat_time.timestamp(),
+            .accessed_time = compat_time.timestamp(),
             .inode = 1,
         };
 
@@ -257,9 +258,9 @@ pub const MemoryFS = struct {
                 // Create new directory
                 const dir_metadata = MemoryFileMetadata{
                     .file_type = .directory,
-                    .created_time = std.time.timestamp(),
-                    .modified_time = std.time.timestamp(),
-                    .accessed_time = std.time.timestamp(),
+                    .created_time = compat_time.timestamp(),
+                    .modified_time = compat_time.timestamp(),
+                    .accessed_time = compat_time.timestamp(),
                     .inode = self.getNextInode(),
                 };
 
@@ -306,9 +307,9 @@ pub const MemoryFS = struct {
 
         const file_metadata = MemoryFileMetadata{
             .file_type = .file,
-            .created_time = std.time.timestamp(),
-            .modified_time = std.time.timestamp(),
-            .accessed_time = std.time.timestamp(),
+            .created_time = compat_time.timestamp(),
+            .modified_time = compat_time.timestamp(),
+            .accessed_time = compat_time.timestamp(),
             .inode = self.getNextInode(),
             .size = content.len,
             .content = try self.allocator.dupe(u8, content),
@@ -353,9 +354,9 @@ pub const MemoryFS = struct {
 
         const dir_metadata = MemoryFileMetadata{
             .file_type = .directory,
-            .created_time = std.time.timestamp(),
-            .modified_time = std.time.timestamp(),
-            .accessed_time = std.time.timestamp(),
+            .created_time = compat_time.timestamp(),
+            .modified_time = compat_time.timestamp(),
+            .accessed_time = compat_time.timestamp(),
             .inode = self.getNextInode(),
         };
 
@@ -371,7 +372,7 @@ pub const MemoryFS = struct {
             return FsError.NotDir;
         }
 
-        var entries = std.ArrayList(MemoryDirEntry).init(self.allocator);
+        var entries: std.ArrayList(MemoryDirEntry) = .empty;
         defer entries.deinit();
 
         var child_it = node.children.iterator();
@@ -383,7 +384,7 @@ pub const MemoryFS = struct {
             try entries.append(entry);
         }
 
-        return entries.toOwnedSlice();
+        return try entries.toOwnedSlice(alloc);
     }
 
     /// Delete file or directory

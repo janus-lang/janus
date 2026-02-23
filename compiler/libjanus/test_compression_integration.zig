@@ -137,7 +137,7 @@ test "compression integration with dispatch tables" {
     try testing.expect(std.mem.eql(u8, result.?.func_id.module, "math"));
 
     // Generate compression report
-    var report_buffer = std.ArrayList(u8).init(allocator);
+    var report_buffer: std.ArrayList(u8) = .empty;
     defer report_buffer.deinit();
 
     try module_dispatcher.getCompressionReport(report_buffer.writer());

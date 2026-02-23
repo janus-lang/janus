@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 const HashMap = std.HashMap;
@@ -134,7 +135,7 @@ pub const DispatchTableCompression = struct {
                 .redundant_entries_eliminated = 0,
             },
             .shared_tables = AutoHashMap(TableSignature, *SharedDispatchTable).init(allocator),
-            .optimization_passes = ArrayList(OptimizationPass).init(allocator),
+            .optimization_passes = .empty,
         };
 
         // Register default optimization passes
@@ -167,7 +168,7 @@ pub const DispatchTableCompression = struct {
             .original_size = original_size,
             .compressed_size = original_size,
             .compression_ratio = 1.0,
-            .techniques_applied = ArrayList(CompressionTechnique).init(self.allocator),
+            .techniques_applied = .empty,
             .shared_table = null,
         };
 
@@ -237,7 +238,7 @@ pub const DispatchTableCompression = struct {
     /// Apply optimization passes to eliminate redundant entries
     pub fn optimizeTable(self: *DispatchTableCompression, table: *OptimizedDispatchTable) !OptimizationSummary {
         var summary = OptimizationSummary{
-            .passes_applied = ArrayList(PassResult).init(self.allocator),
+            .passes_applied = .empty,
             .total_entries_eliminated = 0,
             .total_memory_saved = 0,
             .total_performance_improvement = 0.0,
@@ -347,7 +348,7 @@ pub const DispatchTableCompression = struct {
             .type_pattern_overflow = null,
             .implementation_index = 0, // TODO: Map to shared implementation table
             .call_frequency = entry.call_count,
-            .last_access_time = std.time.nanoTimestamp(),
+            .last_access_time = compat_time.nanoTimestamp(),
         };
 
         // Compress type pattern into bit vector if possible
@@ -516,7 +517,7 @@ fn deadEntryEliminationPass(compression: *DispatchTableCompression, table: *Opti
     var memory_saved: usize = 0;
 
     // Identify dead entries (never called)
-    var dead_indices = ArrayList(usize).init(table.allocator);
+    var dead_indices: ArrayList(usize) = .empty;
     defer dead_indices.deinit();
 
     for (entries, 0..) |entry, i| {
@@ -568,13 +569,13 @@ fn redundantEntryMergingPass(compression: *DispatchTableCompression, table: *Opt
     for (entries, 0..) |entry, i| {
         const pattern_hash = hashTypePattern(entry.type_pattern);
 
-        var group = pattern_groups.get(pattern_hash) orelse ArrayList(usize).init(table.allocator);
+        var group = pattern_groups.get(pattern_hash) orelse ArrayList(usize).empty;
         try group.append(i);
         try pattern_groups.put(pattern_hash, group);
     }
 
     // Merge redundant entries
-    var entries_to_remove = ArrayList(usize).init(table.allocator);
+    var entries_to_remove: ArrayList(usize) = .empty;
     defer entries_to_remove.deinit();
 
     var iterator = pattern_groups.iterator();
@@ -846,7 +847,7 @@ pub const CompressionBackends = struct {
     /// Custom compression algorithm optimized for dispatch table data
     fn compressCustom(allocator: Allocator, data: []const u8, level: i32) ![]u8 {
         // Custom algorithm that understands dispatch table structure
-        var compressed = ArrayList(u8).init(allocator);
+        var compressed: ArrayList(u8) = .empty;
         defer compressed.deinit();
 
         // Header: compression method and original size
@@ -880,7 +881,7 @@ pub const CompressionBackends = struct {
             i += count;
         }
 
-        return compressed.toOwnedSlice();
+        return try compressed.toOwnedSlice(alloc);
     }
 
     /// Custom decompression algorithm
@@ -1060,7 +1061,7 @@ pub const HybridCompression = struct {
         // This would implement dispatch-table-specific compression
         // For now, simulate with simple duplicate removal
 
-        var compressed = ArrayList(u8).init(allocator);
+        var compressed: ArrayList(u8) = .empty;
         defer compressed.deinit();
 
         // Simple duplicate pattern removal
@@ -1106,7 +1107,7 @@ pub const HybridCompression = struct {
 
     /// Apply semantic decompression
     fn applySemanticDecompression(allocator: Allocator, compressed_data: []const u8, original_size: usize) ![]u8 {
-        var decompressed = ArrayList(u8).init(allocator);
+        var decompressed: ArrayList(u8) = .empty;
         defer decompressed.deinit();
 
         var i: usize = 0;
@@ -1132,7 +1133,7 @@ pub const HybridCompression = struct {
             return error.DecompressionSizeMismatch;
         }
 
-        return decompressed.toOwnedSlice();
+        return try decompressed.toOwnedSlice(alloc);
     }
 
     const SemanticCompressionResult = struct {
@@ -1178,7 +1179,7 @@ pub const CompressionBenchmark = struct {
         performance_weight: f64, // 0.0 = prioritize compression ratio, 1.0 = prioritize speed
     ) !BenchmarkResult {
         const backends = [_]DispatchTableCompression.CompressionBackend{ .none, .lz4, .zstd, .custom };
-        var results = ArrayList(BackendResult).init(allocator);
+        var results: ArrayList(BackendResult) = .empty;
         defer results.deinit();
 
         for (backends) |backend| {
@@ -1221,15 +1222,15 @@ pub const CompressionBenchmark = struct {
         const level = backend.getCompressionLevel();
 
         // Measure compression time
-        const compress_start = std.time.nanoTimestamp();
+        const compress_start = compat_time.nanoTimestamp();
         const compressed = try CompressionBackends.compress(allocator, backend, data, level);
-        const compress_end = std.time.nanoTimestamp();
+        const compress_end = compat_time.nanoTimestamp();
         defer allocator.free(compressed);
 
         // Measure decompression time
-        const decompress_start = std.time.nanoTimestamp();
+        const decompress_start = compat_time.nanoTimestamp();
         const decompressed = try CompressionBackends.decompress(allocator, backend, compressed, data.len);
-        const decompress_end = std.time.nanoTimestamp();
+        const decompress_end = compat_time.nanoTimestamp();
         defer allocator.free(decompressed);
 
         // Verify correctness

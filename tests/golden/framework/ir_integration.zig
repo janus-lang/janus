@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const ArrayList = std.array_list.Managed;
 const Allocator = std.mem.Allocator;
 const TestMetadata = @import("test_metadata.zig").TestMetadata;
@@ -178,7 +179,7 @@ pub const IRIntegration = struct {
         const golden_path = try std.fmt.allocPrint(self.allocator, "tests/golden/references/{s}_linux_x86_64_release_safe.ll", .{test_name});
         defer self.allocator.free(golden_path);
 
-        return std.fs.cwd().readFileAlloc(self.allocator, golden_path, 1024 * 1024) catch |err| switch (err) {
+        return compat_fs.readFileAlloc(self.allocator, golden_path, 1024 * 1024) catch |err| switch (err) {
             error.FileNotFound => {
                 // Generate minimal static dispatch IR
                 return try self.allocator.dupe(u8,
@@ -207,7 +208,7 @@ pub const IRIntegration = struct {
         const golden_path = try std.fmt.allocPrint(self.allocator, "tests/golden/references/{s}_linux_x86_64_release_safe.ll", .{test_name});
         defer self.allocator.free(golden_path);
 
-        return std.fs.cwd().readFileAlloc(self.allocator, golden_path, 1024 * 1024) catch |err| switch (err) {
+        return compat_fs.readFileAlloc(self.allocator, golden_path, 1024 * 1024) catch |err| switch (err) {
             error.FileNotFound => {
                 // Generate minimal switch table IR
                 return try self.allocator.dupe(u8,
@@ -242,7 +243,7 @@ pub const IRIntegration = struct {
         const golden_path = try std.fmt.allocPrint(self.allocator, "tests/golden/references/{s}_linux_x86_64_release_safe.ll", .{test_name});
         defer self.allocator.free(golden_path);
 
-        return std.fs.cwd().readFileAlloc(self.allocator, golden_path, 1024 * 1024) catch |err| switch (err) {
+        return compat_fs.readFileAlloc(self.allocator, golden_path, 1024 * 1024) catch |err| switch (err) {
             error.FileNotFound => {
                 // Generate minimal perfect hash IR
                 return try self.allocator.dupe(u8,
@@ -283,10 +284,10 @@ pub const IRIntegration = struct {
 
     /// Validate that generated IR complies with metadata contracts
     fn validateMetadataCompliance(self: *Self, ir_content: ?[]const u8, metadata: TestMetadata) !IRGenerationResult.MetadataCompliance {
-        var performance_violations = ArrayList(IRGenerationResult.PerformanceViolation).init(self.allocator);
+        var performance_violations: ArrayList(IRGenerationResult.PerformanceViolation) = .empty;
         defer performance_violations.deinit();
 
-        var validation_failures = ArrayList(IRGenerationResult.ValidationFailure).init(self.allocator);
+        var validation_failures: ArrayList(IRGenerationResult.ValidationFailure) = .empty;
         defer validation_failures.deinit();
 
         // If no IR was generated, check if that was expected

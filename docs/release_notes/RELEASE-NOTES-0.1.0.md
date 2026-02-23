@@ -192,9 +192,9 @@ janus build source.jan --verbose    # Show compilation stages
 
 ### Hello World (`hello.jan`)
 ```janus
-func main() {
+func main() do
     println("Hello, Sovereign World")
-}
+end
 ```
 
 Compile and run:
@@ -205,17 +205,17 @@ janus build hello.jan
 
 ### Recursive Factorial (`factorial.jan`)
 ```janus
-func factorial(n: i32) -> i32 {
-    if n < 2 {
+func factorial(n: i32) -> i32 do
+    if n < 2 do
         return 1
-    }
+    end
     return n * factorial(n - 1)
-}
+end
 
-func main() {
+func main() do
     let result = factorial(5)
     print_int(result)  // Output: 120
-}
+end
 ```
 
 ---

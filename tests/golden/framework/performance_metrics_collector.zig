@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const PerformanceValidator = @import("performance_validator.zig").PerformanceValidator;
 
@@ -294,7 +295,7 @@ pub const PerformanceMetricsCollector = struct {
 
     /// Validate collected metrics for accuracy and reliability
     pub fn validateMetrics(self: *Self, metrics: *const ComprehensiveMetrics) !MetricsValidationResult {
-        var validation_errors = std.ArrayList(MetricsValidationResult.ValidationError).init(self.allocator);
+        var validation_errors: std.ArrayList(MetricsValidationResult.ValidationError) = .empty;
 
         // Validate dispatch overhead consistency
         if (metrics.dispatch_metrics.overhead_ns == 0) {
@@ -345,7 +346,7 @@ pub const PerformanceMetricsCollector = struct {
 
     /// Generate detailed performance analysis report
     pub fn generateAnalysisReport(self: *Self, metrics: *const ComprehensiveMetrics, validation: *const MetricsValidationResult) ![]const u8 {
-        var report = std.ArrayList(u8).init(self.allocator);
+        var report: std.ArrayList(u8) = .empty;
         var writer = report.writer();
 
         try writer.print("Comprehensive Performance Analysis Report\n", .{});
@@ -450,7 +451,7 @@ pub const PerformanceMetricsCollector = struct {
             }
         }
 
-        return report.toOwnedSlice();
+        return try report.toOwnedSlice(alloc);
     }
 
     // Private helper functions
@@ -463,7 +464,7 @@ pub const PerformanceMetricsCollector = struct {
         }
 
         // Measurement phase
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
         const start_cycles = self.readCycleCounter();
 
         i = 0;
@@ -471,7 +472,7 @@ pub const PerformanceMetricsCollector = struct {
             dispatch_function();
         }
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const end_cycles = self.readCycleCounter();
 
         const total_time_ns = @as(u64, @intCast(end_time - start_time));
@@ -650,7 +651,7 @@ pub const PerformanceMetricsCollector = struct {
 
     fn collectMetadata(self: *Self, platform: []const u8, optimization_level: []const u8, collection_duration_ms: u64) !ComprehensiveMetrics.CollectionMetadata {
         return ComprehensiveMetrics.CollectionMetadata{
-            .collection_timestamp = std.time.timestamp(),
+            .collection_timestamp = compat_time.timestamp(),
             .platform = try self.allocator.dupe(u8, platform),
             .architecture = try self.allocator.dupe(u8, "x86_64"),
             .compiler_version = try self.allocator.dupe(u8, "janus-0.1.0"),
@@ -711,7 +712,7 @@ pub const PerformanceMetricsCollector = struct {
     fn readCycleCounter(self: *Self) u64 {
         _ = self;
         // Simplified cycle counter - real implementation would use RDTSC on x86
-        return @as(u64, @intCast(@divTrunc(std.time.nanoTimestamp(), 1000))); // Convert to approximate cycles
+        return @as(u64, @intCast(@divTrunc(compat_time.nanoTimestamp(), 1000))); // Convert to approximate cycles
     }
 
     fn getCurrentMemoryUsage(self: *Self) !u64 {

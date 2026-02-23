@@ -296,13 +296,13 @@ pub const DiagnosticEngine = struct {
     }
 
     fn formatAmbiguityData(self: *DiagnosticEngine, ambiguous: ResolveResult.AmbiguityInfo) !DiagnosticData {
-        var candidates = ArrayList(DiagnosticData.CandidateInfo).init(self.allocator);
+        var candidates: ArrayList(DiagnosticData.CandidateInfo) = .empty;
 
         for (ambiguous.candidates, 0..) |candidate, i| {
             const candidate_id = try std.fmt.allocPrint(self.allocator, "{c}", .{'A' + @as(u8, @intCast(i))});
             const signature = try std.fmt.allocPrint(self.allocator, "func {s}({s}) -> {s}", .{ candidate.candidate.function.name, candidate.candidate.function.parameter_types, candidate.candidate.function.return_type });
 
-            var conversions = ArrayList(DiagnosticData.CandidateInfo.ConversionInfo).init(self.allocator);
+            var conversions: ArrayList(DiagnosticData.CandidateInfo.ConversionInfo) = .empty;
             for (candidate.conversion_path.get().conversions, 0..) |conversion, j| {
                 if (conversion.cost > 0) { // Only include actual conversions
                     try conversions.append(DiagnosticData.CandidateInfo.ConversionInfo{
@@ -334,7 +334,7 @@ pub const DiagnosticEngine = struct {
     }
 
     fn generateAmbiguityFixes(self: *DiagnosticEngine, ambiguous: ResolveResult.AmbiguityInfo) ![]FixSuggestion {
-        var fixes = ArrayList(FixSuggestion).init(self.allocator);
+        var fixes: ArrayList(FixSuggestion) = .empty;
 
         for (ambiguous.candidates, 0..) |candidate, i| {
             // Generate explicit cast suggestions
@@ -387,11 +387,11 @@ pub const DiagnosticEngine = struct {
             }
         }
 
-        return fixes.toOwnedSlice();
+        return try fixes.toOwnedSlice(alloc);
     }
 
     fn collectAmbiguityRelatedInfo(self: *DiagnosticEngine, ambiguous: ResolveResult.AmbiguityInfo) ![]RelatedInfo {
-        var related = ArrayList(RelatedInfo).init(self.allocator);
+        var related: ArrayList(RelatedInfo) = .empty;
 
         for (ambiguous.candidates, 0..) |candidate, i| {
             const message = try std.fmt.allocPrint(self.allocator, "Candidate {c} defined here", .{'A' + @as(u8, @intCast(i))});
@@ -412,7 +412,7 @@ pub const DiagnosticEngine = struct {
             });
         }
 
-        return related.toOwnedSlice();
+        return try related.toOwnedSlice(alloc);
     }
 
     fn generateNoMatchesDiagnostic(self: *DiagnosticEngine, no_matches: ResolveResult.NoMatchInfo) !WeaponizedDiagnostic {
@@ -484,35 +484,35 @@ pub const DiagnosticEngine = struct {
     fn formatArgumentTypes(self: *DiagnosticEngine, arg_types: []const TypeId) ![]const u8 {
         if (arg_types.len == 0) return try self.allocator.dupe(u8, "");
 
-        var result = ArrayList(u8).init(self.allocator);
+        var result: ArrayList(u8) = .empty;
         for (arg_types, 0..) |arg_type, i| {
             if (i > 0) try result.appendSlice(", ");
             const type_name = try self.getTypeName(arg_type);
             defer self.allocator.free(type_name);
             try result.appendSlice(type_name);
         }
-        return result.toOwnedSlice();
+        return try result.toOwnedSlice(alloc);
     }
 
     fn formatCandidateList(self: *DiagnosticEngine, candidates: []CompatibleCandidate) ![]const u8 {
-        var result = ArrayList(u8).init(self.allocator);
+        var result: ArrayList(u8) = .empty;
 
         for (candidates, 0..) |candidate, i| {
             const label = 'A' + @as(u8, @intCast(i));
             try result.writer().print("  ({c}) func {s}({s}) -> {s}  [from {s}]\n", .{ label, candidate.candidate.function.name, candidate.candidate.function.parameter_types, candidate.candidate.function.return_type, candidate.candidate.function.module_path });
         }
 
-        return result.toOwnedSlice();
+        return try result.toOwnedSlice(alloc);
     }
 
     fn formatAvailableFunctions(self: *DiagnosticEngine, functions: [][]const u8) ![]const u8 {
         if (functions.len == 0) return try self.allocator.dupe(u8, "  (none visible in current scope)");
 
-        var result = ArrayList(u8).init(self.allocator);
+        var result: ArrayList(u8) = .empty;
         for (functions) |func_name| {
             try result.writer().print("  • {s}\n", .{func_name});
         }
-        return result.toOwnedSlice();
+        return try result.toOwnedSlice(alloc);
     }
 
     fn getTypeName(self: *DiagnosticEngine, type_id: TypeId) ![]const u8 {
@@ -636,7 +636,7 @@ pub const NextGenDiagnosticEngine = struct {
 
         // Generate hypotheses (one per candidate)
         if (self.config.enable_hypotheses) {
-            var candidates = ArrayList(HypothesisEngine.CandidateInfo).init(self.allocator);
+            var candidates: ArrayList(HypothesisEngine.CandidateInfo) = .empty;
             defer candidates.deinit();
 
             for (info.candidates) |candidate| {
@@ -750,7 +750,7 @@ pub const NextGenDiagnosticEngine = struct {
 
         // Generate hypotheses
         if (self.config.enable_hypotheses) {
-            var available = ArrayList(ErrorContext.SymbolInfo).init(self.allocator);
+            var available: ArrayList(ErrorContext.SymbolInfo) = .empty;
             defer available.deinit();
 
             for (info.available_functions) |func_name| {
@@ -790,13 +790,13 @@ pub const NextGenDiagnosticEngine = struct {
         const arg_types_str = try self.formatArgumentTypes(info.argument_types);
         defer self.allocator.free(arg_types_str);
 
-        var summary_buf = ArrayList(u8).init(self.allocator);
+        var summary_buf: ArrayList(u8) = .empty;
         try summary_buf.writer().print(
             "No matching function for `{s}` with arguments ({s})",
             .{ info.function_name, arg_types_str },
         );
 
-        var explanation_buf = ArrayList(u8).init(self.allocator);
+        var explanation_buf: ArrayList(u8) = .empty;
         const explanation_writer = explanation_buf.writer();
 
         try explanation_writer.print(
@@ -840,7 +840,7 @@ pub const NextGenDiagnosticEngine = struct {
 
         // Convert hypotheses fixes to ranked suggestions
         if (diag.hypotheses.len > 0) {
-            var fixes = ArrayList(nextgen.RankedFixSuggestion).init(self.allocator);
+            var fixes: ArrayList(nextgen.RankedFixSuggestion) = .empty;
             var rank: u32 = 1;
 
             for (diag.hypotheses) |h| {
@@ -977,7 +977,7 @@ pub const NextGenDiagnosticEngine = struct {
                 const analysis = self.type_flow_analyzer.analyzeChain(chain);
                 if (analysis.suggested_fix_point) |fix_loc| {
                     // Add related info pointing to fix location
-                    var related = ArrayList(nextgen.RelatedInfo).init(self.allocator);
+                    var related: ArrayList(nextgen.RelatedInfo) = .empty;
                     try related.append(.{
                         .message = try self.allocator.dupe(u8, "Consider fixing here"),
                         .span = fix_loc,
@@ -1095,16 +1095,16 @@ pub const NextGenDiagnosticEngine = struct {
     fn formatArgumentTypes(self: *NextGenDiagnosticEngine, arg_types: []const TypeId) ![]const u8 {
         if (arg_types.len == 0) return try self.allocator.dupe(u8, "");
 
-        var result = ArrayList(u8).init(self.allocator);
+        var result: ArrayList(u8) = .empty;
         for (arg_types, 0..) |arg_type, i| {
             if (i > 0) try result.appendSlice(", ");
             try result.appendSlice(typeIdToName(arg_type));
         }
-        return result.toOwnedSlice();
+        return try result.toOwnedSlice(alloc);
     }
 
     fn buildTypeFlowExplanation(self: *NextGenDiagnosticEngine, diag: *const NextGenDiagnostic) ![]const u8 {
-        var buf = ArrayList(u8).init(self.allocator);
+        var buf: ArrayList(u8) = .empty;
         const writer = buf.writer();
 
         if (diag.type_flow_chain) |chain| {
@@ -1130,7 +1130,7 @@ pub const NextGenDiagnosticEngine = struct {
             try writer.writeAll("The expression type does not match the expected type in this context.");
         }
 
-        return buf.toOwnedSlice();
+        return try buf.toOwnedSlice(alloc);
     }
 };
 

@@ -205,7 +205,7 @@ All pull requests are reviewed for:
 ## 📚 Additional Resources
 
 - **Full License Texts**: See `LICENSE` (LSL-1.0), `LICENSE.Apache-2.0`, `LICENSE.CC0-1.0`
-- **Header Templates**: See `docs/LICENSE-HEADERS.md`
+- **Header Templates**: See `docs/legal/license-headers.md`
 - **Automation Guide**: See `docs/LICENSE-AUTOMATION-USAGE.md`
 - **Contributing Guide**: See `CONTRIBUTING.md`
 

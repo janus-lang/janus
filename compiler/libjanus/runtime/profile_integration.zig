@@ -8,6 +8,7 @@
 //! different registry implementations based on the current compilation profile.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ResourceRegistryMin = @import("resource_registry_min.zig").ResourceRegistryMin;
 const UsingStmt = @import("../ast/using_stmt.zig").UsingStmt;
@@ -203,7 +204,7 @@ pub const ProfileResourceManager = struct {
     /// Generate unique scope ID
     fn generateScopeId(self: *Self) u64 {
         _ = self;
-        return @intCast(u64, std.time.nanoTimestamp());
+        return @intCast(u64, compat_time.nanoTimestamp());
     }
 };
 

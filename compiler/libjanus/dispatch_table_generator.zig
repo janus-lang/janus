@@ -179,7 +179,7 @@ pub const DispatchTableGenerator = struct {
         self: *DispatchTableGenerator,
         signature_group: *const SignatureAnalyzer.SignatureGroup,
     ) ![]DispatchTable.ExactMatch {
-        var exact_matches = std.ArrayList(DispatchTable.ExactMatch).init(self.allocator);
+        var exact_matches: std.ArrayList(DispatchTable.ExactMatch) = .empty;
 
         // Generate combinations for each implementation
         for (signature_group.implementations.items) |impl| {
@@ -210,7 +210,7 @@ pub const DispatchTableGenerator = struct {
         // Sort for binary search
         std.sort.insertion(DispatchTable.ExactMatch, exact_matches.items, {}, compareExactMatches);
 
-        return exact_matches.toOwnedSlice();
+        return try exact_matches.toOwnedSlice(alloc);
     }
 
     /// Generate decision tree for subtype-based dispatch
@@ -271,7 +271,7 @@ pub const DispatchTableGenerator = struct {
             const param_type = impl.param_type_ids[param_index];
             const result = try type_groups.getOrPut(param_type);
             if (!result.found_existing) {
-                result.value_ptr.* = std.ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+                result.value_ptr.* = std.ArrayList(SignatureAnalyzer.Implementation).empty;
             }
             try result.value_ptr.append(impl);
         }
@@ -292,14 +292,14 @@ pub const DispatchTableGenerator = struct {
 
     /// Enumerate concrete types for a parameter list
     fn enumerateConcreteTypes(self: *DispatchTableGenerator, param_types: []const TypeRegistry.TypeId) ![][]TypeRegistry.TypeId {
-        var combinations = std.ArrayList([]TypeRegistry.TypeId).init(self.allocator);
+        var combinations: std.ArrayList([]TypeRegistry.TypeId) = .empty;
 
         // For now, just return the exact parameter types
         // In a full implementation, this would generate all concrete subtypes
         const combination = try self.allocator.dupe(TypeRegistry.TypeId, param_types);
         try combinations.append(combination);
 
-        return combinations.toOwnedSlice();
+        return try combinations.toOwnedSlice(alloc);
     }
 
     /// Check if a type combination has an unambiguous match

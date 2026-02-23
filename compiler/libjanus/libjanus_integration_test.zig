@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 
 // Import all components
@@ -365,7 +366,7 @@ pub const IntegrationTestSuite = struct {
         defer self.scope_manager.enterScope(original_scope);
 
         // Store function names to avoid freeing them prematurely
-        var function_names = std.ArrayList([]u8).init(self.allocator);
+        var function_names: std.ArrayList([]u8) = .empty;
         defer {
             for (function_names.items) |name| {
                 self.allocator.free(name);
@@ -408,10 +409,10 @@ pub const IntegrationTestSuite = struct {
             },
         };
 
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
         var result = try self.semantic_resolver.resolve(call_site);
         defer result.deinit(self.allocator);
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
 
         const resolution_time_ns = @as(u64, @intCast(end_time - start_time));
 

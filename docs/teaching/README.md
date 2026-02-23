@@ -116,14 +116,14 @@ use zig "std/ArrayList"
 use zig "std/fs"
 use zig "std/json"
 
-func main() {
+func main() do
     var allocator = zig.heap.page_allocator
     var list = zig.ArrayList(i32).init(allocator)
     defer list.deinit()
 
-    list.append(42) catch |_| {}
+    list.append(42) catch |_| do end
     // ... use Zig's battle-tested ArrayList
-}
+end
 ```
 
 **What you get:**
@@ -141,29 +141,29 @@ func main() {
 
 ### Hello World
 ```janus
-func main() {
+func main() do
     println("Hello, Monastery!")
-}
+end
 ```
 
 ### FizzBuzz
 ```janus
 import std.core.io
 
-func fizzbuzz(n: i32) {
-    for i in 1..=n {
+func fizzbuzz(n: i32) do
+    for i in 1..=n do
         match (i % 15, i % 3, i % 5) {
             (0, _, _) -> io.println("FizzBuzz"),
             (_, 0, _) -> io.println("Fizz"),
             (_, _, 0) -> io.println("Buzz"),
             _ -> io.print_int(i),
         }
-    }
-}
+    end
+end
 
-func main() {
+func main() do
     fizzbuzz(100)
-}
+end
 ```
 
 ### File I/O with Native Zig Integration
@@ -171,23 +171,23 @@ func main() {
 use zig "std/fs"
 use zig "std/heap"
 
-func main() {
+func main() do
     var allocator = zig.heap.page_allocator
-    var file = zig.fs.cwd().openFile("data.txt", .{}) catch |_| {
+    var file = zig.fs.cwd().openFile("data.txt", .{}) catch |_| do
         println("Could not open file")
         return
-    }
+    end
     defer file.close()
 
-    var content = file.readToEndAlloc(allocator, 1024*1024) catch |_| {
+    var content = file.readToEndAlloc(allocator, 1024*1024) catch |_| do
         println("Could not read file")
         return
-    }
+    end
     defer allocator.free(content)
 
     println("File contents:")
     println(content)
-}
+end
 ```
 
 ---
@@ -243,7 +243,7 @@ Once you've mastered :core, explore:
 
 ### Official Documentation
 - **Website:** https://janus-lang.org
-- **GitHub:** https://git.maiwald.work/Janus/janus-lang
+- **GitHub:** https://github.com/janus-lang/janus
 - **Specs:** `janus-lang/specs/`
 
 ### Learning Resources

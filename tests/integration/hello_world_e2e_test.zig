@@ -87,6 +87,7 @@ test "Epic 1.4.1: Compile and Execute Hello World end-to-end" {
         .allocator = allocator,
         .argv = &[_][]const u8{
             "llc",
+            "-opaque-pointers",
             "-filetype=obj",
             ir_file_path,
             "-o",
@@ -224,7 +225,46 @@ test "Epic 1.4.1: Compile and Execute Hello World end-to-end" {
 }
 
 test "Epic 1.4.1: Verify print function signature" {
-    // TODO: This test is failing because Call node doesn't have string data set
-    // Skip until Call node lowering is fixed
-    return error.SkipZigTest;
+    const allocator = testing.allocator;
+
+    // Parse simple print call
+    const source =
+        \\func main() {
+        \\    print("Test")
+        \\}
+    ;
+
+    var parser = janus_parser.Parser.init(allocator);
+    defer parser.deinit();
+
+    const snapshot = try parser.parseWithSource(source);
+    defer snapshot.deinit();
+
+    // Lower to QTJIR
+    const unit_id: astdb_core.UnitId = @enumFromInt(0);
+    var ir_graphs = try qtjir.lower.lowerUnit(allocator, &snapshot.core_snapshot, unit_id);
+    defer {
+        for (ir_graphs.items) |*g| g.deinit();
+        ir_graphs.deinit(allocator);
+    }
+
+    // Verify we have a Call node with function name set
+    const graph = ir_graphs.items[0];
+    var found_call = false;
+    for (graph.nodes.items) |node| {
+        if (node.op == .Call) {
+            found_call = true;
+            // Verify the Call node has string data (function name)
+            switch (node.data) {
+                .string => |name| {
+                    // Should be a janus runtime function (janus_print or similar)
+                    try testing.expect(std.mem.startsWith(u8, name, "janus_"));
+                },
+                else => return error.CallNodeMissingFunctionName,
+            }
+        }
+    }
+
+    try testing.expect(found_call);
+    std.debug.print("\n✅ Call node has function name set correctly\n", .{});
 }

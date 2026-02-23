@@ -437,9 +437,9 @@ func route_request(request: any) -> Response do
   let dispatch_time = end_time - start_time
 
   // Log performance metrics
-  if dispatch_time > 1000 {  // 1ms threshold
+  if dispatch_time > 1000 do  // 1ms threshold
     println("⚠️ Slow dispatch: {dispatch_time}μs for {typeof(request)}")
-  }
+  end
 
   return response
 end

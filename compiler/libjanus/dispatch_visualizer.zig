@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 const HashMap = std.HashMap;
@@ -128,10 +130,10 @@ pub const DispatchVisualizer = struct {
 
         pub fn init(allocator: Allocator) DebugInfo {
             return DebugInfo{
-                .dispatch_traces = ArrayList(DispatchTrace).init(allocator),
-                .resolution_steps = ArrayList(ResolutionStep).init(allocator),
-                .error_diagnostics = ArrayList(ErrorDiagnostic).init(allocator),
-                .performance_annotations = ArrayList(PerformanceAnnotation).init(allocator),
+                .dispatch_traces = .empty,
+                .resolution_steps = .empty,
+                .error_diagnostics = .empty,
+                .performance_annotations = .empty,
             };
         }
 
@@ -171,7 +173,7 @@ pub const DispatchVisualizer = struct {
         return Self{
             .allocator = allocator,
             .config = config,
-            .visualizations = ArrayList(Visualization).init(allocator),
+            .visualizations = .empty,
             .debug_info = DebugInfo.init(allocator),
         };
     }
@@ -215,7 +217,7 @@ pub const DispatchVisualizer = struct {
 
     /// Generate ASCII dispatch graph visualization
     pub fn generateDispatchGraphASCII(self: *Self, profiler: *const DispatchProfiler) !void {
-        var content = ArrayList(u8).init(self.allocator);
+        var content: ArrayList(u8) = .empty;
         defer content.deinit();
 
         const writer = content.writer();
@@ -224,7 +226,7 @@ pub const DispatchVisualizer = struct {
         try writer.writeAll("=====================\n\n");
 
         // Get hot call sites for visualization
-        var hot_sites = ArrayList(*const DispatchProfiler.CallProfile).init(self.allocator);
+        var hot_sites: ArrayList(*const DispatchProfiler.CallProfile) = .empty;
         defer hot_sites.deinit();
 
         var call_iter = profiler.call_profiles.iterator();
@@ -274,14 +276,14 @@ pub const DispatchVisualizer = struct {
         }
 
         const viz = Visualization{
-            .id = @intCast(std.time.nanoTimestamp()),
+            .id = @intCast(compat_time.nanoTimestamp()),
             .type = .dispatch_graph,
             .format = .ascii,
             .title = try self.allocator.dupe(u8, "Dispatch Graph"),
             .description = try self.allocator.dupe(u8, "ASCII visualization of dispatch call sites"),
             .content = try content.toOwnedSlice(),
             .metadata = Visualization.VisualizationMetadata{
-                .creation_time = @intCast(std.time.nanoTimestamp()),
+                .creation_time = @intCast(compat_time.nanoTimestamp()),
                 .data_source = try self.allocator.dupe(u8, "profiler"),
                 .node_count = @intCast(display_count),
                 .edge_count = 0,
@@ -294,7 +296,7 @@ pub const DispatchVisualizer = struct {
 
     /// Generate ASCII call hierarchy visualization
     pub fn generateCallHierarchyASCII(self: *Self, profiler: *const DispatchProfiler) !void {
-        var content = ArrayList(u8).init(self.allocator);
+        var content: ArrayList(u8) = .empty;
         defer content.deinit();
 
         const writer = content.writer();
@@ -321,7 +323,7 @@ pub const DispatchVisualizer = struct {
                 if (signature_groups.getPtr(signature)) |group| {
                     try group.append(profile);
                 } else {
-                    var new_group = ArrayList(*const DispatchProfiler.CallProfile).init(self.allocator);
+                    var new_group: ArrayList(*const DispatchProfiler.CallProfile) = .empty;
                     try new_group.append(profile);
                     try signature_groups.put(signature, new_group);
                 }
@@ -359,14 +361,14 @@ pub const DispatchVisualizer = struct {
         }
 
         const viz = Visualization{
-            .id = @intCast(std.time.nanoTimestamp()),
+            .id = @intCast(compat_time.nanoTimestamp()),
             .type = .call_hierarchy,
             .format = .ascii,
             .title = try self.allocator.dupe(u8, "Call Hierarchy"),
             .description = try self.allocator.dupe(u8, "Hierarchical view of dispatch calls by signature"),
             .content = try content.toOwnedSlice(),
             .metadata = Visualization.VisualizationMetadata{
-                .creation_time = @intCast(std.time.nanoTimestamp()),
+                .creation_time = @intCast(compat_time.nanoTimestamp()),
                 .data_source = try self.allocator.dupe(u8, "profiler"),
                 .node_count = @intCast(signature_groups.count()),
                 .edge_count = @intCast(profiler.call_profiles.count()),
@@ -379,7 +381,7 @@ pub const DispatchVisualizer = struct {
 
     /// Generate ASCII performance heatmap
     pub fn generatePerformanceHeatmapASCII(self: *Self, profiler: *const DispatchProfiler) !void {
-        var content = ArrayList(u8).init(self.allocator);
+        var content: ArrayList(u8) = .empty;
         defer content.deinit();
 
         const writer = content.writer();
@@ -388,7 +390,7 @@ pub const DispatchVisualizer = struct {
         try writer.writeAll("===========================\n\n");
 
         // Collect performance data
-        var perf_data = ArrayList(struct { profile: *const DispatchProfiler.CallProfile, score: f64 }).init(self.allocator);
+        var perf_data: ArrayList(struct { profile: *const DispatchProfiler.CallProfile, score: f64 }) = .empty;
         defer perf_data.deinit();
 
         var call_iter = profiler.call_profiles.iterator();
@@ -449,14 +451,14 @@ pub const DispatchVisualizer = struct {
         }
 
         const viz = Visualization{
-            .id = @intCast(std.time.nanoTimestamp()),
+            .id = @intCast(compat_time.nanoTimestamp()),
             .type = .performance_heatmap,
             .format = .ascii,
             .title = try self.allocator.dupe(u8, "Performance Heatmap"),
             .description = try self.allocator.dupe(u8, "Visual representation of dispatch performance hotspots"),
             .content = try content.toOwnedSlice(),
             .metadata = Visualization.VisualizationMetadata{
-                .creation_time = @intCast(std.time.nanoTimestamp()),
+                .creation_time = @intCast(compat_time.nanoTimestamp()),
                 .data_source = try self.allocator.dupe(u8, "profiler"),
                 .node_count = @intCast(display_count),
                 .edge_count = 0,
@@ -469,7 +471,7 @@ pub const DispatchVisualizer = struct {
 
     /// Generate SVG dispatch graph
     pub fn generateDispatchGraphSVG(self: *Self, profiler: *const DispatchProfiler) !void {
-        var content = ArrayList(u8).init(self.allocator);
+        var content: ArrayList(u8) = .empty;
         defer content.deinit();
 
         const writer = content.writer();
@@ -490,7 +492,7 @@ pub const DispatchVisualizer = struct {
         try writer.writeAll("  <text x=\"400\" y=\"20\" text-anchor=\"middle\" class=\"text\" font-size=\"16\">Dispatch Graph</text>\n");
 
         // Collect nodes for visualization
-        var nodes = ArrayList(*const DispatchProfiler.CallProfile).init(self.allocator);
+        var nodes: ArrayList(*const DispatchProfiler.CallProfile) = .empty;
         defer nodes.deinit();
 
         var call_iter = profiler.call_profiles.iterator();
@@ -536,14 +538,14 @@ pub const DispatchVisualizer = struct {
         try writer.writeAll("</svg>\n");
 
         const viz = Visualization{
-            .id = @intCast(std.time.nanoTimestamp()),
+            .id = @intCast(compat_time.nanoTimestamp()),
             .type = .dispatch_graph,
             .format = .svg,
             .title = try self.allocator.dupe(u8, "Dispatch Graph (SVG)"),
             .description = try self.allocator.dupe(u8, "SVG visualization of dispatch call sites"),
             .content = try content.toOwnedSlice(),
             .metadata = Visualization.VisualizationMetadata{
-                .creation_time = @intCast(std.time.nanoTimestamp()),
+                .creation_time = @intCast(compat_time.nanoTimestamp()),
                 .data_source = try self.allocator.dupe(u8, "profiler"),
                 .node_count = @intCast(display_count),
                 .edge_count = 0,
@@ -558,7 +560,7 @@ pub const DispatchVisualizer = struct {
     pub fn generateDecisionTreeSVG(self: *Self, profiler: *const DispatchProfiler) !void {
         _ = profiler; // TODO: Implement decision tree visualization
 
-        var content = ArrayList(u8).init(self.allocator);
+        var content: ArrayList(u8) = .empty;
         defer content.deinit();
 
         const writer = content.writer();
@@ -569,14 +571,14 @@ pub const DispatchVisualizer = struct {
         try writer.writeAll("</svg>\n");
 
         const viz = Visualization{
-            .id = @intCast(std.time.nanoTimestamp()),
+            .id = @intCast(compat_time.nanoTimestamp()),
             .type = .decision_tree,
             .format = .svg,
             .title = try self.allocator.dupe(u8, "Decision Tree (SVG)"),
             .description = try self.allocator.dupe(u8, "SVG visualization of dispatch decision tree"),
             .content = try content.toOwnedSlice(),
             .metadata = Visualization.VisualizationMetadata{
-                .creation_time = @intCast(std.time.nanoTimestamp()),
+                .creation_time = @intCast(compat_time.nanoTimestamp()),
                 .data_source = try self.allocator.dupe(u8, "profiler"),
                 .node_count = 0,
                 .edge_count = 0,
@@ -591,7 +593,7 @@ pub const DispatchVisualizer = struct {
     pub fn generateHotPathFlowSVG(self: *Self, profiler: *const DispatchProfiler) !void {
         _ = profiler; // TODO: Implement hot path flow visualization
 
-        var content = ArrayList(u8).init(self.allocator);
+        var content: ArrayList(u8) = .empty;
         defer content.deinit();
 
         const writer = content.writer();
@@ -602,14 +604,14 @@ pub const DispatchVisualizer = struct {
         try writer.writeAll("</svg>\n");
 
         const viz = Visualization{
-            .id = @intCast(std.time.nanoTimestamp()),
+            .id = @intCast(compat_time.nanoTimestamp()),
             .type = .hot_path_flow,
             .format = .svg,
             .title = try self.allocator.dupe(u8, "Hot Path Flow (SVG)"),
             .description = try self.allocator.dupe(u8, "SVG visualization of hot path execution flow"),
             .content = try content.toOwnedSlice(),
             .metadata = Visualization.VisualizationMetadata{
-                .creation_time = @intCast(std.time.nanoTimestamp()),
+                .creation_time = @intCast(compat_time.nanoTimestamp()),
                 .data_source = try self.allocator.dupe(u8, "profiler"),
                 .node_count = 0,
                 .edge_count = 0,
@@ -622,7 +624,7 @@ pub const DispatchVisualizer = struct {
 
     /// Generate interactive HTML visualization
     pub fn generateInteractiveHTML(self: *Self, profiler: *const DispatchProfiler) !void {
-        var content = ArrayList(u8).init(self.allocator);
+        var content: ArrayList(u8) = .empty;
         defer content.deinit();
 
         const writer = content.writer();
@@ -680,14 +682,14 @@ pub const DispatchVisualizer = struct {
         try writer.writeAll("</html>\n");
 
         const viz = Visualization{
-            .id = @intCast(std.time.nanoTimestamp()),
+            .id = @intCast(compat_time.nanoTimestamp()),
             .type = .dispatch_graph,
             .format = .html,
             .title = try self.allocator.dupe(u8, "Interactive Dispatch Analysis"),
             .description = try self.allocator.dupe(u8, "Interactive HTML visualization of dispatch performance"),
             .content = try content.toOwnedSlice(),
             .metadata = Visualization.VisualizationMetadata{
-                .creation_time = @intCast(std.time.nanoTimestamp()),
+                .creation_time = @intCast(compat_time.nanoTimestamp()),
                 .data_source = try self.allocator.dupe(u8, "profiler"),
                 .node_count = @intCast(profiler.call_profiles.count()),
                 .edge_count = 0,
@@ -700,7 +702,7 @@ pub const DispatchVisualizer = struct {
 
     /// Generate DOT graph for Graphviz
     pub fn generateDotGraph(self: *Self, profiler: *const DispatchProfiler) !void {
-        var content = ArrayList(u8).init(self.allocator);
+        var content: ArrayList(u8) = .empty;
         defer content.deinit();
 
         const writer = content.writer();
@@ -730,14 +732,14 @@ pub const DispatchVisualizer = struct {
         try writer.writeAll("}\n");
 
         const viz = Visualization{
-            .id = @intCast(std.time.nanoTimestamp()),
+            .id = @intCast(compat_time.nanoTimestamp()),
             .type = .dispatch_graph,
             .format = .dot,
             .title = try self.allocator.dupe(u8, "Dispatch Graph (DOT)"),
             .description = try self.allocator.dupe(u8, "DOT format graph for Graphviz rendering"),
             .content = try content.toOwnedSlice(),
             .metadata = Visualization.VisualizationMetadata{
-                .creation_time = @intCast(std.time.nanoTimestamp()),
+                .creation_time = @intCast(compat_time.nanoTimestamp()),
                 .data_source = try self.allocator.dupe(u8, "profiler"),
                 .node_count = @intCast(profiler.call_profiles.count()),
                 .edge_count = 0,
@@ -755,7 +757,7 @@ pub const DispatchVisualizer = struct {
 
     /// Get visualizations by type
     pub fn getVisualizationsByType(self: *const Self, viz_type: Visualization.VisualizationType) []const Visualization {
-        var filtered = ArrayList(Visualization).init(self.allocator);
+        var filtered: ArrayList(Visualization) = .empty;
         defer filtered.deinit();
 
         for (self.visualizations.items) |viz| {
@@ -764,12 +766,12 @@ pub const DispatchVisualizer = struct {
             }
         }
 
-        return filtered.toOwnedSlice() catch &.{};
+        return try filtered.toOwnedSlice(alloc) catch &.{};
     }
 
     /// Get visualizations by format
     pub fn getVisualizationsByFormat(self: *const Self, format: Visualization.OutputFormat) []const Visualization {
-        var filtered = ArrayList(Visualization).init(self.allocator);
+        var filtered: ArrayList(Visualization) = .empty;
         defer filtered.deinit();
 
         for (self.visualizations.items) |viz| {
@@ -778,12 +780,12 @@ pub const DispatchVisualizer = struct {
             }
         }
 
-        return filtered.toOwnedSlice() catch &.{};
+        return try filtered.toOwnedSlice(alloc) catch &.{};
     }
 
     /// Save visualization to file
     pub fn saveVisualization(self: *const Self, viz: *const Visualization, file_path: []const u8) !void {
-        const file = try std.fs.cwd().createFile(file_path, .{});
+        const file = try compat_fs.createFile(file_path, .{});
         defer file.close();
 
         try file.writeAll(viz.content);
@@ -792,7 +794,7 @@ pub const DispatchVisualizer = struct {
     /// Save all visualizations to directory
     pub fn saveAllVisualizations(self: *const Self, directory: []const u8) !void {
         // Create directory if it doesn't exist
-        std.fs.cwd().makeDir(directory) catch |err| switch (err) {
+        compat_fs.makeDir(directory) catch |err| switch (err) {
             error.PathAlreadyExists => {},
             else => return err,
         };

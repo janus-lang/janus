@@ -189,7 +189,7 @@ All source files must include appropriate SPDX license identifiers based on thei
 // Copyright (c) 2026 Self Sovereign Society Foundation
 ```
 
-**📖 Complete license header guide:** [docs/LICENSE-HEADERS.md](./docs/LICENSE-HEADERS.md)
+**📖 Complete license header guide:** [docs/legal/license-headers.md](./license-headers.md)
 
 ---
 

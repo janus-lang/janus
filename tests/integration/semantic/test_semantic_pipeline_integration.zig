@@ -7,6 +7,7 @@
 //! ensuring architectural soundness and doctrinal purity as assessed by Voxis.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
@@ -407,7 +408,7 @@ test "performance characteristics under load" {
     const module_count = 10;
     const symbols_per_module = 100;
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Create multiple modules with many symbols
     for (0..module_count) |i| {
@@ -436,7 +437,7 @@ test "performance characteristics under load" {
         }
     }
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const total_time_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
     const total_operations = module_count * symbols_per_module;
     const ops_per_ms = @as(f64, @floatFromInt(total_operations)) / total_time_ms;

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
@@ -459,13 +460,13 @@ const ProfilingTestSuite = struct {
         try self.hints_generator.generateHints(self.profiler);
 
         // Test profiler export formats
-        var text_buffer = ArrayList(u8).init(self.allocator);
+        var text_buffer: ArrayList(u8) = .empty;
         defer text_buffer.deinit();
 
         try self.profiler.exportData(text_buffer.writer(), .text);
         try testing.expect(text_buffer.items.len > 0);
 
-        var json_buffer = ArrayList(u8).init(self.allocator);
+        var json_buffer: ArrayList(u8) = .empty;
         defer json_buffer.deinit();
 
         try self.profiler.exportData(json_buffer.writer(), .json);
@@ -473,13 +474,13 @@ const ProfilingTestSuite = struct {
         try testing.expect(std.mem.indexOf(u8, json_buffer.items, "profiling_data") != null);
 
         // Test hints generator export formats
-        var hints_text_buffer = ArrayList(u8).init(self.allocator);
+        var hints_text_buffer: ArrayList(u8) = .empty;
         defer hints_text_buffer.deinit();
 
         try self.hints_generator.exportHints(hints_text_buffer.writer(), .text);
         try testing.expect(hints_text_buffer.items.len > 0);
 
-        var hints_json_buffer = ArrayList(u8).init(self.allocator);
+        var hints_json_buffer: ArrayList(u8) = .empty;
         defer hints_json_buffer.deinit();
 
         try self.hints_generator.exportHints(hints_json_buffer.writer(), .json);
@@ -492,7 +493,7 @@ const ProfilingTestSuite = struct {
         self.profiler.reset();
 
         // Measure profiling overhead
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         self.profiler.startSession(null);
 
@@ -524,7 +525,7 @@ const ProfilingTestSuite = struct {
 
         self.profiler.endSession();
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const total_time = end_time - start_time;
         const time_per_call = total_time / num_calls;
 

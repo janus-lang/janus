@@ -16,6 +16,7 @@
 //! - fileSize(path)       - Get file size in bytes
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 
 /// File system errors for :core profile
 pub const FsError = error{
@@ -88,7 +89,7 @@ pub fn readFile(allocator: std.mem.Allocator, path: []const u8) FsError![]u8 {
 /// fs.writeFile("output.txt", "Hello, World!")
 /// ```
 pub fn writeFile(path: []const u8, content: []const u8) FsError!void {
-    const file = std.fs.cwd().createFile(path, .{}) catch |err| {
+    const file = compat_fs.createFile(path, .{}) catch |err| {
         return switch (err) {
             error.AccessDenied => FsError.PermissionDenied,
             error.NameTooLong, error.InvalidUtf8, error.BadPathName => FsError.InvalidPath,
@@ -137,7 +138,7 @@ pub fn appendFile(path: []const u8, content: []const u8) FsError!void {
 /// }
 /// ```
 pub fn listDirectory(allocator: std.mem.Allocator, path: []const u8) FsError![]DirEntry {
-    var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch |err| {
+    var dir = compat_fs.openDir(path, .{ .iterate = true }) catch |err| {
         return switch (err) {
             error.FileNotFound => FsError.FileNotFound,
             error.AccessDenied => FsError.PermissionDenied,
@@ -229,7 +230,7 @@ pub fn exists(path: []const u8) bool {
 /// }
 /// ```
 pub fn isDirectory(path: []const u8) bool {
-    const stat = std.fs.cwd().statFile(path) catch return false;
+    const stat = compat_fs.statFile(path) catch return false;
     return stat.kind == .directory;
 }
 
@@ -242,13 +243,13 @@ pub fn isDirectory(path: []const u8) bool {
 /// }
 /// ```
 pub fn isFile(path: []const u8) bool {
-    const stat = std.fs.cwd().statFile(path) catch return false;
+    const stat = compat_fs.statFile(path) catch return false;
     return stat.kind == .file;
 }
 
 /// Get file size in bytes (returns 0 for directories or non-existent paths)
 pub fn fileSize(path: []const u8) u64 {
-    const stat = std.fs.cwd().statFile(path) catch return 0;
+    const stat = compat_fs.statFile(path) catch return 0;
     return stat.size;
 }
 
@@ -265,7 +266,7 @@ pub fn cwd(allocator: std.mem.Allocator) FsError![]u8 {
 
 /// Delete a file
 pub fn deleteFile(path: []const u8) FsError!void {
-    std.fs.cwd().deleteFile(path) catch |err| {
+    compat_fs.deleteFile(path) catch |err| {
         return switch (err) {
             error.FileNotFound => FsError.FileNotFound,
             error.AccessDenied => FsError.PermissionDenied,
@@ -276,7 +277,7 @@ pub fn deleteFile(path: []const u8) FsError!void {
 
 /// Create a directory
 pub fn createDirectory(path: []const u8) FsError!void {
-    std.fs.cwd().makeDir(path) catch |err| {
+    compat_fs.makeDir(path) catch |err| {
         return switch (err) {
             error.AccessDenied => FsError.PermissionDenied,
             else => FsError.IoError,

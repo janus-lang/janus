@@ -20,7 +20,7 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 | **License Policy** | [`LICENSE_POLICY.md`](../LICENSE_POLICY.md) | Domain-Driven Licensing (LSL-1.0, Apache-2.0, CC0) |
 | **Contributing Guide** | [`CONTRIBUTING.md`](../CONTRIBUTING.md) | How to contribute, coding standards |
 | **Version Management** | [`docs/ops/VERSION_MANAGEMENT.md`](ops/VERSION_MANAGEMENT.md) | SemVer, Git hooks, version bumping |
-| **License Headers** | [`docs/LICENSE-HEADERS.md`](LICENSE-HEADERS.md) | Required headers for each directory |
+| **License Headers** | [`docs/legal/license-headers.md`](../legal/license-headers.md) | Required headers for each directory |
 
 ---
 

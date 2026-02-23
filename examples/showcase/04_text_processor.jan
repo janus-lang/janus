@@ -1,0 +1,82 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Text File Processor
+//
+// Demonstrates:
+// - Zero-cost Zig integration
+// - File I/O operations
+// - String processing
+// - Error handling (try/catch)
+// - Real-world utility programming
+
+use zig "std/fs"
+use zig "std/ArrayList"
+
+func count_words(text: []const u8) -> i64 do
+    var count = 0
+    var in_word = false
+
+    for i in 0..<text.len do
+        let ch = text[i]
+
+        if ch == ' ' or ch == '\n' or ch == '\t' do
+            in_word = false
+        else if not in_word do
+            in_word = true
+            count = count + 1
+        end
+    end
+
+    return count
+end
+
+func count_lines(text: []const u8) -> i64 do
+    var count = 0
+
+    for i in 0..<text.len do
+        if text[i] == '\n' do
+            count = count + 1
+        end
+    end
+
+    return count
+end
+
+func process_file(path: []const u8, allocator: Allocator) !void do
+    println("Processing file: ", path)
+
+    // Read file using Zig stdlib (zero-cost integration!)
+    let file = try zig.fs.cwd().openFile(path, .{})
+    defer file.close()
+
+    let content = try file.readToEndAlloc(allocator, 1024 * 1024)
+    defer allocator.free(content)
+
+    // Process the text
+    let word_count = count_words(content)
+    let line_count = count_lines(content)
+    let char_count = content.len
+
+    // Display statistics
+    println("\n--- File Statistics ---")
+    print("Lines: ")
+    print_int(line_count)
+    print("\nWords: ")
+    print_int(word_count)
+    print("\nCharacters: ")
+    print_int(char_count)
+    println("\n")
+end
+
+func main() !void do
+    let allocator = std.heap.page_allocator
+
+    // Process this source file itself!
+    process_file("examples/showcase/04_text_processor.jan", allocator) catch |err| do
+        println("Error processing file: ", err)
+        return
+    end
+
+    println("✓ Zero-cost Zig integration - native file I/O!")
+end

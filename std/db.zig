@@ -59,7 +59,7 @@ pub const ResultSet = struct {
 
     pub fn init(allocator: std.mem.Allocator) ResultSet {
         return ResultSet{
-            .rows = std.ArrayList(Row).init(allocator),
+            .rows = .empty,
             .affected_rows = 0,
             .allocator = allocator,
         };
@@ -333,9 +333,9 @@ pub fn insert(table: []const u8, data: std.StringHashMap([]const u8), args: anyt
     };
 
     // Generate INSERT SQL
-    var columns = std.ArrayList([]const u8).init(allocator);
+    var columns: std.ArrayList([]const u8) = .empty;
     defer columns.deinit();
-    var values = std.ArrayList([]const u8).init(allocator);
+    var values: std.ArrayList([]const u8) = .empty;
     defer values.deinit();
 
     var iter = data.iterator();

@@ -13,16 +13,17 @@ pub const required_buckets = [_][]const u8{ "b", "h", "o", "tmp", "z" };
 pub fn ensureLocalGlobalCache(
     cache_root: CacheDirectory,
     allocator: std.mem.Allocator,
+    io: std.Io,
     subdir_name: []const u8,
 ) !CacheDirectory {
-    var dir = try cache_root.handle.makeOpenPath(subdir_name, .{
+    var dir = try cache_root.handle.openDir(io, subdir_name, .{
         .access_sub_paths = true,
         .iterate = false,
     });
-    errdefer dir.close();
+    errdefer dir.close(io);
 
     inline for (required_buckets) |bucket| {
-        dir.makePath(bucket) catch |err| switch (err) {
+        dir.createDirPath(io, bucket) catch |err| switch (err) {
             error.PathAlreadyExists => {},
             else => |e| return e,
         };

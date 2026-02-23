@@ -4,6 +4,7 @@
 // ASTDB → QTJIR Lowering
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const astdb = @import("astdb_core"); // Using the same name as in tests for now
 const graph = @import("graph.zig");
 const builtin_calls = @import("builtin_calls.zig");
@@ -38,7 +39,7 @@ const IRBuilder = graph.IRBuilder;
 const OpCode = graph.OpCode;
 const GateType = graph.GateType;
 
-pub const LowerError = error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable };
+pub const LowerError = error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable, InvalidUsingBegin, InvalidUsingEnd };
 
 pub const LoweringContext = struct {
     allocator: std.mem.Allocator,
@@ -265,20 +266,26 @@ pub fn lowerUnit(allocator: std.mem.Allocator, snapshot: *const Snapshot, unit_i
     // ========== PROFILE VALIDATION (:core) ==========
     // Validate AST against :core profile restrictions BEFORE lowering
     // This ensures forbidden features are caught at compile time
-    const semantic = @import("semantic");
-    var validator = try semantic.CoreProfileValidator.init(allocator);
-    defer validator.deinit();
+    // NOTE: Only runs when semantic module is available (main compilation)
+    // Unit tests that import lower.zig directly skip this validation
+    const enable_profile_validation = @import("builtin").is_test == false;
 
-    var validation_result = try validator.validateProgram(@constCast(snapshot.astdb), unit_id);
-    defer validation_result.deinit();
+    if (enable_profile_validation) {
+        const semantic = @import("semantic");
+        var validator = try semantic.CoreProfileValidator.init(allocator);
+        defer validator.deinit();
 
-    if (!validation_result.is_valid) {
-        std.debug.print("\n=== :core Profile Validation Failed ===\n", .{});
-        for (validation_result.errors.items) |err| {
-            std.debug.print("Error E{d:0>4}: {s}\n", .{ @intFromEnum(err.kind), err.message });
-            std.debug.print("  at line {d}, column {d}\n", .{ err.span.start_line, err.span.start_column });
+        var validation_result = try validator.validateProgram(@constCast(snapshot.astdb), unit_id);
+        defer validation_result.deinit();
+
+        if (!validation_result.is_valid) {
+            std.debug.print("\n=== :core Profile Validation Failed ===\n", .{});
+            for (validation_result.errors.items) |err| {
+                std.debug.print("Error E{d:0>4}: {s}\n", .{ @intFromEnum(err.kind), err.message });
+                std.debug.print("  at line {d}, column {d}\n", .{ err.span.start_line, err.span.start_column });
+            }
+            return error.ProfileViolation;
         }
-        return error.ProfileViolation;
     }
     // ===============================================
 
@@ -409,14 +416,14 @@ fn processUseZig(
     defer allocator.free(relative_path);
 
     // Convert to absolute path for registry (so it works from any directory)
-    const full_path = std.fs.cwd().realpathAlloc(allocator, relative_path) catch |err| {
+    const full_path = compat_fs.realpathAlloc(allocator, relative_path) catch |err| {
         std.debug.print("Warning: Could not resolve Zig module path '{s}': {s}\n", .{ relative_path, @errorName(err) });
         return;
     };
     defer allocator.free(full_path);
 
     // Read the Zig file
-    const zig_source = std.fs.cwd().readFileAlloc(
+    const zig_source = compat_fs.readFileAlloc(
         allocator,
         full_path,
         10 * 1024 * 1024, // 10MB max
@@ -717,7 +724,7 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
             var last_stmt_child: ?NodeId = null;
             for (func_children) |child_id| {
                 const child = ctx.snapshot.getNode(child_id) orelse continue;
-                if (child.kind != .parameter and child.kind != .error_union_type) {
+                if (child.kind != .parameter and !isTypeAnnotation(child.kind)) {
                     last_stmt_child = child_id;
                 }
             }
@@ -736,7 +743,7 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
             var last_expr_id: ?NodeId = null;
             for (func_children) |child_id| {
                 const child = ctx.snapshot.getNode(child_id) orelse continue;
-                if (child.kind == .parameter or child.kind == .error_union_type) continue;
+                if (child.kind == .parameter or isTypeAnnotation(child.kind)) continue;
 
                 // Check if this is the last statement
                 const is_last = blk: {
@@ -745,7 +752,7 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
                     for (func_children) |check_id| {
                         if (check_after) {
                             const check_node = ctx.snapshot.getNode(check_id) orelse continue;
-                            if (check_node.kind != .parameter and check_node.kind != .error_union_type) {
+                            if (check_node.kind != .parameter and !isTypeAnnotation(check_node.kind)) {
                                 found_after = true;
                                 break;
                             }
@@ -790,7 +797,7 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
                 // Find last non-parameter/non-type statement
                 for (func_children) |child_id| {
                     const child = ctx.snapshot.getNode(child_id) orelse continue;
-                    if (child.kind != .parameter and child.kind != .error_union_type) {
+                    if (child.kind != .parameter and !isTypeAnnotation(child.kind)) {
                         if (child.kind == .expr_stmt) {
                             last_expr_stmt_id = child_id;
                         } else {
@@ -804,7 +811,7 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
             // Lower all but potentially last expression
             for (func_children) |child_id| {
                 const child = ctx.snapshot.getNode(child_id) orelse continue;
-                if (child.kind == .parameter or child.kind == .error_union_type) continue;
+                if (child.kind == .parameter or isTypeAnnotation(child.kind)) continue;
 
                 // If this is the last expr_stmt, handle it specially
                 if (last_expr_stmt_id) |last_id| {
@@ -830,6 +837,24 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
         var actions = try ctx.popScope();
         try ctx.emitDefersForScope(&actions);
     }
+}
+
+/// Check if a node kind represents a type annotation (not a statement)
+fn isTypeAnnotation(kind: NodeKind) bool {
+    return switch (kind) {
+        .identifier, // Type names like "String", "File"
+        .primitive_type, // i32, bool, etc.
+        .named_type, // Named types
+        .pointer_type, // *T
+        .array_type, // [N]T
+        .slice_type, // []T
+        .slice_inclusive_expr, // [..] inclusive slice type
+        .slice_exclusive_expr, // [..<] exclusive slice type
+        .optional_type, // ?T
+        .error_union_type, // T!E
+        => true,
+        else => false,
+    };
 }
 
 fn lowerBlock(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
@@ -960,7 +985,21 @@ fn lowerStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) 
             try lowerSelectStatement(ctx, node_id, node);
         },
 
-        else => {},
+        // :service profile - Resource Management (Phase 3)
+        .using_resource_stmt, .using_shared_stmt => {
+            std.log.debug("lowerStatement: using statement detected, kind={s}", .{@tagName(node.kind)});
+            try lowerUsingStatement(ctx, node_id, node);
+        },
+
+        // Module import - no lowering needed (handled at top level)
+        .using_decl => {
+            // Module import using statement - no code generation needed
+            // This is a compile-time only construct
+        },
+
+        else => {
+            std.log.debug("lowerStatement: UNHANDLED node kind {s}", .{@tagName(node.kind)});
+        },
     }
 }
 
@@ -1435,7 +1474,7 @@ fn lowerSliceForStatement(ctx: *LoweringContext, var_name: []const u8, slice_val
     try ctx.emitDefersForScope(&actions);
 }
 
-fn lowerArrayAccess(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable }!u32 {
+fn lowerArrayAccess(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!u32 {
     _ = node;
     const children = ctx.snapshot.getChildren(node_id);
     if (children.len < 2) return error.InvalidNode;
@@ -1503,7 +1542,7 @@ fn lowerSliceExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode, 
     return slice_node_id;
 }
 
-fn lowerExpression(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable }!u32 {
+fn lowerExpression(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable, InvalidUsingBegin, InvalidUsingEnd }!u32 {
     // Check cache
     if (ctx.node_map.get(node_id)) |id| return id;
 
@@ -1698,7 +1737,7 @@ fn lowerBoolLiteral(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode
     return try ctx.builder.createConstant(.{ .boolean = val });
 }
 
-fn lowerCallExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable }!u32 {
+fn lowerCallExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!u32 {
     const scope = trace.trace("lowerCallExpr", "");
     defer scope.end();
 
@@ -2479,6 +2518,7 @@ fn lowerLValue(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Low
                     return error.InvalidCall; // Cannot assign to non-alloca
                 }
             } else {
+                std.log.err("lowerLValue: UndefinedVariable '{s}'", .{name});
                 return error.UndefinedVariable;
             }
         },
@@ -2545,7 +2585,7 @@ fn lowerRangeExpr(
     return range_node;
 }
 
-fn lowerBinaryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable }!u32 {
+fn lowerBinaryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!u32 {
     _ = node;
     const children = ctx.snapshot.getChildren(node_id);
     if (children.len != 2) return error.InvalidBinaryExpr;
@@ -2802,9 +2842,49 @@ fn lowerArrayLiteral(ctx: *LoweringContext, node_id: NodeId, node: *const AstNod
 }
 
 /// Lower struct literal: Point { x: 10, y: 20 }
-/// Parser produces children as interleaved [name1, value1, name2, value2, ...]
+/// Also handles union variant construction: Option.Some { value: 42 }
+/// Parser produces children as interleaved [type, name1, value1, name2, value2, ...]
 fn lowerStructLiteral(ctx: *LoweringContext, node_id: NodeId) LowerError!u32 {
     const children = ctx.snapshot.getChildren(node_id);
+
+    // Check if first child is a field_expr (qualified union variant like Option.Some)
+    if (children.len >= 1) {
+        const type_id = children[0];
+        const type_node = ctx.snapshot.getNode(type_id) orelse return error.InvalidNode;
+
+        if (type_node.kind == .field_expr) {
+            // Qualified access: get type name and variant name
+            const fe_children = ctx.snapshot.getChildren(type_id);
+            if (fe_children.len >= 2) {
+                const left_node = ctx.snapshot.getNode(fe_children[0]) orelse return error.InvalidNode;
+                const right_node = ctx.snapshot.getNode(fe_children[1]) orelse return error.InvalidNode;
+
+                if (left_node.kind == .identifier and right_node.kind == .identifier) {
+                    const left_tok = ctx.snapshot.getToken(left_node.first_token) orelse return error.InvalidToken;
+                    const right_tok = ctx.snapshot.getToken(right_node.first_token) orelse return error.InvalidToken;
+                    const type_name = if (left_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+                    const variant_name = if (right_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+
+                    if (try findUnionVariantInfo(ctx, type_name, variant_name)) |info| {
+                        // Union variant — collect all payload field values
+                        var payload_ids = std.ArrayListUnmanaged(u32){};
+                        defer payload_ids.deinit(ctx.allocator);
+                        if (info.has_payload) {
+                            // children: [type, field_name1, field_value1, field_name2, field_value2, ...]
+                            var idx: usize = 1;
+                            while (idx + 1 < children.len) : (idx += 2) {
+                                const val_id = children[idx + 1];
+                                const val_node = ctx.snapshot.getNode(val_id) orelse return error.InvalidNode;
+                                const ir_val = try lowerExpression(ctx, val_id, val_node);
+                                try payload_ids.append(ctx.allocator, ir_val);
+                            }
+                        }
+                        return try ctx.builder.createUnionConstruct(info.tag_index, payload_ids.items);
+                    }
+                }
+            }
+        }
+    }
 
     // Collect field names and values (interleaved: name, value, name, value)
     var field_names = std.ArrayListUnmanaged([]const u8){};
@@ -2889,7 +2969,22 @@ fn lowerFieldExpr(ctx: *LoweringContext, node_id: NodeId) LowerError!u32 {
                 // This is an error variant access - return variant index as constant
                 return try ctx.builder.createConstant(.{ .integer = @intCast(variant_index) });
             }
-            // If not found as error variant, fall through to regular field access
+            // Check if this is an enum variant access (EnumType.Variant)
+            if (try findEnumVariantValue(ctx, error_type_name, field_node)) |tag_value| {
+                return try ctx.builder.createConstant(.{ .integer = tag_value });
+            }
+            // Check if this is a union unit variant access (UnionType.Variant)
+            const field_token_u = ctx.snapshot.getToken(field_node.first_token) orelse return error.InvalidToken;
+            const variant_name_u = if (field_token_u.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+            if (try findUnionVariantInfo(ctx, error_type_name, variant_name_u)) |info| {
+                if (!info.has_payload) {
+                    // Unit variant — emit Union_Construct with tag and empty payload
+                    return try ctx.builder.createUnionConstruct(info.tag_index, &[_]u32{});
+                }
+                // Variant with payload — requires struct literal syntax (Option.Some { value: 42 })
+                // Fall through to regular field access which will be handled by lowerStructLiteral
+            }
+            // If not found as error/enum/union variant, fall through to regular field access
             // which will fail with UndefinedVariable (correct behavior)
         }
     }
@@ -2954,6 +3049,159 @@ fn findErrorVariantIndex(ctx: *LoweringContext, error_type_name: []const u8, var
     }
 
     return null;
+}
+
+/// Find enum variant value in AST
+/// Returns the i32 tag value for the variant (auto-numbered or explicit)
+fn findEnumVariantValue(ctx: *LoweringContext, enum_type_name: []const u8, variant_node: *const AstNode) !?i32 {
+    const unit = ctx.snapshot.astdb.getUnitConst(ctx.unit_id) orelse return null;
+
+    // Get variant name from field access
+    const variant_token = ctx.snapshot.getToken(variant_node.first_token) orelse return null;
+    const variant_name = if (variant_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+    // Search for enum declaration with matching name
+    for (unit.nodes, 0..) |node, i| {
+        if (node.kind != .enum_decl) continue;
+
+        const enum_node_id: NodeId = @enumFromInt(@as(u32, @intCast(i)));
+        const enum_children = ctx.snapshot.getChildren(enum_node_id);
+        if (enum_children.len == 0) continue;
+
+        // First child is enum type name
+        const name_node = ctx.snapshot.getNode(enum_children[0]) orelse continue;
+        const name_token = ctx.snapshot.getToken(name_node.first_token) orelse continue;
+        const decl_name = if (name_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+        // Check if this is the enum type we're looking for
+        if (std.mem.eql(u8, decl_name, enum_type_name)) {
+            // Found the enum type - search for variant
+            // Variants are children[1..], auto-numbered starting at 0
+            var auto_value: i32 = 0;
+            for (enum_children[1..]) |variant_id| {
+                const var_node = ctx.snapshot.getNode(variant_id) orelse continue;
+                if (var_node.kind != .variant) continue;
+
+                // Check for explicit value (variant has children pointing to integer_literal)
+                const var_children = ctx.snapshot.getChildren(variant_id);
+                if (var_children.len > 0) {
+                    if (ctx.snapshot.getNode(var_children[0])) |vn| {
+                        if (vn.kind == .integer_literal) {
+                            if (ctx.snapshot.getToken(vn.first_token)) |vt| {
+                                const lexeme = unit.source[vt.span.start..vt.span.end];
+                                auto_value = std.fmt.parseInt(i32, lexeme, 10) catch auto_value;
+                            }
+                        }
+                    }
+                }
+
+                const var_token = ctx.snapshot.getToken(var_node.first_token) orelse continue;
+                const var_name = if (var_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+                if (std.mem.eql(u8, var_name, variant_name)) {
+                    return auto_value;
+                }
+
+                auto_value += 1;
+            }
+        }
+    }
+
+    return null;
+}
+
+/// Tagged union variant info (SPEC-023 Phase B+C)
+const UnionVariantInfo = struct {
+    tag_index: i64,
+    has_payload: bool,
+    field_count: u32,
+};
+
+/// Find union variant info in AST
+/// Returns tag index (0-indexed) and whether the variant has payload fields
+fn findUnionVariantInfo(ctx: *LoweringContext, type_name: []const u8, variant_name: []const u8) !?UnionVariantInfo {
+    const unit = ctx.snapshot.astdb.getUnitConst(ctx.unit_id) orelse return null;
+
+    for (unit.nodes, 0..) |node, i| {
+        if (node.kind != .union_decl) continue;
+
+        const union_node_id: NodeId = @enumFromInt(@as(u32, @intCast(i)));
+        const union_children = ctx.snapshot.getChildren(union_node_id);
+        if (union_children.len == 0) continue;
+
+        // First child is union type name
+        const name_node = ctx.snapshot.getNode(union_children[0]) orelse continue;
+        const name_token = ctx.snapshot.getToken(name_node.first_token) orelse continue;
+        const decl_name = if (name_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+        if (std.mem.eql(u8, decl_name, type_name)) {
+            // Found union — search variants (children[1..])
+            var tag: i64 = 0;
+            for (union_children[1..]) |variant_id| {
+                const var_node = ctx.snapshot.getNode(variant_id) orelse continue;
+                if (var_node.kind != .variant) continue;
+
+                const var_token = ctx.snapshot.getToken(var_node.first_token) orelse continue;
+                const var_name = if (var_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+                if (std.mem.eql(u8, var_name, variant_name)) {
+                    // Children are pairs: [field_name, field_type, ...]
+                    const var_children = ctx.snapshot.getChildren(variant_id);
+                    return .{
+                        .tag_index = tag,
+                        .has_payload = var_children.len > 0,
+                        .field_count = @intCast(var_children.len / 2),
+                    };
+                }
+
+                tag += 1;
+            }
+        }
+    }
+
+    return null;
+}
+
+/// Check if a union variant field at given index is f64 type
+/// Inspects the type annotation node in the variant declaration
+fn isUnionFieldFloat(ctx: *LoweringContext, type_name: []const u8, variant_name: []const u8, field_index: u32) bool {
+    const unit = ctx.snapshot.astdb.getUnitConst(ctx.unit_id) orelse return false;
+
+    for (unit.nodes, 0..) |node, i| {
+        if (node.kind != .union_decl) continue;
+
+        const union_node_id: NodeId = @enumFromInt(@as(u32, @intCast(i)));
+        const union_children = ctx.snapshot.getChildren(union_node_id);
+        if (union_children.len == 0) continue;
+
+        const name_node = ctx.snapshot.getNode(union_children[0]) orelse continue;
+        const name_token = ctx.snapshot.getToken(name_node.first_token) orelse continue;
+        const decl_name = if (name_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+        if (std.mem.eql(u8, decl_name, type_name)) {
+            for (union_children[1..]) |variant_id| {
+                const var_node = ctx.snapshot.getNode(variant_id) orelse continue;
+                if (var_node.kind != .variant) continue;
+
+                const var_token = ctx.snapshot.getToken(var_node.first_token) orelse continue;
+                const var_name = if (var_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+                if (std.mem.eql(u8, var_name, variant_name)) {
+                    // Variant children: [name0, type0, name1, type1, ...]
+                    const var_children = ctx.snapshot.getChildren(variant_id);
+                    const type_child_idx = field_index * 2 + 1;
+                    if (type_child_idx >= var_children.len) return false;
+
+                    const type_node = ctx.snapshot.getNode(var_children[type_child_idx]) orelse return false;
+                    const type_tok = ctx.snapshot.getToken(type_node.first_token) orelse return false;
+                    const type_str = if (type_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+                    return std.mem.eql(u8, type_str, "f64");
+                }
+            }
+        }
+    }
+
+    return false;
 }
 
 fn lowerDeferStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
@@ -3146,9 +3394,103 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
             }
         }
 
+        // Track multi-field payload bindings for union destructuring
+        const UnionBinding = struct { name: []const u8, field_index: u32, is_float: bool };
+        var union_bindings = std.ArrayListUnmanaged(UnionBinding){};
+        defer union_bindings.deinit(ctx.allocator);
+
         if (is_wildcard) {
             // Always matches
             pattern_matches_val = try ctx.builder.createConstant(.{ .boolean = true });
+        } else if (pattern_node.kind == .struct_literal) {
+            // Union destructuring pattern: Option.Some { value: v }
+            // First child of struct_literal is the type (field_expr)
+            const pat_children = ctx.snapshot.getChildren(pattern_id);
+            if (pat_children.len >= 1) {
+                const pat_type_id = pat_children[0];
+                const pat_type_node = ctx.snapshot.getNode(pat_type_id) orelse return error.InvalidNode;
+
+                if (pat_type_node.kind == .field_expr) {
+                    const fe_children = ctx.snapshot.getChildren(pat_type_id);
+                    if (fe_children.len >= 2) {
+                        const left_n = ctx.snapshot.getNode(fe_children[0]) orelse return error.InvalidNode;
+                        const right_n = ctx.snapshot.getNode(fe_children[1]) orelse return error.InvalidNode;
+
+                        if (left_n.kind == .identifier and right_n.kind == .identifier) {
+                            const l_tok = ctx.snapshot.getToken(left_n.first_token) orelse return error.InvalidToken;
+                            const r_tok = ctx.snapshot.getToken(right_n.first_token) orelse return error.InvalidToken;
+                            const t_name = if (l_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+                            const v_name = if (r_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+
+                            if (try findUnionVariantInfo(ctx, t_name, v_name)) |info| {
+                                // Emit Union_Tag_Check
+                                pattern_matches_val = try ctx.builder.createUnionTagCheck(scrutinee_val, info.tag_index);
+
+                                // Capture all binding variable names from pattern fields
+                                // pat_children: [type, field_name1, binding1, field_name2, binding2, ...]
+                                if (info.has_payload) {
+                                    var field_idx: u32 = 0;
+                                    var pat_idx: usize = 1; // skip type child
+                                    while (pat_idx + 1 < pat_children.len) : (pat_idx += 2) {
+                                        const binding_node = ctx.snapshot.getNode(pat_children[pat_idx + 1]) orelse {
+                                            field_idx += 1;
+                                            continue;
+                                        };
+                                        if (binding_node.kind == .identifier) {
+                                            const b_tok = ctx.snapshot.getToken(binding_node.first_token) orelse {
+                                                field_idx += 1;
+                                                continue;
+                                            };
+                                            const bname = if (b_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+                                            const is_f = isUnionFieldFloat(ctx, t_name, v_name, field_idx);
+                                            try union_bindings.append(ctx.allocator, .{ .name = bname, .field_index = field_idx, .is_float = is_f });
+                                        }
+                                        field_idx += 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // If not a union pattern, fall through with pattern_matches_val = 0
+            // which will be handled by the generic branch below
+            if (pattern_matches_val == 0) {
+                const pattern_val = try lowerExpression(ctx, pattern_id, pattern_node);
+                const eq_node_id = try ctx.builder.createNode(.Equal);
+                var eq_node = &ctx.builder.graph.nodes.items[eq_node_id];
+                try eq_node.inputs.append(ctx.allocator, scrutinee_val);
+                try eq_node.inputs.append(ctx.allocator, pattern_val);
+                pattern_matches_val = eq_node_id;
+            }
+        } else if (pattern_node.kind == .field_expr) {
+            // Union unit variant pattern: Option.None
+            const fe_children = ctx.snapshot.getChildren(pattern_id);
+            if (fe_children.len >= 2) {
+                const left_n = ctx.snapshot.getNode(fe_children[0]) orelse return error.InvalidNode;
+                const right_n = ctx.snapshot.getNode(fe_children[1]) orelse return error.InvalidNode;
+
+                if (left_n.kind == .identifier and right_n.kind == .identifier) {
+                    const l_tok = ctx.snapshot.getToken(left_n.first_token) orelse return error.InvalidToken;
+                    const r_tok = ctx.snapshot.getToken(right_n.first_token) orelse return error.InvalidToken;
+                    const t_name = if (l_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+                    const v_name = if (r_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+
+                    if (try findUnionVariantInfo(ctx, t_name, v_name)) |info| {
+                        // Emit Union_Tag_Check for unit variant
+                        pattern_matches_val = try ctx.builder.createUnionTagCheck(scrutinee_val, info.tag_index);
+                    }
+                }
+            }
+            // Fallback to regular equality if not a union
+            if (pattern_matches_val == 0) {
+                const pattern_val = try lowerExpression(ctx, pattern_id, pattern_node);
+                const eq_node_id = try ctx.builder.createNode(.Equal);
+                var eq_node = &ctx.builder.graph.nodes.items[eq_node_id];
+                try eq_node.inputs.append(ctx.allocator, scrutinee_val);
+                try eq_node.inputs.append(ctx.allocator, pattern_val);
+                pattern_matches_val = eq_node_id;
+            }
         } else if (pattern_node.kind == .unary_expr) {
             // Check for negation pattern: !value means scrutinee != value
             const pattern_token = ctx.snapshot.getToken(pattern_node.first_token) orelse return error.InvalidToken;
@@ -3213,6 +3555,12 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
         // Backpatch True
         ctx.builder.graph.nodes.items[branch_id].inputs.items[1] = body_label_id;
 
+        // Union payload extraction: bind all destructured variables before body
+        for (union_bindings.items) |binding| {
+            const extract_id = try ctx.builder.createUnionPayloadExtract(scrutinee_val, binding.field_index, binding.is_float);
+            try ctx.scope.put(binding.name, extract_id);
+        }
+
         const body = ctx.snapshot.getNode(body_id) orelse continue;
         if (body.kind == .block_stmt) {
             try lowerBlock(ctx, body_id, body);
@@ -3256,7 +3604,7 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
     // So we should follow that pattern.
     // We need to track all "Jump to End" nodes.
 
-    // var scope_jumps = std.ArrayList(u32).init(ctx.allocator);
+    // var scope_jumps: std.ArrayList(u32) = .empty;
     // defer scope_jumps.deinit();
 
     // Re-doing the loop logic briefly to correct the "End Label" issue:
@@ -3332,7 +3680,7 @@ fn lowerMatchCorrected(ctx: *LoweringContext, node_id: NodeId, node: *const AstN
     const scrutinee_node = ctx.snapshot.getNode(scrutinee_id) orelse return error.InvalidNode;
     const scrutinee_val = try lowerExpression(ctx, scrutinee_id, scrutinee_node);
 
-    var end_jumps = std.ArrayList(u32).init(ctx.allocator);
+    var end_jumps: std.ArrayList(u32) = .empty;
     defer end_jumps.deinit();
 
     // Iterate over arms
@@ -3947,4 +4295,87 @@ fn lowerSelectDefault(ctx: *LoweringContext, node_id: NodeId, node: *const AstNo
     var add_default_node = &ctx.builder.graph.nodes.items[add_default_id];
     try add_default_node.inputs.append(ctx.allocator, select_begin_id);
     return add_default_id;
+}
+
+/// Lower a using statement (:service profile - Phase 3)
+/// Syntax: using [shared] binding [: type] = open_expr do ... end
+/// For now: creates resource, executes body, then cleans up
+fn lowerUsingStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
+    _ = node;
+    const children = ctx.snapshot.getChildren(node_id);
+    std.log.debug("lowerUsingStatement: node_id={d}, children.len={d}", .{@intFromEnum(node_id), children.len});
+    if (children.len < 3) {
+        std.log.debug("lowerUsingStatement: ERROR - children.len < 3", .{});
+        return error.InvalidNode;
+    }
+
+    // Children layout:
+    // [0] = binding name (identifier)
+    // [1] = optional type annotation OR open expression
+    // [2] = open expression (if type annotation present) OR first body statement
+    // [...] = remaining body statements
+    
+    // Children layout depends on whether type annotation is present:
+    // Without type: [0]=binding, [1]=open_expr, [2..]=body
+    // With type:    [0]=binding, [1]=type, [2]=open_expr, [3..]=body
+    var open_expr_index: usize = 1;
+    var body_start_index: usize = 2;
+    
+    // Heuristic: if children.len >= 4, there's likely a type annotation
+    if (children.len >= 4) {
+        open_expr_index = 2;
+        body_start_index = 3;
+    }
+
+    // 1. Evaluate the open expression to get the resource
+    const open_expr_id = children[open_expr_index];
+    const open_expr_node = ctx.snapshot.getNode(open_expr_id) orelse return error.InvalidNode;
+    const resource_val = try lowerExpression(ctx, open_expr_id, open_expr_node);
+
+    // 2. Create Using_Begin node (marks resource acquisition)
+    const using_begin_id = try ctx.builder.createNode(.Using_Begin);
+    var using_begin_node = &ctx.builder.graph.nodes.items[using_begin_id];
+    try using_begin_node.inputs.append(ctx.allocator, resource_val);
+
+    // 3. Bind the resource to the binding name in current scope
+    // Create an Alloca for the resource variable so it can be referenced
+    // in the body and properly tracked as an L-Value
+    const binding_id = children[0];
+    const binding_node = ctx.snapshot.getNode(binding_id) orelse return error.InvalidNode;
+
+    if (binding_node.kind == .identifier) {
+        const binding_token = ctx.snapshot.getToken(binding_node.first_token) orelse return error.InvalidNode;
+        const binding_name = if (binding_token.str) |sid| ctx.snapshot.astdb.str_interner.getString(sid) else "resource";
+
+        // Create Alloca for the resource variable
+        const alloca_id = try ctx.builder.createNode(.Alloca);
+        ctx.builder.graph.nodes.items[alloca_id].data = .{ .string = try ctx.dupeForGraph(binding_name) };
+
+        // Store the resource value into the Alloca
+        const store_id = try ctx.builder.createNode(.Store);
+        var store_node = &ctx.builder.graph.nodes.items[store_id];
+        try store_node.inputs.append(ctx.allocator, alloca_id);
+        try store_node.inputs.append(ctx.allocator, resource_val);
+
+        // Put the Alloca (not the value) in scope so it can be loaded/stored
+        // NOTE: binding_name comes from the string interner and lives as long as the snapshot
+        try ctx.scope.put(binding_name, alloca_id);
+        std.log.debug("lowerUsingStatement: Added '{s}' to scope", .{binding_name});
+    } else {
+        std.log.debug("lowerUsingStatement: binding_node.kind={s}, expected identifier", .{@tagName(binding_node.kind)});
+    }
+
+    // 4. Lower the body statements
+    if (children.len > body_start_index) {
+        for (children[body_start_index..]) |stmt_id| {
+            const stmt_node = ctx.snapshot.getNode(stmt_id) orelse continue;
+            try lowerStatement(ctx, stmt_id, stmt_node);
+        }
+    }
+
+    // 5. Create Using_End node (marks cleanup point - will call close())
+    const using_end_id = try ctx.builder.createNode(.Using_End);
+    var using_end_node = &ctx.builder.graph.nodes.items[using_end_id];
+    try using_end_node.inputs.append(ctx.allocator, using_begin_id);
+    try using_end_node.inputs.append(ctx.allocator, resource_val);
 }

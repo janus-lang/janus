@@ -61,7 +61,7 @@ pub const ParserASTDBBridge = struct {
         const root_token = try self.snapshot.addToken(.identifier, root_str_id, root_span);
 
         // Parse tokens and create nodes
-        var children = std.ArrayList(NodeId).init(self.allocator);
+        var children: std.ArrayList(NodeId) = .empty;
         defer children.deinit();
 
         try self.parseTokensToNodes(&tokenizer, &children);
@@ -129,7 +129,7 @@ pub const ParserASTDBBridge = struct {
         const astdb_token = try self.snapshot.addToken(.identifier, str_id, span);
 
         // Parse function parameters and body (simplified)
-        var func_children = std.ArrayList(NodeId).init(self.allocator);
+        var func_children: std.ArrayList(NodeId) = .empty;
         defer func_children.deinit();
 
         // Skip to function body and parse parameters/return statements
@@ -325,7 +325,7 @@ pub const ParserASTDBBridge = struct {
         const astdb_token = try self.snapshot.addToken(.kw_return, str_id, span);
 
         // Look for return value
-        var children = std.ArrayList(NodeId).init(self.allocator);
+        var children: std.ArrayList(NodeId) = .empty;
         defer children.deinit();
 
         // Check next token for return value

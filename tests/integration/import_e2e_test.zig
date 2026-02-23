@@ -7,6 +7,7 @@
 // Two source files → Parse → Lower → LLVM → Objects → Link → Execute
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const testing = std.testing;
 const janus_parser = @import("janus_parser");
 const qtjir = @import("qtjir");
@@ -59,7 +60,7 @@ fn compileToObject(
 
     const llc_result = try std.process.Child.run(.{
         .allocator = allocator,
-        .argv = &[_][]const u8{ "llc", "-filetype=obj", ir_file_path, "-o", obj_file_path },
+        .argv = &[_][]const u8{ "llc", "-opaque-pointers", "-filetype=obj", ir_file_path, "-o", obj_file_path },
     });
     defer allocator.free(llc_result.stdout);
     defer allocator.free(llc_result.stderr);
@@ -232,7 +233,7 @@ fn compileFileToObject(
     tmp_dir: std.testing.TmpDir,
 ) ![]const u8 {
     // Read file content
-    const source = try std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024);
+    const source = try compat_fs.readFileAlloc(allocator, file_path, 1024 * 1024);
     defer allocator.free(source);
 
     return compileToObject(allocator, source, module_name, tmp_dir);

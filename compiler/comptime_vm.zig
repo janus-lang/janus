@@ -39,7 +39,7 @@ pub const ComptimeVM = struct {
             .parent_allocator = parent_allocator,
             .arena = std.heap.ArenaAllocator.init(parent_allocator),
             .astdb_system = astdb_system,
-            .constants = std.ArrayList(ConstantEntry).init(parent_allocator),
+            .constants = .empty,
             .evaluation_count = 0,
         };
 
@@ -73,8 +73,8 @@ pub const ComptimeVM = struct {
         // Create evaluation context with arena-allocated temporary data
         var eval_context = EvaluationContext{
             .arena_allocator = arena_allocator,
-            .dependencies = std.ArrayList(astdb.NodeId).init(arena_allocator),
-            .temp_values = std.ArrayList(StrId).init(arena_allocator),
+            .dependencies = .empty,
+            .temp_values = .empty,
         };
 
         // No need to defer cleanup - arena.deinit() handles everything

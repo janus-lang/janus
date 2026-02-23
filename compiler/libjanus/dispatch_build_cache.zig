@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 const HashMap = std.HashMap;
@@ -28,7 +29,7 @@ pub const DispatchBuildCache = struct {
 
     pub fn init(allocator: Allocator, cache_dir: []const u8) !Self {
         // Ensure cache directory exists
-        std.fs.cwd().makeDir(cache_dir) catch |err| switch (err) {
+        compat_fs.makeDir(cache_dir) catch |err| switch (err) {
             error.PathAlreadyExists => {},
             else => return err,
         };
@@ -100,7 +101,7 @@ pub const DispatchBuildCache = struct {
         defer self.allocator.free(serialized_data);
 
         // Write to cache file
-        var file = try std.fs.cwd().createFile(cache_path, .{});
+        var file = try compat_fs.createFile(cache_path, .{});
         defer file.close();
 
         // Write cache header
@@ -177,7 +178,7 @@ pub const DispatchBuildCache = struct {
         const cache_path = try self.getCachePath(signature_name);
         defer self.allocator.free(cache_path);
 
-        std.fs.cwd().deleteFile(cache_path) catch |err| switch (err) {
+        compat_fs.deleteFile(cache_path) catch |err| switch (err) {
             error.FileNotFound => {},
             else => return err,
         };
@@ -187,7 +188,7 @@ pub const DispatchBuildCache = struct {
 
     /// Invalidate entire cache
     pub fn invalidateAll(self: *Self) !void {
-        var cache_dir = try std.fs.cwd().openDir(self.cache_dir, .{ .iterate = true });
+        var cache_dir = try compat_fs.openDir(self.cache_dir, .{ .iterate = true });
         defer cache_dir.close();
 
         var iterator = cache_dir.iterate();
@@ -213,7 +214,7 @@ pub const DispatchBuildCache = struct {
             .invalid_files = 0,
         };
 
-        var cache_dir = try std.fs.cwd().openDir(self.cache_dir, .{ .iterate = true });
+        var cache_dir = try compat_fs.openDir(self.cache_dir, .{ .iterate = true });
         defer cache_dir.close();
 
         var iterator = cache_dir.iterate();

@@ -1,0 +1,181 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// std/core/time.jan - Time and date operations for :core profile
+// Uses extern func to declare runtime bindings
+
+// ============================================================================
+// EXTERN DECLARATIONS (Zig runtime bindings)
+// ============================================================================
+
+// System time
+extern func time_now_seconds() -> i64
+extern func time_now_millis() -> i64
+extern func time_now_micros() -> i64
+extern func time_now_nanos() -> i64
+
+// Monotonic time (for performance measurement)
+extern func time_monotonic_millis() -> i64
+extern func time_monotonic_nanos() -> i64
+
+// Sleep
+extern func time_sleep_millis(ms: i64) -> i32
+extern func time_sleep_seconds(secs: i64) -> i32
+
+// Conversions
+extern func time_seconds_to_millis(seconds: i64) -> i64
+extern func time_millis_to_seconds(millis: i64) -> i64
+extern func time_minutes_to_seconds(minutes: i64) -> i64
+extern func time_hours_to_seconds(hours: i64) -> i64
+extern func time_days_to_seconds(days: i64) -> i64
+
+// Duration calculations
+extern func time_elapsed_millis(start_millis: i64, end_millis: i64) -> i64
+extern func time_elapsed_seconds(start_secs: i64, end_secs: i64) -> i64
+
+// Calendar
+extern func time_year_from_timestamp(timestamp: i64) -> i32
+extern func time_is_leap_year(year: i32) -> i32
+extern func time_days_in_month(year: i32, month: i32) -> i32
+
+// ============================================================================
+// PUBLIC API
+// ============================================================================
+
+/// Get current Unix timestamp in seconds
+/// Seconds since January 1, 1970 UTC
+func now_seconds() -> i64 {
+    return time_now_seconds()
+}
+
+/// Get current Unix timestamp in milliseconds
+/// Milliseconds since January 1, 1970 UTC
+func now_millis() -> i64 {
+    return time_now_millis()
+}
+
+/// Get current Unix timestamp in microseconds
+/// Microseconds since January 1, 1970 UTC
+func now_micros() -> i64 {
+    return time_now_micros()
+}
+
+/// Get current Unix timestamp in nanoseconds
+/// Nanoseconds since January 1, 1970 UTC
+/// Note: Precision depends on platform
+func now_nanos() -> i64 {
+    return time_now_nanos()
+}
+
+// ============================================================================
+// MONOTONIC TIME (for performance measurement)
+// ============================================================================
+
+/// Get monotonic clock in milliseconds
+/// This clock never goes backwards, even if system time changes
+/// Use for benchmarking and timeouts
+func monotonic_millis() -> i64 {
+    return time_monotonic_millis()
+}
+
+/// Get monotonic clock in nanoseconds (highest precision)
+/// Use for high-precision benchmarking
+func monotonic_nanos() -> i64 {
+    return time_monotonic_nanos()
+}
+
+// ============================================================================
+// SLEEP
+// ============================================================================
+
+/// Sleep for specified milliseconds
+/// Returns 0 on success, -1 on error
+func sleep_millis(ms: i64) -> i32 {
+    return time_sleep_millis(ms)
+}
+
+/// Sleep for specified seconds
+/// Returns 0 on success, -1 on error
+func sleep_seconds(secs: i64) -> i32 {
+    return time_sleep_seconds(secs)
+}
+
+// ============================================================================
+// CONVERSIONS
+// ============================================================================
+
+/// Convert seconds to milliseconds
+func seconds_to_millis(seconds: i64) -> i64 {
+    return time_seconds_to_millis(seconds)
+}
+
+/// Convert milliseconds to seconds (truncates)
+func millis_to_seconds(millis: i64) -> i64 {
+    return time_millis_to_seconds(millis)
+}
+
+/// Convert minutes to seconds
+func minutes_to_seconds(minutes: i64) -> i64 {
+    return time_minutes_to_seconds(minutes)
+}
+
+/// Convert hours to seconds
+func hours_to_seconds(hours: i64) -> i64 {
+    return time_hours_to_seconds(hours)
+}
+
+/// Convert days to seconds
+func days_to_seconds(days: i64) -> i64 {
+    return time_days_to_seconds(days)
+}
+
+// ============================================================================
+// DURATION CALCULATIONS
+// ============================================================================
+
+/// Calculate elapsed milliseconds between two timestamps
+/// end_millis should be >= start_millis for positive result
+func elapsed_millis(start_millis: i64, end_millis: i64) -> i64 {
+    return time_elapsed_millis(start_millis, end_millis)
+}
+
+/// Calculate elapsed seconds between two timestamps
+func elapsed_seconds(start_secs: i64, end_secs: i64) -> i64 {
+    return time_elapsed_seconds(start_secs, end_secs)
+}
+
+// ============================================================================
+// CALENDAR TIME (UTC)
+// ============================================================================
+
+/// Get year from Unix timestamp (UTC)
+/// Returns year (e.g., 2026), or 0 on error
+func year_from_timestamp(timestamp: i64) -> i32 {
+    return time_year_from_timestamp(timestamp)
+}
+
+/// Check if a year is a leap year
+/// Returns 1 if leap year, 0 otherwise
+func is_leap_year(year: i32) -> i32 {
+    return time_is_leap_year(year)
+}
+
+/// Get days in month (1-12)
+/// Returns days in month, or -1 for invalid month
+func days_in_month(year: i32, month: i32) -> i32 {
+    return time_days_in_month(year, month)
+}
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+const MS_PER_SECOND: i64 = 1000
+const MS_PER_MINUTE: i64 = 60000
+const MS_PER_HOUR: i64 = 3600000
+const MS_PER_DAY: i64 = 86400000
+
+const SECS_PER_MINUTE: i64 = 60
+const SECS_PER_HOUR: i64 = 3600
+const SECS_PER_DAY: i64 = 86400
+const SECS_PER_WEEK: i64 = 604800

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const manifest = @import("manifest.zig");
 const transport = @import("transport.zig");
 const cas = @import("cas.zig");
@@ -183,13 +184,13 @@ pub const Resolver = struct {
         var new_lockfile = manifest.Lockfile.init(self.allocator);
         new_lockfile.version = 1;
 
-        var capability_changes = std.ArrayList(CapabilityChange).init(self.allocator);
-        var packages_added = std.ArrayList([]const u8).init(self.allocator);
-        var packages_updated = std.ArrayList([]const u8).init(self.allocator);
-        var packages_removed = std.ArrayList([]const u8).init(self.allocator);
+        var capability_changes: std.ArrayList(CapabilityChange) = .empty;
+        var packages_added: std.ArrayList([]const u8) = .empty;
+        var packages_updated: std.ArrayList([]const u8) = .empty;
+        var packages_removed: std.ArrayList([]const u8) = .empty;
 
         // Track packages to resolve (including transitive dependencies)
-        var resolution_queue = std.ArrayList(manifest.PackageRef).init(self.allocator);
+        var resolution_queue: std.ArrayList(manifest.PackageRef) = .empty;
         defer {
             for (resolution_queue.items) |*pkg_ref| {
                 self.freePackageRef(pkg_ref);
@@ -345,7 +346,7 @@ pub const Resolver = struct {
         old_pkg: *const manifest.ResolvedPackage,
         new_pkg: *const manifest.ResolvedPackage,
     ) ![]CapabilityChange {
-        var changes = std.ArrayList(CapabilityChange).init(self.allocator);
+        var changes: std.ArrayList(CapabilityChange) = .empty;
 
         // Check for removed capabilities
         for (old_pkg.capabilities) |old_cap| {
@@ -397,7 +398,7 @@ pub const Resolver = struct {
             }
         }
 
-        return changes.toOwnedSlice();
+        return try changes.toOwnedSlice(alloc);
     }
 
     // Prompt user for capability changes approval
@@ -451,19 +452,19 @@ pub const Resolver = struct {
     pub fn saveLockfile(self: *Resolver, lockfile: *const manifest.Lockfile) !void {
         // Use the new high-performance serde framework for serialization
         // This leverages SIMD acceleration and provides capability validation
-        var buffer = std.ArrayList(u8).init(self.allocator);
+        var buffer: std.ArrayList(u8) = .empty;
         defer buffer.deinit();
 
         // TODO: Integrate with actual serde framework when available in Zig
         // For now, use standard JSON serialization with performance optimizations
         try std.json.stringify(lockfile, .{ .whitespace = .indent_2 }, buffer.writer());
 
-        try std.fs.cwd().writeFile(.{ .sub_path = "JANUS.lock", .data = buffer.items });
+        try compat_fs.writeFile(.{ .sub_path = "JANUS.lock", .data = buffer.items });
     }
 
     // Load manifest from disk
     fn loadManifest(self: *Resolver) !manifest.Manifest {
-        const manifest_content = std.fs.cwd().readFileAlloc(self.allocator, "janus.pkg", 1024 * 1024) catch |err| switch (err) {
+        const manifest_content = compat_fs.readFileAlloc(self.allocator, "janus.pkg", 1024 * 1024) catch |err| switch (err) {
             error.FileNotFound => return ResolverError.ManifestNotFound,
             else => return ResolverError.ManifestParseError,
         };
@@ -474,7 +475,7 @@ pub const Resolver = struct {
 
     // Load lockfile from disk
     fn loadLockfile(self: *Resolver) !manifest.Lockfile {
-        const lockfile_content = std.fs.cwd().readFileAlloc(self.allocator, "JANUS.lock", 10 * 1024 * 1024) catch |err| switch (err) {
+        const lockfile_content = compat_fs.readFileAlloc(self.allocator, "JANUS.lock", 10 * 1024 * 1024) catch |err| switch (err) {
             error.FileNotFound => return ResolverError.LockfileParseError,
             else => return ResolverError.LockfileParseError,
         };

@@ -331,11 +331,11 @@ pub const DispatchPropertyTests = struct {
         const arity = self.rng.intRangeAtMost(u32, 1, 4); // 1-4 parameters
         const impl_count = self.rng.intRangeAtMost(u32, 1, 8); // 1-8 implementations
 
-        var implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
-        var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
+        var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
 
         // Generate random types
-        var types = ArrayList(TypeRegistry.TypeId).init(self.allocator);
+        var types: ArrayList(TypeRegistry.TypeId) = .empty;
         defer types.deinit();
 
         for (0..arity + 2) |i| { // Extra types for variety

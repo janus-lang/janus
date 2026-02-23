@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const TypeRegistry = @import("type_registry.zig").TypeRegistry;
 const SignatureAnalyzer = @import("signature_analyzer.zig").SignatureAnalyzer;
 const DispatchTableGenerator = @import("dispatch_table_generator.zig").DispatchTableGenerator;
@@ -222,7 +223,7 @@ pub const RuntimeDispatch = struct {
 
         pub fn init(allocator: std.mem.Allocator) PerformanceMonitor {
             return PerformanceMonitor{
-                .timings = std.ArrayList(DispatchTiming).init(allocator),
+                .timings = .empty,
                 .total_dispatches = 0,
                 .total_time_ns = 0,
                 .max_time_ns = 0,
@@ -332,7 +333,7 @@ pub const RuntimeDispatch = struct {
         signature_hash: u64,
         arg_types: []const TypeRegistry.TypeId,
     ) ?SignatureAnalyzer.FunctionId {
-        const start_time = if (self.enable_performance_monitoring) std.time.nanoTimestamp() else 0;
+        const start_time = if (self.enable_performance_monitoring) compat_time.nanoTimestamp() else 0;
         var cache_hit = false;
         var tree_depth_traversed: u32 = 0;
 
@@ -343,7 +344,7 @@ pub const RuntimeDispatch = struct {
                 cache_hit = true;
 
                 if (self.enable_performance_monitoring) {
-                    const end_time = std.time.nanoTimestamp();
+                    const end_time = compat_time.nanoTimestamp();
                     const dispatch_time = @as(u64, @intCast(end_time - start_time));
                     self.performance_monitor.recordDispatch(
                         signature_hash,
@@ -369,7 +370,7 @@ pub const RuntimeDispatch = struct {
 
         // Record performance metrics
         if (self.enable_performance_monitoring) {
-            const end_time = std.time.nanoTimestamp();
+            const end_time = compat_time.nanoTimestamp();
             const dispatch_time = @as(u64, @intCast(end_time - start_time));
             self.performance_monitor.recordDispatch(
                 signature_hash,

@@ -9,6 +9,7 @@
 //! to ensure end-to-end functionality and API compatibility.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const citadel_protocol = @import("../../daemon/citadel_protocol.zig");
 
@@ -250,7 +251,7 @@ test "Performance and resource usage" {
     defer client.deinit();
 
     const iterations = 10; // Reduced for mock testing
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Simulate load testing
     var i: u32 = 0;
@@ -275,7 +276,7 @@ test "Performance and resource usage" {
         allocator.free(references);
     }
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const duration_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
     const ops_per_second = @as(f64, @floatFromInt(iterations * 4)) / (duration_ms / 1000.0); // 4 ops per iteration
 

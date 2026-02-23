@@ -94,7 +94,7 @@ const SyntheticProject = struct {
     pub fn init(allocator: Allocator, config: BenchmarkConfig) !SyntheticProject {
         return SyntheticProject{
             .allocator = allocator,
-            .modules = std.ArrayList(SyntheticModule).init(allocator),
+            .modules = .empty,
             .total_loc = 0,
             .random = std.rand.DefaultPrng.init(config.random_seed),
         };
@@ -150,7 +150,7 @@ const SyntheticProject = struct {
     }
 
     fn generateFunctions(self: *SyntheticProject, target_loc: u32) ![]SyntheticFunction {
-        var functions = std.ArrayList(SyntheticFunction).init(self.allocator);
+        var functions: std.ArrayList(SyntheticFunction) = .empty;
         var current_loc: u32 = 0;
         var func_idx: u32 = 0;
 
@@ -168,11 +168,11 @@ const SyntheticProject = struct {
             current_loc += func_loc;
         }
 
-        return functions.toOwnedSlice();
+        return try functions.toOwnedSlice(alloc);
     }
 
     fn generateTypes(self: *SyntheticProject, target_loc: u32) ![]SyntheticType {
-        var types = std.ArrayList(SyntheticType).init(self.allocator);
+        var types: std.ArrayList(SyntheticType) = .empty;
         var current_loc: u32 = 0;
         var type_idx: u32 = 0;
 
@@ -189,11 +189,11 @@ const SyntheticProject = struct {
             current_loc += type_loc;
         }
 
-        return types.toOwnedSlice();
+        return try types.toOwnedSlice(alloc);
     }
 
     fn generateVariables(self: *SyntheticProject, target_loc: u32) ![]SyntheticVariable {
-        var variables = std.ArrayList(SyntheticVariable).init(self.allocator);
+        var variables: std.ArrayList(SyntheticVariable) = .empty;
         var current_loc: u32 = 0;
         var var_idx: u32 = 0;
 
@@ -209,12 +209,12 @@ const SyntheticProject = struct {
             current_loc += 1; // Each variable is ~1 LOC
         }
 
-        return variables.toOwnedSlice();
+        return try variables.toOwnedSlice(alloc);
     }
 
     fn generateParameters(self: *SyntheticProject) ![]SyntheticParameter {
         const param_count = self.random.random().intRangeAtMost(u32, 0, 5);
-        var parameters = std.ArrayList(SyntheticParameter).init(self.allocator);
+        var parameters: std.ArrayList(SyntheticParameter) = .empty;
 
         var i: u32 = 0;
         while (i < param_count) : (i += 1) {
@@ -224,12 +224,12 @@ const SyntheticProject = struct {
             });
         }
 
-        return parameters.toOwnedSlice();
+        return try parameters.toOwnedSlice(alloc);
     }
 
     fn generateFields(self: *SyntheticProject) ![]SyntheticField {
         const field_count = self.random.random().intRangeAtMost(u32, 1, 10);
-        var fields = std.ArrayList(SyntheticField).init(self.allocator);
+        var fields: std.ArrayList(SyntheticField) = .empty;
 
         var i: u32 = 0;
         while (i < field_count) : (i += 1) {
@@ -240,12 +240,12 @@ const SyntheticProject = struct {
             });
         }
 
-        return fields.toOwnedSlice();
+        return try fields.toOwnedSlice(alloc);
     }
 
     fn generateMethods(self: *SyntheticProject) ![]SyntheticMethod {
         const method_count = self.random.random().intRangeAtMost(u32, 0, 5);
-        var methods = std.ArrayList(SyntheticMethod).init(self.allocator);
+        var methods: std.ArrayList(SyntheticMethod) = .empty;
 
         var i: u32 = 0;
         while (i < method_count) : (i += 1) {
@@ -257,7 +257,7 @@ const SyntheticProject = struct {
             });
         }
 
-        return methods.toOwnedSlice();
+        return try methods.toOwnedSlice(alloc);
     }
 
     fn getRandomType(self: *SyntheticProject) []const u8 {
@@ -280,7 +280,7 @@ const SyntheticProject = struct {
 
     /// Get random hover targets for benchmarking
     pub fn getRandomHoverTargets(self: *SyntheticProject, count: u32) ![]CID {
-        var targets = std.ArrayList(CID).init(self.allocator);
+        var targets: std.ArrayList(CID) = .empty;
 
         var i: u32 = 0;
         while (i < count) : (i += 1) {
@@ -308,7 +308,7 @@ const SyntheticProject = struct {
             try targets.append(target_cid);
         }
 
-        return targets.toOwnedSlice();
+        return try targets.toOwnedSlice(alloc);
     }
 };
 
@@ -360,7 +360,7 @@ pub fn runHoverBenchmark(allocator: Allocator, config: BenchmarkConfig) !Benchma
 
     // Benchmark phase (measure performance)
     std.log.info("Running benchmark with {} queries...", .{config.hover_samples});
-    var measurements = std.ArrayList(u64).init(allocator);
+    var measurements: std.ArrayList(u64) = .empty;
     defer measurements.deinit();
 
     var cache_hits: u32 = 0;

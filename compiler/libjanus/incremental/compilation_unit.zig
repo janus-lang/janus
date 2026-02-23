@@ -9,6 +9,7 @@
 // This is built upon the proven Interface Hashing foundation.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const astdb = @import("../astdb.zig");
 const interface_cid_mod = @import("interface_cid.zig");
 const InterfaceCID = interface_cid_mod.InterfaceCID;
@@ -80,7 +81,7 @@ pub const CompilationUnit = struct {
             .semantic_cid = semantic_cid,
             .dependency_cid = dependency_cid,
             .root_node = root_node,
-            .last_modified = std.time.timestamp(),
+            .last_modified = compat_time.timestamp(),
             .metadata = CompilationUnitMetadata.init(),
         };
     }
@@ -115,7 +116,7 @@ pub const CompilationUnit = struct {
         self.interface_cid = new_interface_cid;
         self.semantic_cid = new_semantic_cid;
         self.dependency_cid = new_dependency_cid;
-        self.last_modified = std.time.timestamp();
+        self.last_modified = compat_time.timestamp();
         self.metadata.compilation_count += 1;
     }
 

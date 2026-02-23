@@ -201,7 +201,7 @@ fn parseSnapshotVersion(str: []const u8, result: *ParsedVersion) !bool {
 
 /// Format parsed version back to string
 pub fn formatVersion(parsed: ParsedVersion, format: VersionFormat) ![]u8 {
-    var components = std.ArrayList(u8).init(std.heap.page_allocator);
+    var components: std.ArrayList(u8) = .empty;
     defer components.deinit();
 
     const writer = components.writer();
@@ -236,7 +236,7 @@ pub fn formatVersion(parsed: ParsedVersion, format: VersionFormat) ![]u8 {
         },
     }
 
-    return components.toOwnedSlice();
+    return try components.toOwnedSlice(alloc);
 }
 
 // -----------------------------------------------------------------------------

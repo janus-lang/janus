@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// Number Guessing Game
+//
+// Demonstrates:
+// - Simple control flow (perfect for teaching!)
+// - While loops with conditions
+// - User input (via command-line args)
+// - Comparison operators
+// - Teaching-friendly readable code
+
+func play_game(secret: i64) do
+    var guess = 0
+    var attempts = 0
+
+    println("🎯 Number Guessing Game!")
+    println("I'm thinking of a number between 1 and 100")
+    println("")
+
+    while guess != secret do
+        attempts = attempts + 1
+
+        // Simulate getting user input (for demo, we'll try a sequence)
+        // In real version, would read from stdin
+        if attempts == 1 do
+            guess = 50
+        else if attempts == 2 do
+            guess = if secret > 50 do 75 else 25 end
+        else if attempts == 3 do
+            guess = if secret > 75 do 87 else if secret > 25 do 37 else 12 end
+        else
+            // Give up simulation after a few tries
+            guess = secret
+        end
+
+        print("Attempt ", attempts, ": Guessing ", guess, "... ")
+
+        if guess < secret do
+            println("Too low!")
+        else if guess > secret do
+            println("Too high!")
+        else
+            println("🎉 Correct!")
+        end
+    end
+
+    println("\n✨ You guessed it in ", attempts, " attempts!")
+end
+
+func main() do
+    // The secret number
+    let secret_number = 42
+
+    play_game(secret_number)
+
+    println("\n✓ Teaching-friendly control flow!")
+end

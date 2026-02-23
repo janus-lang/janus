@@ -1,0 +1,93 @@
+// SPDX-License-Identifier: LCL-1.0
+// Copyright (c) 2026 Self Sovereign Society Foundation
+
+// examples/time_demo.jan - Demonstrates time module usage
+// 
+// Run with: ./janus run examples/time_demo.jan
+
+profile :core
+
+import std.core.io
+use zig "std/core/time.zig"
+
+// ============================================================================
+// TIME MODULE DEMONSTRATION
+// ============================================================================
+
+func main() do
+    // Get current timestamps
+    let now_secs = time_now_seconds()
+    let now_millis = time_now_millis()
+    
+    io.print("Current Unix timestamp (seconds): ")
+    io.println(convert.toString(now_secs))
+    
+    io.print("Current Unix timestamp (millis): ")
+    io.println(convert.toString(now_millis))
+    
+    // Demonstrate monotonic time for benchmarking
+    io.println("\n--- Performance Timing Demo ---")
+    
+    let start = time_monotonic_millis()
+    
+    // Do some work
+    var sum = 0
+    for i in 0..100000 do
+        sum = sum + i
+    end
+    
+    let end = time_monotonic_millis()
+    let elapsed = time_elapsed_millis(start, end)
+    
+    io.print("Loop sum: ")
+    io.println(convert.toString(sum))
+    io.print("Elapsed time: ")
+    io.print(convert.toString(elapsed))
+    io.println(" ms")
+    
+    // Demonstrate conversions
+    io.println("\n--- Time Conversions ---")
+    
+    let one_hour_in_secs = time_hours_to_seconds(1)
+    io.print("1 hour = ")
+    io.print(convert.toString(one_hour_in_secs))
+    io.println(" seconds")
+    
+    let one_day_in_secs = time_days_to_seconds(1)
+    io.print("1 day = ")
+    io.print(convert.toString(one_day_in_secs))
+    io.println(" seconds")
+    
+    // Demonstrate calendar functions
+    io.println("\n--- Calendar Functions ---")
+    
+    let year = time_year_from_timestamp(now_secs)
+    io.print("Current year (from timestamp): ")
+    io.println(convert.toString(year))
+    
+    // Check leap years
+    io.print("Is 2024 a leap year? ")
+    if time_is_leap_year(2024) == 1 do
+        io.println("Yes")
+    else
+        io.println("No")
+    end
+    
+    io.print("Is 2023 a leap year? ")
+    if time_is_leap_year(2023) == 1 do
+        io.println("Yes")
+    else
+        io.println("No")
+    end
+    
+    // Days in month
+    let days_feb = time_days_in_month(2024, 2)
+    io.print("Days in February 2024: ")
+    io.println(convert.toString(days_feb))
+    
+    let days_jan = time_days_in_month(2024, 1)
+    io.print("Days in January 2024: ")
+    io.println(convert.toString(days_jan))
+    
+    io.println("\n--- Demo Complete ---")
+end

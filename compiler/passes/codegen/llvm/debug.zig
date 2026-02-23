@@ -125,7 +125,7 @@ pub const FunctionDebugInfo = struct {
             .linkage_name = linkage_name,
             .source_location = location,
             .di_subprogram = undefined, // Will be set during generation
-            .parameter_locations = std.ArrayList(SourceLocation).init(allocator),
+            .parameter_locations = .empty,
         };
     }
 
@@ -202,7 +202,7 @@ pub const DebugInfoGenerator = struct {
             .di_builder = di_builder,
             .compile_unit = compile_unit,
             .file_cache = file_cache,
-            .function_debug_info = std.ArrayList(FunctionDebugInfo).init(allocator),
+            .function_debug_info = .empty,
         };
     }
 
@@ -327,7 +327,7 @@ pub const DebugInfoGenerator = struct {
 
     /// Generate comprehensive debug info report
     pub fn generateDebugReport(self: *Self, allocator: std.mem.Allocator) ![]u8 {
-        var report = std.ArrayList(u8).init(allocator);
+        var report: std.ArrayList(u8) = .empty;
         const writer = report.writer();
 
         try writer.print("=== Janus Debug Information Report ===\n");
@@ -348,7 +348,7 @@ pub const DebugInfoGenerator = struct {
             try writer.print("File: {s}\n", .{entry.key_ptr.*});
         }
 
-        return report.toOwnedSlice();
+        return try report.toOwnedSlice(alloc);
     }
 
     /// Validate debug info completeness

@@ -117,10 +117,10 @@ pub const Executor = struct {
         }
 
         // Create pipes for pipeline stages
-        var pipes = std.ArrayList(std.posix.fd_t).init(self.allocator);
+        var pipes: std.ArrayList(std.posix.fd_t) = .empty;
         defer pipes.deinit();
 
-        var processes = std.ArrayList(std.process.Child).init(self.allocator);
+        var processes: std.ArrayList(std.process.Child) = .empty;
         defer processes.deinit();
 
         // Create n-1 pipes for n stages

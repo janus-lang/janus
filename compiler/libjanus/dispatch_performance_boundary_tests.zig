@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
@@ -86,7 +87,7 @@ pub const DispatchPerformanceBoundaryTests = struct {
 
         // Measure performance
         const iterations = 100_000;
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         for (0..iterations) |_| {
             const result = try self.specificity_analyzer.findMostSpecific(implementations, test_args);
@@ -98,7 +99,7 @@ pub const DispatchPerformanceBoundaryTests = struct {
             }
         }
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const total_time_ns = end_time - start_time;
         const avg_time_ns = total_time_ns / iterations;
 
@@ -116,10 +117,10 @@ pub const DispatchPerformanceBoundaryTests = struct {
         const string_type = try self.type_registry.registerType("string", .primitive, &.{});
 
         // Create small table (5 implementations)
-        var implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer implementations.deinit();
 
-        var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer impl_storage.deinit();
 
         const type_combinations = [_][2]TypeRegistry.TypeId{
@@ -152,7 +153,7 @@ pub const DispatchPerformanceBoundaryTests = struct {
 
         // Measure performance
         const iterations = 50_000;
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         for (0..iterations) |_| {
             const result = try self.specificity_analyzer.findMostSpecific(implementations.items, test_args);
@@ -164,7 +165,7 @@ pub const DispatchPerformanceBoundaryTests = struct {
             }
         }
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const total_time_ns = end_time - start_time;
         const avg_time_ns = total_time_ns / iterations;
 
@@ -180,10 +181,10 @@ pub const DispatchPerformanceBoundaryTests = struct {
         const int_type = try self.type_registry.registerType("int", .primitive, &.{});
 
         // Create medium table (50 implementations)
-        var implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer implementations.deinit();
 
-        var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer impl_storage.deinit();
 
         const medium_count = 50;
@@ -209,7 +210,7 @@ pub const DispatchPerformanceBoundaryTests = struct {
 
         // Measure performance
         const iterations = 20_000;
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         for (0..iterations) |_| {
             const result = try self.specificity_analyzer.findMostSpecific(implementations.items, test_args);
@@ -221,7 +222,7 @@ pub const DispatchPerformanceBoundaryTests = struct {
             }
         }
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const total_time_ns = end_time - start_time;
         const avg_time_ns = total_time_ns / iterations;
 
@@ -237,10 +238,10 @@ pub const DispatchPerformanceBoundaryTests = struct {
         const int_type = try self.type_registry.registerType("int", .primitive, &.{});
 
         // Create large table (500 implementations)
-        var implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer implementations.deinit();
 
-        var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer impl_storage.deinit();
 
         const large_count = 500;
@@ -266,7 +267,7 @@ pub const DispatchPerformanceBoundaryTests = struct {
 
         // Measure performance
         const iterations = 5_000;
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         for (0..iterations) |_| {
             const result = try self.specificity_analyzer.findMostSpecific(implementations.items, test_args);
@@ -278,7 +279,7 @@ pub const DispatchPerformanceBoundaryTests = struct {
             }
         }
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const total_time_ns = end_time - start_time;
         const avg_time_ns = total_time_ns / iterations;
 
@@ -302,10 +303,10 @@ pub const DispatchPerformanceBoundaryTests = struct {
         );
 
         // Create implementations for compression testing
-        var implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer implementations.deinit();
 
-        var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer impl_storage.deinit();
 
         const compression_test_count = 20;
@@ -339,7 +340,7 @@ pub const DispatchPerformanceBoundaryTests = struct {
 
         // Measure uncompressed performance (using specificity analyzer directly)
         const uncompressed_iterations = 10_000;
-        const uncompressed_start = std.time.nanoTimestamp();
+        const uncompressed_start = compat_time.nanoTimestamp();
 
         for (0..uncompressed_iterations) |_| {
             const result = try self.specificity_analyzer.findMostSpecific(implementations.items, test_args);
@@ -351,12 +352,12 @@ pub const DispatchPerformanceBoundaryTests = struct {
             }
         }
 
-        const uncompressed_end = std.time.nanoTimestamp();
+        const uncompressed_end = compat_time.nanoTimestamp();
         const uncompressed_avg_ns = (uncompressed_end - uncompressed_start) / uncompressed_iterations;
 
         // Measure compressed performance
         const compressed_iterations = 10_000;
-        const compressed_start = std.time.nanoTimestamp();
+        const compressed_start = compat_time.nanoTimestamp();
 
         for (0..compressed_iterations) |_| {
             const result = try compressed_table.compressedLookup(test_args);
@@ -365,7 +366,7 @@ pub const DispatchPerformanceBoundaryTests = struct {
             }
         }
 
-        const compressed_end = std.time.nanoTimestamp();
+        const compressed_end = compat_time.nanoTimestamp();
         const compressed_avg_ns = (compressed_end - compressed_start) / compressed_iterations;
 
         const overhead_ratio = @as(f64, @floatFromInt(compressed_avg_ns)) / @as(f64, @floatFromInt(uncompressed_avg_ns));
@@ -392,15 +393,15 @@ pub const DispatchPerformanceBoundaryTests = struct {
 
         // Test different table sizes to verify algorithmic complexity
         const table_sizes = [_]u32{ 10, 50, 100, 500, 1000 };
-        var performance_results = ArrayList(ScalabilityResult).init(self.allocator);
+        var performance_results: ArrayList(ScalabilityResult) = .empty;
         defer performance_results.deinit();
 
         for (table_sizes) |size| {
             // Create table of specified size
-            var implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+            var implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
             defer implementations.deinit();
 
-            var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+            var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
             defer impl_storage.deinit();
 
             for (0..size) |i| {
@@ -420,7 +421,7 @@ pub const DispatchPerformanceBoundaryTests = struct {
 
             // Measure performance for this table size
             const iterations = 10_000;
-            const start_time = std.time.nanoTimestamp();
+            const start_time = compat_time.nanoTimestamp();
 
             for (0..iterations) |_| {
                 const result = try self.specificity_analyzer.findMostSpecific(implementations.items, test_args);
@@ -432,7 +433,7 @@ pub const DispatchPerformanceBoundaryTests = struct {
                 }
             }
 
-            const end_time = std.time.nanoTimestamp();
+            const end_time = compat_time.nanoTimestamp();
             const avg_time_ns = (end_time - start_time) / iterations;
 
             try performance_results.append(ScalabilityResult{
@@ -482,10 +483,10 @@ pub const DispatchPerformanceBoundaryTests = struct {
         );
 
         // Create implementations for memory testing
-        var implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer implementations.deinit();
 
-        var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer impl_storage.deinit();
 
         const memory_test_count = 100;

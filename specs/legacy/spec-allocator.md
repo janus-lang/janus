@@ -21,7 +21,7 @@ This specification defines the strict memory management model for Janus. The cor
 *   **Invariant:** No hidden `malloc`. No global state allocation.
 *   **Mechanism:** Functions requiring memory MUST accept an `Allocator` as an argument.
     ```janus
-    func create_list(size: i32, alloc: Allocator) -> List { ... }
+    func create_list(size: i32, alloc: Allocator) -> List do ... end
     ```
 *   **Enforcement:** The compiler's semantic analyzer will verify that `create` or `allocate` calls are only made on provided `Allocator` handles. Calls to "magic" global allocators will result in a compile-time error.
 

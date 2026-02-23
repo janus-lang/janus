@@ -79,6 +79,7 @@ pub const TokenType = enum {
     await_, // await expr - wait for async result
     nursery_, // nursery { } - structured concurrency scope
     spawn_, // spawn task - launch concurrent task
+    shared_, // using shared resource - shared resource management
     select_, // select { } - CSP multi-channel wait
     timeout_, // timeout(duration) - select timeout case
 
@@ -146,6 +147,8 @@ pub const TokenType = enum {
     pipeline, // |>
     // Types/Structs (extended)
     struct_kw,
+    enum_kw,
+    union_kw,
     type_kw,
 
     // Special
@@ -776,6 +779,8 @@ pub const Tokenizer = struct {
             .{ "when", .when },
             .{ "unless", .unless },
             .{ "struct", .struct_kw },
+            .{ "enum", .enum_kw },
+            .{ "union", .union_kw },
             .{ "type", .type_kw },
             .{ "using", .using }, // Added for :full spec support logic in parser
 
@@ -807,6 +812,7 @@ pub const Tokenizer = struct {
             .{ "await", .await_ },
             .{ "nursery", .nursery_ },
             .{ "spawn", .spawn_ },
+            .{ "shared", .shared_ },
             .{ "select", .select_ },
             .{ "timeout", .timeout_ },
         });

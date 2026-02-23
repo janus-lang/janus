@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 
 /// Source location information for functions
@@ -80,15 +81,15 @@ pub const DispatchFamily = struct {
         const family = try allocator.create(DispatchFamily);
         family.* = DispatchFamily{
             .name = try allocator.dupe(u8, name),
-            .overloads = std.ArrayList(*FuncDecl).init(allocator),
-            .source_locations = std.ArrayList(SourceLocation).init(allocator),
+            .overloads = .empty,
+            .source_locations = .empty,
             .family_metadata = FamilyMetadata{
                 .is_single_function = true,
                 .has_ambiguities = false,
                 .max_arity = 0,
                 .min_arity = std.math.maxInt(u32),
                 .total_overloads = 0,
-                .creation_timestamp = std.time.timestamp(),
+                .creation_timestamp = compat_time.timestamp(),
             },
             .allocator = allocator,
         };
@@ -220,14 +221,14 @@ pub const DispatchFamily = struct {
     }
 
     pub fn getSignatureList(self: *const DispatchFamily, allocator: Allocator) ![][]const u8 {
-        var signatures = std.ArrayList([]const u8).init(allocator);
+        var signatures: std.ArrayList([]const u8) = .empty;
 
         for (self.overloads.items) |overload| {
             const signature = try std.fmt.allocPrint(allocator, "{s}({s}) -> {s}", .{ overload.name, overload.parameter_types, overload.return_type });
             try signatures.append(signature);
         }
 
-        return signatures.toOwnedSlice();
+        return try signatures.toOwnedSlice(alloc);
     }
 };
 
@@ -283,14 +284,14 @@ pub const DispatchFamilyRegistry = struct {
     }
 
     pub fn getAllFamilies(self: *const DispatchFamilyRegistry, allocator: Allocator) ![]const *DispatchFamily {
-        var family_list = std.ArrayList(*DispatchFamily).init(allocator);
+        var family_list: std.ArrayList(*DispatchFamily) = .empty;
 
         var iterator = self.families.iterator();
         while (iterator.next()) |entry| {
             try family_list.append(entry.value_ptr.*);
         }
 
-        return family_list.toOwnedSlice();
+        return try family_list.toOwnedSlice(alloc);
     }
 
     pub fn getFamilyCount(self: *const DispatchFamilyRegistry) u32 {

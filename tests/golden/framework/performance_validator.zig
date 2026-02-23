@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 
 // Golden Test Framework - Performance Validator
@@ -30,7 +32,7 @@ pub const PerformanceValidator = struct {
                 .code_size_bytes = 0,
                 .cache_misses = 0,
                 .instruction_count = 0,
-                .timestamp = std.time.timestamp(),
+                .timestamp = compat_time.timestamp(),
             };
         }
     };
@@ -98,7 +100,7 @@ pub const PerformanceValidator = struct {
     pub fn init(allocator: std.mem.Allocator, baseline_path: []const u8) !Self {
         // Ensure baseline directory exists
         if (std.fs.path.dirname(baseline_path)) |dir_path| {
-            std.fs.cwd().makePath(dir_path) catch |err| switch (err) {
+            compat_fs.makeDir(dir_path) catch |err| switch (err) {
                 error.PathAlreadyExists => {},
                 else => return err,
             };
@@ -125,7 +127,7 @@ pub const PerformanceValidator = struct {
         }
 
         // Measurement phase
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
         const memory_before = try self.getCurrentMemoryUsage();
 
         i = 0;
@@ -133,7 +135,7 @@ pub const PerformanceValidator = struct {
             dispatch_function();
         }
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const memory_after = try self.getCurrentMemoryUsage();
 
         // Calculate dispatch overhead per call
@@ -257,7 +259,7 @@ pub const PerformanceValidator = struct {
             .optimization_level = try self.allocator.dupe(u8, optimization_level),
             .measurements = try self.allocator.dupe(PerformanceMeasurement, measurements),
             .statistical_summary = statistical_summary,
-            .created_at = std.time.timestamp(),
+            .created_at = compat_time.timestamp(),
         };
 
         const baseline_file_path = try self.generateBaselinePath(test_name, platform, optimization_level);
@@ -272,7 +274,7 @@ pub const PerformanceValidator = struct {
 
     /// Generate comprehensive performance report
     pub fn generatePerformanceReport(self: *const Self, results: []const ValidationResult) ![]const u8 {
-        var report = std.ArrayList(u8).init(self.allocator);
+        var report: std.ArrayList(u8) = .empty;
         var writer = report.writer();
 
         try writer.print("Performance Validation Report\n", .{});
@@ -317,7 +319,7 @@ pub const PerformanceValidator = struct {
             try writer.print("\n", .{});
         }
 
-        return report.toOwnedSlice();
+        return try report.toOwnedSlice(alloc);
     }
 
     // Private helper functions
@@ -399,20 +401,20 @@ pub const PerformanceValidator = struct {
             .optimization_level = try self.allocator.dupe(u8, optimization_level),
             .measurements = measurements,
             .statistical_summary = stats,
-            .created_at = std.time.timestamp(),
+            .created_at = compat_time.timestamp(),
         };
     }
 
     fn saveBaseline(self: *const Self, baseline: *const PerformanceBaseline, file_path: []const u8) !void {
         // Ensure directory exists
         if (std.fs.path.dirname(file_path)) |dir_path| {
-            std.fs.cwd().makePath(dir_path) catch |err| switch (err) {
+            compat_fs.makeDir(dir_path) catch |err| switch (err) {
                 error.PathAlreadyExists => {},
                 else => return err,
             };
         }
 
-        const file = try std.fs.cwd().createFile(file_path, .{});
+        const file = try compat_fs.createFile(file_path, .{});
         defer file.close();
 
         // Write JSON baseline (simplified)

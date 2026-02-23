@@ -5,6 +5,7 @@
 //! Tests encoding honesty, boundary safety, zero-copy operations, and allocator sovereignty
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const string = @import("std_string");
 
@@ -277,7 +278,7 @@ test "performance characteristics" {
     // Test that string operations have reasonable performance
     const large_text = "This is a test string that will be repeated many times. " ** 1000;
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     const large_string = try string.fromUtf8(testing_allocator, large_text);
     defer large_string.deinit();
@@ -293,7 +294,7 @@ test "performance characteristics" {
         count += 1;
     }
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const duration_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
 
     // Verify correctness

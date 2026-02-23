@@ -289,6 +289,10 @@ pub const LLVMEmitter = struct {
             .Error_Union_Is_Error => try self.emitErrorUnionIsError(node),
             .Error_Union_Unwrap => try self.emitErrorUnionUnwrap(node),
             .Error_Union_Get_Error => try self.emitErrorUnionGetError(node),
+            // Tagged unions (SPEC-023 Phase B)
+            .Union_Construct => try self.emitUnionConstruct(node),
+            .Union_Tag_Check => try self.emitUnionTagCheck(node),
+            .Union_Payload_Extract => try self.emitUnionPayloadExtract(node),
             // :service profile - Structured Concurrency (Blocking Model Phase 1)
             .Await => try self.emitAwait(node),
             .Spawn => try self.emitSpawn(node),
@@ -314,6 +318,10 @@ pub const LLVMEmitter = struct {
             .Select_Wait => try self.emitSelectWait(node),
             .Select_Get_Value => try self.emitSelectGetValue(node),
             .Select_End => try self.emitSelectEnd(node),
+
+            // :service profile - Resource Management (Phase 3)
+            .Using_Begin => try self.emitUsingBegin(node),
+            .Using_End => try self.emitUsingEnd(node),
 
             // Tensor / Quantum (Placeholder)
             .Tensor_Contract => {
@@ -1800,6 +1808,110 @@ pub const LLVMEmitter = struct {
     }
 
     // =========================================================================
+    // Tagged Union Emission (SPEC-023 Phase B+C)
+    // =========================================================================
+    // Tagged unions are { i32 tag, i64 slot0, i64 slot1, ..., i64 slotN }
+    // i32 discriminant supports >256 variants, i64 slots hold ZExt'd i32 or bitcast'd f64
+
+    /// Get tagged union struct type: { i32 tag, i64 * field_count }
+    fn getTaggedUnionType(self: *LLVMEmitter, field_count: u32) llvm.Type {
+        const count = if (field_count == 0) @as(u32, 1) else field_count; // min 1 slot for unit compat
+        const i32_type = llvm.int32TypeInContext(self.context);
+        const i64_type = llvm.c.LLVMInt64TypeInContext(self.context);
+        // { i32, i64, i64, ..., i64 } with `count` i64 slots
+        var member_types_buf: [17]llvm.Type = undefined; // 1 tag + max 16 fields
+        member_types_buf[0] = i32_type;
+        for (1..count + 1) |i| {
+            member_types_buf[i] = i64_type;
+        }
+        return llvm.structTypeInContext(self.context, &member_types_buf, @intCast(1 + count), false);
+    }
+
+    /// Emit Union_Construct: creates { tag, field0, field1, ... }
+    fn emitUnionConstruct(self: *LLVMEmitter, node: *const IRNode) !void {
+        const field_count: u32 = @intCast(node.inputs.items.len);
+        const slot_count = if (field_count == 0) @as(u32, 1) else field_count;
+        const tu_type = self.getTaggedUnionType(slot_count);
+        const i32_type = llvm.int32TypeInContext(self.context);
+        const i64_type = llvm.c.LLVMInt64TypeInContext(self.context);
+
+        // Tag from data.integer
+        const tag_val = switch (node.data) {
+            .integer => |v| llvm.c.LLVMConstInt(i32_type, @bitCast(@as(i64, v)), 0),
+            else => llvm.c.LLVMConstInt(i32_type, 0, 0),
+        };
+
+        var tu_val = llvm.getUndef(tu_type);
+        tu_val = llvm.c.LLVMBuildInsertValue(self.builder, tu_val, tag_val, 0, "tu_tag");
+
+        if (field_count == 0) {
+            // Unit variant — fill single slot with 0
+            tu_val = llvm.c.LLVMBuildInsertValue(self.builder, tu_val, llvm.c.LLVMConstInt(i64_type, 0, 0), 1, "tu_pad");
+        } else {
+            // Insert each payload field at slots 1..N
+            for (node.inputs.items, 0..) |input_id, i| {
+                const input_val = self.values.get(input_id) orelse return error.MissingOperand;
+                const input_type = llvm.c.LLVMTypeOf(input_val);
+                const as_i64 = if (input_type == i64_type)
+                    input_val
+                else if (llvm.c.LLVMGetTypeKind(input_type) == llvm.c.LLVMDoubleTypeKind)
+                    llvm.c.LLVMBuildBitCast(self.builder, input_val, i64_type, "tu_f64_cast")
+                else if (llvm.c.LLVMGetTypeKind(input_type) == llvm.c.LLVMIntegerTypeKind)
+                    llvm.c.LLVMBuildZExt(self.builder, input_val, i64_type, "tu_payload")
+                else
+                    llvm.c.LLVMBuildPtrToInt(self.builder, input_val, i64_type, "tu_payload_ptr");
+                tu_val = llvm.c.LLVMBuildInsertValue(self.builder, tu_val, as_i64, @intCast(1 + i), "tu_field");
+            }
+        }
+
+        try self.values.put(node.id, tu_val);
+    }
+
+    /// Emit Union_Tag_Check: tag == expected_tag → i1
+    fn emitUnionTagCheck(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+        const tu_val = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        const i32_type = llvm.int32TypeInContext(self.context);
+
+        // Extract tag at index 0
+        const tag = llvm.c.LLVMBuildExtractValue(self.builder, tu_val, 0, "tu_tag");
+
+        // Expected tag from data.integer
+        const expected = switch (node.data) {
+            .integer => |v| llvm.c.LLVMConstInt(i32_type, @bitCast(@as(i64, v)), 0),
+            else => llvm.c.LLVMConstInt(i32_type, 0, 0),
+        };
+
+        const result = llvm.c.LLVMBuildICmp(self.builder, llvm.c.LLVMIntEQ, tag, expected, "tag_match");
+        try self.values.put(node.id, result);
+    }
+
+    /// Emit Union_Payload_Extract: extract i64 at field slot, trunc to i32 or bitcast to f64
+    fn emitUnionPayloadExtract(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+        const tu_val = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        // Decode data.integer: lower 32 bits = field_index, bit 32 = is_float
+        const encoded = switch (node.data) {
+            .integer => |v| v,
+            else => @as(i64, 0),
+        };
+        const field_index: u32 = @intCast(encoded & 0xFFFFFFFF);
+        const is_float: bool = (encoded >> 32) & 1 == 1;
+
+        // Extract at slot 1 + field_index
+        const raw = llvm.c.LLVMBuildExtractValue(self.builder, tu_val, @intCast(1 + field_index), "tu_raw");
+
+        const result = if (is_float)
+            llvm.c.LLVMBuildBitCast(self.builder, raw, llvm.c.LLVMDoubleTypeInContext(self.context), "tu_f64")
+        else
+            llvm.c.LLVMBuildTrunc(self.builder, raw, llvm.int32TypeInContext(self.context), "tu_unwrap");
+
+        try self.values.put(node.id, result);
+    }
+
+    // =========================================================================
     // :service Profile - Structured Concurrency (Blocking Model Phase 1)
     // =========================================================================
     //
@@ -2599,5 +2711,35 @@ pub const LLVMEmitter = struct {
             1,
             "",
         );
+    }
+
+    /// Emit Using_Begin: Begin using statement (acquire resource)
+    /// inputs[0] = resource value from open expression
+    fn emitUsingBegin(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.InvalidUsingBegin;
+
+        const resource_val = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        // For now, just register the resource value
+        // Full implementation will track resource for cleanup
+        try self.values.put(node.id, resource_val);
+    }
+
+    /// Emit Using_End: End using statement (cleanup resource)
+    /// inputs[0] = Using_Begin node id
+    /// inputs[1] = resource value
+    fn emitUsingEnd(self: *LLVMEmitter, node: *const IRNode) !void {
+        _ = self;
+        if (node.inputs.items.len < 2) return error.InvalidUsingEnd;
+
+        // In the full implementation, this would call resource.close()
+        // For now, this is a placeholder that ensures proper LLVM generation
+        // The actual cleanup code generation will be added in Phase 3 completion
+
+        // Mark this node as processed (no LLVM code generated yet for cleanup)
+        // The resource cleanup will be implemented when we have:
+        // 1. Runtime support for resource registry
+        // 2. LIFO cleanup ordering
+        // 3. Error aggregation during cleanup
     }
 };

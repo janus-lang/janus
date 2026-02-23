@@ -4,6 +4,7 @@
 // QTJIR LLVM IR Emitter Tests
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const testing = std.testing;
 const graph = @import("graph.zig");
 const emitter = @import("emitter.zig");
@@ -817,7 +818,7 @@ test "Scenario 36: LLVM IR to executable compilation" {
     file.close();
 
     // Clean up
-    std.fs.cwd().deleteFile(exe_path) catch {};
+    compat_fs.deleteFile(exe_path) catch {};
 }
 
 // BDD Scenario 37: JIT Execution Interface

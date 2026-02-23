@@ -23,7 +23,7 @@ This RFC proposes the **`with` expression** — a mechanism for chaining multipl
 
 ### The Problem: Nested Match Hell
 ```janus
-func process_order(order_id: i32) -> Result!Error {
+func process_order(order_id: i32) -> Result!Error do
     match fetch_order(order_id) {
         .Ok(order) => match validate_order(order) {
             .Ok(valid_order) => match charge_payment(valid_order) {
@@ -37,12 +37,12 @@ func process_order(order_id: i32) -> Result!Error {
         },
         .Err(e) => Result.Err(e),
     }
-}
+end
 ```
 
 ### The `with` Solution
 ```janus
-func process_order(order_id: i32) -> Shipment!Error {
+func process_order(order_id: i32) -> Shipment!Error do
     with
         .Ok(order) <- fetch_order(order_id),
         .Ok(valid) <- validate_order(order),
@@ -53,7 +53,7 @@ func process_order(order_id: i32) -> Shipment!Error {
     else |error|
         return error
     end
-}
+end
 ```
 
 ### Strategic Value (The "Sticky" Part)
@@ -106,7 +106,7 @@ end
 
 ### Without Else (Propagates Error)
 ```janus
-func load_data(path: string) -> Data!Error {
+func load_data(path: string) -> Data!Error do
     with
         .Ok(content) <- fs.read(path),
         .Ok(parsed) <- json.parse(content),
@@ -114,7 +114,7 @@ func load_data(path: string) -> Data!Error {
     do
         return data
     end  // Errors propagate automatically
-}
+end
 ```
 
 ### Nested Destructuring

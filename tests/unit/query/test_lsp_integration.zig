@@ -8,6 +8,7 @@
 //! provide correct semantic information.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const json = std.json;
 
@@ -72,13 +73,13 @@ test "Query Engine Performance Requirements" {
     _ = unit_id;
 
     // Test query performance
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Simulate hover query
     const symbol_info = try engine.querySymbolAtPosition("test.jan", 1, 8); // Position of 'x'
     _ = symbol_info;
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const duration_ns = @as(u64, @intCast(end_time - start_time));
     const duration_ms = @as(f64, @floatFromInt(duration_ns)) / 1_000_000.0;
 
@@ -112,7 +113,7 @@ test "LSP Hover Functionality" {
     try text_document.object.put("version", json.Value{ .integer = 1 });
 
     const content_changes = json.Value{
-        .array = std.ArrayList(json.Value).init(allocator),
+        .array = .empty,
     };
 
     const change = json.Value{
@@ -252,15 +253,15 @@ test "Query Engine Caching Behavior" {
     _ = unit_id;
 
     // First query (cache miss)
-    const start_time1 = std.time.nanoTimestamp();
+    const start_time1 = compat_time.nanoTimestamp();
     const result1 = try engine.querySymbolAtPosition("cache_test.jan", 0, 5);
-    const end_time1 = std.time.nanoTimestamp();
+    const end_time1 = compat_time.nanoTimestamp();
     const duration1 = end_time1 - start_time1;
 
     // Second identical query (should be cache hit)
-    const start_time2 = std.time.nanoTimestamp();
+    const start_time2 = compat_time.nanoTimestamp();
     const result2 = try engine.querySymbolAtPosition("cache_test.jan", 0, 5);
-    const end_time2 = std.time.nanoTimestamp();
+    const end_time2 = compat_time.nanoTimestamp();
     const duration2 = end_time2 - start_time2;
 
     _ = result1;
@@ -298,7 +299,7 @@ test "LSP Performance Under Load" {
     var total_duration: u64 = 0;
 
     for (0..num_requests) |i| {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         // Simulate hover request
         const hover_params = json.Value{
@@ -321,7 +322,7 @@ test "LSP Performance Under Load" {
 
         _ = try server.handleHover(hover_params);
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         total_duration += @intCast(end_time - start_time);
     }
 

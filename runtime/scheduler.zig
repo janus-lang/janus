@@ -82,6 +82,12 @@ pub const Nursery = nursery.Nursery;
 pub const NurseryState = nursery.NurseryState;
 pub const NurseryResult = nursery.NurseryResult;
 
+pub const cancel_token = @import("scheduler/cancel_token.zig");
+pub const CancelToken = cancel_token.CancelToken;
+pub const CancelReason = cancel_token.CancelReason;
+pub const CancellationError = cancel_token.CancellationError;
+pub const CombinedToken = cancel_token.CombinedToken;
+
 /// Default number of workers (typically = CPU cores)
 const DEFAULT_WORKER_COUNT: usize = 4;
 

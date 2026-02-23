@@ -6,6 +6,7 @@
 // Implements Language Server Protocol with Janus profile awareness
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const libjanus = @import("libjanus");
 
 const print = std.debug.print;
@@ -247,7 +248,7 @@ const LspBridge = struct {
         print("🔍 Looking for profile in: {s}\n", .{janus_kdl_path});
 
         // Try to read janus.kdl
-        const file_content = std.fs.cwd().readFileAlloc(self.allocator, janus_kdl_path, 1024 * 1024) catch |err| {
+        const file_content = compat_fs.readFileAlloc(self.allocator, janus_kdl_path, 1024 * 1024) catch |err| {
             print("⚠️  Could not read janus.kdl: {}\n", .{err});
             print("📋 Using default profile: :min\n", .{});
 

@@ -280,7 +280,7 @@ pub const KeywordCompletionProvider = struct {
 
     /// Get available keywords for current profile
     pub fn getAvailableKeywords(self: *KeywordCompletionProvider) []const JanusKeyword {
-        var available = ArrayList(JanusKeyword).init(self.allocator);
+        var available: ArrayList(JanusKeyword) = .empty;
 
         for (JANUS_KEYWORDS) |keyword| {
             if (self.isKeywordAvailable(keyword)) {
@@ -288,7 +288,7 @@ pub const KeywordCompletionProvider = struct {
             }
         }
 
-        return available.toOwnedSlice() catch &[_]JanusKeyword{};
+        return try available.toOwnedSlice(alloc) catch &[_]JanusKeyword{};
     }
 
     /// Check if keyword is available in current profile
@@ -311,7 +311,7 @@ pub const KeywordCompletionProvider = struct {
     /// Generate completion items for LSP
     pub fn generateCompletionItems(self: *KeywordCompletionProvider) ![]CompletionItem {
         const available = self.getAvailableKeywords();
-        var items = ArrayList(CompletionItem).init(self.allocator);
+        var items: ArrayList(CompletionItem) = .empty;
 
         for (available) |keyword| {
             const item = CompletionItem{
@@ -324,7 +324,7 @@ pub const KeywordCompletionProvider = struct {
             try items.append(item);
         }
 
-        return items.toOwnedSlice();
+        return try items.toOwnedSlice(alloc);
     }
 
     fn keywordKindToCompletionKind(self: *KeywordCompletionProvider, kind: JanusKeyword.KeywordKind) CompletionItemKind {
@@ -340,7 +340,7 @@ pub const KeywordCompletionProvider = struct {
     }
 
     fn formatKeywordDocumentation(self: *KeywordCompletionProvider, keyword: JanusKeyword) ![]const u8 {
-        var doc = ArrayList(u8).init(self.allocator);
+        var doc: ArrayList(u8) = .empty;
         const writer = doc.writer();
 
         try writer.print("**{}** - {}\n\n", .{ keyword.name, keyword.description });
@@ -361,7 +361,7 @@ pub const KeywordCompletionProvider = struct {
             try writer.print("- **Honest Sugar:** Desugars to `if condition do statement end`\n");
         }
 
-        return doc.toOwnedSlice();
+        return try doc.toOwnedSlice(alloc);
     }
 
     fn generateInsertText(self: *KeywordCompletionProvider, keyword: JanusKeyword) ![]const u8 {

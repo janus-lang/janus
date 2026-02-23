@@ -96,8 +96,8 @@ pub const CandidateSet = struct {
     }
 
     pub fn finalize(self: *CandidateSet) !void {
-        var viable = std.ArrayList(Candidate).init(self.allocator);
-        var rejected = std.ArrayList(Candidate).init(self.allocator);
+        var viable: std.ArrayList(Candidate) = .empty;
+        var rejected: std.ArrayList(Candidate) = .empty;
 
         for (self.candidates) |candidate| {
             if (candidate.isViable()) {
@@ -162,7 +162,7 @@ pub const CandidateCollector = struct {
 
         // If no candidates found, create a rejection reason
         if (candidate_set.candidates.len == 0) {
-            var searched_scopes = std.ArrayList([]const u8).init(self.allocator);
+            var searched_scopes: std.ArrayList([]const u8) = .empty;
             defer searched_scopes.deinit();
 
             for (accessible_scopes) |scope| {
@@ -237,7 +237,7 @@ pub const CandidateCollector = struct {
     }
 
     pub fn getAvailableFunctions(self: *CandidateCollector, allocator: Allocator) ![][]const u8 {
-        var function_names = std.ArrayList([]const u8).init(allocator);
+        var function_names: std.ArrayList([]const u8) = .empty;
         var seen_names = std.HashMap([]const u8, void, std.hash_map.StringContext, std.hash_map.default_max_load_percentage).init(allocator);
         defer seen_names.deinit();
 
@@ -255,7 +255,7 @@ pub const CandidateCollector = struct {
             }
         }
 
-        return function_names.toOwnedSlice();
+        return try function_names.toOwnedSlice(alloc);
     }
 };
 

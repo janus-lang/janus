@@ -154,7 +154,7 @@ pub const UsingDesugar = struct {
     ) !*DesugarBlock {
         const block = try self.allocator.create(DesugarBlock);
 
-        var statements = std.ArrayList(CID).init(self.allocator);
+        var statements: std.ArrayList(CID) = .empty;
 
         // Add error aggregator initialization if needed
         if (error_handling) |err_agg| {
@@ -338,7 +338,7 @@ pub const CleanupAggregator = struct {
     pub fn init(allocator: Allocator) CleanupAggregator {
         return CleanupAggregator{
             .allocator = allocator,
-            .errors = std.ArrayList(CleanupError).init(allocator),
+            .errors = .empty,
             .primary_error = null,
         };
     }
@@ -390,7 +390,7 @@ pub const AggregateCleanupError = struct {
 
     /// Format the aggregate error for display
     pub fn format(self: AggregateCleanupError, allocator: Allocator) ![]const u8 {
-        var message = std.ArrayList(u8).init(allocator);
+        var message: std.ArrayList(u8) = .empty;
         var writer = message.writer();
 
         try writer.print("Cleanup failed: {s}", .{self.primary_error.message});
@@ -406,7 +406,7 @@ pub const AggregateCleanupError = struct {
             }
         }
 
-        return message.toOwnedSlice();
+        return try message.toOwnedSlice(alloc);
     }
 };
 

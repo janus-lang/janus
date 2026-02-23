@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const testing = std.testing;
 const Codegen = @import("../../compiler/libjanus/passes/codegen/module.zig");
 const IR = @import("../../compiler/libjanus/ir.zig");
@@ -165,5 +166,5 @@ test "codegen: end-to-end compilation (requires LLVM)" {
     file.close();
 
     // Clean up
-    std.fs.cwd().deleteFile(output_path) catch {};
+    compat_fs.deleteFile(output_path) catch {};
 }

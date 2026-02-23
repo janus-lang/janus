@@ -7,6 +7,7 @@
 //! and the ASTDB query system, ensuring validated AST nodes are properly stored and queryable.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
@@ -165,10 +166,10 @@ test "validation engine performance with large ASTDB" {
     var context = try ValidationAstDBContext.init(allocator);
     defer context.deinit();
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Create multiple compilation units
-    var unit_ids = std.ArrayList(AstDB.UnitId).init(allocator);
+    var unit_ids: std.ArrayList(AstDB.UnitId) = .empty;
     defer unit_ids.deinit();
 
     for (0..10) |i| {
@@ -193,7 +194,7 @@ test "validation engine performance with large ASTDB" {
         try testing.expect(validation_result.success);
     }
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const duration_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
 
     // Performance requirement: < 100ms for 10 units

@@ -253,7 +253,7 @@ pub const SemanticValidator = struct {
             .type_system = type_sys,
             .type_inference = type_inf,
             .profile = validation_profile,
-            .errors = ArrayList(ValidationError).init(allocator),
+            .errors = .empty,
             .assignments = HashMap(SymbolId, AssignmentState).init(allocator),
             .control_flow = ControlFlowAnalyzer.init(allocator),
         };

@@ -233,7 +233,7 @@ pub fn computeCID(ss: *const Snapshot, subject: ids.CIDSubject, opts: Canon.Opts
     var hasher = std.crypto.hash.Blake3.init(.{});
 
     // Serialize canonical content with documented field order
-    var buf = std.ArrayList(u8).init(std.heap.page_allocator);
+    var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit();
 
     try Canon.write(ss, subject, opts, buf.writer());

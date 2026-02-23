@@ -9,6 +9,7 @@
 //! without external dependencies, fulfilling the cross-platform deployment requirement.
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const builtin = @import("builtin");
 const print = std.debug.print;
 
@@ -120,7 +121,7 @@ fn testCrossCompile(allocator: std.mem.Allocator, target: CrossCompileTarget) !b
         print("   ✅ Binary created successfully\n", .{});
 
         // Check binary size
-        const stat = try std.fs.cwd().statFile(binary_path);
+        const stat = try compat_fs.statFile(binary_path);
         const size_mb = @as(f64, @floatFromInt(stat.size)) / (1024.0 * 1024.0);
         print("   📊 Binary size: {d:.2} MB\n", .{size_mb});
     } else {

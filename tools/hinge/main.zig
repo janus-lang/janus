@@ -14,6 +14,8 @@
 //
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 // serde integration via local shim (future: swap to real Janus serde)
 // const serde = @import("serde_shim.zig");
 const packer = @import("packer.zig");
@@ -289,7 +291,7 @@ fn handleVerifyCommand(_: std.mem.Allocator, args: *std.ArrayList([]const u8), f
     // Read BLAKE3 hash (package/package/hash.b3)
     const hash_path = try std.fs.path.join(allocator, &.{ package_path, "package", "hash.b3" });
     defer allocator.free(hash_path);
-    const hash_hex = try std.fs.cwd().readFileAlloc(allocator, hash_path, 1024);
+    const hash_hex = try compat_fs.readFileAlloc(allocator, hash_path, 1024);
     defer allocator.free(hash_hex);
 
     var hash_bytes: [32]u8 = undefined;
@@ -306,7 +308,7 @@ fn handleVerifyCommand(_: std.mem.Allocator, args: *std.ArrayList([]const u8), f
     var total_pairs: usize = 0;
     var valid_count: usize = 0;
     var trusted_valid_count: usize = 0;
-    const dir_opt: ?std.fs.Dir = std.fs.cwd().openDir(sigs_dir, .{ .iterate = true }) catch null;
+    const dir_opt: ?std.fs.Dir = compat_fs.openDir(sigs_dir, .{ .iterate = true }) catch null;
     if (dir_opt) |dir_val| {
         var dir = dir_val;
         defer dir.close();
@@ -322,9 +324,9 @@ fn handleVerifyCommand(_: std.mem.Allocator, args: *std.ArrayList([]const u8), f
             const pub_path = try std.fs.path.join(allocator, &.{ sigs_dir, pub_name });
             defer allocator.free(pub_path);
 
-            const sig = std.fs.cwd().readFileAlloc(allocator, sig_path, 4096) catch continue;
+            const sig = compat_fs.readFileAlloc(allocator, sig_path, 4096) catch continue;
             defer allocator.free(sig);
-            const pub_key = std.fs.cwd().readFileAlloc(allocator, pub_path, 4096) catch continue;
+            const pub_key = compat_fs.readFileAlloc(allocator, pub_path, 4096) catch continue;
             defer allocator.free(pub_key);
             total_pairs += 1;
             if (crypto.verify(pub_key, &hash_bytes, std.mem.trim(u8, sig, " \n\r\t"))) {
@@ -337,9 +339,9 @@ fn handleVerifyCommand(_: std.mem.Allocator, args: *std.ArrayList([]const u8), f
         defer allocator.free(sig_path);
         const pk_path = try std.fs.path.join(allocator, &.{ package_path, "package", "public.key" });
         defer allocator.free(pk_path);
-        const signature = try std.fs.cwd().readFileAlloc(allocator, sig_path, 4096);
+        const signature = try compat_fs.readFileAlloc(allocator, sig_path, 4096);
         defer allocator.free(signature);
-        const public_key = try std.fs.cwd().readFileAlloc(allocator, pk_path, 4096);
+        const public_key = try compat_fs.readFileAlloc(allocator, pk_path, 4096);
         defer allocator.free(public_key);
         total_pairs = 1;
         if (crypto.verify(public_key, &hash_bytes, std.mem.trim(u8, signature, " \n\r\t"))) {
@@ -426,7 +428,7 @@ fn handleVerifyCommand(_: std.mem.Allocator, args: *std.ArrayList([]const u8), f
             "],\"root\":\"{s}\",\"checkpoint_root\":\"{s}\",\"verified\":{s}}}\n",
             .{ recomputed_hex, croot_hex, if (ok_ledger) "true" else "false" },
         );
-        try std.fs.cwd().writeFile(.{ .sub_path = proof_path, .data = out.items });
+        try compat_fs.writeFile(.{ .sub_path = proof_path, .data = out.items });
         std.debug.print("🧾 Proof exported to {s} (ok={s})\n", .{ proof_path, if (ok_ledger) "true" else "false" });
     }
 }
@@ -448,13 +450,13 @@ fn handleSealCommand(_: std.mem.Allocator, args: *std.ArrayList([]const u8), fla
     const allocator = gpa.allocator();
 
     // Read private key
-    const private_key = try std.fs.cwd().readFileAlloc(allocator, private_key_path, 4096);
+    const private_key = try compat_fs.readFileAlloc(allocator, private_key_path, 4096);
     defer allocator.free(private_key);
 
     // Read BLAKE3 hash (package/package/hash.b3)
     const hash_path = try std.fs.path.join(allocator, &.{ package_path, "package", "hash.b3" });
     defer allocator.free(hash_path);
-    const hash_hex = try std.fs.cwd().readFileAlloc(allocator, hash_path, 1024);
+    const hash_hex = try compat_fs.readFileAlloc(allocator, hash_path, 1024);
     defer allocator.free(hash_hex);
 
     var hash_bytes: [32]u8 = undefined;
@@ -470,7 +472,7 @@ fn handleSealCommand(_: std.mem.Allocator, args: *std.ArrayList([]const u8), fla
         // Write into package/package/signatures/<keyid>.*
         const sigs_dir = try std.fs.path.join(allocator, &.{ package_path, "package", "signatures" });
         defer allocator.free(sigs_dir);
-        try std.fs.cwd().makePath(sigs_dir);
+        try compat_fs.makeDir(sigs_dir);
         // Key id = blake3(pub_key) hex prefix
         var h = std.crypto.hash.Blake3.init(.{});
         h.update(pub_key);
@@ -485,19 +487,19 @@ fn handleSealCommand(_: std.mem.Allocator, args: *std.ArrayList([]const u8), fla
         defer allocator.free(pub_name);
         const sig_out = try std.fs.path.join(allocator, &.{ sigs_dir, sig_name });
         defer allocator.free(sig_out);
-        try std.fs.cwd().writeFile(.{ .sub_path = sig_out, .data = sig });
+        try compat_fs.writeFile(.{ .sub_path = sig_out, .data = sig });
         const pk_out = try std.fs.path.join(allocator, &.{ sigs_dir, pub_name });
         defer allocator.free(pk_out);
-        try std.fs.cwd().writeFile(.{ .sub_path = pk_out, .data = pub_key });
+        try compat_fs.writeFile(.{ .sub_path = pk_out, .data = pub_key });
         std.debug.print("✅ Package sealed into package signatures dir (keyid={s})\n", .{keyid});
     } else {
-        try std.fs.cwd().makePath(output_path);
+        try compat_fs.makeDir(output_path);
         const sig_out = try std.fs.path.join(allocator, &.{ output_path, "signature.d3" });
         defer allocator.free(sig_out);
-        try std.fs.cwd().writeFile(.{ .sub_path = sig_out, .data = sig });
+        try compat_fs.writeFile(.{ .sub_path = sig_out, .data = sig });
         const pk_out = try std.fs.path.join(allocator, &.{ output_path, "public.key" });
         defer allocator.free(pk_out);
-        try std.fs.cwd().writeFile(.{ .sub_path = pk_out, .data = pub_key });
+        try compat_fs.writeFile(.{ .sub_path = pk_out, .data = pub_key });
         std.debug.print("✅ Package sealed (Dilithium3-test). Output: {s}\n", .{output_path});
     }
 
@@ -524,13 +526,13 @@ fn handlePublishCommand(_: std.mem.Allocator, args: *std.ArrayList([]const u8), 
     const allocator = gpa.allocator();
     const hash_path = try std.fs.path.join(allocator, &.{ package_path, "package", "hash.b3" });
     defer allocator.free(hash_path);
-    const hash_hex = try std.fs.cwd().readFileAlloc(allocator, hash_path, 1024);
+    const hash_hex = try compat_fs.readFileAlloc(allocator, hash_path, 1024);
     defer allocator.free(hash_hex);
     const hash_trim = std.mem.trim(u8, hash_hex, " \n\r\t");
 
     // Compute keyid from supplied public key
     const pub_path = args.items[1];
-    const pub_bytes = try std.fs.cwd().readFileAlloc(allocator, pub_path, 1 << 20);
+    const pub_bytes = try compat_fs.readFileAlloc(allocator, pub_path, 1 << 20);
     defer allocator.free(pub_bytes);
     var hh = std.crypto.hash.Blake3.init(.{});
     hh.update(pub_bytes);
@@ -545,7 +547,7 @@ fn handlePublishCommand(_: std.mem.Allocator, args: *std.ArrayList([]const u8), 
     defer obj.deinit();
     try obj.put("hash", .{ .string = hash_trim });
     try obj.put("keyid", .{ .string = keyid });
-    try obj.put("ts", .{ .integer = @intCast(std.time.timestamp()) });
+    try obj.put("ts", .{ .integer = @intCast(compat_time.timestamp()) });
     var line = std.io.Writer.Allocating.init(allocator);
     defer line.deinit();
     const rootv = std.json.Value{ .object = obj };
@@ -662,7 +664,7 @@ fn handleLogVerifyCommand(_: std.mem.Allocator, args: *std.ArrayList([]const u8)
     if (std.fs.path.isAbsolute(log_entry) or (std.mem.indexOfScalar(u8, log_entry, '/')) != null) {
         const hash_path = try std.fs.path.join(allocator, &.{ log_entry, "package", "hash.b3" });
         defer allocator.free(hash_path);
-        const hash_hex = try std.fs.cwd().readFileAlloc(allocator, hash_path, 1024);
+        const hash_hex = try compat_fs.readFileAlloc(allocator, hash_path, 1024);
         defer allocator.free(hash_hex);
         statement = try allocator.dupe(u8, std.mem.trim(u8, hash_hex, " \n\r\t"));
     } else {
@@ -742,12 +744,12 @@ fn handleCheckpointCommand(_: std.mem.Allocator, _: *std.ArrayList([]const u8), 
     const root = try log.computeRoot();
     const cpath = try defaultCheckpointPath(allocator);
     defer allocator.free(cpath);
-    if (std.fs.path.dirname(cpath)) |dirp| try std.fs.cwd().makePath(dirp);
-    var f = try std.fs.cwd().createFile(cpath, .{ .truncate = true });
+    if (std.fs.path.dirname(cpath)) |dirp| try compat_fs.makeDir(dirp);
+    var f = try compat_fs.createFile(cpath, .{ .truncate = true });
     defer f.close();
     const checkpoint_root_hex = try packer.hexSlice(allocator, &root);
     defer allocator.free(checkpoint_root_hex);
-    const checkpoint_json = try std.fmt.allocPrint(allocator, "{{\"root\":\"{s}\",\"ts\":{d}}}\n", .{ checkpoint_root_hex, std.time.timestamp() });
+    const checkpoint_json = try std.fmt.allocPrint(allocator, "{{\"root\":\"{s}\",\"ts\":{d}}}\n", .{ checkpoint_root_hex, compat_time.timestamp() });
     defer allocator.free(checkpoint_json);
     try f.writeAll(checkpoint_json);
     std.debug.print("📌 Checkpoint written: {s}\n", .{cpath});
@@ -799,7 +801,7 @@ fn handleCheckpointVerifyCommand(_: std.mem.Allocator, args: *std.ArrayList([]co
     };
     defer allocator.free(sig_bytes);
     // Load trust key
-    const trust_pub = try std.fs.cwd().readFileAlloc(allocator, kpath, 1 << 20);
+    const trust_pub = try compat_fs.readFileAlloc(allocator, kpath, 1 << 20);
     defer allocator.free(trust_pub);
     const ok = crypto.verify(trust_pub, msg.items, sig_bytes);
     std.debug.print("📌 Checkpoint verify: {s}\n", .{if (ok) "OK" else "FAIL"});

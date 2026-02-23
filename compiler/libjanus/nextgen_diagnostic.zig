@@ -871,7 +871,7 @@ pub const NextGenDiagnostic = struct {
 
     /// Serialize to JSON for AI agents
     pub fn toJson(self: *const NextGenDiagnostic) ![]const u8 {
-        var json_buf = ArrayList(u8).init(self.allocator);
+        var json_buf: ArrayList(u8) = .empty;
         const writer = json_buf.writer();
 
         try writer.writeAll("{");
@@ -909,7 +909,7 @@ pub const NextGenDiagnostic = struct {
 
         try writer.writeAll("}");
 
-        return json_buf.toOwnedSlice();
+        return try json_buf.toOwnedSlice(alloc);
     }
 
     fn writeJsonString(self: *const NextGenDiagnostic, writer: anytype, key: []const u8, value: []const u8) !void {

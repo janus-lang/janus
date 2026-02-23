@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 
 // Type system imports
@@ -43,9 +44,9 @@ pub const PerfectHashGenerator = struct {
         self: *PerfectHashGenerator,
         candidates: []const CandidateIR,
     ) !?PerfectHashTable {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
         defer {
-            const end_time = std.time.nanoTimestamp();
+            const end_time = compat_time.nanoTimestamp();
             self.stats.generation_time_ns = @intCast(end_time - start_time);
         }
 
@@ -121,7 +122,7 @@ pub const PerfectHashGenerator = struct {
         const table_size = @as(u32, @intFromFloat(@as(f32, @floatFromInt(type_ids.len)) / self.load_factor));
 
         // Generate random hash seed
-        var prng = std.Random.DefaultPrng.init(@intCast(std.time.nanoTimestamp()));
+        var prng = std.Random.DefaultPrng.init(@intCast(compat_time.nanoTimestamp()));
         const hash_seed = prng.random().int(u64);
 
         // Create hash table structure
@@ -173,7 +174,7 @@ pub const PerfectHashGenerator = struct {
         }
 
         for (bucket_assignments) |*list| {
-            list.* = std.ArrayList(u32).init(self.allocator);
+            list.* = std.ArrayList(u32).empty;
         }
 
         // Hash each type ID to a bucket
@@ -219,7 +220,7 @@ pub const PerfectHashGenerator = struct {
         var displacement: u32 = 1;
         while (displacement < hash_table.table_size) : (displacement += 1) {
             var placement_valid = true;
-            var temp_positions = std.ArrayList(u32).init(self.allocator);
+            var temp_positions: std.ArrayList(u32) = .empty;
             defer temp_positions.deinit();
 
             // Check if all colliding IDs can be placed with this displacement

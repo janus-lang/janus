@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 
 // Import pipeline components
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
@@ -26,7 +27,7 @@ pub fn main() !void {
     std.log.info("-----------------------", .{});
 
     var tokenizer = Tokenizer.init(allocator, source);
-    var tokens = std.ArrayList(Token).init(allocator);
+    var tokens: std.ArrayList(Token) = .empty;
     defer tokens.deinit();
 
     var token_count: u32 = 0;
@@ -66,11 +67,11 @@ pub fn main() !void {
     std.log.info("-----------------------------", .{});
 
     const c_output = "demo_output.c";
-    const c_file = try std.fs.cwd().createFile(c_output, .{});
+    const c_file = try compat_fs.createFile(c_output, .{});
     defer c_file.close();
 
     // Generate C code
-    var c_code = std.ArrayList(u8).init(allocator);
+    var c_code: std.ArrayList(u8) = .empty;
     defer c_code.deinit();
 
     try c_code.appendSlice("#include <stdio.h>\n\n");
@@ -112,7 +113,7 @@ pub fn main() !void {
     std.log.info("Generated C file: {s} ({} bytes)", .{ c_output, file_size });
 
     // Display generated C code
-    const c_content = try std.fs.cwd().readFileAlloc(allocator, c_output, 1024);
+    const c_content = try compat_fs.readFileAlloc(allocator, c_output, 1024);
     defer allocator.free(c_content);
 
     std.log.info("", .{});
@@ -151,14 +152,14 @@ pub fn main() !void {
             .max_output_bytes = 256, // Bounded allocation
         }) catch |err| {
             std.log.warn("Failed to run compiled program: {}", .{err});
-            std.fs.cwd().deleteFile("demo_output") catch {};
+            compat_fs.deleteFile("demo_output") catch {};
             return; // Arena cleanup handles memory
         };
 
         std.log.info("🎯 Program output: {s}", .{run_result.stdout});
 
         // Clean up executable
-        std.fs.cwd().deleteFile("demo_output") catch {};
+        compat_fs.deleteFile("demo_output") catch {};
     } else {
         std.log.warn("C compilation failed with exit code: {}", .{compile_result.term});
         if (compile_result.stderr.len > 0) {
@@ -167,7 +168,7 @@ pub fn main() !void {
     }
 
     // Clean up
-    std.fs.cwd().deleteFile(c_output) catch {};
+    compat_fs.deleteFile(c_output) catch {};
 
     std.log.info("", .{});
     std.log.info("🎉 End-to-End Compiler Demo Complete!", .{});

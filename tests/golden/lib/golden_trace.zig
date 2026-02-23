@@ -141,7 +141,7 @@ pub const BuildTracer = struct {
                 .performance = PerformanceMetrics{},
                 .timestamp_ns = 0,
             },
-            .run_history = std.ArrayList(RebuildTrace.RunTrace).init(allocator),
+            .run_history = .empty,
             .timer = try std.time.Timer.start(),
         };
     }
@@ -251,7 +251,7 @@ pub const InvalidationTracker = struct {
     pub fn init(allocator: std.mem.Allocator) InvalidationTracker {
         return InvalidationTracker{
             .allocator = allocator,
-            .invalidated_queries = std.ArrayList([]const u8).init(allocator),
+            .invalidated_queries = .empty,
         };
     }
 
