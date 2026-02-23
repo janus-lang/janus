@@ -2929,7 +2929,11 @@ fn lowerFieldExpr(ctx: *LoweringContext, node_id: NodeId) LowerError!u32 {
                 // This is an error variant access - return variant index as constant
                 return try ctx.builder.createConstant(.{ .integer = @intCast(variant_index) });
             }
-            // If not found as error variant, fall through to regular field access
+            // Check if this is an enum variant access (EnumType.Variant)
+            if (try findEnumVariantValue(ctx, error_type_name, field_node)) |tag_value| {
+                return try ctx.builder.createConstant(.{ .integer = tag_value });
+            }
+            // If not found as error/enum variant, fall through to regular field access
             // which will fail with UndefinedVariable (correct behavior)
         }
     }
@@ -2989,6 +2993,65 @@ fn findErrorVariantIndex(ctx: *LoweringContext, error_type_name: []const u8, var
                     // Found the variant - return its index
                     return variant_idx;
                 }
+            }
+        }
+    }
+
+    return null;
+}
+
+/// Find enum variant value in AST
+/// Returns the i32 tag value for the variant (auto-numbered or explicit)
+fn findEnumVariantValue(ctx: *LoweringContext, enum_type_name: []const u8, variant_node: *const AstNode) !?i32 {
+    const unit = ctx.snapshot.astdb.getUnitConst(ctx.unit_id) orelse return null;
+
+    // Get variant name from field access
+    const variant_token = ctx.snapshot.getToken(variant_node.first_token) orelse return null;
+    const variant_name = if (variant_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+    // Search for enum declaration with matching name
+    for (unit.nodes, 0..) |node, i| {
+        if (node.kind != .enum_decl) continue;
+
+        const enum_node_id: NodeId = @enumFromInt(@as(u32, @intCast(i)));
+        const enum_children = ctx.snapshot.getChildren(enum_node_id);
+        if (enum_children.len == 0) continue;
+
+        // First child is enum type name
+        const name_node = ctx.snapshot.getNode(enum_children[0]) orelse continue;
+        const name_token = ctx.snapshot.getToken(name_node.first_token) orelse continue;
+        const decl_name = if (name_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+        // Check if this is the enum type we're looking for
+        if (std.mem.eql(u8, decl_name, enum_type_name)) {
+            // Found the enum type - search for variant
+            // Variants are children[1..], auto-numbered starting at 0
+            var auto_value: i32 = 0;
+            for (enum_children[1..]) |variant_id| {
+                const var_node = ctx.snapshot.getNode(variant_id) orelse continue;
+                if (var_node.kind != .variant) continue;
+
+                // Check for explicit value (variant has children pointing to integer_literal)
+                const var_children = ctx.snapshot.getChildren(variant_id);
+                if (var_children.len > 0) {
+                    if (ctx.snapshot.getNode(var_children[0])) |vn| {
+                        if (vn.kind == .integer_literal) {
+                            if (ctx.snapshot.getToken(vn.first_token)) |vt| {
+                                const lexeme = unit.source[vt.span.start..vt.span.end];
+                                auto_value = std.fmt.parseInt(i32, lexeme, 10) catch auto_value;
+                            }
+                        }
+                    }
+                }
+
+                const var_token = ctx.snapshot.getToken(var_node.first_token) orelse continue;
+                const var_name = if (var_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+                if (std.mem.eql(u8, var_name, variant_name)) {
+                    return auto_value;
+                }
+
+                auto_value += 1;
             }
         }
     }

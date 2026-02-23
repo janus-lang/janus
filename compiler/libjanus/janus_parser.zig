@@ -551,6 +551,8 @@ fn convertTokenType(janus_type: tokenizer.TokenType) TokenKind {
         // Extended tokens
         .kw_in => .in_,
         .struct_kw => .struct_,
+        .enum_kw => .enum_,
+        .union_kw => .union_,
         .type_kw => .type_,
 
         // Special
@@ -682,6 +684,11 @@ fn parseCompilationUnit(parser: *ParserState) !void {
             const struct_index = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, struct_node);
             try top_level_declarations.append(parser.allocator, struct_index);
+        } else if (parser.match(.enum_)) {
+            const enum_node = try parseEnumDeclaration(parser, nodes);
+            const enum_index = @as(u32, @intCast(nodes.items.len));
+            try nodes.append(parser.allocator, enum_node);
+            try top_level_declarations.append(parser.allocator, enum_index);
         } else if (parser.match(.error_)) {
             const error_node = try parseErrorDeclaration(parser, nodes);
             const error_index = @as(u32, @intCast(nodes.items.len));
@@ -949,6 +956,123 @@ fn parseErrorDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_core.
     };
 
     return error_node;
+}
+
+/// Parse enum declaration: enum Color { Red, Green, Blue }
+/// Supports explicit values: enum HttpStatus { Ok = 200, NotFound = 404 }
+fn parseEnumDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) !astdb_core.AstNode {
+    const enum_start_token = parser.current;
+
+    // Consume 'enum' keyword
+    _ = try parser.consume(.enum_);
+
+    // Parse enum type name (required)
+    const name_token = parser.current;
+    _ = try parser.consume(.identifier);
+    const name_node = astdb_core.AstNode{
+        .kind = .identifier,
+        .first_token = @enumFromInt(name_token),
+        .last_token = @enumFromInt(name_token),
+        .child_lo = 0,
+        .child_hi = 0,
+    };
+    const name_idx = @as(u32, @intCast(nodes.items.len));
+    try nodes.append(parser.allocator, name_node);
+
+    // Consume '{'
+    _ = try parser.consume(.left_brace);
+
+    // Parse variants: Variant1, Variant2 = 42, ...
+    const variants_start = @as(u32, @intCast(nodes.items.len));
+    while (!parser.match(.right_brace) and parser.peek() != null) {
+        // Skip newlines
+        while (parser.match(.newline)) {
+            _ = parser.advance();
+        }
+
+        // Check for closing brace after newlines
+        if (parser.match(.right_brace)) break;
+
+        // Parse variant name
+        if (parser.match(.identifier)) {
+            const variant_token = parser.current;
+            _ = parser.advance();
+
+            // Check for explicit value: = <integer>
+            var variant_child_lo: u32 = 0;
+            var variant_child_hi: u32 = 0;
+            if (parser.match(.assign)) {
+                _ = parser.advance(); // consume '='
+
+                // Parse integer literal value
+                if (parser.match(.integer_literal)) {
+                    const value_token = parser.current;
+                    _ = parser.advance();
+                    const value_node = astdb_core.AstNode{
+                        .kind = .integer_literal,
+                        .first_token = @enumFromInt(value_token),
+                        .last_token = @enumFromInt(value_token),
+                        .child_lo = 0,
+                        .child_hi = 0,
+                    };
+                    const value_idx = @as(u32, @intCast(nodes.items.len));
+                    try nodes.append(parser.allocator, value_node);
+
+                    // Create edge from variant to its value
+                    variant_child_lo = @intCast(parser.edges.items.len);
+                    try parser.edges.append(parser.allocator, @enumFromInt(value_idx));
+                    variant_child_hi = @intCast(parser.edges.items.len);
+                }
+            }
+
+            const variant_node = astdb_core.AstNode{
+                .kind = .variant,
+                .first_token = @enumFromInt(variant_token),
+                .last_token = @enumFromInt(variant_token),
+                .child_lo = variant_child_lo,
+                .child_hi = variant_child_hi,
+            };
+            try nodes.append(parser.allocator, variant_node);
+
+            // Optional comma
+            if (parser.match(.comma)) {
+                _ = parser.advance();
+            }
+
+            // Skip newlines after comma
+            while (parser.match(.newline)) {
+                _ = parser.advance();
+            }
+        } else {
+            // Skip unexpected tokens
+            _ = parser.advance();
+        }
+    }
+
+    // Consume '}'
+    _ = try parser.consume(.right_brace);
+
+    // Build edges: name + variants
+    const child_lo = @as(u32, @intCast(parser.edges.items.len));
+    try parser.edges.append(parser.allocator, @enumFromInt(name_idx));
+    for (variants_start..@as(u32, @intCast(nodes.items.len))) |i| {
+        // Only add variant nodes (skip integer_literal value nodes)
+        if (nodes.items[i].kind == .variant) {
+            try parser.edges.append(parser.allocator, @enumFromInt(i));
+        }
+    }
+    const child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+    // Create enum declaration node
+    const enum_node = astdb_core.AstNode{
+        .kind = .enum_decl,
+        .first_token = @enumFromInt(enum_start_token),
+        .last_token = @enumFromInt(parser.current - 1),
+        .child_lo = child_lo,
+        .child_hi = child_hi,
+    };
+
+    return enum_node;
 }
 
 /// Parse import statement: import module.path;

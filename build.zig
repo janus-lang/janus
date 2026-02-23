@@ -754,6 +754,37 @@ pub fn build(b: *std.Build) void {
     const test_type_system_step = b.step("test-type-system", "Run Type System unit tests");
     test_type_system_step.dependOn(&run_type_system_tests.step);
 
+    // RFC-025: Sovereign Documentation tests
+    const doc_types_tests = b.addTest(.{
+        .name = "doc_types_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("compiler/astdb/doc_types.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    doc_types_tests.root_module.addImport("compat_mutex", compat_mutex_mod);
+    doc_types_tests.root_module.addImport("compat_time", compat_time_mod);
+    doc_types_tests.root_module.addImport("compat_fs", compat_fs_mod);
+
+    const doc_extract_tests = b.addTest(.{
+        .name = "doc_extract_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("compiler/astdb/doc_extract.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    doc_extract_tests.root_module.addImport("compat_mutex", compat_mutex_mod);
+    doc_extract_tests.root_module.addImport("compat_time", compat_time_mod);
+    doc_extract_tests.root_module.addImport("compat_fs", compat_fs_mod);
+
+    const test_docs_step = b.step("test-docs", "Run RFC-025 documentation tests");
+    test_docs_step.dependOn(&b.addRunArtifact(doc_types_tests).step);
+    test_docs_step.dependOn(&b.addRunArtifact(doc_extract_tests).step);
+    test_step.dependOn(&b.addRunArtifact(doc_types_tests).step);
+    test_step.dependOn(&b.addRunArtifact(doc_extract_tests).step);
+
     const array_literal_inference_tests = b.addTest(.{
         .name = "array_literal_inference_tests",
         .root_module = b.createModule(.{
@@ -1863,6 +1894,24 @@ pub fn build(b: *std.Build) void {
     const test_struct_e2e_step = b.step("test-struct-e2e", "Run Struct Types end-to-end integration test");
     test_struct_e2e_step.dependOn(&run_struct_e2e_tests.step);
     test_step.dependOn(&run_struct_e2e_tests.step);
+
+    // Enum IR Lowering Tests (SPEC-023 Phase A)
+    const enum_lower_tests = b.addTest(.{
+        .name = "enum_lower_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("compiler/qtjir/test_enum_lower.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    enum_lower_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    enum_lower_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    enum_lower_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_enum_lower_tests = b.addRunArtifact(enum_lower_tests);
+
+    const test_enum_lower_step = b.step("test-enum-lower", "Run Enum lowering IR-level tests");
+    test_enum_lower_step.dependOn(&run_enum_lower_tests.step);
+    test_step.dependOn(&run_enum_lower_tests.step);
 
     // String Literals E2E Tests
     const string_e2e_tests = b.addTest(.{

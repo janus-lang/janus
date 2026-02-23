@@ -147,6 +147,8 @@ pub const TokenType = enum {
     pipeline, // |>
     // Types/Structs (extended)
     struct_kw,
+    enum_kw,
+    union_kw,
     type_kw,
 
     // Special
@@ -777,6 +779,8 @@ pub const Tokenizer = struct {
             .{ "when", .when },
             .{ "unless", .unless },
             .{ "struct", .struct_kw },
+            .{ "enum", .enum_kw },
+            .{ "union", .union_kw },
             .{ "type", .type_kw },
             .{ "using", .using }, // Added for :full spec support logic in parser
 
