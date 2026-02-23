@@ -65,6 +65,12 @@ pub const OpCode = enum {
     // --- Closures (SPEC-024 Phase A) ---
     Fn_Ref, // Function reference as value. data.string = function name. No inputs.
 
+    // --- Closures (SPEC-024 Phase B) ---
+    Closure_Create, // inputs[0..N] = captured values. data.string = fn_name. Produces { fn_ptr, env_ptr }
+    Closure_Env_Load, // Load capture from env. data.integer = capture_index. No inputs.
+    Closure_Env_Store, // Store to mutable capture. data.integer = capture_index. inputs[0] = value.
+    Closure_Call, // inputs[0] = Closure_Create node, inputs[1..N] = args. Indirect call via env.
+
     // --- Control Flow ---
     Call, // Function call
     Return,
@@ -379,6 +385,14 @@ pub const Parameter = struct {
     type_name: []const u8,
 };
 
+/// Captured variable metadata (SPEC-024 Phase B)
+/// Describes a variable captured from an enclosing scope by a closure.
+pub const CapturedVar = struct {
+    name: []const u8, // Variable name in the parent scope
+    parent_alloca_id: u32, // The Alloca node ID in the parent graph
+    index: u32, // Position in the environment struct
+};
+
 /// The Sovereign Graph.
 pub const QTJIRGraph = struct {
     nodes: std.ArrayListUnmanaged(IRNode),
@@ -389,6 +403,10 @@ pub const QTJIRGraph = struct {
     name_owned: bool = false, // true if function_name was heap-allocated and must be freed
     return_type: []const u8 = "i32",
     parameters: []const Parameter = &[_]Parameter{},
+
+    // Closure capture metadata (SPEC-024 Phase B)
+    // Non-null for closures that capture variables from enclosing scopes
+    captures: []const CapturedVar = &[_]CapturedVar{},
 
     pub fn init(allocator: std.mem.Allocator) QTJIRGraph {
         return QTJIRGraph{
@@ -417,6 +435,12 @@ pub const QTJIRGraph = struct {
             // type_name is currently constant string, not allocated
         }
         self.allocator.free(self.parameters);
+
+        // Free capture metadata (SPEC-024 Phase B)
+        for (self.captures) |cap| {
+            self.allocator.free(cap.name);
+        }
+        self.allocator.free(self.captures);
 
         // Free owned function name (closures, test graphs)
         if (self.name_owned) {
@@ -982,6 +1006,35 @@ pub const IRBuilder = struct {
         const id = try self.createNode(.Fn_Ref);
         var node = &self.graph.nodes.items[id];
         node.data = .{ .string = try self.graph.allocator.dupeZ(u8, func_name) };
+        return id;
+    }
+
+    /// Create a Closure_Create node (SPEC-024 Phase B)
+    /// inputs[0..N] = captured value nodes from the parent scope
+    /// data.string = anonymous function name
+    pub fn createClosureCreate(self: *IRBuilder, func_name: []const u8, captured_ids: []const u32) !u32 {
+        const id = try self.createNode(.Closure_Create);
+        var node = &self.graph.nodes.items[id];
+        node.data = .{ .string = try self.graph.allocator.dupeZ(u8, func_name) };
+        try node.inputs.appendSlice(self.graph.allocator, captured_ids);
+        return id;
+    }
+
+    /// Create a Closure_Call node (SPEC-024 Phase B)
+    /// inputs[0] = Closure_Create node, inputs[1..N] = call arguments
+    pub fn createClosureCall(self: *IRBuilder, closure_id: u32, args: []const u32) !u32 {
+        const id = try self.createNode(.Closure_Call);
+        var node = &self.graph.nodes.items[id];
+        try node.inputs.append(self.graph.allocator, closure_id);
+        try node.inputs.appendSlice(self.graph.allocator, args);
+        return id;
+    }
+
+    /// Create a Closure_Env_Load node (SPEC-024 Phase B)
+    /// Loads a captured variable from the environment struct at the given index
+    pub fn createClosureEnvLoad(self: *IRBuilder, capture_index: u32) !u32 {
+        const id = try self.createNode(.Closure_Env_Load);
+        self.graph.nodes.items[id].data = .{ .integer = @intCast(capture_index) };
         return id;
     }
 

@@ -1703,6 +1703,18 @@ pub fn build(b: *std.Build) void {
     test_integration_step.dependOn(&run_qtjir_integration_tests.step);
     test_step.dependOn(&run_qtjir_integration_tests.step);
 
+    // Shared E2E helper module (Zig 0.16 Io-based compile-and-run pipeline)
+    const e2e_helper_mod = b.addModule("e2e_helper", .{
+        .root_source_file = b.path("tests/integration/e2e_helper.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "astdb_core", .module = astdb_core_mod },
+            .{ .name = "janus_parser", .module = libjanus_parser_mod },
+            .{ .name = "qtjir", .module = qtjir_mod },
+        },
+    });
+
     // Add Hello World End-to-End Integration Test (Epic 1.4.1)
     const hello_world_e2e_tests = b.addTest(.{
         .name = "hello_world_e2e_tests",
@@ -1716,6 +1728,7 @@ pub fn build(b: *std.Build) void {
     hello_world_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     hello_world_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     hello_world_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    hello_world_e2e_tests.root_module.addImport("e2e_helper", e2e_helper_mod);
     const run_hello_world_e2e_tests = b.addRunArtifact(hello_world_e2e_tests);
 
     const test_hello_world_e2e_step = b.step("test-hello-world-e2e", "Run Hello World end-to-end integration test");
@@ -1848,6 +1861,7 @@ pub fn build(b: *std.Build) void {
     function_call_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     function_call_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     function_call_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    function_call_e2e_tests.root_module.addImport("e2e_helper", e2e_helper_mod);
     const run_function_call_e2e_tests = b.addRunArtifact(function_call_e2e_tests);
 
     const test_function_call_e2e_step = b.step("test-function-call-e2e", "Run Function Call end-to-end integration test");
@@ -1964,6 +1978,24 @@ pub fn build(b: *std.Build) void {
     const test_closure_lower_step = b.step("test-closure-lower", "Run Closure lowering IR-level tests");
     test_closure_lower_step.dependOn(&run_closure_lower_tests.step);
     test_step.dependOn(&run_closure_lower_tests.step);
+
+    // Closure Capture IR Tests (SPEC-024 Phase B-a)
+    const closure_capture_tests = b.addTest(.{
+        .name = "closure_capture_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("compiler/qtjir/test_closure_capture.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    closure_capture_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    closure_capture_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    closure_capture_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_closure_capture_tests = b.addRunArtifact(closure_capture_tests);
+
+    const test_closure_capture_step = b.step("test-closure-capture", "Run Closure capture IR-level tests (Phase B-a)");
+    test_closure_capture_step.dependOn(&run_closure_capture_tests.step);
+    test_step.dependOn(&run_closure_capture_tests.step);
 
     // Closure E2E Smoke Tests (SPEC-024 Phase A — Source → LLVM IR + Verify)
     const closure_e2e_tests = b.addTest(.{

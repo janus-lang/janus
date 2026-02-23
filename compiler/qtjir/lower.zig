@@ -317,6 +317,17 @@ pub fn lowerUnit(allocator: std.mem.Allocator, snapshot: *const Snapshot, unit_i
             if (children.len > 0) {
                 const name_node = snapshot.getNode(children[0]);
                 if (name_node != null and name_node.?.kind == .identifier) {
+                    // Guard: skip anonymous function literals (SPEC-024).
+                    // Named functions have: func NAME(...)  → name token is at func_token + 1
+                    // Anonymous functions:  func() -> T ... → first child is return-type, not name
+                    const func_tok_idx = @intFromEnum(node.first_token);
+                    const name_tok_idx = @intFromEnum(name_node.?.first_token);
+                    // For async_func_decl the sequence is: async func NAME → +2
+                    const expected_name_pos: u32 = if (node.kind == .async_func_decl)
+                        func_tok_idx + 2
+                    else
+                        func_tok_idx + 1;
+                    if (name_tok_idx != expected_name_pos) continue;
                     const token = snapshot.getToken(name_node.?.first_token);
                     const name = if (token != null and token.?.str != null) snapshot.astdb.str_interner.getString(token.?.str.?) else "anon";
 
@@ -886,9 +897,83 @@ fn isTypeAnnotation(kind: NodeKind) bool {
     };
 }
 
-/// Lower anonymous function literal (closure) as a zero-capture function (SPEC-024 Phase A)
-/// Creates a separate QTJIRGraph for the closure body and returns an Fn_Ref node
-/// in the current graph referencing the generated anonymous function.
+/// Collect captured variables from a closure body (SPEC-024 Phase B)
+/// Walks all AST nodes in the closure body and identifies identifiers that reference
+/// variables in the parent scope but are NOT in the closure's parameter list.
+fn collectCaptures(
+    ctx: *LoweringContext,
+    body_children: []const NodeId,
+    param_names: []const []const u8,
+) ![]graph.CapturedVar {
+    // Set to track unique captured variable names
+    var seen = std.StringHashMap(void).init(ctx.allocator);
+    defer seen.deinit();
+
+    var captures = std.ArrayListUnmanaged(graph.CapturedVar){};
+    errdefer captures.deinit(ctx.allocator);
+
+    // Walk all body children recursively
+    for (body_children) |child_id| {
+        const child = ctx.snapshot.getNode(child_id) orelse continue;
+        if (child.kind == .parameter or isTypeAnnotation(child.kind)) continue;
+        try walkForCaptures(ctx, child_id, param_names, &seen, &captures);
+    }
+
+    return try captures.toOwnedSlice(ctx.allocator);
+}
+
+/// Recursively walk AST nodes looking for identifier references to parent scope variables
+fn walkForCaptures(
+    ctx: *LoweringContext,
+    node_id: NodeId,
+    param_names: []const []const u8,
+    seen: *std.StringHashMap(void),
+    captures: *std.ArrayListUnmanaged(graph.CapturedVar),
+) !void {
+    const node = ctx.snapshot.getNode(node_id) orelse return;
+
+    if (node.kind == .identifier) {
+        const token = ctx.snapshot.getToken(node.first_token) orelse return;
+        const name = if (token.str) |str_id|
+            ctx.snapshot.astdb.str_interner.getString(str_id)
+        else
+            return;
+
+        // Skip if it's a closure parameter
+        for (param_names) |pname| {
+            if (std.mem.eql(u8, name, pname)) return;
+        }
+
+        // Skip if already seen
+        if (seen.contains(name)) return;
+
+        // Check if it exists in the parent scope — that makes it a capture
+        // Skip Fn_Ref and Closure_Create (function references, not value captures)
+        if (ctx.scope.get(name)) |parent_node_id| {
+            const parent_node = &ctx.builder.graph.nodes.items[parent_node_id];
+            if (parent_node.op != .Fn_Ref and parent_node.op != .Closure_Create) {
+                const capture_index: u32 = @intCast(captures.items.len);
+                try captures.append(ctx.allocator, .{
+                    .name = try ctx.allocator.dupe(u8, name),
+                    .parent_alloca_id = parent_node_id,
+                    .index = capture_index,
+                });
+                try seen.put(name, {});
+            }
+        }
+        return;
+    }
+
+    // Recurse into children
+    const children = ctx.snapshot.getChildren(node_id);
+    for (children) |child_id| {
+        try walkForCaptures(ctx, child_id, param_names, seen, captures);
+    }
+}
+
+/// Lower anonymous function literal (closure) (SPEC-024 Phase A+B)
+/// Phase A: Zero-capture closures produce Fn_Ref nodes
+/// Phase B: Closures with captures produce Closure_Create nodes with env
 fn lowerClosureLiteral(ctx: *LoweringContext, node_id: NodeId) LowerError!u32 {
     const children = ctx.snapshot.getChildren(node_id);
     if (children.len == 0) return error.InvalidNode;
@@ -899,11 +984,33 @@ fn lowerClosureLiteral(ctx: *LoweringContext, node_id: NodeId) LowerError!u32 {
         return error.InvalidNode;
     ctx.closure_counter += 1;
 
-    // Allocate persistent copy for function_name (owned by the graph)
+    // --- First pass: collect parameter names for capture analysis ---
+    var param_name_list = std.ArrayListUnmanaged([]const u8){};
+    defer param_name_list.deinit(ctx.allocator);
+
+    for (children) |child_id| {
+        const child = ctx.snapshot.getNode(child_id) orelse continue;
+        if (child.kind == .parameter) {
+            const first_tok = ctx.snapshot.getToken(child.first_token);
+            const p_name = if (first_tok != null and first_tok.?.str != null)
+                ctx.snapshot.astdb.str_interner.getString(first_tok.?.str.?)
+            else
+                "arg";
+            try param_name_list.append(ctx.allocator, p_name);
+        }
+    }
+
+    // --- Capture analysis: detect references to parent scope variables ---
+    const captures = try collectCaptures(ctx, children, param_name_list.items);
+    defer {
+        for (captures) |cap| ctx.allocator.free(cap.name);
+        ctx.allocator.free(captures);
+    }
+
+    // --- Build closure graph ---
     const anon_name_owned = ctx.allocator.dupe(u8, anon_name) catch
         return error.OutOfMemory;
 
-    // Create a new QTJIRGraph for the closure body
     var closure_graph = QTJIRGraph.initWithName(ctx.allocator, anon_name_owned);
     closure_graph.name_owned = true;
     errdefer closure_graph.deinit();
@@ -913,27 +1020,33 @@ fn lowerClosureLiteral(ctx: *LoweringContext, node_id: NodeId) LowerError!u32 {
 
     try closure_ctx.pushScope(.Function);
 
-    // Process children: [param1, param2, ..., return_type?, stmt1, stmt2, ...]
-    // Anonymous func_decl has NO identifier child (unlike named func_decl)
     var params = std.ArrayListUnmanaged(graph.Parameter){};
     errdefer params.deinit(ctx.allocator);
 
+    // Phase B: If captures exist, add hidden __env parameter as first argument
     var param_idx: i32 = 0;
-    var has_return_type_annotation = false;
+    if (captures.len > 0) {
+        try params.append(ctx.allocator, .{
+            .name = try ctx.allocator.dupe(u8, "__env"),
+            .type_name = "ptr",
+        });
+        // __env is Argument 0
+        const env_arg_id = try closure_ctx.builder.createNode(.Argument);
+        closure_ctx.builder.graph.nodes.items[env_arg_id].data = .{ .integer = 0 };
+        param_idx = 1;
 
+        // Pre-seed closure scope with Closure_Env_Load for each captured variable
+        for (captures) |cap| {
+            const env_load_id = try closure_ctx.builder.createClosureEnvLoad(cap.index);
+            try closure_ctx.scope.put(cap.name, env_load_id);
+        }
+    }
+
+    // Process explicit parameters
     for (children) |child_id| {
         const child = ctx.snapshot.getNode(child_id) orelse continue;
 
-        if (child.kind == .primitive_type or child.kind == .named_type or
-            child.kind == .pointer_type or child.kind == .array_type or
-            child.kind == .slice_type or child.kind == .optional_type or
-            child.kind == .error_union_type)
-        {
-            has_return_type_annotation = true;
-        }
-
         if (child.kind == .parameter) {
-            // Get parameter name from first_token (child_lo/child_hi = 0/0 for closure params)
             const first_tok = ctx.snapshot.getToken(child.first_token);
             const p_name = if (first_tok != null and first_tok.?.str != null)
                 ctx.snapshot.astdb.str_interner.getString(first_tok.?.str.?)
@@ -962,8 +1075,21 @@ fn lowerClosureLiteral(ctx: *LoweringContext, node_id: NodeId) LowerError!u32 {
     // Assign parameters to closure graph
     closure_graph.parameters = try params.toOwnedSlice(ctx.allocator);
 
+    // Store capture metadata on the closure graph (transfer ownership of name strings)
+    if (captures.len > 0) {
+        var graph_captures = std.ArrayListUnmanaged(graph.CapturedVar){};
+        errdefer graph_captures.deinit(ctx.allocator);
+        for (captures) |cap| {
+            try graph_captures.append(ctx.allocator, .{
+                .name = try ctx.allocator.dupe(u8, cap.name),
+                .parent_alloca_id = cap.parent_alloca_id,
+                .index = cap.index,
+            });
+        }
+        closure_graph.captures = try graph_captures.toOwnedSlice(ctx.allocator);
+    }
+
     // Lower the closure body — statements are direct children (no block_stmt wrapper)
-    // Collect non-parameter, non-type children as body statements
     try closure_ctx.pushScope(.Block);
     for (children) |child_id| {
         const child = ctx.snapshot.getNode(child_id) orelse continue;
@@ -983,8 +1109,25 @@ fn lowerClosureLiteral(ctx: *LoweringContext, node_id: NodeId) LowerError!u32 {
     // Reset local so errdefer won't double-free the moved data
     closure_graph = QTJIRGraph.init(ctx.allocator);
 
-    // Create Fn_Ref in the CURRENT graph referencing the anonymous function
-    return try ctx.builder.createFnRef(anon_name);
+    // Phase B: Emit Closure_Create in parent if captures exist, else Fn_Ref (Phase A)
+    if (captures.len > 0) {
+        // Collect captured value nodes from parent scope
+        // For var (Alloca): emit Load to get value
+        // For let (direct value): use node directly
+        var captured_value_ids = std.ArrayListUnmanaged(u32){};
+        defer captured_value_ids.deinit(ctx.allocator);
+        for (captures) |cap| {
+            const parent_node = &ctx.builder.graph.nodes.items[cap.parent_alloca_id];
+            const value_id = if (parent_node.op == .Alloca or parent_node.op == .Struct_Alloca)
+                try ctx.builder.buildLoad(ctx.allocator, cap.parent_alloca_id, cap.name)
+            else
+                cap.parent_alloca_id; // Direct value (let binding)
+            try captured_value_ids.append(ctx.allocator, value_id);
+        }
+        return try ctx.builder.createClosureCreate(anon_name, captured_value_ids.items);
+    } else {
+        return try ctx.builder.createFnRef(anon_name);
+    }
 }
 
 fn lowerBlock(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
@@ -2062,21 +2205,42 @@ fn lowerUserFunctionCall(
     const scope = trace.trace("lowerUserFunctionCall", name);
     defer scope.end();
 
-    // Resolve closure variables: if name maps to an Fn_Ref in scope,
-    // use the anonymous function name instead (SPEC-024 Phase A)
-    const resolved_name = blk: {
-        if (ctx.scope.get(name)) |ref_id| {
-            const ref_node = &ctx.builder.graph.nodes.items[ref_id];
-            if (ref_node.op == .Fn_Ref) {
-                break :blk switch (ref_node.data) {
-                    .string => |s| @as([]const u8, s),
-                    else => name,
-                };
-            }
-        }
-        break :blk name;
-    };
+    // Resolve closure variables: check scope for Fn_Ref or Closure_Create (SPEC-024)
+    if (ctx.scope.get(name)) |ref_id| {
+        const ref_node = &ctx.builder.graph.nodes.items[ref_id];
 
+        // Phase B: Closure_Create → emit Closure_Call (indirect call with env)
+        if (ref_node.op == .Closure_Create) {
+            var args = std.ArrayListUnmanaged(u32){};
+            defer args.deinit(ctx.allocator);
+            for (children[1..]) |arg_id| {
+                const arg = ctx.snapshot.getNode(arg_id) orelse continue;
+                const arg_val = try lowerExpression(ctx, arg_id, arg);
+                try args.append(ctx.allocator, arg_val);
+            }
+            return try ctx.builder.createClosureCall(ref_id, args.items);
+        }
+
+        // Phase A: Fn_Ref → resolve to direct call with anonymous function name
+        if (ref_node.op == .Fn_Ref) {
+            const resolved_name = switch (ref_node.data) {
+                .string => |s| @as([]const u8, s),
+                else => name,
+            };
+            var args = std.ArrayListUnmanaged(u32){};
+            defer args.deinit(ctx.allocator);
+            for (children[1..]) |arg_id| {
+                const arg = ctx.snapshot.getNode(arg_id) orelse continue;
+                const arg_val = try lowerExpression(ctx, arg_id, arg);
+                try args.append(ctx.allocator, arg_val);
+            }
+            const call_node_id = try ctx.builder.createCall(args.items);
+            ctx.builder.graph.nodes.items[call_node_id].data = .{ .string = try ctx.dupeForGraph(resolved_name) };
+            return call_node_id;
+        }
+    }
+
+    // Default: direct function call by name
     var args = std.ArrayListUnmanaged(u32){};
     defer args.deinit(ctx.allocator);
 
@@ -2087,7 +2251,7 @@ fn lowerUserFunctionCall(
     }
 
     const call_node_id = try ctx.builder.createCall(args.items);
-    ctx.builder.graph.nodes.items[call_node_id].data = .{ .string = try ctx.dupeForGraph(resolved_name) };
+    ctx.builder.graph.nodes.items[call_node_id].data = .{ .string = try ctx.dupeForGraph(name) };
 
     return call_node_id;
 }
