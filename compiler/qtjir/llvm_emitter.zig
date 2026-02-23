@@ -1808,22 +1808,30 @@ pub const LLVMEmitter = struct {
     }
 
     // =========================================================================
-    // Tagged Union Emission (SPEC-023 Phase B)
+    // Tagged Union Emission (SPEC-023 Phase B+C)
     // =========================================================================
-    // Tagged unions are { i32 tag, i64 payload }
-    // i32 discriminant supports >256 variants, i64 payload holds zero-extended i32
+    // Tagged unions are { i32 tag, i64 slot0, i64 slot1, ..., i64 slotN }
+    // i32 discriminant supports >256 variants, i64 slots hold ZExt'd i32 or bitcast'd f64
 
-    /// Get tagged union struct type: { i32 tag, i64 payload }
-    fn getTaggedUnionType(self: *LLVMEmitter) llvm.Type {
+    /// Get tagged union struct type: { i32 tag, i64 * field_count }
+    fn getTaggedUnionType(self: *LLVMEmitter, field_count: u32) llvm.Type {
+        const count = if (field_count == 0) @as(u32, 1) else field_count; // min 1 slot for unit compat
         const i32_type = llvm.int32TypeInContext(self.context);
         const i64_type = llvm.c.LLVMInt64TypeInContext(self.context);
-        var member_types = [_]llvm.Type{ i32_type, i64_type };
-        return llvm.structTypeInContext(self.context, &member_types, 2, false);
+        // { i32, i64, i64, ..., i64 } with `count` i64 slots
+        var member_types_buf: [17]llvm.Type = undefined; // 1 tag + max 16 fields
+        member_types_buf[0] = i32_type;
+        for (1..count + 1) |i| {
+            member_types_buf[i] = i64_type;
+        }
+        return llvm.structTypeInContext(self.context, &member_types_buf, @intCast(1 + count), false);
     }
 
-    /// Emit Union_Construct: creates { tag, payload }
+    /// Emit Union_Construct: creates { tag, field0, field1, ... }
     fn emitUnionConstruct(self: *LLVMEmitter, node: *const IRNode) !void {
-        const tu_type = self.getTaggedUnionType();
+        const field_count: u32 = @intCast(node.inputs.items.len);
+        const slot_count = if (field_count == 0) @as(u32, 1) else field_count;
+        const tu_type = self.getTaggedUnionType(slot_count);
         const i32_type = llvm.int32TypeInContext(self.context);
         const i64_type = llvm.c.LLVMInt64TypeInContext(self.context);
 
@@ -1833,23 +1841,28 @@ pub const LLVMEmitter = struct {
             else => llvm.c.LLVMConstInt(i32_type, 0, 0),
         };
 
-        // Payload: from input[0] if present, else i64 0
-        const payload_val = if (node.inputs.items.len > 0) blk: {
-            const input_val = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
-            const input_type = llvm.c.LLVMTypeOf(input_val);
-            if (input_type == i64_type) {
-                break :blk input_val;
-            } else if (llvm.c.LLVMGetTypeKind(input_type) == llvm.c.LLVMIntegerTypeKind) {
-                break :blk llvm.c.LLVMBuildZExt(self.builder, input_val, i64_type, "tu_payload");
-            } else {
-                break :blk llvm.c.LLVMBuildPtrToInt(self.builder, input_val, i64_type, "tu_payload_ptr");
-            }
-        } else llvm.c.LLVMConstInt(i64_type, 0, 0);
-
-        // Build struct { tag, payload }
         var tu_val = llvm.getUndef(tu_type);
         tu_val = llvm.c.LLVMBuildInsertValue(self.builder, tu_val, tag_val, 0, "tu_tag");
-        tu_val = llvm.c.LLVMBuildInsertValue(self.builder, tu_val, payload_val, 1, "tu_val");
+
+        if (field_count == 0) {
+            // Unit variant — fill single slot with 0
+            tu_val = llvm.c.LLVMBuildInsertValue(self.builder, tu_val, llvm.c.LLVMConstInt(i64_type, 0, 0), 1, "tu_pad");
+        } else {
+            // Insert each payload field at slots 1..N
+            for (node.inputs.items, 0..) |input_id, i| {
+                const input_val = self.values.get(input_id) orelse return error.MissingOperand;
+                const input_type = llvm.c.LLVMTypeOf(input_val);
+                const as_i64 = if (input_type == i64_type)
+                    input_val
+                else if (llvm.c.LLVMGetTypeKind(input_type) == llvm.c.LLVMDoubleTypeKind)
+                    llvm.c.LLVMBuildBitCast(self.builder, input_val, i64_type, "tu_f64_cast")
+                else if (llvm.c.LLVMGetTypeKind(input_type) == llvm.c.LLVMIntegerTypeKind)
+                    llvm.c.LLVMBuildZExt(self.builder, input_val, i64_type, "tu_payload")
+                else
+                    llvm.c.LLVMBuildPtrToInt(self.builder, input_val, i64_type, "tu_payload_ptr");
+                tu_val = llvm.c.LLVMBuildInsertValue(self.builder, tu_val, as_i64, @intCast(1 + i), "tu_field");
+            }
+        }
 
         try self.values.put(node.id, tu_val);
     }
@@ -1874,16 +1887,26 @@ pub const LLVMEmitter = struct {
         try self.values.put(node.id, result);
     }
 
-    /// Emit Union_Payload_Extract: extract i64 payload, truncate to i32
+    /// Emit Union_Payload_Extract: extract i64 at field slot, trunc to i32 or bitcast to f64
     fn emitUnionPayloadExtract(self: *LLVMEmitter, node: *const IRNode) !void {
         if (node.inputs.items.len < 1) return error.MissingOperand;
         const tu_val = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
 
-        const i32_type = llvm.int32TypeInContext(self.context);
+        // Decode data.integer: lower 32 bits = field_index, bit 32 = is_float
+        const encoded = switch (node.data) {
+            .integer => |v| v,
+            else => @as(i64, 0),
+        };
+        const field_index: u32 = @intCast(encoded & 0xFFFFFFFF);
+        const is_float: bool = (encoded >> 32) & 1 == 1;
 
-        // Extract payload at index 1
-        const payload = llvm.c.LLVMBuildExtractValue(self.builder, tu_val, 1, "tu_payload");
-        const result = llvm.c.LLVMBuildTrunc(self.builder, payload, i32_type, "tu_unwrap");
+        // Extract at slot 1 + field_index
+        const raw = llvm.c.LLVMBuildExtractValue(self.builder, tu_val, @intCast(1 + field_index), "tu_raw");
+
+        const result = if (is_float)
+            llvm.c.LLVMBuildBitCast(self.builder, raw, llvm.c.LLVMDoubleTypeInContext(self.context), "tu_f64")
+        else
+            llvm.c.LLVMBuildTrunc(self.builder, raw, llvm.int32TypeInContext(self.context), "tu_unwrap");
 
         try self.values.put(node.id, result);
     }

@@ -2866,16 +2866,20 @@ fn lowerStructLiteral(ctx: *LoweringContext, node_id: NodeId) LowerError!u32 {
                     const variant_name = if (right_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
 
                     if (try findUnionVariantInfo(ctx, type_name, variant_name)) |info| {
-                        // Union variant with payload — lower first value as payload
-                        var payload_id: ?u32 = null;
-                        if (info.has_payload and children.len >= 3) {
-                            // children: [type, field_name, field_value, ...]
-                            // Grab the first value (children[2])
-                            const val_id = children[2];
-                            const val_node = ctx.snapshot.getNode(val_id) orelse return error.InvalidNode;
-                            payload_id = try lowerExpression(ctx, val_id, val_node);
+                        // Union variant — collect all payload field values
+                        var payload_ids = std.ArrayListUnmanaged(u32){};
+                        defer payload_ids.deinit(ctx.allocator);
+                        if (info.has_payload) {
+                            // children: [type, field_name1, field_value1, field_name2, field_value2, ...]
+                            var idx: usize = 1;
+                            while (idx + 1 < children.len) : (idx += 2) {
+                                const val_id = children[idx + 1];
+                                const val_node = ctx.snapshot.getNode(val_id) orelse return error.InvalidNode;
+                                const ir_val = try lowerExpression(ctx, val_id, val_node);
+                                try payload_ids.append(ctx.allocator, ir_val);
+                            }
                         }
-                        return try ctx.builder.createUnionConstruct(info.tag_index, payload_id);
+                        return try ctx.builder.createUnionConstruct(info.tag_index, payload_ids.items);
                     }
                 }
             }
@@ -2974,8 +2978,8 @@ fn lowerFieldExpr(ctx: *LoweringContext, node_id: NodeId) LowerError!u32 {
             const variant_name_u = if (field_token_u.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
             if (try findUnionVariantInfo(ctx, error_type_name, variant_name_u)) |info| {
                 if (!info.has_payload) {
-                    // Unit variant — emit Union_Construct with tag and zero payload
-                    return try ctx.builder.createUnionConstruct(info.tag_index, null);
+                    // Unit variant — emit Union_Construct with tag and empty payload
+                    return try ctx.builder.createUnionConstruct(info.tag_index, &[_]u32{});
                 }
                 // Variant with payload — requires struct literal syntax (Option.Some { value: 42 })
                 // Fall through to regular field access which will be handled by lowerStructLiteral
@@ -3106,10 +3110,11 @@ fn findEnumVariantValue(ctx: *LoweringContext, enum_type_name: []const u8, varia
     return null;
 }
 
-/// Tagged union variant info (SPEC-023 Phase B)
+/// Tagged union variant info (SPEC-023 Phase B+C)
 const UnionVariantInfo = struct {
     tag_index: i64,
     has_payload: bool,
+    field_count: u32,
 };
 
 /// Find union variant info in AST
@@ -3140,11 +3145,12 @@ fn findUnionVariantInfo(ctx: *LoweringContext, type_name: []const u8, variant_na
                 const var_name = if (var_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
 
                 if (std.mem.eql(u8, var_name, variant_name)) {
-                    // Has payload if variant has children (field name/type pairs)
+                    // Children are pairs: [field_name, field_type, ...]
                     const var_children = ctx.snapshot.getChildren(variant_id);
                     return .{
                         .tag_index = tag,
                         .has_payload = var_children.len > 0,
+                        .field_count = @intCast(var_children.len / 2),
                     };
                 }
 
@@ -3154,6 +3160,48 @@ fn findUnionVariantInfo(ctx: *LoweringContext, type_name: []const u8, variant_na
     }
 
     return null;
+}
+
+/// Check if a union variant field at given index is f64 type
+/// Inspects the type annotation node in the variant declaration
+fn isUnionFieldFloat(ctx: *LoweringContext, type_name: []const u8, variant_name: []const u8, field_index: u32) bool {
+    const unit = ctx.snapshot.astdb.getUnitConst(ctx.unit_id) orelse return false;
+
+    for (unit.nodes, 0..) |node, i| {
+        if (node.kind != .union_decl) continue;
+
+        const union_node_id: NodeId = @enumFromInt(@as(u32, @intCast(i)));
+        const union_children = ctx.snapshot.getChildren(union_node_id);
+        if (union_children.len == 0) continue;
+
+        const name_node = ctx.snapshot.getNode(union_children[0]) orelse continue;
+        const name_token = ctx.snapshot.getToken(name_node.first_token) orelse continue;
+        const decl_name = if (name_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+        if (std.mem.eql(u8, decl_name, type_name)) {
+            for (union_children[1..]) |variant_id| {
+                const var_node = ctx.snapshot.getNode(variant_id) orelse continue;
+                if (var_node.kind != .variant) continue;
+
+                const var_token = ctx.snapshot.getToken(var_node.first_token) orelse continue;
+                const var_name = if (var_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+                if (std.mem.eql(u8, var_name, variant_name)) {
+                    // Variant children: [name0, type0, name1, type1, ...]
+                    const var_children = ctx.snapshot.getChildren(variant_id);
+                    const type_child_idx = field_index * 2 + 1;
+                    if (type_child_idx >= var_children.len) return false;
+
+                    const type_node = ctx.snapshot.getNode(var_children[type_child_idx]) orelse return false;
+                    const type_tok = ctx.snapshot.getToken(type_node.first_token) orelse return false;
+                    const type_str = if (type_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+                    return std.mem.eql(u8, type_str, "f64");
+                }
+            }
+        }
+    }
+
+    return false;
 }
 
 fn lowerDeferStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
@@ -3346,8 +3394,10 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
             }
         }
 
-        // Track optional payload binding for union destructuring
-        var union_payload_binding: ?[]const u8 = null;
+        // Track multi-field payload bindings for union destructuring
+        const UnionBinding = struct { name: []const u8, field_index: u32, is_float: bool };
+        var union_bindings = std.ArrayListUnmanaged(UnionBinding){};
+        defer union_bindings.deinit(ctx.allocator);
 
         if (is_wildcard) {
             // Always matches
@@ -3376,13 +3426,26 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
                                 // Emit Union_Tag_Check
                                 pattern_matches_val = try ctx.builder.createUnionTagCheck(scrutinee_val, info.tag_index);
 
-                                // Capture binding variable name from pattern fields
-                                // Pattern: Option.Some { value: v } — children[2] is the binding identifier
-                                if (info.has_payload and pat_children.len >= 3) {
-                                    const binding_node = ctx.snapshot.getNode(pat_children[2]) orelse return error.InvalidNode;
-                                    if (binding_node.kind == .identifier) {
-                                        const b_tok = ctx.snapshot.getToken(binding_node.first_token) orelse return error.InvalidToken;
-                                        union_payload_binding = if (b_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+                                // Capture all binding variable names from pattern fields
+                                // pat_children: [type, field_name1, binding1, field_name2, binding2, ...]
+                                if (info.has_payload) {
+                                    var field_idx: u32 = 0;
+                                    var pat_idx: usize = 1; // skip type child
+                                    while (pat_idx + 1 < pat_children.len) : (pat_idx += 2) {
+                                        const binding_node = ctx.snapshot.getNode(pat_children[pat_idx + 1]) orelse {
+                                            field_idx += 1;
+                                            continue;
+                                        };
+                                        if (binding_node.kind == .identifier) {
+                                            const b_tok = ctx.snapshot.getToken(binding_node.first_token) orelse {
+                                                field_idx += 1;
+                                                continue;
+                                            };
+                                            const bname = if (b_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+                                            const is_f = isUnionFieldFloat(ctx, t_name, v_name, field_idx);
+                                            try union_bindings.append(ctx.allocator, .{ .name = bname, .field_index = field_idx, .is_float = is_f });
+                                        }
+                                        field_idx += 1;
                                     }
                                 }
                             }
@@ -3492,10 +3555,10 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
         // Backpatch True
         ctx.builder.graph.nodes.items[branch_id].inputs.items[1] = body_label_id;
 
-        // Union payload extraction: bind destructured variable before body
-        if (union_payload_binding) |binding_name| {
-            const extract_id = try ctx.builder.createUnionPayloadExtract(scrutinee_val);
-            try ctx.scope.put(binding_name, extract_id);
+        // Union payload extraction: bind all destructured variables before body
+        for (union_bindings.items) |binding| {
+            const extract_id = try ctx.builder.createUnionPayloadExtract(scrutinee_val, binding.field_index, binding.is_float);
+            try ctx.scope.put(binding.name, extract_id);
         }
 
         const body = ctx.snapshot.getNode(body_id) orelse continue;

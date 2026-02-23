@@ -57,10 +57,10 @@ pub const OpCode = enum {
     Error_Union_Unwrap, // Unwrap payload (asserts not error, panics if error)
     Error_Union_Get_Error, // Extract error value (asserts is_error)
 
-    // --- Tagged Unions (SPEC-023 Phase B) ---
-    Union_Construct, // inputs[0] = payload value, data.integer = tag index → { i32, i64 }
+    // --- Tagged Unions (SPEC-023 Phase B+C) ---
+    Union_Construct, // inputs[0..N] = payload values, data.integer = tag index → { i32, i64*N }
     Union_Tag_Check, // inputs[0] = union value, data.integer = expected tag → i1 (bool)
-    Union_Payload_Extract, // inputs[0] = union value → i32 (extracted payload)
+    Union_Payload_Extract, // inputs[0] = union value, data.integer = field_index|(is_float<<32) → i32 or f64
 
     // --- Control Flow ---
     Call, // Function call
@@ -1023,16 +1023,16 @@ pub const IRBuilder = struct {
     }
 
     // =========================================================================
-    // Tagged Union Operations (SPEC-023 Phase B)
+    // Tagged Union Operations (SPEC-023 Phase B+C)
     // =========================================================================
 
-    /// Construct tagged union: { tag_index, payload }
-    /// For unit variants (no payload), pass null for payload_id
-    pub fn createUnionConstruct(self: *IRBuilder, tag_index: i64, payload_id: ?u32) !u32 {
+    /// Construct tagged union: { tag_index, payload_0, payload_1, ... }
+    /// For unit variants (no payload), pass empty slice
+    pub fn createUnionConstruct(self: *IRBuilder, tag_index: i64, payload_ids: []const u32) !u32 {
         const id = try self.createNode(.Union_Construct);
         var node = &self.graph.nodes.items[id];
         node.data = .{ .integer = tag_index };
-        if (payload_id) |pid| {
+        for (payload_ids) |pid| {
             try node.inputs.append(self.graph.allocator, pid);
         }
         return id;
@@ -1048,10 +1048,14 @@ pub const IRBuilder = struct {
         return id;
     }
 
-    /// Extract payload from tagged union (truncated to i32)
-    pub fn createUnionPayloadExtract(self: *IRBuilder, union_id: u32) !u32 {
+    /// Extract payload field from tagged union by index
+    /// field_index selects which field slot (0-based), is_float triggers f64 bitcast
+    pub fn createUnionPayloadExtract(self: *IRBuilder, union_id: u32, field_index: u32, is_float: bool) !u32 {
         const id = try self.createNode(.Union_Payload_Extract);
         var node = &self.graph.nodes.items[id];
+        // Encode: lower 32 bits = field_index, bit 32 = is_float
+        const encoded: i64 = @as(i64, @intCast(field_index)) | (if (is_float) @as(i64, 1) << 32 else 0);
+        node.data = .{ .integer = encoded };
         try node.inputs.append(self.graph.allocator, union_id);
         return id;
     }
