@@ -243,7 +243,7 @@ test "LWF Frame: Encode and verify signed frame" {
     const allocator = gpa.allocator();
 
     // Generate Ed25519 keypair
-    const keypair = crypto.sign.Ed25519.KeyPair.generate();
+    const keypair = crypto.sign.Ed25519.KeyPair.generate(std.testing.io);
     const signing_key = lwf.SigningKey{ .keypair = keypair };
     const verify_key = lwf.VerifyKey{ .public_key = keypair.public_key };
 
@@ -334,7 +334,7 @@ test "LWF Frame: Reject frame with invalid signature" {
     const allocator = gpa.allocator();
 
     // Generate keypair
-    const keypair = crypto.sign.Ed25519.KeyPair.generate();
+    const keypair = crypto.sign.Ed25519.KeyPair.generate(std.testing.io);
     const signing_key = lwf.SigningKey{ .keypair = keypair };
 
     const header: lwf.Header = .{};
@@ -344,7 +344,7 @@ test "LWF Frame: Reject frame with invalid signature" {
     defer allocator.free(frame_bytes);
 
     // Create wrong verify key (different keypair)
-    const wrong_keypair = crypto.sign.Ed25519.KeyPair.generate();
+    const wrong_keypair = crypto.sign.Ed25519.KeyPair.generate(std.testing.io);
     const wrong_verify = lwf.VerifyKey{ .public_key = wrong_keypair.public_key };
 
     // Copy frame for decoding (decodeFrame takes ownership)
@@ -458,7 +458,7 @@ test "LWF Frame: Missing verify key for signed frame" {
     const allocator = gpa.allocator();
 
     // Generate keypair and create signed frame
-    const keypair = crypto.sign.Ed25519.KeyPair.generate();
+    const keypair = crypto.sign.Ed25519.KeyPair.generate(std.testing.io);
     const signing_key = lwf.SigningKey{ .keypair = keypair };
 
     var header: lwf.Header = .{};
