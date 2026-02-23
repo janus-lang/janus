@@ -288,3 +288,111 @@ test "CLO-B04: zero-capture regression — Fn_Ref path still works" {
     }
     try testing.expect(found_closure_call);
 }
+
+// =========================================================================
+// Phase C: Mutable Capture Tests (SPEC-024 Phase C)
+// =========================================================================
+
+test "CLO-C01: mutable capture produces is_mutable=true and Closure_Env_Store in body" {
+    const allocator = testing.allocator;
+
+    var p = parser.Parser.init(allocator);
+    defer p.deinit();
+
+    // var count = 0; let inc = func() -> i32 do count = count + 1; return count end
+    const source =
+        \\func main() -> i32 do
+        \\    var count = 0
+        \\    let inc = func() -> i32 do
+        \\        count = count + 1
+        \\        return count
+        \\    end
+        \\    return inc()
+        \\end
+    ;
+
+    const snapshot = try p.parseWithSource(source);
+    defer snapshot.deinit();
+
+    const unit_id: astdb.UnitId = @enumFromInt(0);
+    var ir_graphs = try lower.lowerUnit(allocator, &snapshot.core_snapshot, unit_id);
+    defer {
+        for (ir_graphs.items) |*g| g.deinit();
+        ir_graphs.deinit(allocator);
+    }
+
+    try testing.expect(ir_graphs.items.len >= 2);
+
+    // Closure graph should have capture metadata with is_mutable=true
+    const closure_g = findClosureGraph(ir_graphs.items).?;
+    try testing.expectEqual(@as(usize, 1), closure_g.captures.len);
+    try testing.expect(std.mem.eql(u8, closure_g.captures[0].name, "count"));
+    try testing.expect(closure_g.captures[0].is_mutable);
+
+    // Closure body should contain Closure_Env_Store (assignment to mutable capture)
+    const env_store_count = countOp(closure_g, .Closure_Env_Store);
+    try testing.expect(env_store_count >= 1);
+
+    // Closure body should contain Closure_Env_Load (reading mutable capture)
+    const env_load_count = countOp(closure_g, .Closure_Env_Load);
+    try testing.expect(env_load_count >= 1);
+}
+
+test "CLO-C02: mixed mutable+immutable captures — correct flags and node types" {
+    const allocator = testing.allocator;
+
+    var p = parser.Parser.init(allocator);
+    defer p.deinit();
+
+    // var x = 0 (mutable); let y = 10 (immutable); closure uses both
+    const source =
+        \\func main() -> i32 do
+        \\    var x = 0
+        \\    let y = 10
+        \\    let f = func() -> i32 do
+        \\        x = x + y
+        \\        return x
+        \\    end
+        \\    return f()
+        \\end
+    ;
+
+    const snapshot = try p.parseWithSource(source);
+    defer snapshot.deinit();
+
+    const unit_id: astdb.UnitId = @enumFromInt(0);
+    var ir_graphs = try lower.lowerUnit(allocator, &snapshot.core_snapshot, unit_id);
+    defer {
+        for (ir_graphs.items) |*g| g.deinit();
+        ir_graphs.deinit(allocator);
+    }
+
+    try testing.expect(ir_graphs.items.len >= 2);
+
+    const closure_g = findClosureGraph(ir_graphs.items).?;
+    try testing.expectEqual(@as(usize, 2), closure_g.captures.len);
+
+    // Verify mutability flags
+    var found_mutable = false;
+    var found_immutable = false;
+    for (closure_g.captures) |cap| {
+        if (std.mem.eql(u8, cap.name, "x")) {
+            try testing.expect(cap.is_mutable);
+            found_mutable = true;
+        }
+        if (std.mem.eql(u8, cap.name, "y")) {
+            try testing.expect(!cap.is_mutable);
+            found_immutable = true;
+        }
+    }
+    try testing.expect(found_mutable);
+    try testing.expect(found_immutable);
+
+    // Closure body should have Closure_Env_Store (for x = ...)
+    const env_store_count = countOp(closure_g, .Closure_Env_Store);
+    try testing.expect(env_store_count >= 1);
+
+    // Closure body should have Closure_Env_Load (for both x and y reads)
+    const env_load_count = countOp(closure_g, .Closure_Env_Load);
+    try testing.expect(env_load_count >= 2);
+}

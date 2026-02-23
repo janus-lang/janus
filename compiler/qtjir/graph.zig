@@ -385,12 +385,13 @@ pub const Parameter = struct {
     type_name: []const u8,
 };
 
-/// Captured variable metadata (SPEC-024 Phase B)
+/// Captured variable metadata (SPEC-024 Phase B+C)
 /// Describes a variable captured from an enclosing scope by a closure.
 pub const CapturedVar = struct {
     name: []const u8, // Variable name in the parent scope
     parent_alloca_id: u32, // The Alloca node ID in the parent graph
     index: u32, // Position in the environment struct
+    is_mutable: bool = false, // Phase C: true for `var` captures (by-reference via pointer)
 };
 
 /// The Sovereign Graph.
@@ -1035,6 +1036,15 @@ pub const IRBuilder = struct {
     pub fn createClosureEnvLoad(self: *IRBuilder, capture_index: u32) !u32 {
         const id = try self.createNode(.Closure_Env_Load);
         self.graph.nodes.items[id].data = .{ .integer = @intCast(capture_index) };
+        return id;
+    }
+
+    /// Create a Closure_Env_Store node (SPEC-024 Phase C)
+    /// Stores a value through a mutable capture's pointer in the environment struct
+    pub fn createClosureEnvStore(self: *IRBuilder, capture_index: u32, value_id: u32) !u32 {
+        const id = try self.createNode(.Closure_Env_Store);
+        self.graph.nodes.items[id].data = .{ .integer = @intCast(capture_index) };
+        try self.graph.nodes.items[id].inputs.append(self.graph.allocator, value_id);
         return id;
     }
 

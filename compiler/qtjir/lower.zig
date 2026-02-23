@@ -82,6 +82,10 @@ pub const LoweringContext = struct {
     pending_closures: std.ArrayListUnmanaged(QTJIRGraph),
     closure_counter: u32,
 
+    // Phase C: mutable capture tracking — maps capture name → capture index
+    // Used inside closure bodies so reads/writes emit Closure_Env_Load/Store
+    mutable_capture_indices: std.StringHashMap(u32),
+
     const PendingJump = struct {
         jump_id: u32,
         loop_depth: usize,
@@ -138,6 +142,7 @@ pub const LoweringContext = struct {
             .error_union_nodes = .{},
             .pending_closures = .{},
             .closure_counter = 0,
+            .mutable_capture_indices = std.StringHashMap(u32).init(allocator),
         };
     }
 
@@ -209,6 +214,7 @@ pub const LoweringContext = struct {
         self.error_union_nodes.deinit(self.allocator);
         for (self.pending_closures.items) |*g| g.deinit();
         self.pending_closures.deinit(self.allocator);
+        self.mutable_capture_indices.deinit();
     }
 
     /// Clone a string using the Graph's allocator for sovereign ownership.
@@ -952,11 +958,14 @@ fn walkForCaptures(
         if (ctx.scope.get(name)) |parent_node_id| {
             const parent_node = &ctx.builder.graph.nodes.items[parent_node_id];
             if (parent_node.op != .Fn_Ref and parent_node.op != .Closure_Create) {
+                // Phase C: Alloca/Struct_Alloca → mutable (var), else immutable (let)
+                const is_mutable = (parent_node.op == .Alloca or parent_node.op == .Struct_Alloca);
                 const capture_index: u32 = @intCast(captures.items.len);
                 try captures.append(ctx.allocator, .{
                     .name = try ctx.allocator.dupe(u8, name),
                     .parent_alloca_id = parent_node_id,
                     .index = capture_index,
+                    .is_mutable = is_mutable,
                 });
                 try seen.put(name, {});
             }
@@ -1036,9 +1045,15 @@ fn lowerClosureLiteral(ctx: *LoweringContext, node_id: NodeId) LowerError!u32 {
         param_idx = 1;
 
         // Pre-seed closure scope with Closure_Env_Load for each captured variable
+        // Phase C: mutable captures use mutable_capture_indices (NOT scope)
+        // so each read/write emits a fresh Closure_Env_Load/Store node
         for (captures) |cap| {
-            const env_load_id = try closure_ctx.builder.createClosureEnvLoad(cap.index);
-            try closure_ctx.scope.put(cap.name, env_load_id);
+            if (cap.is_mutable) {
+                try closure_ctx.mutable_capture_indices.put(cap.name, cap.index);
+            } else {
+                const env_load_id = try closure_ctx.builder.createClosureEnvLoad(cap.index);
+                try closure_ctx.scope.put(cap.name, env_load_id);
+            }
         }
     }
 
@@ -1084,6 +1099,7 @@ fn lowerClosureLiteral(ctx: *LoweringContext, node_id: NodeId) LowerError!u32 {
                 .name = try ctx.allocator.dupe(u8, cap.name),
                 .parent_alloca_id = cap.parent_alloca_id,
                 .index = cap.index,
+                .is_mutable = cap.is_mutable,
             });
         }
         closure_graph.captures = try graph_captures.toOwnedSlice(ctx.allocator);
@@ -1109,20 +1125,25 @@ fn lowerClosureLiteral(ctx: *LoweringContext, node_id: NodeId) LowerError!u32 {
     // Reset local so errdefer won't double-free the moved data
     closure_graph = QTJIRGraph.init(ctx.allocator);
 
-    // Phase B: Emit Closure_Create in parent if captures exist, else Fn_Ref (Phase A)
+    // Phase B+C: Emit Closure_Create in parent if captures exist, else Fn_Ref (Phase A)
     if (captures.len > 0) {
-        // Collect captured value nodes from parent scope
-        // For var (Alloca): emit Load to get value
-        // For let (direct value): use node directly
+        // Collect captured value/pointer nodes from parent scope
+        // Phase C: Mutable (var) captures pass the alloca pointer directly (by-reference)
+        //          Immutable (let) captures load the value (by-value, unchanged from Phase B)
         var captured_value_ids = std.ArrayListUnmanaged(u32){};
         defer captured_value_ids.deinit(ctx.allocator);
         for (captures) |cap| {
-            const parent_node = &ctx.builder.graph.nodes.items[cap.parent_alloca_id];
-            const value_id = if (parent_node.op == .Alloca or parent_node.op == .Struct_Alloca)
-                try ctx.builder.buildLoad(ctx.allocator, cap.parent_alloca_id, cap.name)
-            else
-                cap.parent_alloca_id; // Direct value (let binding)
-            try captured_value_ids.append(ctx.allocator, value_id);
+            if (cap.is_mutable) {
+                // Mutable: pass alloca directly — it IS a pointer in LLVM IR
+                try captured_value_ids.append(ctx.allocator, cap.parent_alloca_id);
+            } else {
+                const parent_node = &ctx.builder.graph.nodes.items[cap.parent_alloca_id];
+                const value_id = if (parent_node.op == .Alloca or parent_node.op == .Struct_Alloca)
+                    try ctx.builder.buildLoad(ctx.allocator, cap.parent_alloca_id, cap.name)
+                else
+                    cap.parent_alloca_id; // Direct value (let binding)
+                try captured_value_ids.append(ctx.allocator, value_id);
+            }
         }
         return try ctx.builder.createClosureCreate(anon_name, captured_value_ids.items);
     } else {
@@ -2802,6 +2823,11 @@ fn lowerIdentifier(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
     const token = ctx.snapshot.getToken(node.first_token) orelse return error.InvalidToken;
     const name = if (token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
 
+    // Phase C: mutable captures — emit fresh Closure_Env_Load each time
+    if (ctx.mutable_capture_indices.get(name)) |capture_idx| {
+        return try ctx.builder.createClosureEnvLoad(capture_idx);
+    }
+
     if (ctx.scope.get(name)) |target_id| {
         const target_node = &ctx.builder.graph.nodes.items[target_id];
         if (target_node.op == .Alloca) {
@@ -2931,6 +2957,17 @@ fn lowerBinaryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
 
     // Handle Assignment
     if (op_token_kind == .assign) { // .assign is mapped from .equal by parser
+        // Phase C: check if LHS is a mutable capture — emit Closure_Env_Store
+        if (lhs.kind == .identifier) {
+            const lhs_token = ctx.snapshot.getToken(lhs.first_token) orelse return error.InvalidToken;
+            const lhs_name = if (lhs_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+            if (ctx.mutable_capture_indices.get(lhs_name)) |capture_idx| {
+                const rhs_val = try lowerExpression(ctx, rhs_id, rhs);
+                _ = try ctx.builder.createClosureEnvStore(capture_idx, rhs_val);
+                return rhs_val;
+            }
+        }
+
         // LHS must be L-Value (Address)
         const lhs_addr = try lowerLValue(ctx, lhs_id, lhs);
         const rhs_val = try lowerExpression(ctx, rhs_id, rhs);
@@ -2959,6 +2996,25 @@ fn lowerBinaryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
     };
 
     if (compound_op) |op| {
+        // Phase C: check if LHS is a mutable capture — use Closure_Env_Load/Store
+        if (lhs.kind == .identifier) {
+            const lhs_token = ctx.snapshot.getToken(lhs.first_token) orelse return error.InvalidToken;
+            const lhs_name = if (lhs_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+            if (ctx.mutable_capture_indices.get(lhs_name)) |capture_idx| {
+                // Fresh load from env
+                const lhs_val = try ctx.builder.createClosureEnvLoad(capture_idx);
+                const rhs_val = try lowerExpression(ctx, rhs_id, rhs);
+                // Compute
+                const op_node = try ctx.builder.createNode(op);
+                var ir_node = &ctx.builder.graph.nodes.items[op_node];
+                try ir_node.inputs.append(ctx.allocator, lhs_val);
+                try ir_node.inputs.append(ctx.allocator, rhs_val);
+                // Store back through env
+                _ = try ctx.builder.createClosureEnvStore(capture_idx, op_node);
+                return op_node;
+            }
+        }
+
         // LHS must be L-Value (Address)
         const lhs_addr = try lowerLValue(ctx, lhs_id, lhs);
 

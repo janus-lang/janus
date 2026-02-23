@@ -46,9 +46,11 @@ pub const LLVMEmitter = struct {
     // Function signature mapping: function_name -> return_type
     function_return_types: std.StringHashMap([]const u8),
 
-    // Closure emission state (SPEC-024 Phase B)
+    // Closure emission state (SPEC-024 Phase B+C)
     // Tracks the LLVM struct type for the current closure's env (set per-function)
     current_env_type: ?llvm.Type = null,
+    // Phase C: capture metadata for the current closure (for mutable/immutable dispatch)
+    current_captures: []const graph.CapturedVar = &[_]graph.CapturedVar{},
     // Maps Closure_Create node ID → function name for emitClosureCall dispatch
     closure_fn_names: std.AutoHashMap(u32, []const u8),
 
@@ -200,14 +202,22 @@ pub const LLVMEmitter = struct {
         self.deferred_phis.clearRetainingCapacity();
         self.node_blocks.clearRetainingCapacity();
 
-        // Build env struct type for closures with captures (SPEC-024 Phase B)
+        // Build env struct type for closures with captures (SPEC-024 Phase B+C)
         if (ir_graph.captures.len > 0) {
             const env_fields = try self.allocator.alloc(llvm.Type, ir_graph.captures.len);
             defer self.allocator.free(env_fields);
-            for (env_fields) |*f| f.* = llvm.int32TypeInContext(self.context); // MVP: all i32
+            const i32_type_env = llvm.int32TypeInContext(self.context);
+            const i8_type_env = llvm.c.LLVMInt8TypeInContext(self.context);
+            const ptr_type_env = llvm.c.LLVMPointerType(i8_type_env, 0);
+            for (ir_graph.captures, 0..) |cap, i| {
+                // Phase C: mutable captures store a pointer, immutable store i32
+                env_fields[i] = if (cap.is_mutable) ptr_type_env else i32_type_env;
+            }
             self.current_env_type = llvm.structTypeInContext(self.context, env_fields.ptr, @intCast(ir_graph.captures.len), false);
+            self.current_captures = ir_graph.captures;
         } else {
             self.current_env_type = null;
+            self.current_captures = &[_]graph.CapturedVar{};
         }
 
         // Emit all nodes, tracking which block each is in
@@ -316,7 +326,7 @@ pub const LLVMEmitter = struct {
             .Closure_Create => try self.emitClosureCreate(node),
             .Closure_Call => try self.emitClosureCall(node, ir_graph),
             .Closure_Env_Load => try self.emitClosureEnvLoad(node),
-            .Closure_Env_Store => {}, // Mutable captures — deferred to Phase C
+            .Closure_Env_Store => try self.emitClosureEnvStore(node),
             // :service profile - Structured Concurrency (Blocking Model Phase 1)
             .Await => try self.emitAwait(node),
             .Spawn => try self.emitSpawn(node),
@@ -1955,6 +1965,7 @@ pub const LLVMEmitter = struct {
     // =========================================================================
 
     /// Emit Closure_Create: alloca env struct, store captured values via GEP
+    /// Phase C: field types inferred from actual LLVM values (ptr for mutable alloca, i32 for immutable)
     fn emitClosureCreate(self: *LLVMEmitter, node: *const IRNode) !void {
         const capture_count = node.inputs.items.len;
         if (capture_count == 0) return; // Zero-capture → should be Fn_Ref, not Closure_Create
@@ -1965,11 +1976,13 @@ pub const LLVMEmitter = struct {
             else => return,
         };
 
-        // Build env struct type: { i32 x N } (MVP: all captures are i32)
-        const i32_type = llvm.int32TypeInContext(self.context);
+        // Build env struct type — infer each field from the actual LLVM value type
         const env_fields = try self.allocator.alloc(llvm.Type, capture_count);
         defer self.allocator.free(env_fields);
-        for (env_fields) |*f| f.* = i32_type;
+        for (node.inputs.items, 0..) |input_id, i| {
+            const val = self.values.get(input_id) orelse return error.MissingOperand;
+            env_fields[i] = llvm.typeof(val);
+        }
 
         const env_type = llvm.structTypeInContext(self.context, env_fields.ptr, @intCast(capture_count), false);
 
@@ -2043,6 +2056,7 @@ pub const LLVMEmitter = struct {
     }
 
     /// Emit Closure_Env_Load: GEP + load from __env parameter (param 0)
+    /// Phase C: mutable captures require double deref (GEP → load ptr → load i32 through ptr)
     fn emitClosureEnvLoad(self: *LLVMEmitter, node: *const IRNode) !void {
         const capture_index: u32 = @intCast(node.data.integer);
 
@@ -2052,10 +2066,53 @@ pub const LLVMEmitter = struct {
         // Use env struct type set during emitFunction
         const env_type = self.current_env_type orelse return error.MissingOperand;
 
-        const field_ptr = llvm.buildStructGEP2(self.builder, env_type, env_param, capture_index, "env_load");
         const i32_type = llvm.int32TypeInContext(self.context);
-        const value = llvm.buildLoad2(self.builder, i32_type, field_ptr, "captured_val");
-        try self.values.put(node.id, value);
+
+        // Phase C: check if this capture is mutable
+        const is_mutable = if (capture_index < self.current_captures.len)
+            self.current_captures[capture_index].is_mutable
+        else
+            false;
+
+        const field_ptr = llvm.buildStructGEP2(self.builder, env_type, env_param, capture_index, "env_load");
+
+        if (is_mutable) {
+            // Double deref: load pointer from env, then load value through pointer
+            const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+            const ptr_type = llvm.c.LLVMPointerType(i8_type, 0);
+            const var_ptr = llvm.buildLoad2(self.builder, ptr_type, field_ptr, "capture_ptr");
+            const value = llvm.buildLoad2(self.builder, i32_type, var_ptr, "captured_val");
+            try self.values.put(node.id, value);
+        } else {
+            // Immutable: single load (unchanged from Phase B)
+            const value = llvm.buildLoad2(self.builder, i32_type, field_ptr, "captured_val");
+            try self.values.put(node.id, value);
+        }
+    }
+
+    /// Emit Closure_Env_Store: store value through mutable capture's pointer in env (Phase C)
+    /// GEP → load ptr from env → store value through ptr
+    fn emitClosureEnvStore(self: *LLVMEmitter, node: *const IRNode) !void {
+        const capture_index: u32 = @intCast(node.data.integer);
+
+        // __env is always parameter 0
+        const env_param = llvm.c.LLVMGetParam(self.current_function, 0);
+        const env_type = self.current_env_type orelse return error.MissingOperand;
+
+        // Get the value to store (inputs[0])
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+        const value = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        // GEP to get the pointer field in the env struct
+        const field_ptr = llvm.buildStructGEP2(self.builder, env_type, env_param, capture_index, "env_store");
+
+        // Load the pointer to the parent's alloca
+        const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+        const ptr_type = llvm.c.LLVMPointerType(i8_type, 0);
+        const var_ptr = llvm.buildLoad2(self.builder, ptr_type, field_ptr, "capture_ptr");
+
+        // Store value through the pointer
+        _ = llvm.buildStore(self.builder, value, var_ptr);
     }
 
     fn emitFnRef(self: *LLVMEmitter, node: *const IRNode) !void {

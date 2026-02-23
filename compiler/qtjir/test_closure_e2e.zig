@@ -210,3 +210,103 @@ test "CLO-E2E-B03: zero-capture closure regression — Phase A still works" {
     // (alloca may exist for variable bindings, but not "closure_env")
     try testing.expect(std.mem.indexOf(u8, ir, "closure_env") == null);
 }
+
+// =========================================================================
+// Phase C: Mutable Captures — LLVM IR Verification (SPEC-024 Phase C)
+// =========================================================================
+
+test "CLO-E2E-C01: single mutable capture produces verified LLVM IR with double deref" {
+    const allocator = testing.allocator;
+
+    // var count = 0; let inc = func() -> i32 do count = count + 1; return count end
+    const source =
+        \\func main() -> i32 do
+        \\    var count = 0
+        \\    let inc = func() -> i32 do
+        \\        count = count + 1
+        \\        return count
+        \\    end
+        \\    return inc()
+        \\end
+    ;
+
+    const ir = try compileToLLVM(allocator, source, "closure_e2e_c01");
+    defer allocator.free(ir);
+
+    // Closure function has ptr as first param (__env)
+    try testing.expect(std.mem.indexOf(u8, ir, "define i32 @__closure_0(ptr %0)") != null);
+
+    // Main should store a pointer into the env (not a loaded i32)
+    try testing.expect(std.mem.indexOf(u8, ir, "closure_env") != null);
+
+    // Closure body should have GEP for env field access
+    try testing.expect(std.mem.indexOf(u8, ir, "getelementptr") != null);
+
+    // Should have add instruction (count + 1)
+    try testing.expect(std.mem.indexOf(u8, ir, "add") != null);
+
+    // Should have store instruction (writing through the pointer)
+    try testing.expect(std.mem.indexOf(u8, ir, "store") != null);
+}
+
+test "CLO-E2E-C02: mutable capture mutation visible to parent — verified LLVM IR" {
+    const allocator = testing.allocator;
+
+    // Two calls: inc() twice, result should reflect mutation
+    const source =
+        \\func main() -> i32 do
+        \\    var count = 0
+        \\    let inc = func() -> i32 do
+        \\        count = count + 1
+        \\        return count
+        \\    end
+        \\    let a = inc()
+        \\    let result = inc()
+        \\    return result
+        \\end
+    ;
+
+    const ir = try compileToLLVM(allocator, source, "closure_e2e_c02");
+    defer allocator.free(ir);
+
+    // Should have two calls to the closure
+    // Count occurrences of "call i32 @__closure_0("
+    var call_count: usize = 0;
+    var search_pos: usize = 0;
+    while (std.mem.indexOfPos(u8, ir, search_pos, "call i32 @__closure_0(")) |pos| {
+        call_count += 1;
+        search_pos = pos + 1;
+    }
+    try testing.expectEqual(@as(usize, 2), call_count);
+
+    // Closure function exists with ptr param
+    try testing.expect(std.mem.indexOf(u8, ir, "define i32 @__closure_0(ptr %0)") != null);
+}
+
+test "CLO-E2E-C03: immutable capture regression — Phase B tests still pass" {
+    const allocator = testing.allocator;
+
+    // Identical to CLO-E2E-B01: single immutable capture
+    const source =
+        \\func main() -> i32 do
+        \\    let x = 42
+        \\    let f = func(y: i32) -> i32 do
+        \\        return x + y
+        \\    end
+        \\    let result = f(5)
+        \\    return result
+        \\end
+    ;
+
+    const ir = try compileToLLVM(allocator, source, "closure_e2e_c03");
+    defer allocator.free(ir);
+
+    // Immutable capture: closure has ptr + i32 params (env + y)
+    try testing.expect(std.mem.indexOf(u8, ir, "define i32 @__closure_0(ptr %0, i32 %1)") != null);
+
+    // Main stores value (not pointer) into env
+    try testing.expect(std.mem.indexOf(u8, ir, "call i32 @__closure_0(ptr") != null);
+
+    // add instruction from x + y
+    try testing.expect(std.mem.indexOf(u8, ir, "add") != null);
+}
