@@ -78,6 +78,10 @@ pub const LoweringContext = struct {
     // Track which QTJIR nodes produce error union values
     error_union_nodes: std.AutoHashMapUnmanaged(u32, void),
 
+    // Closures (SPEC-024 Phase A): pending closure graphs generated during lowering
+    pending_closures: std.ArrayListUnmanaged(QTJIRGraph),
+    closure_counter: u32,
+
     const PendingJump = struct {
         jump_id: u32,
         loop_depth: usize,
@@ -132,6 +136,8 @@ pub const LoweringContext = struct {
             .slice_nodes = .{},
             .optional_nodes = .{},
             .error_union_nodes = .{},
+            .pending_closures = .{},
+            .closure_counter = 0,
         };
     }
 
@@ -201,6 +207,8 @@ pub const LoweringContext = struct {
         self.slice_nodes.deinit(self.allocator);
         self.optional_nodes.deinit(self.allocator);
         self.error_union_nodes.deinit(self.allocator);
+        for (self.pending_closures.items) |*g| g.deinit();
+        self.pending_closures.deinit(self.allocator);
     }
 
     /// Clone a string using the Graph's allocator for sovereign ownership.
@@ -247,7 +255,7 @@ pub fn lowerUnitWithExterns(allocator: std.mem.Allocator, snapshot: *const Snaps
         const node_id: NodeId = @enumFromInt(@as(u32, @intCast(i)));
 
         if (node.kind == .func_decl or node.kind == .async_func_decl) {
-            if (try lowerFunctionToGraph(allocator, snapshot, unit_id, node_id, &node)) |ir_graph| {
+            if (try lowerFunctionToGraph(allocator, snapshot, unit_id, node_id, &node, &result.graphs)) |ir_graph| {
                 try result.graphs.append(allocator, ir_graph);
             }
         } else if (node.kind == .test_decl) {
@@ -331,6 +339,12 @@ pub fn lowerUnit(allocator: std.mem.Allocator, snapshot: *const Snapshot, unit_i
 
                     try lowerFuncDecl(&ctx, node_id, &node);
                     try graphs.append(allocator, ir_graph);
+
+                    // Drain closure graphs generated during lowering (SPEC-024 Phase A)
+                    for (ctx.pending_closures.items) |closure_g| {
+                        try graphs.append(allocator, closure_g);
+                    }
+                    ctx.pending_closures.clearRetainingCapacity();
                 }
             }
         } else if (node.kind == .test_decl) {
@@ -344,9 +358,9 @@ pub fn lowerUnit(allocator: std.mem.Allocator, snapshot: *const Snapshot, unit_i
 
                     // Prefix with "test:" to distinguish from functions
                     const name = try std.fmt.allocPrint(allocator, "test:{s}", .{raw_name});
-                    // Note: name is owned by graph (technically leaked until JitRunner cleans it up)
 
                     var ir_graph = QTJIRGraph.initWithName(allocator, name);
+                    ir_graph.name_owned = true;
                     var ctx = LoweringContext.init(allocator, snapshot, unit_id, &ir_graph);
                     defer ctx.deinit();
 
@@ -364,6 +378,12 @@ pub fn lowerUnit(allocator: std.mem.Allocator, snapshot: *const Snapshot, unit_i
 
                     try lowerTestDecl(&ctx, node_id, &node);
                     try graphs.append(allocator, ir_graph);
+
+                    // Drain closure graphs generated during lowering (SPEC-024 Phase A)
+                    for (ctx.pending_closures.items) |closure_g| {
+                        try graphs.append(allocator, closure_g);
+                    }
+                    ctx.pending_closures.clearRetainingCapacity();
                 }
             }
         }
@@ -451,6 +471,7 @@ fn lowerFunctionToGraph(
     unit_id: UnitId,
     node_id: NodeId,
     node: *const AstNode,
+    out_closures: *std.ArrayListUnmanaged(QTJIRGraph),
 ) !?QTJIRGraph {
     const children = snapshot.getChildren(node_id);
     if (children.len == 0) return null;
@@ -478,6 +499,13 @@ fn lowerFunctionToGraph(
     }
 
     try lowerFuncDecl(&ctx, node_id, node);
+
+    // Drain pending closures before ctx.deinit destroys them (SPEC-024 Phase A)
+    for (ctx.pending_closures.items) |closure_g| {
+        try out_closures.append(allocator, closure_g);
+    }
+    ctx.pending_closures.clearRetainingCapacity();
+
     return ir_graph;
 }
 
@@ -501,6 +529,7 @@ fn lowerTestToGraph(
     const name = try std.fmt.allocPrint(allocator, "test:{s}", .{raw_name});
 
     var ir_graph = QTJIRGraph.initWithName(allocator, name);
+    ir_graph.name_owned = true;
     var ctx = LoweringContext.init(allocator, snapshot, unit_id, &ir_graph);
     defer ctx.deinit();
 
@@ -855,6 +884,107 @@ fn isTypeAnnotation(kind: NodeKind) bool {
         => true,
         else => false,
     };
+}
+
+/// Lower anonymous function literal (closure) as a zero-capture function (SPEC-024 Phase A)
+/// Creates a separate QTJIRGraph for the closure body and returns an Fn_Ref node
+/// in the current graph referencing the generated anonymous function.
+fn lowerClosureLiteral(ctx: *LoweringContext, node_id: NodeId) LowerError!u32 {
+    const children = ctx.snapshot.getChildren(node_id);
+    if (children.len == 0) return error.InvalidNode;
+
+    // Generate unique anonymous function name
+    var name_buf: [64]u8 = undefined;
+    const anon_name = std.fmt.bufPrint(&name_buf, "__closure_{d}", .{ctx.closure_counter}) catch
+        return error.InvalidNode;
+    ctx.closure_counter += 1;
+
+    // Allocate persistent copy for function_name (owned by the graph)
+    const anon_name_owned = ctx.allocator.dupe(u8, anon_name) catch
+        return error.OutOfMemory;
+
+    // Create a new QTJIRGraph for the closure body
+    var closure_graph = QTJIRGraph.initWithName(ctx.allocator, anon_name_owned);
+    closure_graph.name_owned = true;
+    errdefer closure_graph.deinit();
+
+    var closure_ctx = LoweringContext.init(ctx.allocator, ctx.snapshot, ctx.unit_id, &closure_graph);
+    defer closure_ctx.deinit();
+
+    try closure_ctx.pushScope(.Function);
+
+    // Process children: [param1, param2, ..., return_type?, stmt1, stmt2, ...]
+    // Anonymous func_decl has NO identifier child (unlike named func_decl)
+    var params = std.ArrayListUnmanaged(graph.Parameter){};
+    errdefer params.deinit(ctx.allocator);
+
+    var param_idx: i32 = 0;
+    var has_return_type_annotation = false;
+
+    for (children) |child_id| {
+        const child = ctx.snapshot.getNode(child_id) orelse continue;
+
+        if (child.kind == .primitive_type or child.kind == .named_type or
+            child.kind == .pointer_type or child.kind == .array_type or
+            child.kind == .slice_type or child.kind == .optional_type or
+            child.kind == .error_union_type)
+        {
+            has_return_type_annotation = true;
+        }
+
+        if (child.kind == .parameter) {
+            // Get parameter name from first_token (child_lo/child_hi = 0/0 for closure params)
+            const first_tok = ctx.snapshot.getToken(child.first_token);
+            const p_name = if (first_tok != null and first_tok.?.str != null)
+                ctx.snapshot.astdb.str_interner.getString(first_tok.?.str.?)
+            else
+                "arg";
+
+            try params.append(ctx.allocator, .{
+                .name = try ctx.allocator.dupe(u8, p_name),
+                .type_name = "i32",
+            });
+
+            const arg_node_id = try closure_ctx.builder.createNode(.Argument);
+            closure_ctx.builder.graph.nodes.items[arg_node_id].data = .{ .integer = param_idx };
+            param_idx += 1;
+
+            const alloca_id = try closure_ctx.builder.createNode(.Alloca);
+            closure_ctx.builder.graph.nodes.items[alloca_id].data = .{ .string = try closure_ctx.dupeForGraph(p_name) };
+            try closure_ctx.scope.put(p_name, alloca_id);
+
+            const store_id = try closure_ctx.builder.createNode(.Store);
+            try closure_ctx.builder.graph.nodes.items[store_id].inputs.append(ctx.allocator, alloca_id);
+            try closure_ctx.builder.graph.nodes.items[store_id].inputs.append(ctx.allocator, arg_node_id);
+        }
+    }
+
+    // Assign parameters to closure graph
+    closure_graph.parameters = try params.toOwnedSlice(ctx.allocator);
+
+    // Lower the closure body — statements are direct children (no block_stmt wrapper)
+    // Collect non-parameter, non-type children as body statements
+    try closure_ctx.pushScope(.Block);
+    for (children) |child_id| {
+        const child = ctx.snapshot.getNode(child_id) orelse continue;
+        if (child.kind == .parameter or isTypeAnnotation(child.kind)) continue;
+
+        try lowerStatement(&closure_ctx, child_id, child);
+    }
+    var actions = try closure_ctx.popScope();
+    try closure_ctx.emitDefersForScope(&actions);
+
+    // Pop the Function scope
+    var func_actions = try closure_ctx.popScope();
+    try closure_ctx.emitDefersForScope(&func_actions);
+
+    // Transfer closure graph to pending list (moves ownership of internal arrays)
+    try ctx.pending_closures.append(ctx.allocator, closure_graph);
+    // Reset local so errdefer won't double-free the moved data
+    closure_graph = QTJIRGraph.init(ctx.allocator);
+
+    // Create Fn_Ref in the CURRENT graph referencing the anonymous function
+    return try ctx.builder.createFnRef(anon_name);
 }
 
 fn lowerBlock(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
@@ -1579,6 +1709,9 @@ fn lowerExpression(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
         .catch_expr => try lowerCatchExpr(ctx, node_id, node),
         .try_expr => try lowerTryExpr(ctx, node_id, node),
 
+        // :core profile - Closures (SPEC-024 Phase A)
+        .func_decl => try lowerClosureLiteral(ctx, node_id),
+
         // :service profile - Structured Concurrency
         .await_expr => try lowerAwaitExpr(ctx, node_id, node),
         .spawn_expr => try lowerSpawnExpr(ctx, node_id, node),
@@ -1929,6 +2062,21 @@ fn lowerUserFunctionCall(
     const scope = trace.trace("lowerUserFunctionCall", name);
     defer scope.end();
 
+    // Resolve closure variables: if name maps to an Fn_Ref in scope,
+    // use the anonymous function name instead (SPEC-024 Phase A)
+    const resolved_name = blk: {
+        if (ctx.scope.get(name)) |ref_id| {
+            const ref_node = &ctx.builder.graph.nodes.items[ref_id];
+            if (ref_node.op == .Fn_Ref) {
+                break :blk switch (ref_node.data) {
+                    .string => |s| @as([]const u8, s),
+                    else => name,
+                };
+            }
+        }
+        break :blk name;
+    };
+
     var args = std.ArrayListUnmanaged(u32){};
     defer args.deinit(ctx.allocator);
 
@@ -1939,7 +2087,7 @@ fn lowerUserFunctionCall(
     }
 
     const call_node_id = try ctx.builder.createCall(args.items);
-    ctx.builder.graph.nodes.items[call_node_id].data = .{ .string = try ctx.dupeForGraph(name) };
+    ctx.builder.graph.nodes.items[call_node_id].data = .{ .string = try ctx.dupeForGraph(resolved_name) };
 
     return call_node_id;
 }

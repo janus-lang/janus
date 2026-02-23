@@ -62,6 +62,9 @@ pub const OpCode = enum {
     Union_Tag_Check, // inputs[0] = union value, data.integer = expected tag → i1 (bool)
     Union_Payload_Extract, // inputs[0] = union value, data.integer = field_index|(is_float<<32) → i32 or f64
 
+    // --- Closures (SPEC-024 Phase A) ---
+    Fn_Ref, // Function reference as value. data.string = function name. No inputs.
+
     // --- Control Flow ---
     Call, // Function call
     Return,
@@ -383,6 +386,7 @@ pub const QTJIRGraph = struct {
 
     // Function metadata
     function_name: []const u8 = "main",
+    name_owned: bool = false, // true if function_name was heap-allocated and must be freed
     return_type: []const u8 = "i32",
     parameters: []const Parameter = &[_]Parameter{},
 
@@ -413,6 +417,11 @@ pub const QTJIRGraph = struct {
             // type_name is currently constant string, not allocated
         }
         self.allocator.free(self.parameters);
+
+        // Free owned function name (closures, test graphs)
+        if (self.name_owned) {
+            self.allocator.free(self.function_name);
+        }
     }
 
     /// Revealed Complexity: Dump the graph topology to stdout.
@@ -516,13 +525,18 @@ pub const QTJIRGraph = struct {
                 // Build cycle description
                 var cycle_desc = std.ArrayListUnmanaged(u8){};
                 defer cycle_desc.deinit(self.allocator);
-                const writer = cycle_desc.writer(self.allocator);
 
-                try writer.print("Cycle detected: ", .{});
+                try cycle_desc.appendSlice(self.allocator, "Cycle detected: ");
                 for (path.items[cycle_start..]) |pid| {
-                    try writer.print("{d} -> ", .{pid});
+                    var buf: [32]u8 = undefined;
+                    const s = std.fmt.bufPrint(&buf, "{d} -> ", .{pid}) catch break;
+                    try cycle_desc.appendSlice(self.allocator, s);
                 }
-                try writer.print("{d}", .{input_id});
+                {
+                    var buf: [32]u8 = undefined;
+                    const s = std.fmt.bufPrint(&buf, "{d}", .{input_id}) catch "";
+                    try cycle_desc.appendSlice(self.allocator, s);
+                }
 
                 const msg = try cycle_desc.toOwnedSlice(self.allocator);
                 try result.addError(msg, node_id, input_id);
@@ -959,6 +973,15 @@ pub const IRBuilder = struct {
 
         // Add arguments
         try node.inputs.appendSlice(self.graph.allocator, args);
+        return id;
+    }
+
+    /// Create a function reference node (function pointer to a named function)
+    /// Phase A: Zero-capture closures only — references a generated anonymous function
+    pub fn createFnRef(self: *IRBuilder, func_name: []const u8) !u32 {
+        const id = try self.createNode(.Fn_Ref);
+        var node = &self.graph.nodes.items[id];
+        node.data = .{ .string = try self.graph.allocator.dupeZ(u8, func_name) };
         return id;
     }
 

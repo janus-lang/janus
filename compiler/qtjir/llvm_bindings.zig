@@ -21,11 +21,24 @@ pub const Value = c.LLVMValueRef;
 pub const Type = c.LLVMTypeRef;
 pub const BasicBlock = c.LLVMBasicBlockRef;
 
-/// Initialize LLVM native target
+// Direct extern declarations for LLVM target init functions.
+// LLVMInitializeNativeTarget() is an inline C function that expands via
+// preprocessor macros (LLVM_NATIVE_TARGET → LLVMInitializeX86Target, etc).
+// Zig's @cImport can't resolve these macros inside inline functions,
+// causing a segfault at NULL. We bypass this by calling the real symbols.
+extern "c" fn LLVMInitializeX86TargetInfo() void;
+extern "c" fn LLVMInitializeX86Target() void;
+extern "c" fn LLVMInitializeX86TargetMC() void;
+extern "c" fn LLVMInitializeX86AsmPrinter() void;
+extern "c" fn LLVMInitializeX86AsmParser() void;
+
+/// Initialize LLVM native target (x86_64)
 pub fn initializeNativeTarget() void {
-    _ = c.LLVMInitializeNativeTarget();
-    _ = c.LLVMInitializeNativeAsmPrinter();
-    _ = c.LLVMInitializeNativeAsmParser();
+    LLVMInitializeX86TargetInfo();
+    LLVMInitializeX86Target();
+    LLVMInitializeX86TargetMC();
+    LLVMInitializeX86AsmPrinter();
+    LLVMInitializeX86AsmParser();
 }
 
 /// Create LLVM context

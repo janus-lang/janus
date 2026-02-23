@@ -174,8 +174,9 @@ pub const LLVMEmitter = struct {
 
         const func_type = llvm.functionType(ret_type, param_types.items.ptr, @intCast(param_types.items.len), false);
 
-        // Add function to module
-        const function = llvm.addFunction(self.module, func_name_z.ptr, func_type);
+        // Add function to module (or reuse existing forward declaration)
+        const existing = llvm.c.LLVMGetNamedFunction(self.module, func_name_z.ptr);
+        const function = if (existing) |f| f else llvm.addFunction(self.module, func_name_z.ptr, func_type);
         self.current_function = function;
 
         // Create entry basic block
@@ -293,6 +294,8 @@ pub const LLVMEmitter = struct {
             .Union_Construct => try self.emitUnionConstruct(node),
             .Union_Tag_Check => try self.emitUnionTagCheck(node),
             .Union_Payload_Extract => try self.emitUnionPayloadExtract(node),
+            // Closures (SPEC-024 Phase A)
+            .Fn_Ref => try self.emitFnRef(node),
             // :service profile - Structured Concurrency (Blocking Model Phase 1)
             .Await => try self.emitAwait(node),
             .Spawn => try self.emitSpawn(node),
@@ -1909,6 +1912,32 @@ pub const LLVMEmitter = struct {
             llvm.c.LLVMBuildTrunc(self.builder, raw, llvm.int32TypeInContext(self.context), "tu_unwrap");
 
         try self.values.put(node.id, result);
+    }
+
+    // =========================================================================
+    // Closures (SPEC-024 Phase A)
+    // =========================================================================
+
+    /// Emit Fn_Ref: function reference as value
+    /// Phase A (zero-capture): resolves to LLVMGetNamedFunction pointer.
+    /// The actual call dispatch resolves the name at lowering time via Call node,
+    /// so this handler primarily prevents unknown-opcode errors and stores
+    /// the function pointer for future use (Phase B: closures as values).
+    fn emitFnRef(self: *LLVMEmitter, node: *const IRNode) !void {
+        const func_name = switch (node.data) {
+            .string => |s| s,
+            else => return,
+        };
+
+        const name_z = try self.allocator.dupeZ(u8, func_name);
+        defer self.allocator.free(name_z);
+
+        const func = llvm.c.LLVMGetNamedFunction(self.module, name_z.ptr);
+        if (func) |f| {
+            try self.values.put(node.id, f);
+        }
+        // If null, the function hasn't been emitted yet — Phase A relies on
+        // Call node name resolution, so this is non-fatal
     }
 
     // =========================================================================

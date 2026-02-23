@@ -2415,21 +2415,22 @@ fn parseForStatement(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstN
 fn parseFunctionLiteral(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) error{ UnexpectedToken, OutOfMemory }!astdb_core.AstNode {
     const start_token = parser.current;
     _ = try parser.consume(.func);
+
+    // Build edge list for this closure's children (mirrors parseFunctionDeclaration)
+    var func_edges = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 0);
+    defer func_edges.deinit(parser.allocator);
+
     // Parameters
     _ = try parser.consume(.left_paren);
-    var params = try std.ArrayList(astdb_core.AstNode).initCapacity(parser.allocator, 0);
-    defer params.deinit(parser.allocator);
     while (!parser.match(.right_paren) and parser.peek() != null) {
         if (parser.match(.identifier)) {
             const param_start = parser.current;
             _ = parser.advance();
 
             // Optional Type Annotation: ': Type'
-            var type_node_idx: ?u32 = null;
             if (parser.match(.colon)) {
                 _ = parser.advance();
                 const type_node = try parseType(parser, nodes);
-                type_node_idx = @as(u32, @intCast(nodes.items.len));
                 try nodes.append(parser.allocator, type_node);
             }
 
@@ -2437,47 +2438,60 @@ fn parseFunctionLiteral(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
                 .kind = .parameter,
                 .first_token = @enumFromInt(param_start),
                 .last_token = @enumFromInt(parser.current - 1),
-                .child_lo = if (type_node_idx) |idx| idx else 0,
-                .child_hi = if (type_node_idx) |idx| idx + 1 else 0,
+                .child_lo = 0,
+                .child_hi = 0,
             };
+            const param_idx = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, param_node);
+            try func_edges.append(parser.allocator, @enumFromInt(param_idx));
+
             if (parser.match(.comma)) _ = parser.advance();
         } else break;
     }
     _ = try parser.consume(.right_paren);
-    // Optional return type: '->' type (skip for now)
+
+    // Optional return type: '->' type
     if (parser.match(.arrow)) {
         _ = parser.advance();
         const ret_type = try parseType(parser, nodes);
+        const ret_idx = @as(u32, @intCast(nodes.items.len));
         try nodes.append(parser.allocator, ret_type);
+        try func_edges.append(parser.allocator, @enumFromInt(ret_idx));
     }
+
     // Body: brace or do/end
-    var used_do_end = false;
-    var dummy_stmts = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 0);
-    defer dummy_stmts.deinit(parser.allocator);
+    var block_stmts = try std.ArrayList(astdb_core.NodeId).initCapacity(parser.allocator, 0);
+    defer block_stmts.deinit(parser.allocator);
 
     if (parser.match(.left_brace)) {
-        // Check if this is do/end form or brace form
         if (parser.match(.do_)) {
             _ = try parser.consume(.do_);
-            used_do_end = true;
-            try parseBlockStatements(parser, nodes, &dummy_stmts);
+            try parseBlockStatements(parser, nodes, &block_stmts);
         } else {
             _ = try parser.consume(.left_brace);
-            try parseBlockStatements(parser, nodes, &dummy_stmts);
+            try parseBlockStatements(parser, nodes, &block_stmts);
             _ = try parser.consume(.right_brace);
         }
     } else {
         _ = try parser.consume(.do_);
-        try parseBlockStatements(parser, nodes, &dummy_stmts);
+        try parseBlockStatements(parser, nodes, &block_stmts);
         _ = try parser.consume(.end);
     }
+
+    // Append block statements to func_edges
+    try func_edges.appendSlice(parser.allocator, block_stmts.items);
+
+    // Store in parser.edges and compute child_lo/child_hi
+    const child_lo = @as(u32, @intCast(parser.edges.items.len));
+    try parser.edges.appendSlice(parser.allocator, func_edges.items);
+    const child_hi = @as(u32, @intCast(parser.edges.items.len));
+
     return astdb_core.AstNode{
         .kind = .func_decl,
         .first_token = @enumFromInt(start_token),
         .last_token = @enumFromInt(parser.current - 1),
-        .child_lo = 0,
-        .child_hi = @intCast(nodes.items.len),
+        .child_lo = child_lo,
+        .child_hi = child_hi,
     };
 }
 

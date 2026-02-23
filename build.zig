@@ -65,6 +65,7 @@ fn linkLLVMLib(mod: *std.Build.Module, name: []const u8) void {
     mod.addLibraryPath(.{ .cwd_relative = "/usr/lib" });
     mod.addIncludePath(.{ .cwd_relative = "/usr/include" });
     mod.linkSystemLibrary(name, .{});
+    mod.link_libc = true;
 }
 
 pub fn build(b: *std.Build) void {
@@ -1614,7 +1615,8 @@ pub fn build(b: *std.Build) void {
         }),
     });
     qtjir_llvm_emitter_tests.root_module.addImport("astdb_core", astdb_core_mod);
-    linkLLVMLib(qtjir_llvm_emitter_tests.root_module, "LLVM");
+    qtjir_llvm_emitter_tests.root_module.addImport("zig_parser", zig_parser_mod);
+    linkLLVMLib(qtjir_llvm_emitter_tests.root_module, "LLVM-21");
     const run_qtjir_llvm_emitter_tests = b.addRunArtifact(qtjir_llvm_emitter_tests);
 
     const test_llvm_emitter_step = b.step("test-llvm-emitter", "Run QTJIR LLVM-C emitter tests");
@@ -1944,6 +1946,43 @@ pub fn build(b: *std.Build) void {
     const test_union_lower_step = b.step("test-union-lower", "Run Union lowering IR-level tests");
     test_union_lower_step.dependOn(&run_union_lower_tests.step);
     test_step.dependOn(&run_union_lower_tests.step);
+
+    // Closure IR Lowering Tests (SPEC-024 Phase A)
+    const closure_lower_tests = b.addTest(.{
+        .name = "closure_lower_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("compiler/qtjir/test_closure_lower.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    closure_lower_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    closure_lower_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    closure_lower_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_closure_lower_tests = b.addRunArtifact(closure_lower_tests);
+
+    const test_closure_lower_step = b.step("test-closure-lower", "Run Closure lowering IR-level tests");
+    test_closure_lower_step.dependOn(&run_closure_lower_tests.step);
+    test_step.dependOn(&run_closure_lower_tests.step);
+
+    // Closure E2E Smoke Tests (SPEC-024 Phase A — Source → LLVM IR + Verify)
+    const closure_e2e_tests = b.addTest(.{
+        .name = "closure_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("compiler/qtjir/test_closure_e2e.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    linkLLVMLib(closure_e2e_tests.root_module, "LLVM-21");
+    closure_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    closure_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    closure_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_closure_e2e_tests = b.addRunArtifact(closure_e2e_tests);
+
+    const test_closure_e2e_step = b.step("test-closure-e2e", "Run Closure E2E smoke tests (Source to LLVM IR)");
+    test_closure_e2e_step.dependOn(&run_closure_e2e_tests.step);
+    test_step.dependOn(&run_closure_e2e_tests.step);
 
     // String Literals E2E Tests
     const string_e2e_tests = b.addTest(.{

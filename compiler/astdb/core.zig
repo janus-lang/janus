@@ -686,7 +686,10 @@ pub const Snapshot = struct {
             const index = @intFromEnum(node_id);
             if (index < unit.nodes.len) {
                 const node = &unit.nodes[index];
-                return unit.edges[node.child_lo..node.child_hi];
+                // Bounds check: child_lo/child_hi must be valid edge indices
+                if (node.child_lo <= node.child_hi and node.child_hi <= unit.edges.len) {
+                    return unit.edges[node.child_lo..node.child_hi];
+                }
             }
         }
         return &.{};
