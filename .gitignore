@@ -31,6 +31,8 @@ build/
 *.class
 .claude/
 .codex/
+.ops/
+.agent/
 .com.apple.timemachine.donotpresent
 coverage/
 # Coverage / test junk

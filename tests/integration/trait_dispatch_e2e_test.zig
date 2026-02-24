@@ -214,3 +214,122 @@ test "TRAIT-009: Default method NOT emitted when impl overrides" {
     }
     try testing.expectEqual(@as(usize, 1), count);
 }
+
+test "TRAIT-010: Disambiguated dispatch with known receiver type" {
+    const allocator = testing.allocator;
+
+    var p = janus_parser.Parser.init(allocator);
+    defer p.deinit();
+
+    const source =
+        \\struct Point { x: i32 }
+        \\struct Circle { r: i32 }
+        \\trait Drawable { func draw(self) -> i32 }
+        \\impl Drawable for Point {
+        \\    func draw(self) -> i32 do
+        \\        return 1
+        \\    end
+        \\}
+        \\impl Drawable for Circle {
+        \\    func draw(self) -> i32 do
+        \\        return 2
+        \\    end
+        \\}
+        \\func main() -> i32 do
+        \\    let p = Point{ x: 10 }
+        \\    let c = Circle{ r: 5 }
+        \\    let a = p.draw()
+        \\    let b = c.draw()
+        \\    return a + b
+        \\end
+    ;
+
+    const snapshot = try p.parseWithSource(source);
+    defer snapshot.deinit();
+    const unit_id: astdb.UnitId = @enumFromInt(0);
+
+    var ir_graphs = try lower.lowerUnit(allocator, &snapshot.core_snapshot, unit_id);
+    defer {
+        for (ir_graphs.items) |*g| g.deinit();
+        ir_graphs.deinit(allocator);
+    }
+
+    // Both impl graphs must exist
+    var found_point = false;
+    var found_circle = false;
+    for (ir_graphs.items) |g| {
+        if (std.mem.eql(u8, g.function_name, "Point_Drawable_draw")) found_point = true;
+        if (std.mem.eql(u8, g.function_name, "Circle_Drawable_draw")) found_circle = true;
+    }
+    try testing.expect(found_point);
+    try testing.expect(found_circle);
+
+    // Main graph must have BOTH Trait_Method_Call nodes with correct qualified names
+    var main_graph: ?*const graph_mod.QTJIRGraph = null;
+    for (ir_graphs.items) |*g| {
+        if (std.mem.eql(u8, g.function_name, "main")) {
+            main_graph = g;
+            break;
+        }
+    }
+    const mg = main_graph orelse return error.TestUnexpectedResult;
+    try testing.expect(hasNodeWithOp(mg, .Trait_Method_Call, "Point_Drawable_draw"));
+    try testing.expect(hasNodeWithOp(mg, .Trait_Method_Call, "Circle_Drawable_draw"));
+}
+
+test "TRAIT-011: Sprint 1 behavior preserved for single-impl case" {
+    const allocator = testing.allocator;
+
+    var p = janus_parser.Parser.init(allocator);
+    defer p.deinit();
+
+    // Single impl — type_map not strictly needed, Sprint 1 heuristic suffices
+    const source =
+        \\struct Widget {
+        \\    id: i32,
+        \\}
+        \\trait Renderable {
+        \\    func render(self) -> i32
+        \\}
+        \\impl Renderable for Widget {
+        \\    func render(self) -> i32 do
+        \\        return 7
+        \\    end
+        \\}
+        \\func main() -> i32 do
+        \\    let w = Widget{ id: 1 }
+        \\    return w.render()
+        \\end
+    ;
+
+    const snapshot = try p.parseWithSource(source);
+    defer snapshot.deinit();
+    const unit_id: astdb.UnitId = @enumFromInt(0);
+
+    var ir_graphs = try lower.lowerUnit(allocator, &snapshot.core_snapshot, unit_id);
+    defer {
+        for (ir_graphs.items) |*g| g.deinit();
+        ir_graphs.deinit(allocator);
+    }
+
+    // Impl graph must exist
+    var found_impl = false;
+    for (ir_graphs.items) |g| {
+        if (std.mem.eql(u8, g.function_name, "Widget_Renderable_render")) {
+            found_impl = true;
+            break;
+        }
+    }
+    try testing.expect(found_impl);
+
+    // Main graph must have Trait_Method_Call
+    var main_graph: ?*const graph_mod.QTJIRGraph = null;
+    for (ir_graphs.items) |*g| {
+        if (std.mem.eql(u8, g.function_name, "main")) {
+            main_graph = g;
+            break;
+        }
+    }
+    const mg = main_graph orelse return error.TestUnexpectedResult;
+    try testing.expect(hasNodeWithOp(mg, .Trait_Method_Call, "Widget_Renderable_render"));
+}

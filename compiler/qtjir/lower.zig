@@ -138,6 +138,10 @@ pub const LoweringContext = struct {
     // SPEC-025 Phase C: trait/impl metadata for static dispatch resolution
     trait_meta: ?*const TraitImplMeta = null,
 
+    // SPEC-025 Phase C Sprint 2: maps variable name → struct type name
+    // Populated when let/var binds a struct literal, consumed by method dispatch
+    type_map: std.StringHashMap([]const u8),
+
     const PendingJump = struct {
         jump_id: u32,
         loop_depth: usize,
@@ -195,6 +199,7 @@ pub const LoweringContext = struct {
             .pending_closures = .{},
             .closure_counter = 0,
             .mutable_capture_indices = std.StringHashMap(u32).init(allocator),
+            .type_map = std.StringHashMap([]const u8).init(allocator),
         };
     }
 
@@ -267,6 +272,7 @@ pub const LoweringContext = struct {
         for (self.pending_closures.items) |*g| g.deinit();
         self.pending_closures.deinit(self.allocator);
         self.mutable_capture_indices.deinit();
+        self.type_map.deinit();
     }
 
     /// Clone a string using the Graph's allocator for sovereign ownership.
@@ -2637,16 +2643,29 @@ fn lowerFieldCall(
         }
 
         // SPEC-025 Phase C: Static dispatch — resolve receiver.method to qualified name
+        // Sprint 2: type-aware disambiguation via type_map
         if (ctx.trait_meta) |tmeta| {
             if (std.mem.lastIndexOfScalar(u8, full_path, '.')) |dot_idx| {
+                const receiver_name = full_path[0..dot_idx];
                 const method_name = full_path[dot_idx + 1 ..];
+                const receiver_type = ctx.type_map.get(receiver_name);
+
                 var qualified: ?[]const u8 = null;
                 var match_count: u32 = 0;
                 for (tmeta.impls.items) |impl_entry| {
                     for (impl_entry.methods.items) |m| {
                         if (std.mem.eql(u8, m.name, method_name)) {
-                            qualified = m.qualified_name;
-                            match_count += 1;
+                            if (receiver_type) |rt| {
+                                // Type-aware: only match impl whose type matches receiver
+                                if (std.mem.eql(u8, impl_entry.type_name, rt)) {
+                                    qualified = m.qualified_name;
+                                    match_count += 1;
+                                }
+                            } else {
+                                // Fallback: Sprint 1 untyped heuristic
+                                qualified = m.qualified_name;
+                                match_count += 1;
+                            }
                         }
                     }
                 }
@@ -3136,6 +3155,21 @@ fn lowerVarDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lo
             try some_node.inputs.append(ctx.allocator, init_val);
             try ctx.optional_nodes.put(ctx.allocator, some_id, {});
             init_val = some_id;
+        }
+    }
+
+    // SPEC-025 Sprint 2A: Track struct type for dispatch disambiguation
+    if (init_node.kind == .struct_literal) {
+        const struct_children = ctx.snapshot.getChildren(init_id);
+        if (struct_children.len >= 1) {
+            const type_child = ctx.snapshot.getNode(struct_children[0]);
+            if (type_child != null and type_child.?.kind == .identifier) {
+                const type_tok = ctx.snapshot.getToken(type_child.?.first_token);
+                if (type_tok != null and type_tok.?.str != null) {
+                    const type_name = ctx.snapshot.astdb.str_interner.getString(type_tok.?.str.?);
+                    try ctx.type_map.put(name, type_name);
+                }
+            }
         }
     }
 
