@@ -445,11 +445,14 @@ pub fn validateImplCompleteness(
 pub const LoweringResult = struct {
     graphs: std.ArrayListUnmanaged(QTJIRGraph),
     extern_registry: extern_registry.ExternRegistry,
+    // SPEC-025 Phase C Sprint 3: trait metadata for vtable construction
+    trait_meta: ?TraitImplMeta = null,
 
     pub fn deinit(self: *LoweringResult, allocator: std.mem.Allocator) void {
         for (self.graphs.items) |*g| g.deinit();
         self.graphs.deinit(allocator);
         self.extern_registry.deinit();
+        if (self.trait_meta) |*m| m.deinit();
     }
 };
 
@@ -472,8 +475,9 @@ pub fn lowerUnitWithExterns(allocator: std.mem.Allocator, snapshot: *const Snaps
     }
 
     // Trait/Impl pass: collect metadata + validate completeness (SPEC-025 Phase B)
+    // Meta ownership transfers to result for vtable construction (Phase C Sprint 3)
     var meta = try collectTraitImplMetadata(snapshot, allocator, unit_id);
-    defer meta.deinit();
+    errdefer meta.deinit();
     try validateImplCompleteness(&meta.traits, meta.impls.items);
 
     // Second pass: Lower function declarations (skip trait/impl children)
@@ -501,6 +505,9 @@ pub fn lowerUnitWithExterns(allocator: std.mem.Allocator, snapshot: *const Snaps
             try result.graphs.append(allocator, impl_graph);
         }
     }
+
+    // Transfer meta ownership to result (consumed by pipeline for vtable construction)
+    result.trait_meta = meta;
 
     return result;
 }

@@ -333,3 +333,83 @@ test "TRAIT-011: Sprint 1 behavior preserved for single-impl case" {
     const mg = main_graph orelse return error.TestUnexpectedResult;
     try testing.expect(hasNodeWithOp(mg, .Trait_Method_Call, "Widget_Renderable_render"));
 }
+
+test "TRAIT-020: LoweringResult carries trait_meta for vtable construction" {
+    const allocator = testing.allocator;
+
+    var p = janus_parser.Parser.init(allocator);
+    defer p.deinit();
+
+    // Two impls of the same trait — verifies trait_meta survives in LoweringResult
+    // and contains correct data for vtable spec construction.
+    const source =
+        \\struct Point { x: i32 }
+        \\struct Circle { r: i32 }
+        \\trait Drawable { func draw(self) -> i32 }
+        \\impl Drawable for Point {
+        \\    func draw(self) -> i32 do
+        \\        return 1
+        \\    end
+        \\}
+        \\impl Drawable for Circle {
+        \\    func draw(self) -> i32 do
+        \\        return 2
+        \\    end
+        \\}
+        \\func main() -> i32 do
+        \\    let p = Point{ x: 10 }
+        \\    return p.draw()
+        \\end
+    ;
+
+    const snapshot = try p.parseWithSource(source);
+    defer snapshot.deinit();
+    const unit_id: astdb.UnitId = @enumFromInt(0);
+
+    var result = try lower.lowerUnitWithExterns(allocator, &snapshot.core_snapshot, unit_id, null);
+    defer result.deinit(allocator);
+
+    // Verify trait_meta is populated (Sprint 3D: meta transfers to LoweringResult)
+    try testing.expect(result.trait_meta != null);
+    const meta = &result.trait_meta.?;
+
+    // Verify trait definition exists
+    try testing.expect(meta.traits.get("Drawable") != null);
+    const trait_def = meta.traits.get("Drawable").?;
+    try testing.expectEqual(@as(usize, 1), trait_def.methods.items.len);
+    try testing.expect(std.mem.eql(u8, trait_def.methods.items[0].name, "draw"));
+
+    // Verify two impls exist
+    try testing.expectEqual(@as(usize, 2), meta.impls.items.len);
+
+    // Verify impl entries have correct qualified names for vtable construction
+    var found_point = false;
+    var found_circle = false;
+    for (meta.impls.items) |impl_entry| {
+        if (std.mem.eql(u8, impl_entry.type_name, "Point")) {
+            try testing.expect(impl_entry.trait_name != null);
+            try testing.expect(std.mem.eql(u8, impl_entry.trait_name.?, "Drawable"));
+            try testing.expectEqual(@as(usize, 1), impl_entry.methods.items.len);
+            try testing.expect(std.mem.eql(u8, impl_entry.methods.items[0].qualified_name, "Point_Drawable_draw"));
+            found_point = true;
+        } else if (std.mem.eql(u8, impl_entry.type_name, "Circle")) {
+            try testing.expect(impl_entry.trait_name != null);
+            try testing.expect(std.mem.eql(u8, impl_entry.trait_name.?, "Drawable"));
+            try testing.expectEqual(@as(usize, 1), impl_entry.methods.items.len);
+            try testing.expect(std.mem.eql(u8, impl_entry.methods.items[0].qualified_name, "Circle_Drawable_draw"));
+            found_circle = true;
+        }
+    }
+    try testing.expect(found_point);
+    try testing.expect(found_circle);
+
+    // Verify impl function graphs were emitted
+    var found_point_graph = false;
+    var found_circle_graph = false;
+    for (result.graphs.items) |g| {
+        if (std.mem.eql(u8, g.function_name, "Point_Drawable_draw")) found_point_graph = true;
+        if (std.mem.eql(u8, g.function_name, "Circle_Drawable_draw")) found_circle_graph = true;
+    }
+    try testing.expect(found_point_graph);
+    try testing.expect(found_circle_graph);
+}

@@ -172,6 +172,71 @@ pub const Pipeline = struct {
         // Set extern registry for native Zig function resolution
         emitter.setExternRegistry(&lowering_result.extern_registry);
 
+        // SPEC-025 Phase C Sprint 3: build vtable specs from trait metadata
+        var vtable_specs_buf = std.ArrayListUnmanaged(qtjir.llvm_emitter.LLVMEmitter.VtableSpec){};
+        defer vtable_specs_buf.deinit(allocator);
+        var vtable_method_lists = std.ArrayListUnmanaged([]const []const u8){};
+        defer {
+            for (vtable_method_lists.items) |list| allocator.free(list);
+            vtable_method_lists.deinit(allocator);
+        }
+        var vtable_keys = std.ArrayListUnmanaged([]u8){};
+        defer {
+            for (vtable_keys.items) |k| allocator.free(k);
+            vtable_keys.deinit(allocator);
+        }
+
+        if (lowering_result.trait_meta) |meta| {
+            for (meta.impls.items) |impl_entry| {
+                const trait_name = impl_entry.trait_name orelse continue;
+                const trait_def = meta.traits.get(trait_name) orelse continue;
+
+                // Build ordered method list following trait method order
+                const methods = allocator.alloc([]const u8, trait_def.methods.items.len) catch continue;
+                var valid = true;
+                for (trait_def.methods.items, 0..) |trait_method, i| {
+                    var found: ?[]const u8 = null;
+                    for (impl_entry.methods.items) |m| {
+                        if (std.mem.eql(u8, m.name, trait_method.name)) {
+                            found = m.qualified_name;
+                            break;
+                        }
+                    }
+                    if (found) |qn| {
+                        methods[i] = qn;
+                    } else {
+                        valid = false;
+                        break;
+                    }
+                }
+
+                if (!valid) {
+                    allocator.free(methods);
+                    continue;
+                }
+
+                // Build vtable key: "Type_Trait"
+                const key = std.fmt.allocPrint(allocator, "{s}_{s}", .{ impl_entry.type_name, trait_name }) catch continue;
+                vtable_keys.append(allocator, key) catch {
+                    allocator.free(key);
+                    allocator.free(methods);
+                    continue;
+                };
+                vtable_method_lists.append(allocator, methods) catch {
+                    allocator.free(methods);
+                    continue;
+                };
+                vtable_specs_buf.append(allocator, .{
+                    .key = key,
+                    .method_qualified_names = methods,
+                }) catch continue;
+            }
+        }
+
+        if (vtable_specs_buf.items.len > 0) {
+            emitter.setVtableSpecs(vtable_specs_buf.items);
+        }
+
         emitter.emit(lowering_result.graphs.items) catch |err| {
             std.debug.print("LLVM emit error: {s}\n", .{@errorName(err)});
             return CompileError.EmitFailed;
