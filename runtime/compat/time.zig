@@ -15,3 +15,10 @@ pub fn timestamp() i64 {
     _ = std.os.linux.clock_gettime(.REALTIME, &ts);
     return @intCast(ts.sec);
 }
+
+/// Returns milliseconds since epoch. Replaces std.time.milliTimestamp().
+pub fn milliTimestamp() i64 {
+    var ts: std.os.linux.timespec = .{ .sec = 0, .nsec = 0 };
+    _ = std.os.linux.clock_gettime(.REALTIME, &ts);
+    return @as(i64, ts.sec) * 1000 + @divFloor(@as(i64, ts.nsec), 1_000_000);
+}

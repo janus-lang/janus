@@ -309,6 +309,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    rogue_ast_checker.root_module.addImport("compat_fs", compat_fs_mod);
     const run_rogue_ast_checker = b.addRunArtifact(rogue_ast_checker);
     const rogue_ast_step = b.step("check-rogue-ast", "Detect rogue AST definitions outside ASTDB");
     rogue_ast_step.dependOn(&run_rogue_ast_checker.step);

@@ -1118,7 +1118,7 @@ fn test_route_with_app(
 
 pub fn test_route_response(method: []const u8, path: []const u8, content_type: ?[]const u8, body: []const u8, allocator: std.mem.Allocator) ![]u8 {
     var key: [32]u8 = undefined;
-    std.crypto.random.bytes(&key);
+    _ = std.os.linux.getrandom(std.mem.asBytes(&key).ptr, @sizeOf(@TypeOf(key)), 0);
     var app = try App.init(allocator, key, false);
     defer app.deinit();
     return try test_route_with_app(&app, method, path, content_type orelse "", "", body, allocator, auth.envResolver());
@@ -1126,7 +1126,7 @@ pub fn test_route_response(method: []const u8, path: []const u8, content_type: ?
 
 pub fn test_route_response_with_resolver(method: []const u8, path: []const u8, content_type: ?[]const u8, authorization: ?[]const u8, body: []const u8, resolver: auth.TokenResolver, allocator: std.mem.Allocator) ![]u8 {
     var key: [32]u8 = undefined;
-    std.crypto.random.bytes(&key);
+    _ = std.os.linux.getrandom(std.mem.asBytes(&key).ptr, @sizeOf(@TypeOf(key)), 0);
     var app = try App.init(allocator, key, false);
     defer app.deinit();
     return try test_route_with_app(&app, method, path, content_type orelse "", authorization orelse "", body, allocator, resolver);
@@ -1288,7 +1288,7 @@ test "HTTP POST /registry/quota.set updates quota (admin)" {
     defer _ = gpa.deinit();
     const A = gpa.allocator();
     var key: [32]u8 = undefined;
-    std.crypto.random.bytes(&key);
+    _ = std.os.linux.getrandom(std.mem.asBytes(&key).ptr, @sizeOf(@TypeOf(key)), 0);
     var app = try App.init(A, key, false);
     defer app.deinit();
     var mem = auth.InMemoryResolver{ .token = "t", .capabilities = &.{"registry.admin:*"} };
@@ -1335,7 +1335,7 @@ test "lease.heartbeat requires capability per-group" {
     defer _ = gpa.deinit();
     const A = gpa.allocator();
     var key: [32]u8 = undefined;
-    std.crypto.random.bytes(&key);
+    _ = std.os.linux.getrandom(std.mem.asBytes(&key).ptr, @sizeOf(@TypeOf(key)), 0);
     var app = try App.init(A, key, false);
     defer app.deinit();
     // Prepare: register with admin-like resolver that has both register + heartbeat caps
