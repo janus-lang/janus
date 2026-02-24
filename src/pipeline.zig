@@ -31,8 +31,7 @@ const CmdResult = struct {
 };
 
 /// Run a command using 0.16's Io-threaded process API.
-fn runCmd(allocator: std.mem.Allocator, argv: []const []const u8) !CmdResult {
-    const io = std.Io.Threaded.global_single_threaded.io();
+fn runCmd(allocator: std.mem.Allocator, io: std.Io, argv: []const []const u8) !CmdResult {
     const result = try std.process.run(allocator, io, .{ .argv = argv });
     const exit_code: u8 = switch (result.term) {
         .exited => |code| code,
@@ -73,6 +72,9 @@ pub const CompileOptions = struct {
     /// Path to runtime directory containing janus_rt.zig and scheduler/
     /// If null, attempts to use embedded source (deprecated, won't work with scheduler)
     runtime_dir: ?[]const u8 = null,
+    /// IO handle for subprocess spawning. Required in test context where
+    /// global_single_threaded is not initialized. Defaults to global IO.
+    io: ?std.Io = null,
 };
 
 /// Compilation error types
@@ -103,6 +105,7 @@ pub const Pipeline = struct {
     /// Execute the full compilation pipeline
     pub fn compile(self: *Pipeline) !CompilationResult {
         const allocator = self.allocator;
+        const io = self.options.io orelse std.Io.Threaded.global_single_threaded.io();
 
         // ========== STAGE 1: READ SOURCE ==========
         if (self.options.verbose) {
@@ -271,7 +274,7 @@ pub const Pipeline = struct {
         const obj_file_path = try std.fs.path.join(allocator, &[_][]const u8{ tmp_path, "output.o" });
         defer allocator.free(obj_file_path);
 
-        const llc_result = try runCmd(allocator, &[_][]const u8{
+        const llc_result = try runCmd(allocator, io, &[_][]const u8{
             "llc",
             "-filetype=obj",
             ir_file_path,
@@ -321,7 +324,7 @@ pub const Pipeline = struct {
         const emit_bin_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{runtime_obj_path});
         defer allocator.free(emit_bin_arg);
 
-        const zig_compile_result = try runCmd(allocator, &[_][]const u8{
+        const zig_compile_result = try runCmd(allocator, io, &[_][]const u8{
             "zig",
             "build-obj",
             runtime_source_path,
@@ -372,7 +375,7 @@ pub const Pipeline = struct {
                 std.debug.print("Compiling context switch assembly...\n", .{});
             }
 
-            const asm_compile_result = try runCmd(allocator, &[_][]const u8{
+            const asm_compile_result = try runCmd(allocator, io, &[_][]const u8{
                 "zig",
                 "build-obj",
                 asm_source_path,
@@ -424,7 +427,7 @@ pub const Pipeline = struct {
             const module_emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{module_obj_path});
             defer allocator.free(module_emit_arg);
 
-            const module_compile_result = try runCmd(allocator, &[_][]const u8{
+            const module_compile_result = try runCmd(allocator, io, &[_][]const u8{
                 "zig",
                 "build-obj",
                 zig_path.*,
@@ -483,7 +486,7 @@ pub const Pipeline = struct {
         try link_argv.append(allocator, output_path);
 
         // Link with cc (still needed for startup code)
-        const link_result = try runCmd(allocator, link_argv.items);
+        const link_result = try runCmd(allocator, io, link_argv.items);
         defer allocator.free(link_result.stdout);
         defer allocator.free(link_result.stderr);
 

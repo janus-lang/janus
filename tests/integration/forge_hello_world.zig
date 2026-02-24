@@ -28,13 +28,14 @@ test "Forge Cycle: Compile and Run Hello World (Real Example)" {
     const runtime_dir = try compat_fs.realpathAlloc(allocator, "runtime");
     defer allocator.free(runtime_dir);
 
-    // 4. Initialize pipeline
+    // 4. Initialize pipeline (pass testing.io for subprocess spawning)
     var pipe = pipeline.Pipeline.init(allocator, .{
         .source_path = source_path,
         .output_path = output_path,
         .emit_llvm_ir = true,
         .verbose = true,
         .runtime_dir = runtime_dir,
+        .io = io,
     });
 
     // 5. Compile

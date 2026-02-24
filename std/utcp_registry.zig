@@ -605,22 +605,23 @@ pub fn UtcpRegistryNsSyncLease(comptime UseSpinLock: bool) type {
                     if (!first_entry) try w.writeByte(',');
                     first_entry = false;
 
-                    // Start with the container's manual
-                    try w.writeAll(manual);
-
-                    // Remove the closing } and add lease metadata
+                    // Merge lease metadata into the container's manual JSON object.
+                    // Strip trailing '}' so we can append fields before re-closing.
                     if (manual.len > 0 and manual[manual.len - 1] == '}') {
-                        // Remove the closing brace temporarily
-                        try w.writeByte(',');
-                        try w.writeAll("\"lease_deadline\":");
-                        try w.print( "{}", .{e.deadline_ns});
+                        try w.writeAll(manual[0 .. manual.len - 1]);
+                        try w.writeAll(",\"_entry_name\":\"");
+                        try w.writeAll(e.name);
+                        try w.writeAll("\",\"lease_deadline\":");
+                        try w.print("{}", .{e.deadline_ns});
                         try w.writeAll(",\"heartbeat_count\":");
-                        try w.print( "{}", .{e.heartbeat_count});
+                        try w.print("{}", .{e.heartbeat_count});
                         try w.writeAll(",\"signature\":\"");
                         for (e.signature) |b| {
-                            try w.print( "{x:0>2}", .{b});
+                            try w.print("{x:0>2}", .{b});
                         }
                         try w.writeAll("\"}");
+                    } else {
+                        try w.writeAll(manual);
                     }
                 }
 

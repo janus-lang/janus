@@ -12,7 +12,9 @@ const std = @import("std");
 export fn janus_graft_print(ptr: [*]const u8, len: usize) c_int {
     if (len == 0) return 1; // EINVAL
     const slice = ptr[0..len];
-    std.debug.print("{s}\n", .{slice});
+    // Use raw stderr write — std.debug.print corrupts --listen=- IPC pipe in Zig 0.16 tests.
+    _ = std.os.linux.write(2, slice.ptr, slice.len);
+    _ = std.os.linux.write(2, "\n", 1);
     return 0;
 }
 
