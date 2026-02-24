@@ -71,6 +71,8 @@ pub const TokenType = enum {
     match_arrow, // =>
     pipe, // |
     dot_dot, // ..
+    dot_dot_less, // ..<
+    dot_dot_equal, // ..=
     ampersand, // &
     // Optional chaining and null coalesce operators
     optional_chain, // ?.
@@ -219,8 +221,16 @@ pub const Tokenizer = struct {
             ',' => try self.addToken(.comma, ",", SourceSpan.single(start_pos)),
             '.' => {
                 if (self.match('.')) {
-                    const end_pos = self.currentPos();
-                    try self.addToken(.dot_dot, "..", SourceSpan.init(start_pos, end_pos));
+                    if (self.match('<')) {
+                        const end_pos = self.currentPos();
+                        try self.addToken(.dot_dot_less, "..<", SourceSpan.init(start_pos, end_pos));
+                    } else if (self.match('=')) {
+                        const end_pos = self.currentPos();
+                        try self.addToken(.dot_dot_equal, "..=", SourceSpan.init(start_pos, end_pos));
+                    } else {
+                        const end_pos = self.currentPos();
+                        try self.addToken(.dot_dot, "..", SourceSpan.init(start_pos, end_pos));
+                    }
                 } else {
                     try self.addToken(.dot, ".", SourceSpan.single(start_pos));
                 }
@@ -617,6 +627,38 @@ test "tokenizer match arrow and range" {
     try std.testing.expect(tokens[3].type == .dot_dot); // ..
     try std.testing.expect(tokens[4].type == .identifier); // z
     try std.testing.expect(tokens[5].type == .eof);
+}
+
+test "tokenizer exclusive range" {
+    const allocator = std.testing.allocator;
+
+    const source = "1 ..< 10";
+    var tokenizer = Tokenizer.init(allocator, source);
+    defer tokenizer.deinit();
+
+    const tokens = try tokenizer.tokenize();
+    defer allocator.free(tokens);
+
+    try std.testing.expect(tokens[0].type == .number);
+    try std.testing.expect(tokens[1].type == .dot_dot_less);
+    try std.testing.expect(tokens[2].type == .number);
+    try std.testing.expect(tokens[3].type == .eof);
+}
+
+test "tokenizer explicit inclusive range" {
+    const allocator = std.testing.allocator;
+
+    const source = "1 ..= 5";
+    var tokenizer = Tokenizer.init(allocator, source);
+    defer tokenizer.deinit();
+
+    const tokens = try tokenizer.tokenize();
+    defer allocator.free(tokens);
+
+    try std.testing.expect(tokens[0].type == .number);
+    try std.testing.expect(tokens[1].type == .dot_dot_equal);
+    try std.testing.expect(tokens[2].type == .number);
+    try std.testing.expect(tokens[3].type == .eof);
 }
 
 test "tokenizer underscore wildcard vs identifier" {

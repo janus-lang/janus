@@ -503,6 +503,7 @@ fn convertTokenType(janus_type: tokenizer.TokenType) TokenKind {
         .pipeline => .pipeline, // Pipeline operator |>
         .dot_dot => .range_inclusive, // Use range_inclusive for ..
         .dot_dot_less => .range_exclusive, // Use range_exclusive for ..<
+        .dot_dot_equal => .range_inclusive, // Use range_inclusive for ..= (explicit alias)
         .ampersand => .bitwise_and, // Address-of operator ( & )
         .question => .question, // Question mark for optional types (i32?)
         .optional_chain => .optional_chain,
