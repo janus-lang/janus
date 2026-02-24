@@ -46,6 +46,7 @@ pub const LowerError = error{ InvalidToken, InvalidCall, InvalidNode, Unsupporte
 pub const TraitMethodSig = struct {
     name: []const u8,
     has_default: bool, // true if trait provides do...end body
+    func_node_id: ?NodeId = null, // AST node for default body (Phase C)
 };
 
 pub const TraitDef = struct {
@@ -133,6 +134,9 @@ pub const LoweringContext = struct {
     // Phase C: mutable capture tracking — maps capture name → capture index
     // Used inside closure bodies so reads/writes emit Closure_Env_Load/Store
     mutable_capture_indices: std.StringHashMap(u32),
+
+    // SPEC-025 Phase C: trait/impl metadata for static dispatch resolution
+    trait_meta: ?*const TraitImplMeta = null,
 
     const PendingJump = struct {
         jump_id: u32,
@@ -338,9 +342,11 @@ pub fn collectTraitImplMetadata(
                 if (child.kind == .func_decl) {
                     try meta.skip_node_ids.put(allocator, child_id, {});
                     const method_name = extractFuncDeclName(snapshot, child_id) orelse continue;
+                    const has_body = funcDeclHasBody(snapshot, child_id);
                     try methods.append(allocator, .{
                         .name = method_name,
-                        .has_default = funcDeclHasBody(snapshot, child_id),
+                        .has_default = has_body,
+                        .func_node_id = if (has_body) child_id else null,
                     });
                 }
             }
@@ -567,6 +573,7 @@ pub fn lowerUnit(allocator: std.mem.Allocator, snapshot: *const Snapshot, unit_i
 
                     var ir_graph = QTJIRGraph.initWithName(allocator, name);
                     var ctx = LoweringContext.init(allocator, snapshot, unit_id, &ir_graph);
+                    ctx.trait_meta = &meta; // SPEC-025 Phase C: static dispatch resolution
                     defer ctx.deinit();
 
                     try ctx.pushScope(.Function); // Root scope
@@ -607,6 +614,7 @@ pub fn lowerUnit(allocator: std.mem.Allocator, snapshot: *const Snapshot, unit_i
                     var ir_graph = QTJIRGraph.initWithName(allocator, name);
                     ir_graph.name_owned = true;
                     var ctx = LoweringContext.init(allocator, snapshot, unit_id, &ir_graph);
+                    ctx.trait_meta = &meta; // SPEC-025 Phase C: static dispatch resolution
                     defer ctx.deinit();
 
                     try ctx.pushScope(.Function);
@@ -639,6 +647,37 @@ pub fn lowerUnit(allocator: std.mem.Allocator, snapshot: *const Snapshot, unit_i
         for (impl_entry.methods.items) |method| {
             const impl_graph = try lowerImplMethodToGraph(allocator, snapshot, unit_id, method, &graphs);
             try graphs.append(allocator, impl_graph);
+        }
+    }
+
+    // SPEC-025 Phase C: Lower unoverridden default trait methods as graphs
+    for (meta.impls.items) |impl_entry| {
+        const tn = impl_entry.trait_name orelse continue;
+        const trait_def = meta.traits.get(tn) orelse continue;
+        for (trait_def.methods.items) |trait_method| {
+            if (!trait_method.has_default) continue;
+            const default_node = trait_method.func_node_id orelse continue;
+            // Skip if impl overrides this method
+            var overridden = false;
+            for (impl_entry.methods.items) |im| {
+                if (std.mem.eql(u8, im.name, trait_method.name)) {
+                    overridden = true;
+                    break;
+                }
+            }
+            if (overridden) continue;
+            // Build qualified name: {Type}_{Trait}_{method}
+            const qname = try std.fmt.allocPrint(allocator, "{s}_{s}_{s}", .{
+                impl_entry.type_name, tn, trait_method.name,
+            });
+            defer allocator.free(qname);
+            // Reuse lowerImplMethodToGraph with a synthetic ImplMethod
+            const default_graph = try lowerImplMethodToGraph(allocator, snapshot, unit_id, .{
+                .name = trait_method.name,
+                .qualified_name = qname,
+                .func_node_id = default_node,
+            }, &graphs);
+            try graphs.append(allocator, default_graph);
         }
     }
 
@@ -2597,6 +2636,26 @@ fn lowerFieldCall(
             return try lowerChannelMethod(ctx, full_path, callee_id, children);
         }
 
+        // SPEC-025 Phase C: Static dispatch — resolve receiver.method to qualified name
+        if (ctx.trait_meta) |tmeta| {
+            if (std.mem.lastIndexOfScalar(u8, full_path, '.')) |dot_idx| {
+                const method_name = full_path[dot_idx + 1 ..];
+                var qualified: ?[]const u8 = null;
+                var match_count: u32 = 0;
+                for (tmeta.impls.items) |impl_entry| {
+                    for (impl_entry.methods.items) |m| {
+                        if (std.mem.eql(u8, m.name, method_name)) {
+                            qualified = m.qualified_name;
+                            match_count += 1;
+                        }
+                    }
+                }
+                if (match_count == 1) {
+                    return try emitTraitMethodCall(ctx, qualified.?, children);
+                }
+            }
+        }
+
         // Generic field call - extract just the function name (last component)
         // For module-qualified calls like mathlib.add, use just "add" since
         // at LLVM level there are no namespaces - functions are global symbols
@@ -2609,6 +2668,30 @@ fn lowerFieldCall(
     }
 
     return error.UnsupportedCall;
+}
+
+// --- TRAIT DISPATCH HELPERS (SPEC-025 Phase C) ---
+
+/// Emit a Trait_Method_Call node with the qualified name and lowered args.
+fn emitTraitMethodCall(
+    ctx: *LoweringContext,
+    qualified_name: []const u8,
+    children: []const NodeId,
+) !u32 {
+    var args = std.ArrayListUnmanaged(u32){};
+    defer args.deinit(ctx.allocator);
+
+    for (children[1..]) |arg_id| {
+        const arg = ctx.snapshot.getNode(arg_id) orelse continue;
+        const arg_val = try lowerExpression(ctx, arg_id, arg);
+        try args.append(ctx.allocator, arg_val);
+    }
+
+    const node_id = try ctx.builder.createNode(.Trait_Method_Call);
+    var ir_node = &ctx.builder.graph.nodes.items[node_id];
+    ir_node.data = .{ .string = try ctx.dupeForGraph(qualified_name) };
+    try ir_node.inputs.appendSlice(ctx.builder.graph.allocator, args.items);
+    return node_id;
 }
 
 // --- CHANNEL HELPERS ---

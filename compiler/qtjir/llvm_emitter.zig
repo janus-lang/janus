@@ -357,6 +357,9 @@ pub const LLVMEmitter = struct {
             .Using_Begin => try self.emitUsingBegin(node),
             .Using_End => try self.emitUsingEnd(node),
 
+            // Trait dispatch (SPEC-025 Phase C: static dispatch)
+            .Trait_Method_Call => try self.emitCall(node),
+
             // Tensor / Quantum (Placeholder)
             .Tensor_Contract => {
                 std.debug.print("Warning: Unimplemented Tensor_Contract\n", .{});

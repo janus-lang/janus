@@ -2126,6 +2126,24 @@ pub fn build(b: *std.Build) void {
     test_trait_lower_step.dependOn(&run_trait_lower_tests.step);
     test_step.dependOn(&run_trait_lower_tests.step);
 
+    // Trait Dispatch E2E Tests (SPEC-025 Phase C Sprint 1)
+    const trait_dispatch_e2e_tests = b.addTest(.{
+        .name = "trait_dispatch_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/trait_dispatch_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    trait_dispatch_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    trait_dispatch_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    trait_dispatch_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_trait_dispatch_e2e_tests = b.addRunArtifact(trait_dispatch_e2e_tests);
+
+    const test_trait_dispatch_e2e_step = b.step("test-trait-dispatch-e2e", "Run Trait Static Dispatch E2E tests (SPEC-025 Phase C)");
+    test_trait_dispatch_e2e_step.dependOn(&run_trait_dispatch_e2e_tests.step);
+    test_step.dependOn(&run_trait_dispatch_e2e_tests.step);
+
     // String Literals E2E Tests
     const string_e2e_tests = b.addTest(.{
         .name = "string_e2e_tests",
