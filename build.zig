@@ -2033,6 +2033,24 @@ pub fn build(b: *std.Build) void {
     test_trait_parser_step.dependOn(&run_trait_parser_tests.step);
     test_step.dependOn(&run_trait_parser_tests.step);
 
+    // Trait/Impl Lowering Tests (SPEC-025 Phase B)
+    const trait_lower_tests = b.addTest(.{
+        .name = "trait_lower_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("compiler/qtjir/test_trait_lower.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    trait_lower_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    trait_lower_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    trait_lower_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_trait_lower_tests = b.addRunArtifact(trait_lower_tests);
+
+    const test_trait_lower_step = b.step("test-trait-lower", "Run Trait/Impl lowering tests (SPEC-025 Phase B)");
+    test_trait_lower_step.dependOn(&run_trait_lower_tests.step);
+    test_step.dependOn(&run_trait_lower_tests.step);
+
     // String Literals E2E Tests
     const string_e2e_tests = b.addTest(.{
         .name = "string_e2e_tests",

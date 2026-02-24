@@ -150,6 +150,12 @@ pub const OpCode = enum {
     // --- :service Profile - Resource Management (Phase 3) ---
     Using_Begin, // Begin using statement (acquire resource)
     Using_End, // End using statement (cleanup resource)
+
+    // --- Trait/Impl Dispatch (SPEC-025) ---
+    Trait_Method_Call, // Static dispatch to impl method (Phase B: lowered as Call)
+    Vtable_Lookup, // Dynamic dispatch via vtable (Phase C — placeholder)
+    Vtable_Construct, // Construct vtable for trait impl (Phase C — placeholder)
+    Impl_Method_Ref, // Reference to impl method by qualified name
 };
 
 /// Data types supported by tensor operations

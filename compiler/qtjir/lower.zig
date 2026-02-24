@@ -39,7 +39,55 @@ const IRBuilder = graph.IRBuilder;
 const OpCode = graph.OpCode;
 const GateType = graph.GateType;
 
-pub const LowerError = error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable, InvalidUsingBegin, InvalidUsingEnd };
+pub const LowerError = error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable, InvalidUsingBegin, InvalidUsingEnd, MissingTraitImpl, DuplicateTraitImpl };
+
+// --- Trait/Impl Metadata (SPEC-025 Phase B) ---
+
+pub const TraitMethodSig = struct {
+    name: []const u8,
+    has_default: bool, // true if trait provides do...end body
+};
+
+pub const TraitDef = struct {
+    name: []const u8,
+    methods: std.ArrayListUnmanaged(TraitMethodSig),
+};
+
+pub const ImplMethod = struct {
+    name: []const u8, // original method name
+    qualified_name: []const u8, // Type_Trait_method or Type_method (heap-allocated)
+    func_node_id: NodeId,
+};
+
+pub const ImplEntry = struct {
+    type_name: []const u8,
+    trait_name: ?[]const u8, // null for standalone impl
+    methods: std.ArrayListUnmanaged(ImplMethod),
+};
+
+pub const TraitImplMeta = struct {
+    traits: std.StringHashMap(TraitDef),
+    impls: std.ArrayListUnmanaged(ImplEntry),
+    skip_node_ids: std.AutoHashMapUnmanaged(NodeId, void),
+    allocator: std.mem.Allocator,
+
+    pub fn deinit(self: *TraitImplMeta) void {
+        var it = self.traits.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.methods.deinit(self.allocator);
+        }
+        self.traits.deinit();
+
+        for (self.impls.items) |*ie| {
+            for (ie.methods.items) |m| {
+                self.allocator.free(m.qualified_name);
+            }
+            ie.methods.deinit(self.allocator);
+        }
+        self.impls.deinit(self.allocator);
+        self.skip_node_ids.deinit(self.allocator);
+    }
+};
 
 pub const LoweringContext = struct {
     allocator: std.mem.Allocator,
@@ -225,6 +273,161 @@ pub const LoweringContext = struct {
     }
 };
 
+// --- Trait/Impl Helpers (SPEC-025 Phase B) ---
+
+/// Extract identifier text from an identifier node via string interner.
+fn extractIdentName(snapshot: *const Snapshot, node_id: NodeId) ?[]const u8 {
+    const node = snapshot.getNode(node_id) orelse return null;
+    if (node.kind != .identifier) return null;
+    const token = snapshot.getToken(node.first_token) orelse return null;
+    return if (token.str) |str_id| snapshot.astdb.str_interner.getString(str_id) else null;
+}
+
+/// Extract function name from a func_decl's first child edge (the name identifier).
+fn extractFuncDeclName(snapshot: *const Snapshot, node_id: NodeId) ?[]const u8 {
+    const children = snapshot.getChildren(node_id);
+    if (children.len == 0) return null;
+    return extractIdentName(snapshot, children[0]);
+}
+
+/// Detect whether a func_decl has a body (statements) or is a bodyless trait signature.
+fn funcDeclHasBody(snapshot: *const Snapshot, node_id: NodeId) bool {
+    const children = snapshot.getChildren(node_id);
+    for (children) |child_id| {
+        const child = snapshot.getNode(child_id) orelse continue;
+        switch (child.kind) {
+            .block_stmt, .return_stmt, .expr_stmt, .let_stmt, .var_stmt,
+            .const_stmt, .if_stmt, .while_stmt, .for_stmt, .defer_stmt,
+            .break_stmt, .continue_stmt, .fail_stmt, .match_stmt,
+            => return true,
+            else => {},
+        }
+    }
+    return false;
+}
+
+/// Pass 1: Collect trait definitions and impl entries from a compilation unit.
+/// Builds skip_node_ids set for func_decl children of trait/impl blocks so
+/// the main lowering loop does not re-lower them as top-level functions.
+pub fn collectTraitImplMetadata(
+    snapshot: *const Snapshot,
+    allocator: std.mem.Allocator,
+    unit_id: UnitId,
+) !TraitImplMeta {
+    var meta = TraitImplMeta{
+        .traits = std.StringHashMap(TraitDef).init(allocator),
+        .impls = .{},
+        .skip_node_ids = .{},
+        .allocator = allocator,
+    };
+    errdefer meta.deinit();
+
+    const unit = snapshot.astdb.getUnitConst(unit_id) orelse return error.InvalidUnitId;
+
+    for (unit.nodes, 0..) |node, i| {
+        const node_id: NodeId = @enumFromInt(@as(u32, @intCast(i)));
+
+        if (node.kind == .trait_decl) {
+            const children = snapshot.getChildren(node_id);
+            if (children.len < 2) continue;
+            const trait_name = extractIdentName(snapshot, children[0]) orelse continue;
+
+            var methods: std.ArrayListUnmanaged(TraitMethodSig) = .{};
+            for (children[1..]) |child_id| {
+                const child = snapshot.getNode(child_id) orelse continue;
+                if (child.kind == .func_decl) {
+                    try meta.skip_node_ids.put(allocator, child_id, {});
+                    const method_name = extractFuncDeclName(snapshot, child_id) orelse continue;
+                    try methods.append(allocator, .{
+                        .name = method_name,
+                        .has_default = funcDeclHasBody(snapshot, child_id),
+                    });
+                }
+            }
+            try meta.traits.put(trait_name, .{ .name = trait_name, .methods = methods });
+        } else if (node.kind == .impl_decl) {
+            const children = snapshot.getChildren(node_id);
+            if (children.len < 2) continue;
+
+            const edge1_node = snapshot.getNode(children[1]) orelse continue;
+            var type_name: []const u8 = undefined;
+            var trait_name: ?[]const u8 = null;
+            var method_start: usize = undefined;
+
+            if (edge1_node.kind == .identifier) {
+                // impl Trait for Type → edges: [trait_name, type_name, func_decl, ...]
+                trait_name = extractIdentName(snapshot, children[0]);
+                type_name = extractIdentName(snapshot, children[1]) orelse continue;
+                method_start = 2;
+            } else {
+                // impl Type → edges: [type_name, func_decl, ...]
+                type_name = extractIdentName(snapshot, children[0]) orelse continue;
+                method_start = 1;
+            }
+
+            // Duplicate detection: (Type, Trait) pair already registered?
+            if (trait_name) |tn| {
+                for (meta.impls.items) |existing| {
+                    if (existing.trait_name) |existing_tn| {
+                        if (std.mem.eql(u8, existing.type_name, type_name) and
+                            std.mem.eql(u8, existing_tn, tn))
+                        {
+                            return error.DuplicateTraitImpl;
+                        }
+                    }
+                }
+            }
+
+            var methods: std.ArrayListUnmanaged(ImplMethod) = .{};
+            for (children[method_start..]) |child_id| {
+                const child = snapshot.getNode(child_id) orelse continue;
+                if (child.kind == .func_decl) {
+                    try meta.skip_node_ids.put(allocator, child_id, {});
+                    const method_name = extractFuncDeclName(snapshot, child_id) orelse continue;
+                    const qualified_name = if (trait_name) |tn|
+                        try std.fmt.allocPrint(allocator, "{s}_{s}_{s}", .{ type_name, tn, method_name })
+                    else
+                        try std.fmt.allocPrint(allocator, "{s}_{s}", .{ type_name, method_name });
+                    try methods.append(allocator, .{
+                        .name = method_name,
+                        .qualified_name = qualified_name,
+                        .func_node_id = child_id,
+                    });
+                }
+            }
+            try meta.impls.append(allocator, .{
+                .type_name = type_name,
+                .trait_name = trait_name,
+                .methods = methods,
+            });
+        }
+    }
+
+    return meta;
+}
+
+/// Validate that all trait impls provide every required (non-default) method.
+pub fn validateImplCompleteness(
+    traits: *const std.StringHashMap(TraitDef),
+    impls: []const ImplEntry,
+) !void {
+    for (impls) |impl_entry| {
+        const tn = impl_entry.trait_name orelse continue; // standalone → skip
+        const trait_def = traits.get(tn) orelse continue;
+        for (trait_def.methods.items) |required| {
+            if (required.has_default) continue; // has default body → not required
+            var found = false;
+            for (impl_entry.methods.items) |provided| {
+                if (std.mem.eql(u8, provided.name, required.name)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return error.MissingTraitImpl;
+        }
+    }
+}
+
 /// Result of lowering with external function registry
 /// For native Zig integration during bootstrap phase
 pub const LoweringResult = struct {
@@ -256,9 +459,17 @@ pub fn lowerUnitWithExterns(allocator: std.mem.Allocator, snapshot: *const Snaps
         }
     }
 
-    // Second pass: Lower function declarations
+    // Trait/Impl pass: collect metadata + validate completeness (SPEC-025 Phase B)
+    var meta = try collectTraitImplMetadata(snapshot, allocator, unit_id);
+    defer meta.deinit();
+    try validateImplCompleteness(&meta.traits, meta.impls.items);
+
+    // Second pass: Lower function declarations (skip trait/impl children)
     for (unit.nodes, 0..) |node, i| {
         const node_id: NodeId = @enumFromInt(@as(u32, @intCast(i)));
+
+        // Skip func_decls that belong to trait/impl blocks
+        if (meta.skip_node_ids.get(node_id) != null) continue;
 
         if (node.kind == .func_decl or node.kind == .async_func_decl) {
             if (try lowerFunctionToGraph(allocator, snapshot, unit_id, node_id, &node, &result.graphs)) |ir_graph| {
@@ -268,6 +479,14 @@ pub fn lowerUnitWithExterns(allocator: std.mem.Allocator, snapshot: *const Snaps
             if (try lowerTestToGraph(allocator, snapshot, unit_id, node_id, &node)) |ir_graph| {
                 try result.graphs.append(allocator, ir_graph);
             }
+        }
+    }
+
+    // Lower impl methods as namespaced graphs (SPEC-025 Phase B)
+    for (meta.impls.items) |impl_entry| {
+        for (impl_entry.methods.items) |method| {
+            const impl_graph = try lowerImplMethodToGraph(allocator, snapshot, unit_id, method, &result.graphs);
+            try result.graphs.append(allocator, impl_graph);
         }
     }
 
@@ -312,9 +531,18 @@ pub fn lowerUnit(allocator: std.mem.Allocator, snapshot: *const Snapshot, unit_i
     // Get unit
     const unit = snapshot.astdb.getUnitConst(unit_id) orelse return error.InvalidUnitId;
 
+    // Trait/Impl pass: collect metadata + validate completeness (SPEC-025 Phase B)
+    var meta = try collectTraitImplMetadata(snapshot, allocator, unit_id);
+    defer meta.deinit();
+    try validateImplCompleteness(&meta.traits, meta.impls.items);
+
     // Iterate over top-level nodes
     for (unit.nodes, 0..) |node, i| {
         const node_id: NodeId = @enumFromInt(@as(u32, @intCast(i)));
+
+        // Skip func_decls that belong to trait/impl blocks (SPEC-025 Phase B)
+        if (meta.skip_node_ids.get(node_id) != null) continue;
+
         // We only care about function declarations for now
         if (node.kind == .func_decl or node.kind == .async_func_decl) {
             // Create graph for this function
@@ -403,6 +631,14 @@ pub fn lowerUnit(allocator: std.mem.Allocator, snapshot: *const Snapshot, unit_i
                     ctx.pending_closures.clearRetainingCapacity();
                 }
             }
+        }
+    }
+
+    // Lower impl methods as namespaced graphs (SPEC-025 Phase B)
+    for (meta.impls.items) |impl_entry| {
+        for (impl_entry.methods.items) |method| {
+            const impl_graph = try lowerImplMethodToGraph(allocator, snapshot, unit_id, method, &graphs);
+            try graphs.append(allocator, impl_graph);
         }
     }
 
@@ -520,6 +756,47 @@ fn lowerFunctionToGraph(
     // Drain pending closures before ctx.deinit destroys them (SPEC-024 Phase A)
     for (ctx.pending_closures.items) |closure_g| {
         try out_closures.append(allocator, closure_g);
+    }
+    ctx.pending_closures.clearRetainingCapacity();
+
+    return ir_graph;
+}
+
+/// Lower an impl method to a QTJIR graph with a qualified name (SPEC-025 Phase B).
+/// Name follows: {Type}_{Trait}_{method} for trait impls, {Type}_{method} for standalone.
+fn lowerImplMethodToGraph(
+    allocator: std.mem.Allocator,
+    snapshot: *const Snapshot,
+    unit_id: UnitId,
+    method: ImplMethod,
+    out_graphs: *std.ArrayListUnmanaged(QTJIRGraph),
+) !QTJIRGraph {
+    // Sovereign Graph Doctrine: heap-dupe the qualified name for graph ownership
+    const name = try allocator.dupe(u8, method.qualified_name);
+    var ir_graph = QTJIRGraph.initWithName(allocator, name);
+    ir_graph.name_owned = true;
+
+    var ctx = LoweringContext.init(allocator, snapshot, unit_id, &ir_graph);
+    defer ctx.deinit();
+
+    try ctx.pushScope(.Function);
+    defer {
+        if (ctx.defer_stack.items.len > 0) {
+            var actions = ctx.defer_stack.pop().?.actions;
+            for (actions.items) |*a| {
+                a.args.deinit(ctx.allocator);
+                ctx.allocator.free(a.builtin_name);
+            }
+            actions.deinit(ctx.allocator);
+        }
+    }
+
+    const node = snapshot.getNode(method.func_node_id) orelse return error.InvalidNode;
+    try lowerFuncDecl(&ctx, method.func_node_id, node);
+
+    // Drain pending closures (SPEC-024 Phase A compatibility)
+    for (ctx.pending_closures.items) |closure_g| {
+        try out_graphs.append(allocator, closure_g);
     }
     ctx.pending_closures.clearRetainingCapacity();
 
@@ -1836,7 +2113,7 @@ fn lowerSliceExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode, 
     return slice_node_id;
 }
 
-fn lowerExpression(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable, InvalidUsingBegin, InvalidUsingEnd }!u32 {
+fn lowerExpression(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!u32 {
     // Check cache
     if (ctx.node_map.get(node_id)) |id| return id;
 
