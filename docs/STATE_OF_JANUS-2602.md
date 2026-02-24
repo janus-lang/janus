@@ -6,12 +6,16 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 # State of Janus
 
 **Version:** 0.2.0 (v0.2.6 Alpha)
-**Date:** 2026-02-23
+**Date:** 2026-02-24
 **Zig:** 0.16.0-dev.2645+cd02b1703
 **Toolchain:** `zig cc` + clang/LLVM (no GCC)
-**Tests:** 477/478 passing (99.8%)
+**Tests:** Compiler core: 8/8 test targets passing. 40 e2e/stdlib targets broken by Zig 0.16 API migration (pre-existing).
 
-**Recent:** SPEC-023 (enum/union codegen) completed ✅
+**Recent:**
+- SPEC-025 Phase B (trait/impl lowering + static dispatch) ✅
+- SPEC-025 Phase A (trait/impl parser) ✅
+- SPEC-024 A/B/C (closures: zero-capture, captured, mutable) ✅
+- SPEC-023 (enum/union codegen) ✅
 
 ---
 
@@ -39,7 +43,7 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 | Semantic Analysis | `[I]` | 1,198 | `compiler/libjanus/libjanus_semantic.zig` |
 | Sema Passes (expr/stmt/builtin) | `[D]` | 33 | `compiler/passes/sema/*.zig` — stubs only |
 | QTJIR Graph (SSA IR) | `[I]` | ~3,000 | `compiler/qtjir/graph.zig` |
-| QTJIR Lowering | `[I]` | ~5,000 | `compiler/qtjir/lower.zig` |
+| QTJIR Lowering | `[I]` | ~5,000 | `compiler/qtjir/lower.zig` (+ trait/impl metadata, static dispatch) |
 | LLVM Codegen | `[I]` | ~3,900 | `compiler/qtjir/llvm_emitter.zig` |
 | Dispatch Engine | `[I]` | 13,036 | `compiler/libjanus/dispatch_*.zig` (8 files) |
 | Type System | `[I]` | — | `compiler/libjanus/type_system.zig` |
@@ -87,6 +91,8 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 | `select` + channels | CSP-style channel operations |
 | `use zig` / `extern` / `import` | Foreign function interface |
 | `test` / `assert` | Built-in test declarations |
+| Closures / `fn` literals | Zero-capture, captured, mutable capture (SPEC-024 A/B/C ✅) |
+| `trait` / `impl` (static dispatch) | Parser + lowering + namespaced IR graphs (SPEC-025 A+B ✅) |
 | Pipe operator (`|>`) | Desugars to function call |
 | All arithmetic/bitwise/comparison ops | `+` `-` `*` `/` `%` `<<` `>>` `&` `|` `^` `~` `==` `!=` `<` `>` `<=` `>=` `and` `or` |
 | Quantum ops (gate, measure) | QTJIR opcodes + LLVM emission |
@@ -97,10 +103,8 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 
 | Feature | Tier | What Works | What's Missing |
 |---------|------|------------|----------------|
-| `trait` | `[S]` | Parser only | Minimal sema, no IR, no codegen |
-| `impl` | `[S]` | Parser only | Minimal sema, no IR, no codegen |
+| `trait` / `impl` (dynamic dispatch) | `[S]` | Static dispatch works (SPEC-025 B) | Vtables, dynamic dispatch (Phase C) |
 | `graft` | `[S]` | Parser + tokenizer | No IR, no codegen |
-| Closures / `fn` literals | `[S]` | Parser recognizes syntax | Not in AST, no sema/IR/codegen |
 
 ### Not Implemented
 
@@ -330,11 +334,11 @@ Doctrines are architectural principles, not implementation items. Active doctrin
 |------|------|-------|
 | Zig 0.16 compilation | `[I]` | All source compiles clean |
 | Zig 0.16 linking | `[I]` | `zig cc` + clang/LLVM |
-| Test suite | `[I]` | 477/478 passing, 114 test targets |
+| Test suite | `[I]` | 96 test steps defined, 8/8 compiler core targets green, 40 e2e/stdlib targets pending Zig 0.16 compat |
 | Examples | `[I]` | 116 `.jan` files across 10+ categories |
 | External deps | `[I]` | blake3 only (`third_party/`) |
 | CI workflows | `[I]` | 8 GitHub Actions workflows |
-| Build system | `[I]` | 30+ modules in `build.zig` |
+| Build system | `[I]` | 30+ modules, 96 test steps in `build.zig` |
 
 ---
 
@@ -368,11 +372,11 @@ Doctrines are architectural principles, not implementation items. Active doctrin
 
 | Gap | Impact | Spec |
 |-----|--------|------|
-| Closures / first-class functions | Parser recognizes fn literals, no codegen | SPEC-017 |
-| `trait` / `impl` codegen | Parser recognizes, minimal sema, no codegen | SPEC-015, SPEC-017 |
+| `trait` / `impl` dynamic dispatch | Static dispatch works; vtables/dyn dispatch not yet | SPEC-025 Phase C |
 | Generics / type parameters | Not implemented at any stage | SPEC-001 |
 | String API completion | Core string ops work, API incomplete | CORE_SPRINT_BACKLOG |
 | Range operators (full) | Basic ranges work, `..=` variants incomplete | CORE_SPRINT_BACKLOG |
+| Zig 0.16 test migration | 40 e2e/stdlib test targets broken by API changes | Zig 0.16 compat |
 
 ### Major Missing Subsystems
 
@@ -389,8 +393,8 @@ Doctrines are architectural principles, not implementation items. Active doctrin
 
 ### Dispatch Engine (13K LOC) — Integration Gap
 
-The dispatch engine (`compiler/libjanus/dispatch_*.zig`) is the largest compiler subsystem at 13,036 LOC. It includes table compression, optimization, family resolution, and serialization. However, wiring dispatch resolution into `trait`/`impl` codegen is not complete. The engine exists; the pipeline connection is the gap.
+The dispatch engine (`compiler/libjanus/dispatch_*.zig`) is the largest compiler subsystem at 13,036 LOC. It includes table compression, optimization, family resolution, and serialization. SPEC-025 Phase B added static dispatch (direct call via qualified names). Dynamic dispatch through the dispatch engine (vtable-based, Phase C) remains the gap.
 
 ---
 
-*This document reflects the actual state of the codebase as of 2026-02-22. Every `[I]` claim is backed by source files. Update this document when implementation tiers change.*
+*This document reflects the actual state of the codebase as of 2026-02-24. Every `[I]` claim is backed by source files. Update this document when implementation tiers change.*
