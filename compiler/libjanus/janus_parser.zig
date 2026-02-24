@@ -718,13 +718,14 @@ fn parseCompilationUnit(parser: *ParserState) !void {
             try top_level_declarations.append(parser.allocator, extern_index);
         } else if (parser.match(.async_)) {
             // :service profile - async function
+            const async_token = parser.current;
             _ = parser.advance(); // consume 'async'
-            const func_node = try parseFunctionDeclaration(parser, nodes, true);
+            const func_node = try parseFunctionDeclaration(parser, nodes, true, async_token);
             const func_index = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, func_node);
             try top_level_declarations.append(parser.allocator, func_index);
         } else if (parser.match(.func)) {
-            const func_node = try parseFunctionDeclaration(parser, nodes, false);
+            const func_node = try parseFunctionDeclaration(parser, nodes, false, null);
             const func_index = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, func_node);
             try top_level_declarations.append(parser.allocator, func_index);
@@ -3211,10 +3212,10 @@ fn parseTestDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
     };
 }
 
-/// Parse a function declaration: func name() { }
-fn parseFunctionDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode), is_async: bool) !astdb_core.AstNode {
+/// Parse a function declaration: [async] func name() { }
+fn parseFunctionDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode), is_async: bool, async_token: ?usize) !astdb_core.AstNode {
     // Consume 'func' keyword (async already consumed by caller if is_async)
-    const start_token = parser.current;
+    const start_token = if (is_async and async_token != null) async_token.? else parser.current;
     var used_do_end = false;
     _ = try parser.consume(.func);
 
@@ -3551,7 +3552,7 @@ fn parseTraitDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_core.
             parser.current = saved_pos;
 
             const method_node = if (has_body)
-                try parseFunctionDeclaration(parser, nodes, false)
+                try parseFunctionDeclaration(parser, nodes, false, null)
             else
                 try parseMethodSignature(parser, nodes);
 
@@ -3638,7 +3639,7 @@ fn parseImplBlock(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode
         if (parser.match(.right_brace)) break;
 
         if (parser.match(.func)) {
-            const method_node = try parseFunctionDeclaration(parser, nodes, false);
+            const method_node = try parseFunctionDeclaration(parser, nodes, false, null);
             const method_idx = @as(u32, @intCast(nodes.items.len));
             try nodes.append(parser.allocator, method_node);
             try method_indices.append(parser.allocator, method_idx);
