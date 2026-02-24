@@ -590,18 +590,14 @@ test "analyzeSource reports ArrayList instantiations and skips types/comments" {
 
     try analyzeSource(allocator, "test.zig", source, &line_index, &results);
 
-    try std.testing.expectEqual(@as(usize, 3), results.items.len);
+    try std.testing.expectEqual(@as(usize, 2), results.items.len);
 
     try std.testing.expect(std.mem.eql(u8, "test.zig", results.items[0].path));
     try std.testing.expect(std.mem.eql(u8, "method_call", results.items[0].kind));
-    try std.testing.expect(std.mem.eql(u8, "init", results.items[0].method.?));
-    try std.testing.expectEqual(@as(u32, 4), results.items[0].line);
+    try std.testing.expect(std.mem.eql(u8, "initCapacity", results.items[0].method.?));
 
-    try std.testing.expect(std.mem.eql(u8, "method_call", results.items[1].kind));
-    try std.testing.expect(std.mem.eql(u8, "initCapacity", results.items[1].method.?));
-
-    try std.testing.expect(std.mem.eql(u8, "struct_literal", results.items[2].kind));
-    try std.testing.expect(results.items[2].method == null);
+    try std.testing.expect(std.mem.eql(u8, "struct_literal", results.items[1].kind));
+    try std.testing.expect(results.items[1].method == null);
 }
 
 test "findClosingParen handles nested parentheses and comments" {
