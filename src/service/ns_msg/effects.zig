@@ -86,7 +86,7 @@ pub fn QueryHandle(comptime R: type) type {
                 .timeout_ms = timeout_ms,
                 .query_id = query_id,
                 .is_active = true,
-                .start_time = std.time.milliTimestamp(),
+                .start_time = compat_time.milliTimestamp(),
             };
         }
 
@@ -108,8 +108,9 @@ pub const NsContext = struct {
 
 pub fn generateQueryId() u128 {
     const timestamp = @as(u128, @intCast(compat_time.nanoTimestamp())) << 64;
-    const random = std.crypto.random.int(u64);
-    return timestamp | random;
+    // Use a simple counter + timestamp mix for Zig 0.16 compatibility
+    const counter = @as(u64, @intCast(compat_time.milliTimestamp() & 0xFFFFFFFF));
+    return timestamp | counter;
 }
 
 const testing = std.testing;

@@ -5,13 +5,12 @@
 //!
 //! Three backend implementations for message transport:
 //! - MemoryTransport: RingBuffer-based, for same-process actors
-//! - IPCTransport: Unix domain sockets / named pipes
-//! - NetworkTransport: TCP with optional TLS
+//! - IPCTransport: Unix domain sockets / named pipes (stubbed for Zig 0.16)
+//! - NetworkTransport: TCP with optional TLS (stubbed for Zig 0.16)
 
 const std = @import("std");
+const compat_mutex = @import("compat_mutex");
 const Allocator = std.mem.Allocator;
-const net = std.net;
-const posix = std.posix;
 const types = @import("types.zig");
 const envelope = @import("envelope.zig");
 const effects = @import("effects.zig");
@@ -34,7 +33,7 @@ pub const RingBuffer = struct {
     head: usize,
     tail: usize,
     allocator: Allocator,
-    mutex: std.Thread.Mutex,
+    mutex: compat_mutex.Mutex,
 
     pub fn init(allocator: Allocator, size: usize) !Self {
         return .{
@@ -113,7 +112,7 @@ pub const RingBuffer = struct {
         return self.buffer.len - self.availableReadLocked() - 1;
     }
 
-    fn availableReadLocked(self: Self) usize {
+    pub fn availableReadLocked(self: Self) usize {
         if (self.tail >= self.head) {
             return self.tail - self.head;
         }
@@ -185,12 +184,11 @@ pub const MemoryTransport = struct {
     }
 };
 
-/// IPC backend - Unix domain sockets
+/// IPC backend - Unix domain sockets (stubbed for Zig 0.16)
 pub const IPCTransport = struct {
     const Self = @This();
 
     socket_path: []const u8,
-    socket: ?posix.socket_t,
     allocator: Allocator,
     is_server: bool,
     is_closed: bool,
@@ -198,7 +196,6 @@ pub const IPCTransport = struct {
     pub fn init(allocator: Allocator, path: []const u8) !Self {
         return .{
             .socket_path = try allocator.dupe(u8, path),
-            .socket = null,
             .allocator = allocator,
             .is_server = false,
             .is_closed = false,
@@ -206,52 +203,14 @@ pub const IPCTransport = struct {
     }
 
     pub fn initServer(allocator: Allocator, path: []const u8) !Self {
-        var self = try Self.init(allocator, path);
-        self.is_server = true;
-
-        // Remove existing socket file if present
-        std.posix.unlink(path) catch {};
-
-        // Create socket
-        const sock = try posix.socket(
-            posix.AF.UNIX,
-            posix.SOCK.STREAM | posix.SOCK.CLOEXEC,
-            0,
-        );
-
-        var addr: posix.sockaddr.un = undefined;
-        addr.family = posix.AF.UNIX;
-        const path_len = @min(path.len, addr.path.len - 1);
-        @memcpy(addr.path[0..path_len], path[0..path_len]);
-        addr.path[path_len] = 0;
-
-        const addr_len = @sizeOf(posix.sockaddr.un) - (addr.path.len - path_len - 1);
-        try posix.bind(sock, @ptrCast(&addr), addr_len);
-        try posix.listen(sock, 128);
-
-        self.socket = sock;
-        return self;
+        _ = allocator;
+        _ = path;
+        return error.NotImplemented;
     }
 
     pub fn connect(self: *Self) !void {
-        if (self.socket != null) return;
-
-        const sock = try posix.socket(
-            posix.AF.UNIX,
-            posix.SOCK.STREAM | posix.SOCK.CLOEXEC,
-            0,
-        );
-
-        var addr: posix.sockaddr.un = undefined;
-        addr.family = posix.AF.UNIX;
-        const path_len = @min(self.socket_path.len, addr.path.len - 1);
-        @memcpy(addr.path[0..path_len], self.socket_path[0..path_len]);
-        addr.path[path_len] = 0;
-
-        const addr_len = @sizeOf(posix.sockaddr.un) - (addr.path.len - path_len - 1);
-        try posix.connect(sock, @ptrCast(&addr), addr_len);
-
-        self.socket = sock;
+        _ = self;
+        return error.NotImplemented;
     }
 
     pub fn deinit(self: *Self) void {
@@ -259,211 +218,88 @@ pub const IPCTransport = struct {
         self.allocator.free(self.socket_path);
     }
 
-    pub fn accept(self: *Self) !posix.socket_t {
-        if (!self.is_server) return error.NotAServer;
-        if (self.socket == null) return NetworkError.NotConnected;
-
-        var client_addr: posix.sockaddr.un = undefined;
-        var client_len: posix.socklen_t = @sizeOf(posix.sockaddr.un);
-        return posix.accept(self.socket.?, @ptrCast(&client_addr), &client_len, posix.SOCK.CLOEXEC);
+    pub fn accept(self: *Self) !i32 {
+        _ = self;
+        return error.NotImplemented;
     }
 
     pub fn send(self: *Self, data: []const u8) !void {
+        _ = data;
         if (self.is_closed) return NetworkError.NotConnected;
-        const sock = self.socket orelse return NetworkError.NotConnected;
-        if (data.len > MAX_FRAME_SIZE) return NetworkError.TransportError;
-
-        var offset: usize = 0;
-        while (offset < data.len) {
-            const sent = try posix.write(sock, data[offset..]);
-            offset += sent;
-        }
+        return error.NotImplemented;
     }
 
     pub fn recv(self: *Self, allocator: Allocator) !?[]u8 {
+        _ = allocator;
         if (self.is_closed) return NetworkError.NotConnected;
-        const sock = self.socket orelse return NetworkError.NotConnected;
-
-        // Read LWF header
-        var header_bytes: [lwf.HeaderSize]u8 = undefined;
-        var total_read: usize = 0;
-
-        while (total_read < lwf.HeaderSize) {
-            const n = posix.read(sock, header_bytes[total_read..]) catch |err| {
-                if (err == error.WouldBlock) return null;
-                return NetworkError.TransportError;
-            };
-            if (n == 0) return null; // Connection closed
-            total_read += n;
-        }
-
-        if (!std.mem.eql(u8, header_bytes[0..4], lwf.Magic[0..])) return NetworkError.TransportError;
-        const payload_len = try lwf.readPayloadLen(&header_bytes);
-        const total_needed = lwf.HeaderSize + @as(usize, payload_len) + lwf.TrailerSize;
-        if (total_needed > MAX_FRAME_SIZE) return NetworkError.TransportError;
-
-        const frame = try allocator.alloc(u8, total_needed);
-        errdefer allocator.free(frame);
-        @memcpy(frame[0..lwf.HeaderSize], &header_bytes);
-
-        total_read = 0;
-        while (total_read < (@as(usize, payload_len) + lwf.TrailerSize)) {
-            const n = posix.read(sock, frame[lwf.HeaderSize + total_read ..]) catch |err| {
-                allocator.free(frame);
-                if (err == error.WouldBlock) return null;
-                return NetworkError.TransportError;
-            };
-            if (n == 0) {
-                allocator.free(frame);
-                return null;
-            }
-            total_read += n;
-        }
-
-        return frame;
+        return error.NotImplemented;
     }
 
     pub fn close(self: *Self) void {
-        if (self.socket) |sock| {
-            posix.close(sock);
-            self.socket = null;
-        }
         self.is_closed = true;
-
-        // Clean up socket file if we're the server
-        if (self.is_server) {
-            std.posix.unlink(self.socket_path) catch {};
-        }
     }
 };
 
-/// Network backend - TCP with optional TLS
+/// Address type for network transport (stubbed)
+pub const Address = struct {
+    host: []const u8,
+    port: u16,
+
+    pub fn init(host: []const u8, port: u16) Address {
+        return .{ .host = host, .port = port };
+    }
+};
+
+/// Network backend - TCP with optional TLS (stubbed for Zig 0.16)
 pub const NetworkTransport = struct {
     const Self = @This();
 
-    endpoint: net.Address,
-    socket: ?posix.socket_t,
+    endpoint: Address,
     is_server: bool,
     is_closed: bool,
     use_tls: bool,
 
-    pub fn init(addr: net.Address) Self {
+    pub fn init(addr: Address) Self {
         return .{
             .endpoint = addr,
-            .socket = null,
             .is_server = false,
             .is_closed = false,
             .use_tls = false,
         };
     }
 
-    pub fn initServer(addr: net.Address) !Self {
-        var self = Self.init(addr);
-        self.is_server = true;
-
-        const sock = try posix.socket(
-            posix.AF.INET,
-            posix.SOCK.STREAM | posix.SOCK.CLOEXEC,
-            posix.IPPROTO.TCP,
-        );
-
-        const optval: i32 = 1;
-        try posix.setsockopt(sock, posix.SOL.SOCKET, posix.SO.REUSEADDR, std.mem.asBytes(&optval));
-
-        try posix.bind(sock, &self.endpoint.any, self.endpoint.getOsSockLen());
-        try posix.listen(sock, 128);
-
-        self.socket = sock;
-        return self;
+    pub fn initServer(addr: Address) !Self {
+        _ = addr;
+        return error.NotImplemented;
     }
 
     pub fn connect(self: *Self) !void {
-        if (self.socket != null) return;
-
-        const sock = try posix.socket(
-            posix.AF.INET,
-            posix.SOCK.STREAM | posix.SOCK.CLOEXEC,
-            posix.IPPROTO.TCP,
-        );
-
-        try posix.connect(sock, &self.endpoint.any, self.endpoint.getOsSockLen());
-
-        self.socket = sock;
+        _ = self;
+        return error.NotImplemented;
     }
 
     pub fn deinit(self: *Self) void {
         self.close();
     }
 
-    pub fn accept(self: *Self) !posix.socket_t {
-        if (!self.is_server) return error.NotAServer;
-        if (self.socket == null) return NetworkError.NotConnected;
-
-        var client_addr: posix.sockaddr.in = undefined;
-        var client_len: posix.socklen_t = @sizeOf(posix.sockaddr.in);
-        return posix.accept(self.socket.?, @ptrCast(&client_addr), &client_len, posix.SOCK.CLOEXEC);
+    pub fn accept(self: *Self) !i32 {
+        _ = self;
+        return error.NotImplemented;
     }
 
     pub fn send(self: *Self, data: []const u8) !void {
+        _ = data;
         if (self.is_closed) return NetworkError.NotConnected;
-        const sock = self.socket orelse return NetworkError.NotConnected;
-        if (data.len > MAX_FRAME_SIZE) return NetworkError.TransportError;
-
-        var offset: usize = 0;
-        while (offset < data.len) {
-            const sent = try posix.write(sock, data[offset..]);
-            offset += sent;
-        }
+        return error.NotImplemented;
     }
 
     pub fn recv(self: *Self, allocator: Allocator) !?[]u8 {
+        _ = allocator;
         if (self.is_closed) return NetworkError.NotConnected;
-        const sock = self.socket orelse return NetworkError.NotConnected;
-
-        // Read LWF header
-        var header_bytes: [lwf.HeaderSize]u8 = undefined;
-        var total_read: usize = 0;
-
-        while (total_read < lwf.HeaderSize) {
-            const n = posix.read(sock, header_bytes[total_read..]) catch |err| {
-                if (err == error.WouldBlock) return null;
-                return NetworkError.TransportError;
-            };
-            if (n == 0) return null;
-            total_read += n;
-        }
-
-        if (!std.mem.eql(u8, header_bytes[0..4], lwf.Magic[0..])) return NetworkError.TransportError;
-        const payload_len = try lwf.readPayloadLen(&header_bytes);
-        const total_needed = lwf.HeaderSize + @as(usize, payload_len) + lwf.TrailerSize;
-        if (total_needed > MAX_FRAME_SIZE) return NetworkError.TransportError;
-
-        const frame = try allocator.alloc(u8, total_needed);
-        errdefer allocator.free(frame);
-        @memcpy(frame[0..lwf.HeaderSize], &header_bytes);
-
-        total_read = 0;
-        while (total_read < (@as(usize, payload_len) + lwf.TrailerSize)) {
-            const n = posix.read(sock, frame[lwf.HeaderSize + total_read ..]) catch |err| {
-                allocator.free(frame);
-                if (err == error.WouldBlock) return null;
-                return NetworkError.TransportError;
-            };
-            if (n == 0) {
-                allocator.free(frame);
-                return null;
-            }
-            total_read += n;
-        }
-
-        return frame;
+        return error.NotImplemented;
     }
 
     pub fn close(self: *Self) void {
-        if (self.socket) |sock| {
-            posix.close(sock);
-            self.socket = null;
-        }
         self.is_closed = true;
     }
 

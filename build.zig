@@ -711,6 +711,60 @@ pub fn build(b: *std.Build) void {
         const run_mimic_https_bdd_tests = b.addRunArtifact(mimic_https_bdd_tests);
         test_step.dependOn(&run_mimic_https_bdd_tests.step);
 
+        // NS-Msg Types and Router Tests (RFC-0500 Retained Values)
+        const ns_msg_types_mod = b.createModule(.{
+            .root_source_file = b.path("src/service/ns_msg/types.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        ns_msg_types_mod.addImport("compat_time", compat_time_mod);
+        ns_msg_types_mod.addImport("compat_mutex", compat_mutex_mod);
+
+        const ns_msg_types_tests = b.addTest(.{
+            .name = "ns_msg_types_tests",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/service/ns_msg/types.zig"),
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+            }),
+        });
+        ns_msg_types_tests.root_module.addImport("compat_time", compat_time_mod);
+        ns_msg_types_tests.root_module.addImport("compat_mutex", compat_mutex_mod);
+        const run_ns_msg_types_tests = b.addRunArtifact(ns_msg_types_tests);
+        test_step.dependOn(&run_ns_msg_types_tests.step);
+
+        // NS-Msg Router Tests with Retained Values
+        const ns_msg_router_tests = b.addTest(.{
+            .name = "ns_msg_router_tests",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/service/ns_msg/router.zig"),
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+            }),
+        });
+        ns_msg_router_tests.root_module.addImport("compat_time", compat_time_mod);
+        ns_msg_router_tests.root_module.addImport("compat_mutex", compat_mutex_mod);
+        const run_ns_msg_router_tests = b.addRunArtifact(ns_msg_router_tests);
+        test_step.dependOn(&run_ns_msg_router_tests.step);
+
+        // Also add ns_msg transport tests
+        const ns_msg_transport_tests = b.addTest(.{
+            .name = "ns_msg_transport_tests",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/service/ns_msg/transport.zig"),
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+            }),
+        });
+        ns_msg_transport_tests.root_module.addImport("compat_mutex", compat_mutex_mod);
+        ns_msg_transport_tests.root_module.addImport("compat_time", compat_time_mod);
+        const run_ns_msg_transport_tests = b.addRunArtifact(ns_msg_transport_tests);
+        test_step.dependOn(&run_ns_msg_transport_tests.step);
+
     // const global_cache_tests = b.addTest(.{
     //     .name = "global_cache_layout_tests",
     //     .root_module = b.createModule(.{

@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const compat_time = @import("compat_time");
+const compat_mutex = @import("compat_mutex");
 const Allocator = std.mem.Allocator;
 
 pub const Segment = union(enum) {
@@ -404,7 +405,7 @@ pub const RetainedValueCache = struct {
     allocator: Allocator,
     values: std.StringHashMap(RetainedValue),
     max_per_namespace: usize,
-    mutex: std.Thread.Mutex,
+    mutex: compat_mutex.Mutex,
 
     pub fn init(allocator: Allocator, max_per_namespace: usize) Self {
         return .{

@@ -12,6 +12,7 @@
 //! - LRU eviction with configurable limits
 
 const std = @import("std");
+const compat_mutex = @import("compat_mutex");
 const Allocator = std.mem.Allocator;
 const types = @import("types.zig");
 const transport = @import("transport.zig");
@@ -89,7 +90,7 @@ pub const Router = struct {
     retained_cache: RetainedValueCache,
     subscriptions: std.ArrayList(Subscription),
     lamport_clock: std.atomic.Value(u64),
-    mutex: std.Thread.Mutex,
+    mutex: compat_mutex.Mutex,
 
     pub fn init(allocator: Allocator) Self {
         return initWithCapacity(allocator, DEFAULT_MAX_RETAINED);
@@ -284,6 +285,7 @@ pub const Router = struct {
         for (retained_values) |rv| {
             // Clone path for the callback (callback takes ownership)
             const path_str = try rv.path.toString(self.allocator);
+            defer self.allocator.free(path_str);
             const path_clone = try Path.parse(self.allocator, path_str);
 
             callback(context, path_clone, rv.envelope_data);
@@ -300,8 +302,8 @@ pub const Router = struct {
             if (sub.pattern.matchesPath(path)) {
                 // Clone path for callback
                 const path_str = try path.toString(self.allocator);
+                defer self.allocator.free(path_str);
                 const path_clone = try Path.parse(self.allocator, path_str);
-                errdefer path_clone.deinit();
 
                 sub.callback(sub.context, path_clone, envelope_data);
             }
@@ -765,15 +767,30 @@ test "Router - getOrEvict updates access time" {
     try router.updateRetained(path2, "data2", 2, null);
 
     // Access path1 to make it more recent
-    _ = router.getRetained(path1);
+    var value1 = router.getRetained(path1);
+    if (value1) |*v| {
+        v.deinit(allocator);
+    }
 
     // Add path3 - should evict path2 (least recently used)
     var path3 = try Path.parse(allocator, "sensor/c");
     defer path3.deinit();
     try router.updateRetained(path3, "data3", 3, null);
 
-    // path1 should still be there, path2 should be evicted
-    try testing.expect(router.getRetained(path1) != null);
+    // path1 should still be there
+    var check1 = router.getRetained(path1);
+    try testing.expect(check1 != null);
+    if (check1) |*v| {
+        v.deinit(allocator);
+    }
+
+    // path2 should be evicted
     try testing.expect(router.getRetained(path2) == null);
-    try testing.expect(router.getRetained(path3) != null);
+
+    // path3 should be added
+    var check3 = router.getRetained(path3);
+    try testing.expect(check3 != null);
+    if (check3) |*v| {
+        v.deinit(allocator);
+    }
 }
