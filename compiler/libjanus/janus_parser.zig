@@ -3260,33 +3260,37 @@ fn parseFunctionDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_co
 
         // Parse parameter: name : type
         if (parser.tokens[parser.current].kind == .identifier) {
-            // Create parameter node
-            const param_node = astdb_core.AstNode{
-                .kind = .parameter,
-                .first_token = @enumFromInt(parser.current),
-                .last_token = @enumFromInt(parser.current),
-                .child_lo = 0,
-                .child_hi = 0,
-            };
-            try parameters.append(parser.allocator, param_node);
+            const param_start = parser.current;
+            _ = parser.advance(); // consume name
 
-            // Consume parameter name
-            _ = parser.advance();
+            var param_child_lo: u32 = 0;
+            var param_child_hi: u32 = 0;
+            var param_last_token = param_start;
 
-            // Consume ':' if present
+            // Parse type annotation: ': Type' (SPEC-025 Sprint 5)
             if (parser.current < parser.tokens.len and
                 parser.tokens[parser.current].kind == .colon)
             {
-                _ = parser.advance();
+                _ = parser.advance(); // consume ':'
+                const type_node = try parseType(parser, nodes);
+                const type_idx = @as(u32, @intCast(nodes.items.len));
+                try nodes.append(parser.allocator, type_node);
 
-                // Skip type tokens until comma or right paren
-                while (parser.current < parser.tokens.len and
-                    parser.tokens[parser.current].kind != .comma and
-                    parser.tokens[parser.current].kind != .right_paren)
-                {
-                    _ = parser.advance();
-                }
+                param_child_lo = @as(u32, @intCast(parser.edges.items.len));
+                try parser.edges.append(parser.allocator, @enumFromInt(type_idx));
+                param_child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+                param_last_token = @intFromEnum(type_node.last_token);
             }
+
+            const param_node = astdb_core.AstNode{
+                .kind = .parameter,
+                .first_token = @enumFromInt(param_start),
+                .last_token = @enumFromInt(param_last_token),
+                .child_lo = param_child_lo,
+                .child_hi = param_child_hi,
+            };
+            try parameters.append(parser.allocator, param_node);
 
             // Consume comma if present
             if (parser.current < parser.tokens.len and
@@ -3382,7 +3386,6 @@ fn parseFunctionDeclaration(parser: *ParserState, nodes: *std.ArrayList(astdb_co
 /// Parse a method signature (bodyless func): func name(params) -> RetType
 /// Used inside trait declarations for method signatures without a body.
 fn parseMethodSignature(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNode)) !astdb_core.AstNode {
-    _ = nodes;
     const start_token = parser.current;
 
     // Consume 'func' keyword
@@ -3408,28 +3411,37 @@ fn parseMethodSignature(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
         parser.tokens[parser.current].kind != .right_paren)
     {
         if (parser.tokens[parser.current].kind == .identifier) {
-            const param_node = astdb_core.AstNode{
-                .kind = .parameter,
-                .first_token = @enumFromInt(parser.current),
-                .last_token = @enumFromInt(parser.current),
-                .child_lo = 0,
-                .child_hi = 0,
-            };
-            try parameters.append(parser.allocator, param_node);
-            _ = parser.advance();
+            const param_start = parser.current;
+            _ = parser.advance(); // consume name
 
-            // Consume ':' and skip type tokens
+            var param_child_lo: u32 = 0;
+            var param_child_hi: u32 = 0;
+            var param_last_token = param_start;
+
+            // Parse type annotation: ': Type' (SPEC-025 Sprint 5)
             if (parser.current < parser.tokens.len and
                 parser.tokens[parser.current].kind == .colon)
             {
-                _ = parser.advance();
-                while (parser.current < parser.tokens.len and
-                    parser.tokens[parser.current].kind != .comma and
-                    parser.tokens[parser.current].kind != .right_paren)
-                {
-                    _ = parser.advance();
-                }
+                _ = parser.advance(); // consume ':'
+                const type_node = try parseType(parser, nodes);
+                const type_idx = @as(u32, @intCast(nodes.items.len));
+                try nodes.append(parser.allocator, type_node);
+
+                param_child_lo = @as(u32, @intCast(parser.edges.items.len));
+                try parser.edges.append(parser.allocator, @enumFromInt(type_idx));
+                param_child_hi = @as(u32, @intCast(parser.edges.items.len));
+
+                param_last_token = @intFromEnum(type_node.last_token);
             }
+
+            const param_node = astdb_core.AstNode{
+                .kind = .parameter,
+                .first_token = @enumFromInt(param_start),
+                .last_token = @enumFromInt(param_last_token),
+                .child_lo = param_child_lo,
+                .child_hi = param_child_hi,
+            };
+            try parameters.append(parser.allocator, param_node);
 
             // Consume comma if present
             if (parser.current < parser.tokens.len and
@@ -3451,7 +3463,7 @@ fn parseMethodSignature(parser: *ParserState, nodes: *std.ArrayList(astdb_core.A
         parser.tokens[parser.current].kind == .arrow)
     {
         _ = parser.advance(); // consume ->
-        return_type_node = try parseType(parser, &parser.nodes);
+        return_type_node = try parseType(parser, nodes);
     }
 
     // Build edges: name + params + optional return type (no body)

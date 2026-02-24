@@ -1001,59 +1001,66 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
         }
 
         if (child.kind == .parameter) {
-            // std.debug.print("Found Parameter Node!\n", .{});
-            // child should have name and type
+            // SPEC-025 Sprint 5: Name from first_token, type from children[0]
+            const first_tok = ctx.snapshot.getToken(child.first_token);
+            const p_name = if (first_tok != null and first_tok.?.str != null)
+                ctx.snapshot.astdb.str_interner.getString(first_tok.?.str.?)
+            else
+                "arg";
+
+            // Type from children[0] if present (Sprint 5A wires type as child)
             const p_children = ctx.snapshot.getChildren(child_id);
-            // std.debug.print("Param Children Count: {d}\n", .{p_children.len});
-            if (p_children.len >= 2) {
-                const p_name_id = p_children[0];
-                const p_type_id = p_children[1];
-                _ = p_type_id; // Unused for now
+            var type_name: []const u8 = "i32";
+            var is_dyn_param = false;
+            var dyn_trait_name: []const u8 = "";
 
-                const p_name_node = ctx.snapshot.getNode(p_name_id);
-                const p_token = if (p_name_node) |pn| ctx.snapshot.getToken(pn.first_token) else null;
-                const p_name = if (p_token != null and p_token.?.str != null) ctx.snapshot.astdb.str_interner.getString(p_token.?.str.?) else "arg";
+            if (p_children.len >= 1) {
+                const p_type_node = ctx.snapshot.getNode(p_children[0]);
+                if (p_type_node) |tn| {
+                    if (tn.kind == .dyn_trait_ref) {
+                        // &dyn Trait parameter — fat pointer type
+                        type_name = "fat_ptr";
+                        is_dyn_param = true;
+                        const trait_tok = ctx.snapshot.getToken(tn.last_token);
+                        if (trait_tok != null and trait_tok.?.str != null) {
+                            dyn_trait_name = ctx.snapshot.astdb.str_interner.getString(trait_tok.?.str.?);
+                        }
+                    } else {
+                        // Primitive or named type — extract token text
+                        const type_tok = ctx.snapshot.getToken(tn.first_token);
+                        if (type_tok != null and type_tok.?.str != null) {
+                            type_name = ctx.snapshot.astdb.str_interner.getString(type_tok.?.str.?);
+                        }
+                    }
+                }
+            }
 
-                // std.debug.print("Registering param: '{s}'\n", .{p_name});
+            try params.append(ctx.allocator, .{
+                .name = try ctx.allocator.dupe(u8, p_name),
+                .type_name = type_name,
+            });
 
-                // Add to parameters list
-                try params.append(ctx.allocator, .{ .name = try ctx.allocator.dupe(u8, p_name), .type_name = "i32" }); // Default type for MVP
+            // Create Argument Node
+            const arg_node_id = try ctx.builder.createNode(.Argument);
+            ctx.builder.graph.nodes.items[arg_node_id].data = .{ .integer = param_idx };
+            param_idx += 1;
 
-                // Create Argument Node
-                const arg_node_id = try ctx.builder.createNode(.Argument);
-                ctx.builder.graph.nodes.items[arg_node_id].data = .{ .integer = param_idx };
-                param_idx += 1;
-
-                // Create Alloca + Store
-                const alloca_id = try ctx.builder.createNode(.Alloca);
-                ctx.builder.graph.nodes.items[alloca_id].data = .{ .string = try ctx.dupeForGraph(p_name) };
-
-                try ctx.scope.put(p_name, alloca_id);
-
-                const store_id = try ctx.builder.createNode(.Store);
-                try ctx.builder.graph.nodes.items[store_id].inputs.append(ctx.allocator, alloca_id);
-                try ctx.builder.graph.nodes.items[store_id].inputs.append(ctx.allocator, arg_node_id);
-
-                // std.debug.print("Scope Size after put: {d}\n", .{ctx.scope.count()});
+            if (is_dyn_param) {
+                // &dyn Trait param: Argument IS the fat pointer. Register directly.
+                try ctx.scope.put(p_name, arg_node_id);
+                if (dyn_trait_name.len > 0) {
+                    try ctx.dyn_bindings.put(p_name, .{
+                        .trait_name = dyn_trait_name,
+                        .vtable_key = "", // caller determines concrete vtable
+                        .construct_id = arg_node_id, // Argument node is the fat ptr
+                    });
+                }
             } else {
-                // Fallback: Scan tokens (Children count was 0)
-                const first_tok = ctx.snapshot.getToken(child.first_token);
-                const p_name = if (first_tok != null and first_tok.?.str != null) ctx.snapshot.astdb.str_interner.getString(first_tok.?.str.?) else "arg";
-
-                // std.debug.print("Registering param (token scan): '{s}'\n", .{p_name});
-
-                // Add to parameters list
-                try params.append(ctx.allocator, .{ .name = try ctx.allocator.dupe(u8, p_name), .type_name = "i32" });
-
-                // Create Argument Node
-                const arg_node_id = try ctx.builder.createNode(.Argument);
-                ctx.builder.graph.nodes.items[arg_node_id].data = .{ .integer = param_idx };
-                param_idx += 1;
-
-                // Create Alloca + Store
+                // Normal param: Alloca + Store
                 const alloca_id = try ctx.builder.createNode(.Alloca);
-                ctx.builder.graph.nodes.items[alloca_id].data = .{ .string = try ctx.dupeForGraph(p_name) };
-
+                ctx.builder.graph.nodes.items[alloca_id].data = .{
+                    .string = try ctx.dupeForGraph(p_name),
+                };
                 try ctx.scope.put(p_name, alloca_id);
 
                 const store_id = try ctx.builder.createNode(.Store);
@@ -1254,6 +1261,7 @@ fn isTypeAnnotation(kind: NodeKind) bool {
         .slice_exclusive_expr, // [..<] exclusive slice type
         .optional_type, // ?T
         .error_union_type, // T!E
+        .dyn_trait_ref, // &dyn Trait (SPEC-025 Sprint 5)
         => true,
         else => false,
     };

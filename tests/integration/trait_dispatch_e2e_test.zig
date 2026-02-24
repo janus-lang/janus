@@ -478,3 +478,145 @@ test "TRAIT-030: &dyn Trait binding emits Vtable_Construct and dynamic dispatch"
         }
     }
 }
+
+test "TRAIT-031: Multi-method trait dispatch — both slots lowered" {
+    const allocator = testing.allocator;
+
+    var p = janus_parser.Parser.init(allocator);
+    defer p.deinit();
+
+    const source =
+        \\struct Circle { r: i32 }
+        \\trait Shape {
+        \\    func draw(self) -> i32
+        \\    func area(self) -> i32
+        \\}
+        \\impl Shape for Circle {
+        \\    func draw(self) -> i32 do
+        \\        return 1
+        \\    end
+        \\    func area(self) -> i32 do
+        \\        return 2
+        \\    end
+        \\}
+        \\func main() -> i32 do
+        \\    let c: &dyn Shape = Circle{ r: 5 }
+        \\    return c.draw()
+        \\end
+    ;
+
+    const snapshot = try p.parseWithSource(source);
+    defer snapshot.deinit();
+    const unit_id: astdb.UnitId = @enumFromInt(0);
+
+    var result = try lower.lowerUnitWithExterns(allocator, &snapshot.core_snapshot, unit_id, null);
+    defer result.deinit(allocator);
+
+    // Verify trait definition has 2 methods
+    try testing.expect(result.trait_meta != null);
+    const meta = &result.trait_meta.?;
+    const trait_def = meta.traits.get("Shape") orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(@as(usize, 2), trait_def.methods.items.len);
+    try testing.expect(std.mem.eql(u8, trait_def.methods.items[0].name, "draw"));
+    try testing.expect(std.mem.eql(u8, trait_def.methods.items[1].name, "area"));
+
+    // Verify impl entry has 2 qualified method names
+    var found_circle_impl = false;
+    for (meta.impls.items) |impl_entry| {
+        if (std.mem.eql(u8, impl_entry.type_name, "Circle")) {
+            try testing.expectEqual(@as(usize, 2), impl_entry.methods.items.len);
+            found_circle_impl = true;
+        }
+    }
+    try testing.expect(found_circle_impl);
+
+    // Verify main graph has Vtable_Lookup with slot 0 (draw is first method)
+    var main_graph: ?*const graph_mod.QTJIRGraph = null;
+    for (result.graphs.items) |*g| {
+        if (std.mem.eql(u8, g.function_name, "main")) {
+            main_graph = g;
+            break;
+        }
+    }
+    const mg = main_graph orelse return error.TestUnexpectedResult;
+    try testing.expect(hasNodeWithOp(mg, .Vtable_Construct, "Circle_Shape"));
+    try testing.expect(hasNodeWithOp(mg, .Vtable_Lookup, null));
+}
+
+test "TRAIT-032: &dyn Trait parameter dispatch — Argument as fat pointer" {
+    const allocator = testing.allocator;
+
+    var p = janus_parser.Parser.init(allocator);
+    defer p.deinit();
+
+    const source =
+        \\struct Point { x: i32 }
+        \\trait Drawable { func draw(self) -> i32 }
+        \\impl Drawable for Point {
+        \\    func draw(self) -> i32 do
+        \\        return 1
+        \\    end
+        \\}
+        \\func invoke(d: &dyn Drawable) -> i32 do
+        \\    return d.draw()
+        \\end
+        \\func main() -> i32 do
+        \\    let p: &dyn Drawable = Point{ x: 10 }
+        \\    return invoke(p)
+        \\end
+    ;
+
+    const snapshot = try p.parseWithSource(source);
+    defer snapshot.deinit();
+    const unit_id: astdb.UnitId = @enumFromInt(0);
+
+    var result = try lower.lowerUnitWithExterns(allocator, &snapshot.core_snapshot, unit_id, null);
+    defer result.deinit(allocator);
+
+    // Find the invoke graph
+    var invoke_graph: ?*const graph_mod.QTJIRGraph = null;
+    for (result.graphs.items) |*g| {
+        if (std.mem.eql(u8, g.function_name, "invoke")) {
+            invoke_graph = g;
+            break;
+        }
+    }
+    const ig = invoke_graph orelse return error.TestUnexpectedResult;
+
+    // Verify invoke has fat_ptr parameter type
+    try testing.expect(ig.parameters.len >= 1);
+    try testing.expect(std.mem.eql(u8, ig.parameters[0].type_name, "fat_ptr"));
+
+    // Verify Argument node exists (param index 0)
+    var found_argument = false;
+    for (ig.nodes.items) |node| {
+        if (node.op == .Argument) {
+            switch (node.data) {
+                .integer => |i| {
+                    if (i == 0) found_argument = true;
+                },
+                else => {},
+            }
+        }
+    }
+    try testing.expect(found_argument);
+
+    // Verify Vtable_Lookup exists with slot 0, input[0] = Argument
+    var found_lookup = false;
+    for (ig.nodes.items) |node| {
+        if (node.op == .Vtable_Lookup and node.inputs.items.len >= 1) {
+            switch (node.data) {
+                .integer => |slot| {
+                    if (slot == 0) {
+                        const input_node = ig.nodes.items[node.inputs.items[0]];
+                        if (input_node.op == .Argument) {
+                            found_lookup = true;
+                        }
+                    }
+                },
+                else => {},
+            }
+        }
+    }
+    try testing.expect(found_lookup);
+}

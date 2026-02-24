@@ -318,3 +318,93 @@ test "VTABLE-003: Full vtable dispatch — construct + lookup + indirect call" {
     // ptrtoint conversion for MVP i32 self parameter
     try testing.expect(std.mem.indexOf(u8, ir_str, "ptrtoint") != null);
 }
+
+test "VTABLE-005: 2-method trait vtable — both slots resolve via GEP" {
+    const allocator = testing.allocator;
+
+    // Two impl methods: draw (slot 0) and area (slot 1) for Circle
+    const draw_params = try allocator.alloc(graph_mod.Parameter, 1);
+    draw_params[0] = .{ .name = try allocator.dupe(u8, "x"), .type_name = "i32" };
+    const area_params = try allocator.alloc(graph_mod.Parameter, 1);
+    area_params[0] = .{ .name = try allocator.dupe(u8, "x"), .type_name = "i32" };
+
+    var g_draw = QTJIRGraph.initWithName(allocator, "Circle_Shape_draw");
+    defer g_draw.deinit();
+    g_draw.parameters = draw_params;
+    {
+        var b = IRBuilder.init(&g_draw);
+        const arg = try b.createNode(.Argument);
+        g_draw.nodes.items[arg].data = .{ .integer = 0 };
+        _ = try b.createReturn(arg);
+    }
+
+    var g_area = QTJIRGraph.initWithName(allocator, "Circle_Shape_area");
+    defer g_area.deinit();
+    g_area.parameters = area_params;
+    {
+        var b = IRBuilder.init(&g_area);
+        const arg = try b.createNode(.Argument);
+        g_area.nodes.items[arg].data = .{ .integer = 0 };
+        _ = try b.createReturn(arg);
+    }
+
+    // Main: construct fat ptr, lookup slot 0 (draw), lookup slot 1 (area), return
+    var g_main = QTJIRGraph.initWithName(allocator, "main");
+    defer g_main.deinit();
+    var builder = IRBuilder.init(&g_main);
+
+    const data_alloca = try builder.createNode(.Alloca);
+    g_main.nodes.items[data_alloca].data = .{
+        .string = try g_main.allocator.dupeZ(u8, "circle_data"),
+    };
+
+    const construct_node = try builder.createNode(.Vtable_Construct);
+    g_main.nodes.items[construct_node].data = .{
+        .string = try g_main.allocator.dupeZ(u8, "Circle_Shape"),
+    };
+    try g_main.nodes.items[construct_node].inputs.append(allocator, data_alloca);
+
+    const arg_val = try builder.createConstant(.{ .integer = 5 });
+
+    // Vtable_Lookup slot 0 (draw)
+    const lookup_draw = try builder.createNode(.Vtable_Lookup);
+    g_main.nodes.items[lookup_draw].data = .{ .integer = 0 };
+    try g_main.nodes.items[lookup_draw].inputs.append(allocator, construct_node);
+    try g_main.nodes.items[lookup_draw].inputs.append(allocator, arg_val);
+
+    // Vtable_Lookup slot 1 (area)
+    const lookup_area = try builder.createNode(.Vtable_Lookup);
+    g_main.nodes.items[lookup_area].data = .{ .integer = 1 };
+    try g_main.nodes.items[lookup_area].inputs.append(allocator, construct_node);
+    try g_main.nodes.items[lookup_area].inputs.append(allocator, arg_val);
+
+    _ = try builder.createReturn(lookup_area);
+
+    // Vtable specs: 2 methods
+    const methods = [_][]const u8{ "Circle_Shape_draw", "Circle_Shape_area" };
+    const specs = [_]VtableSpec{
+        .{ .key = "Circle_Shape", .method_qualified_names = &methods },
+    };
+
+    var emitter = try LLVMEmitter.init(allocator, "test_vtable_multi");
+    defer emitter.deinit();
+    emitter.setVtableSpecs(&specs);
+
+    try emitter.emit(&[_]QTJIRGraph{ g_draw, g_area, g_main });
+
+    const ir_str = try emitter.toString();
+    defer allocator.free(ir_str);
+
+    // Verify [2 x ptr] vtable global
+    try testing.expect(std.mem.indexOf(u8, ir_str, "private constant [2 x ptr]") != null);
+    // Verify GEP into [2 x ptr] for both slots
+    try testing.expect(std.mem.indexOf(u8, ir_str, "getelementptr inbounds [2 x ptr]") != null);
+    // Verify two indirect calls exist
+    var call_count: usize = 0;
+    var search_pos: usize = 0;
+    while (std.mem.indexOfPos(u8, ir_str, search_pos, "dyn.call")) |pos| {
+        call_count += 1;
+        search_pos = pos + 8;
+    }
+    try testing.expect(call_count >= 2);
+}

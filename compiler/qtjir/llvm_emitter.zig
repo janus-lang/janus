@@ -1310,6 +1310,12 @@ pub const LLVMEmitter = struct {
         } else if (std.mem.eql(u8, type_str, "ptr")) {
             const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
             return llvm.c.LLVMPointerType(i8_type, 0);
+        } else if (std.mem.eql(u8, type_str, "fat_ptr")) {
+            // SPEC-025 Sprint 5: { data_ptr, vtable_ptr } for &dyn Trait params
+            const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+            const ptr_type = llvm.c.LLVMPointerType(i8_type, 0);
+            var field_types = [_]llvm.Type{ ptr_type, ptr_type };
+            return llvm.structTypeInContext(self.context, &field_types, 2, false);
         } else {
             // Default to i32 for unknown types
             return llvm.int32TypeInContext(self.context);
@@ -3146,8 +3152,17 @@ pub const LLVMEmitter = struct {
         const fat_ptr = self.values.get(construct_node_id) orelse return error.MissingOperand;
 
         // Look up vtable info via the construct node's key
-        const vtable_key = self.fat_ptr_vtable_keys.get(construct_node_id) orelse return error.MissingVtable;
-        const vtable_info = self.vtable_globals.get(vtable_key) orelse return error.MissingVtable;
+        // SPEC-025 Sprint 5: Fallback for parameter-sourced fat pointers (no concrete vtable key)
+        var vtable_array_type: llvm.Type = undefined;
+        if (self.fat_ptr_vtable_keys.get(construct_node_id)) |vtable_key| {
+            const vtable_info = self.vtable_globals.get(vtable_key) orelse return error.MissingVtable;
+            vtable_array_type = vtable_info.vtable_array_type;
+        } else {
+            // Parameter-sourced fat pointer: build generic vtable array type from slot_index
+            const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+            const ptr_type = llvm.c.LLVMPointerType(i8_type, 0);
+            vtable_array_type = llvm.c.LLVMArrayType(ptr_type, slot_index + 1);
+        }
 
         // Extract vtable pointer (index 1 of { data, vtable })
         const vtable_ptr = llvm.buildExtractValue(self.builder, fat_ptr, 1, "vtable.ptr");
@@ -3160,7 +3175,7 @@ pub const LLVMEmitter = struct {
         };
         const slot_ptr = llvm.buildInBoundsGEP2(
             self.builder,
-            vtable_info.vtable_array_type,
+            vtable_array_type,
             vtable_ptr,
             &gep_indices,
             2,
