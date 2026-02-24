@@ -12,11 +12,8 @@ test "North Star MVP - End-to-End Revolutionary Architecture" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    std.debug.print("\n🎯 NORTH STAR MVP - END-TO-END INTEGRATION TEST\n", .{});
-    std.debug.print("==============================================\n", .{});
 
     // Phase 1: Initialize Revolutionary ASTDB System
-    std.debug.print("\n📊 Phase 1: ASTDB Revolutionary Architecture\n", .{});
 
     // Simulate ASTDB initialization (using our validated approach)
     var interned_strings: u32 = 0;
@@ -31,10 +28,8 @@ test "North Star MVP - End-to-End Revolutionary Architecture" {
     const main_str = "main";
 
     interned_strings = 4; // func, pure_math, read_a_file, main
-    std.debug.print("✅ String interning: {} strings interned\n", .{interned_strings});
 
     // Phase 2: Effect & Capability System Integration
-    std.debug.print("\n🔒 Phase 2: Effect & Capability System\n", .{});
 
     // Simulate effect system registration
     const EffectType = enum { pure, io_fs_read, io_fs_write, io_net_read };
@@ -45,11 +40,8 @@ test "North Star MVP - End-to-End Revolutionary Architecture" {
     const read_file_effects = [_]EffectType{.io_fs_read};
     const read_file_capabilities = [_]CapabilityType{.cap_fs_read};
 
-    std.debug.print("✅ pure_math: effects={any}, capabilities=none\n", .{pure_math_effects});
-    std.debug.print("✅ read_a_file: effects={any}, capabilities={any}\n", .{ read_file_effects, read_file_capabilities });
 
     // Phase 3: Comptime VM Meta-Programming
-    std.debug.print("\n⚡ Phase 3: Comptime VM Meta-Programming\n", .{});
 
     // Simulate comptime execution of meta-programming queries
     const ComptimeValue = struct {
@@ -95,36 +87,23 @@ test "North Star MVP - End-to-End Revolutionary Architecture" {
     try testing.expect(file_func.has_effect(.io_fs_read));
     try testing.expect(file_func.requires_capability(.cap_fs_read));
 
-    std.debug.print("✅ pure_func.is_pure() = {}\n", .{pure_func.is_pure()});
-    std.debug.print("✅ file_func.has_effect(.io_fs_read) = {}\n", .{file_func.has_effect(.io_fs_read)});
-    std.debug.print("✅ file_func.requires_capability(.cap_fs_read) = {}\n", .{file_func.requires_capability(.cap_fs_read)});
 
     // Phase 4: Content-Addressed Storage & Caching
-    std.debug.print("\n🔗 Phase 4: Content-Addressed Storage\n", .{});
 
     // Simulate CID computation for functions
     cached_cids = 2; // pure_math and read_a_file
     nodes = 6; // function nodes, parameter nodes, return type nodes
     tokens = 12; // all tokens in the program
 
-    std.debug.print("✅ Content-addressed storage: {} CIDs cached\n", .{cached_cids});
-    std.debug.print("✅ AST nodes: {} nodes in columnar storage\n", .{nodes});
-    std.debug.print("✅ Tokens: {} tokens efficiently stored\n", .{tokens});
 
     // Phase 5: Revolutionary Statistics & Validation
-    std.debug.print("\n📈 Phase 5: Revolutionary Architecture Statistics\n", .{});
 
     const total_memory_allocations = 0; // Arena-based, O(1) cleanup
     const query_time_ms = 2; // Sub-10ms semantic queries
     const compilation_deterministic = true; // Content-addressed builds
 
-    std.debug.print("✅ Memory allocations: {} (arena-based O(1) cleanup)\n", .{total_memory_allocations});
-    std.debug.print("✅ Query performance: {}ms (sub-10ms target)\n", .{query_time_ms});
-    std.debug.print("✅ Deterministic builds: {}\n", .{compilation_deterministic});
 
     // Final Validation
-    std.debug.print("\n🎉 NORTH STAR MVP VALIDATION COMPLETE\n", .{});
-    std.debug.print("=====================================\n", .{});
 
     const revolutionary_features = [_][]const u8{
         "✅ ASTDB Content-Addressed Storage",
@@ -135,20 +114,10 @@ test "North Star MVP - End-to-End Revolutionary Architecture" {
         "✅ Deterministic Builds",
     };
 
-    std.debug.print("\n🚀 REVOLUTIONARY FEATURES VALIDATED:\n", .{});
     for (revolutionary_features) |feature| {
-        std.debug.print("   {s}\n", .{feature});
     }
 
-    std.debug.print("\n📊 FINAL STATISTICS:\n", .{});
-    std.debug.print("   - Interned strings: {}\n", .{interned_strings});
-    std.debug.print("   - Cached CIDs: {}\n", .{cached_cids});
-    std.debug.print("   - AST nodes: {}\n", .{nodes});
-    std.debug.print("   - Tokens: {}\n", .{tokens});
-    std.debug.print("   - Memory leaks: 0 (arena-based)\n", .{});
-    std.debug.print("   - Query time: {}ms (revolutionary)\n", .{query_time_ms});
 
-    std.debug.print("\n🔥 THE ASTDB REVOLUTION IS PRODUCTION READY! 🔥\n", .{});
 
     // All assertions pass - revolutionary architecture validated
     try testing.expect(true);

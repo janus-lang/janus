@@ -28,12 +28,10 @@ test "Epic 2.1: Simple function call - add function" {
     const output = try e2e.compileAndRun(allocator, source, "func_add");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 3 + 4 = 7
     try testing.expectEqualStrings("7\n", output);
 
-    std.debug.print("\n=== SIMPLE FUNCTION CALL TEST PASSED ===\n", .{});
 }
 
 test "Epic 2.1: Chained function calls - double then add" {
@@ -59,12 +57,10 @@ test "Epic 2.1: Chained function calls - double then add" {
     const output = try e2e.compileAndRun(allocator, source, "func_chain");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // double(5) = 10, double(3) = 6, add(10, 6) = 16
     try testing.expectEqualStrings("16\n", output);
 
-    std.debug.print("\n=== CHAINED FUNCTION CALLS TEST PASSED ===\n", .{});
 }
 
 test "Epic 2.1: Function calling function - nested calls" {
@@ -91,12 +87,10 @@ test "Epic 2.1: Function calling function - nested calls" {
     const output = try e2e.compileAndRun(allocator, source, "func_nested");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 10 + 1 + 1 + 1 = 13
     try testing.expectEqualStrings("13\n", output);
 
-    std.debug.print("\n=== NESTED FUNCTION CALLS TEST PASSED ===\n", .{});
 }
 
 test "Epic 2.1: Function with loop - print sequence" {
@@ -117,12 +111,10 @@ test "Epic 2.1: Function with loop - print sequence" {
     const output = try e2e.compileAndRun(allocator, source, "func_loop");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // Print 1, 2, 3 (inclusive range)
     try testing.expectEqualStrings("1\n2\n3\n", output);
 
-    std.debug.print("\n=== FUNCTION WITH LOOP TEST PASSED ===\n", .{});
 }
 
 test "Epic 2.1: Function with conditional - absolute value" {
@@ -146,10 +138,8 @@ test "Epic 2.1: Function with conditional - absolute value" {
     const output = try e2e.compileAndRun(allocator, source, "func_abs");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // abs(5) = 5, abs(-7) = 7
     try testing.expectEqualStrings("5\n7\n", output);
 
-    std.debug.print("\n=== FUNCTION WITH CONDITIONAL TEST PASSED ===\n", .{});
 }

@@ -27,5 +27,4 @@ test "minimal semantic resolver test" {
     var result = try resolver.resolve(call_site);
     defer result.deinit(gpa.allocator());
 
-    std.debug.print("Test completed successfully\n", .{});
 }

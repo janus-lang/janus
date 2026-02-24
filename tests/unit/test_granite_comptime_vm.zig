@@ -11,14 +11,11 @@ const contracts = @import("compiler/libjanus/integration_contracts.zig");
 // GRANITE-SOLID ComptimeVM Validation Test
 // Comprehensive zero-leak validation using the same patterns as StringInterner
 test "Granite-Solid ComptimeVM - Zero Leak Validation" {
-    std.debug.print("\n🔧 GRANITE-SOLID COMPTIME VM VALIDATION\n", .{});
-    std.debug.print("==========================================\n", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
     // Test 1: Basic initialization and cleanup
-    std.debug.print("📋 Test 1: Basic Initialization\n", .{});
     {
         var astdb_system = try astdb.ASTDBSystem.init(allocator, true);
         defer astdb_system.deinit();
@@ -30,11 +27,9 @@ test "Granite-Solid ComptimeVM - Zero Leak Validation" {
         try testing.expectEqual(@as(u32, 0), stats.total_evaluations);
         try testing.expectEqual(@as(u32, 0), stats.cached_constants);
 
-        std.debug.print("✅ Basic initialization works\n", .{});
     }
 
     // Test 2: Single evaluation cycle
-    std.debug.print("📋 Test 2: Single Evaluation Cycle\n", .{});
     {
         var astdb_system = try astdb.ASTDBSystem.init(allocator, true);
         defer astdb_system.deinit();
@@ -64,11 +59,9 @@ test "Granite-Solid ComptimeVM - Zero Leak Validation" {
         const stored_value = comptime_vm.getConstantValue(const_name);
         try testing.expect(stored_value != null);
 
-        std.debug.print("✅ Single evaluation cycle works\n", .{});
     }
 
     // Test 3: Multiple evaluation cycles (stress test)
-    std.debug.print("📋 Test 3: Multiple Evaluation Stress Test\n", .{});
     {
         var astdb_system = try astdb.ASTDBSystem.init(allocator, true);
         defer astdb_system.deinit();
@@ -103,11 +96,9 @@ test "Granite-Solid ComptimeVM - Zero Leak Validation" {
         try testing.expectEqual(@as(u32, 100), stats.total_evaluations);
         try testing.expectEqual(@as(u32, 100), stats.cached_constants);
 
-        std.debug.print("✅ Stress test with 100 evaluations works\n", .{});
     }
 
     // Test 4: BRUTAL stress test - creation/destruction cycles
-    std.debug.print("📋 Test 4: BRUTAL Stress Test - Creation/Destruction Cycles\n", .{});
     {
         // This mimics the pattern that exposed leaks in the original ComptimeVM
         for (0..50) |cycle| {
@@ -146,11 +137,9 @@ test "Granite-Solid ComptimeVM - Zero Leak Validation" {
             try testing.expectEqual(@as(u32, 0), stats_after_clear.cached_constants);
         }
 
-        std.debug.print("✅ BRUTAL stress test (50 cycles × 20 evaluations) works\n", .{});
     }
 
     // Test 5: Different expression types
-    std.debug.print("📋 Test 5: Different Expression Types\n", .{});
     {
         var astdb_system = try astdb.ASTDBSystem.init(allocator, true);
         defer astdb_system.deinit();
@@ -217,23 +206,18 @@ test "Granite-Solid ComptimeVM - Zero Leak Validation" {
             try testing.expect(!output.should_cache); // Function calls not cached
         }
 
-        std.debug.print("✅ Different expression types work\n", .{});
     }
 
     // GRANITE-SOLID: Final memory leak check
     const leaked = gpa.deinit();
     if (leaked == .ok) {
-        std.debug.print("🎉 GRANITE-SOLID VALIDATION PASSED: ZERO MEMORY LEAKS\n", .{});
     } else {
-        std.debug.print("❌ MEMORY LEAKS DETECTED\n", .{});
         try testing.expect(false);
     }
 }
 
 // Test ComptimeVM integration with existing test patterns
 test "Granite-Solid ComptimeVM - Integration Compatibility" {
-    std.debug.print("\n🔧 INTEGRATION COMPATIBILITY TEST\n", .{});
-    std.debug.print("==================================\n", .{});
 
     const allocator = std.testing.allocator;
 
@@ -272,13 +256,10 @@ test "Granite-Solid ComptimeVM - Integration Compatibility" {
     const is_valid_output = contracts.ContractValidation.validateComptimeVMOutput(&output);
     try testing.expect(is_valid_output);
 
-    std.debug.print("✅ Integration compatibility maintained\n", .{});
 }
 
 // Performance comparison test
 test "Granite-Solid ComptimeVM - Performance Validation" {
-    std.debug.print("\n🔧 PERFORMANCE VALIDATION\n", .{});
-    std.debug.print("=========================\n", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -318,8 +299,6 @@ test "Granite-Solid ComptimeVM - Performance Validation" {
     const duration_ns = end_time - start_time;
     const duration_ms = @as(f64, @floatFromInt(duration_ns)) / 1_000_000.0;
 
-    std.debug.print("✅ 1000 evaluations completed in {d:.2} ms\n", .{duration_ms});
-    std.debug.print("✅ Average: {d:.4} ms per evaluation\n", .{duration_ms / 1000.0});
 
     // Verify final state
     const stats = comptime_vm.getEvaluationStats();

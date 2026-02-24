@@ -18,7 +18,6 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    std.debug.print("\n=== QTJIR Extended Graph Tests ===\n\n", .{});
 
     try testNodeCreation(allocator);
     try testAllOpCodes(allocator);
@@ -26,11 +25,9 @@ pub fn main() !void {
     try testValidationResultAPI(allocator);
     try testComplexCycles(allocator);
 
-    std.debug.print("\n✅ All extended graph tests passed!\n", .{});
 }
 
 fn testNodeCreation(allocator: std.mem.Allocator) !void {
-    std.debug.print("Test: Node Creation and Retrieval... ", .{});
     
     var g = QTJIRGraph.init(allocator);
     defer g.deinit();
@@ -51,11 +48,9 @@ fn testNodeCreation(allocator: std.mem.Allocator) !void {
     try std.testing.expectEqual(g.nodes.items[2].inputs.items.len, 1);
     try std.testing.expectEqual(g.nodes.items[2].inputs.items[0], id2);
 
-    std.debug.print("✓\n", .{});
 }
 
 fn testAllOpCodes(allocator: std.mem.Allocator) !void {
-    std.debug.print("Test: All OpCodes Coverage... ", .{});
     
     var g = QTJIRGraph.init(allocator);
     defer g.deinit();
@@ -95,11 +90,9 @@ fn testAllOpCodes(allocator: std.mem.Allocator) !void {
     // Verify count
     try std.testing.expectEqual(g.nodes.items.len, 19);
     
-    std.debug.print("✓\n", .{});
 }
 
 fn testGraphTopology(allocator: std.mem.Allocator) !void {
-    std.debug.print("Test: Graph Topology Manipulation... ", .{});
     
     var g = QTJIRGraph.init(allocator);
     defer g.deinit();
@@ -128,11 +121,9 @@ fn testGraphTopology(allocator: std.mem.Allocator) !void {
     try std.testing.expectEqual(g.nodes.items[n3].inputs.items[0], n1);
     try std.testing.expectEqual(g.nodes.items[n3].inputs.items[1], n2);
 
-    std.debug.print("✓\n", .{});
 }
 
 fn testValidationResultAPI(allocator: std.mem.Allocator) !void {
-    std.debug.print("Test: ValidationResult API... ", .{});
     
     var g = QTJIRGraph.init(allocator);
     defer g.deinit();
@@ -153,11 +144,9 @@ fn testValidationResultAPI(allocator: std.mem.Allocator) !void {
     try std.testing.expectEqual(diag.node_id, n0);
     try std.testing.expectEqual(diag.related_node_id, 999);
 
-    std.debug.print("✓\n", .{});
 }
 
 fn testComplexCycles(allocator: std.mem.Allocator) !void {
-    std.debug.print("Test: Complex Cycle Detection... ", .{});
     
     var g = QTJIRGraph.init(allocator);
     defer g.deinit();
@@ -187,5 +176,4 @@ fn testComplexCycles(allocator: std.mem.Allocator) !void {
     }
     try std.testing.expect(found_cycle);
 
-    std.debug.print("✓\n", .{});
 }

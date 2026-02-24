@@ -51,8 +51,6 @@ pub fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name
     const llvm_ir = try emitter.toString();
     defer allocator.free(llvm_ir);
 
-    std.debug.print("\n=== LLVM IR ({s}) ===\n{s}\n", .{ test_name, llvm_ir });
-
     // ── 4. Write IR to temp dir ──
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
@@ -82,10 +80,7 @@ pub fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name
 
     switch (llc_result.term) {
         .exited => |code| {
-            if (code != 0) {
-                std.debug.print("LLC STDERR: {s}\n", .{llc_result.stderr});
-                return error.LLCFailed;
-            }
+            if (code != 0) return error.LLCFailed;
         },
         else => return error.LLCFailed,
     }
@@ -111,10 +106,7 @@ pub fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name
 
     switch (zig_build_result.term) {
         .exited => |code| {
-            if (code != 0) {
-                std.debug.print("RUNTIME COMPILATION FAILED: {s}\n", .{zig_build_result.stderr});
-                return error.RuntimeCompilationFailed;
-            }
+            if (code != 0) return error.RuntimeCompilationFailed;
         },
         else => return error.RuntimeCompilationFailed,
     }
@@ -131,10 +123,7 @@ pub fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name
 
     switch (asm_build_result.term) {
         .exited => |code| {
-            if (code != 0) {
-                std.debug.print("ASSEMBLY COMPILATION FAILED: {s}\n", .{asm_build_result.stderr});
-                return error.AssemblyCompilationFailed;
-            }
+            if (code != 0) return error.AssemblyCompilationFailed;
         },
         else => return error.AssemblyCompilationFailed,
     }
@@ -148,15 +137,10 @@ pub fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name
 
     switch (link_result.term) {
         .exited => |code| {
-            if (code != 0) {
-                std.debug.print("LINK STDERR: {s}\n", .{link_result.stderr});
-                return error.LinkFailed;
-            }
+            if (code != 0) return error.LinkFailed;
         },
         else => return error.LinkFailed,
     }
-
-    std.debug.print("=== Executable generated: {s} ===\n", .{exe_file_path});
 
     // ── 9. Execute and capture stdout ──
     const exec_result = try std.process.run(allocator, io, .{
@@ -167,19 +151,15 @@ pub fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name
     switch (exec_result.term) {
         .exited => |code| {
             if (code != 0) {
-                std.debug.print("EXEC STDERR: {s}\nExit code: {d}\n", .{ exec_result.stderr, code });
                 allocator.free(exec_result.stdout);
                 return error.ExecutionFailed;
             }
         },
         else => {
-            std.debug.print("EXEC terminated abnormally: {any}\n", .{exec_result.term});
             allocator.free(exec_result.stdout);
             return error.ExecutionFailed;
         },
     }
-
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{exec_result.stdout});
 
     // Caller owns stdout
     return exec_result.stdout;

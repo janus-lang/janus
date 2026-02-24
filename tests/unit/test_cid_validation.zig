@@ -17,7 +17,6 @@ const InterfaceCID = @import("../../compiler/libjanus/incremental/interface_cid.
 const SemanticCID = @import("../../compiler/libjanus/incremental/compilation_unit.zig").SemanticCID;
 
 test "CID validation - InterfaceCID comparison" {
-    std.debug.print("CID validation test - InterfaceCID comparison\n", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -49,7 +48,6 @@ test "CID validation - InterfaceCID comparison" {
 }
 
 test "CID validation - SemanticCID comparison" {
-    std.debug.print("CID validation test - SemanticCID comparison\n", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -73,7 +71,6 @@ test "CID validation - SemanticCID comparison" {
 }
 
 test "CID validation - integrity verification" {
-    std.debug.print("CID validation test - integrity verification\n", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -109,7 +106,6 @@ test "CID validation - integrity verification" {
 }
 
 test "CID validation - diagnostics generation" {
-    std.debug.print("CID validation test - diagnostics generation\n", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -133,7 +129,6 @@ test "CID validation - diagnostics generation" {
 }
 
 test "CID validation - performance benchmarking" {
-    std.debug.print("CID validation test - performance benchmarking\n", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -157,14 +152,12 @@ test "CID validation - performance benchmarking" {
     // Performance should be very fast (sub-microsecond per operation)
     try testing.expect(benchmark_result.average_time_ns < 1000); // Less than 1 microsecond
 
-    std.debug.print("  Benchmark: {} ops/sec, avg {}ns per comparison\n", .{
         benchmark_result.operations_per_second,
         benchmark_result.average_time_ns,
     });
 }
 
 test "CID validation - hash difference counting" {
-    std.debug.print("CID validation test - hash difference counting\n", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -203,7 +196,6 @@ test "CID validation - hash difference counting" {
 }
 
 test "CID validation - entropy calculation" {
-    std.debug.print("CID validation test - entropy calculation\n", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -226,12 +218,9 @@ test "CID validation - entropy calculation" {
     const high_entropy_result = try validator.verifyIntegrity(&high_entropy_hash);
     try testing.expect(high_entropy_result.corruption_indicators.entropy_score > 4.0);
 
-    std.debug.print("  Low entropy score: {d:.2}\n", .{low_entropy_result.corruption_indicators.entropy_score});
-    std.debug.print("  High entropy score: {d:.2}\n", .{high_entropy_result.corruption_indicators.entropy_score});
 }
 
 test "CID validation - performance metrics" {
-    std.debug.print("CID validation test - performance metrics\n", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -251,7 +240,6 @@ test "CID validation - performance metrics" {
     try testing.expectEqual(@as(u64, 0), result.metrics.memory_used_bytes);
     try testing.expectEqual(@as(u32, 1), result.metrics.hash_operations);
 
-    std.debug.print("  Comparison time: {}ns\n", .{result.metrics.comparison_time_ns});
 }
 
 // Test utilities for creating controlled CID validation scenarios
@@ -294,7 +282,6 @@ fn benchmarkCIDOperations(validator: *CIDValidator, iterations: u32) !void {
 
     const benchmark = try validator.benchmarkComparison(iterations, cid1, cid2);
 
-    std.debug.print("  Benchmark results: {}\n", .{benchmark});
 
     // Verify performance is acceptable
     try testing.expect(benchmark.operations_per_second > 100_000); // At least 100k ops/sec

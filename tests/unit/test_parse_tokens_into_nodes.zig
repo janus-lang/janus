@@ -38,6 +38,5 @@ test "parseTokensIntoNodes should parse function parameters" {
 
     // THIS WILL FAIL: The current parser skips parameter parsing
     // See TODO comment in parseFunctionDeclaration: "TODO: Parse parameters"
-    std.debug.print("DEBUG: child_lo={}, child_hi={}\n", .{ func_node.child_lo, func_node.child_hi });
     try testing.expect(func_node.child_hi > func_node.child_lo); // Should have child nodes for parameters
 }

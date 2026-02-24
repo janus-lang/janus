@@ -66,7 +66,6 @@ test "Memory-safe exact match resolution" {
         .success => |success| {
             try std.testing.expectEqualStrings(success.target_function.name, "add");
             try std.testing.expect(success.conversion_path.get().total_cost == 0);
-            std.debug.print("✅ Memory-safe exact match test passed!\n", .{});
         },
         else => {
             try std.testing.expect(false); // Should have succeeded
@@ -139,7 +138,6 @@ test "Memory-safe conversion resolution" {
         .success => |success| {
             try std.testing.expectEqualStrings(success.target_function.name, "sqrt");
             try std.testing.expect(success.conversion_path.get().total_cost == 5);
-            std.debug.print("✅ Memory-safe conversion test passed!\n", .{});
         },
         else => {
             try std.testing.expect(false); // Should have succeeded with conversion
@@ -186,7 +184,6 @@ test "Memory-safe no match resolution" {
     switch (result) {
         .no_matches => |no_matches| {
             try std.testing.expectEqualStrings(no_matches.function_name, "nonexistent");
-            std.debug.print("✅ Memory-safe no match test passed!\n", .{});
         },
         else => {
             try std.testing.expect(false); // Should not find function
@@ -207,5 +204,4 @@ test "ScopedConversionPath RAII safety" {
     var view = ScopedConversionPath.view(scoped.get());
     defer view.deinit(); // Safe to call, won't double-free
 
-    std.debug.print("✅ RAII safety test passed!\n", .{});
 }

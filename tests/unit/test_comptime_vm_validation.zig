@@ -9,9 +9,6 @@ const testing = std.testing;
 // Validates that ComptimeVM integrates correctly with the hardened ASTDB system
 
 test "ComptimeVM Integration Validation" {
-    std.debug.print("\n🔧 COMPTIME VM VALIDATION\n", .{});
-    std.debug.print("=========================\n", .{});
-    std.debug.print("📋 Testing ComptimeVM integration with hardened ASTDB system\n", .{});
 
     const allocator = std.testing.allocator;
     const astdb = @import("compiler/libjanus/astdb.zig");
@@ -19,7 +16,6 @@ test "ComptimeVM Integration Validation" {
     const contracts = @import("compiler/libjanus/integration_contracts.zig");
 
     // Test 1: Basic ComptimeVM Initialization
-    std.debug.print("\n🧪 Test 1: ComptimeVM Initialization\n", .{});
     {
         var astdb_system = try astdb.ASTDBSystem.init(allocator, true);
         defer astdb_system.deinit();
@@ -31,11 +27,9 @@ test "ComptimeVM Integration Validation" {
         try testing.expectEqual(@as(u32, 0), stats.total_evaluations);
         try testing.expectEqual(@as(u32, 0), stats.cached_results);
 
-        std.debug.print("   ✅ ComptimeVM initializes correctly with ASTDB\n", .{});
     }
 
     // Test 2: Contract-Based Evaluation
-    std.debug.print("\n🧪 Test 2: Contract-Based Evaluation\n", .{});
     {
         var astdb_system = try astdb.ASTDBSystem.init(allocator, true);
         defer astdb_system.deinit();
@@ -75,11 +69,9 @@ test "ComptimeVM Integration Validation" {
         try testing.expect(output_contract.success);
         try testing.expect(output_contract.result_value != null);
 
-        std.debug.print("   ✅ Contract-based evaluation working\n", .{});
     }
 
     // Test 3: Constant Value Storage and Retrieval
-    std.debug.print("\n🧪 Test 3: Constant Value Storage\n", .{});
     {
         var astdb_system = try astdb.ASTDBSystem.init(allocator, true);
         defer astdb_system.deinit();
@@ -127,11 +119,9 @@ test "ComptimeVM Integration Validation" {
         try testing.expectEqual(@as(u32, 3), stats.total_evaluations);
         try testing.expectEqual(@as(u32, 3), stats.cached_results);
 
-        std.debug.print("   ✅ Constant storage and retrieval working\n", .{});
     }
 
     // Test 4: Memory Management Validation
-    std.debug.print("\n🧪 Test 4: Memory Management Validation\n", .{});
     {
         for (0..10) |cycle| {
             var astdb_system = try astdb.ASTDBSystem.init(allocator, true);
@@ -169,14 +159,11 @@ test "ComptimeVM Integration Validation" {
             }
 
             if (cycle % 3 == 0) {
-                std.debug.print("   🔄 Cycle {d}/10 completed\n", .{cycle + 1});
             }
         }
-        std.debug.print("   ✅ Memory management validation completed\n", .{});
     }
 
     // Test 5: Integration with String Interner
-    std.debug.print("\n🧪 Test 5: String Interner Integration\n", .{});
     {
         var astdb_system = try astdb.ASTDBSystem.init(allocator, true);
         defer astdb_system.deinit();
@@ -218,11 +205,9 @@ test "ComptimeVM Integration Validation" {
             try testing.expect(output.success);
         }
 
-        std.debug.print("   ✅ String interner integration working\n", .{});
     }
 
     // Test 6: Error Handling Validation
-    std.debug.print("\n🧪 Test 6: Error Handling Validation\n", .{});
     {
         var astdb_system = try astdb.ASTDBSystem.init(allocator, true);
         defer astdb_system.deinit();
@@ -264,21 +249,11 @@ test "ComptimeVM Integration Validation" {
         try testing.expect(!output.success);
         try testing.expect(output.evaluation_errors.len > 0);
 
-        std.debug.print("   ✅ Error handling working correctly\n", .{});
     }
 
-    std.debug.print("\n🎯 COMPTIME VM VALIDATION COMPLETE\n", .{});
-    std.debug.print("===================================\n", .{});
-    std.debug.print("✅ All tests passed - ComptimeVM integration is working\n", .{});
-    std.debug.print("✅ Memory management is clean and leak-free\n", .{});
-    std.debug.print("✅ Contract-based interface is functioning correctly\n", .{});
-    std.debug.print("✅ String interner integration is seamless\n", .{});
-    std.debug.print("✅ Error handling is robust\n", .{});
 }
 
 test "ComptimeVM Performance Validation" {
-    std.debug.print("\n⚡ COMPTIME VM PERFORMANCE VALIDATION\n", .{});
-    std.debug.print("=====================================\n", .{});
 
     const allocator = std.testing.allocator;
     const astdb = @import("compiler/libjanus/astdb.zig");
@@ -328,16 +303,10 @@ test "ComptimeVM Performance Validation" {
 
     const stats = comptime_vm.getEvaluationStats();
 
-    std.debug.print("📊 Performance Results:\n", .{});
-    std.debug.print("   • Performed 1000 evaluations in {d:.2} ms\n", .{duration_ms});
-    std.debug.print("   • Total evaluations: {d}\n", .{stats.total_evaluations});
-    std.debug.print("   • Cached results: {d}\n", .{stats.cached_results});
-    std.debug.print("   • Throughput: {d:.0} evaluations/second\n", .{1000.0 / (duration_ms / 1000.0)});
 
     // Performance assertions
     try testing.expect(duration_ms < 1000.0); // Should complete in under 1 second
     try testing.expectEqual(@as(u32, 1000), stats.total_evaluations);
     try testing.expectEqual(@as(u32, 1000), stats.cached_results);
 
-    std.debug.print("✅ Performance validation passed\n", .{});
 }

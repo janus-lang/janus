@@ -29,7 +29,6 @@ test "interface extraction - function signature vs implementation" {
     // 2. Function with changed signature, same implementation
     // 3. Function with both signature and implementation changes
 
-    std.debug.print("Interface extraction test - function signature vs implementation\n", .{});
 
     // Placeholder test - will be implemented once ASTDB integration is complete
     try testing.expect(true);
@@ -39,7 +38,6 @@ test "interface extraction - public vs private declarations" {
     // This test verifies that only public/exported declarations are included
     // in the interface, while private declarations are ignored
 
-    std.debug.print("Interface extraction test - public vs private declarations\n", .{});
 
     // TODO: Test cases:
     // 1. Public function should be in interface
@@ -55,7 +53,6 @@ test "interface extraction - struct interface vs implementation" {
     // Public fields and their types are interface
     // Private fields, layout, and implementation details are not
 
-    std.debug.print("Interface extraction test - struct interface vs implementation\n", .{});
 
     // TODO: Test cases:
     // 1. Public struct with public fields
@@ -71,7 +68,6 @@ test "interface extraction - enum interface vs representation" {
     // Variant names and types are interface
     // Variant values and internal representation are not
 
-    std.debug.print("Interface extraction test - enum interface vs representation\n", .{});
 
     // TODO: Test cases:
     // 1. Enum with variants (variant names and types in interface)
@@ -86,7 +82,6 @@ test "interface extraction - constant interface vs value" {
     // Constant name and type are interface
     // Constant value is usually not interface (unless it affects type inference)
 
-    std.debug.print("Interface extraction test - constant interface vs value\n", .{});
 
     // TODO: Test cases:
     // 1. Constant with same type, different value (should NOT affect interface)
@@ -101,7 +96,6 @@ test "interface extraction - module exports" {
     // Exported symbols are interface
     // Internal symbols are not
 
-    std.debug.print("Interface extraction test - module exports\n", .{});
 
     // TODO: Test cases:
     // 1. Module with exported functions
@@ -115,7 +109,6 @@ test "interface extraction - edge cases" {
     // This test verifies handling of edge cases that could break
     // the interface vs implementation distinction
 
-    std.debug.print("Interface extraction test - edge cases\n", .{});
 
     // TODO: Test cases:
     // 1. Inline functions (signature is interface, body might affect optimization)
@@ -131,7 +124,6 @@ test "interface extraction - deterministic ordering" {
     // This test verifies that interface elements are extracted in a
     // deterministic order for consistent hashing
 
-    std.debug.print("Interface extraction test - deterministic ordering\n", .{});
 
     // TODO: Test cases:
     // 1. Same interface extracted multiple times should have same order
@@ -145,7 +137,6 @@ test "interface extraction - performance" {
     // This test verifies that interface extraction is efficient enough
     // for large codebases
 
-    std.debug.print("Interface extraction test - performance\n", .{});
 
     // TODO: Performance tests:
     // 1. Extract interface from large compilation unit

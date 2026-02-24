@@ -25,7 +25,6 @@ const ValidationTestCase = struct {
 };
 
 test "interface validation - function signature vs implementation" {
-    std.debug.print("Interface validation - function signature vs implementation\n", .{});
 
     // Test cases that validate the critical distinction for functions
     const test_cases = [_]ValidationTestCase{
@@ -99,7 +98,6 @@ test "interface validation - function signature vs implementation" {
 }
 
 test "interface validation - struct interface vs implementation" {
-    std.debug.print("Interface validation - struct interface vs implementation\n", .{});
 
     const test_cases = [_]ValidationTestCase{
         ValidationTestCase{
@@ -189,7 +187,6 @@ test "interface validation - struct interface vs implementation" {
 }
 
 test "interface validation - constant interface vs value" {
-    std.debug.print("Interface validation - constant interface vs value\n", .{});
 
     const test_cases = [_]ValidationTestCase{
         ValidationTestCase{
@@ -233,7 +230,6 @@ test "interface validation - constant interface vs value" {
 }
 
 test "interface validation - enum interface vs representation" {
-    std.debug.print("Interface validation - enum interface vs representation\n", .{});
 
     const test_cases = [_]ValidationTestCase{
         ValidationTestCase{
@@ -296,7 +292,6 @@ test "interface validation - enum interface vs representation" {
 }
 
 test "interface validation - module interface vs implementation" {
-    std.debug.print("Interface validation - module interface vs implementation\n", .{});
 
     const test_cases = [_]ValidationTestCase{
         ValidationTestCase{
@@ -337,7 +332,6 @@ test "interface validation - module interface vs implementation" {
 }
 
 test "interface validation - edge cases" {
-    std.debug.print("Interface validation - edge cases\n", .{});
 
     const test_cases = [_]ValidationTestCase{
         ValidationTestCase{
@@ -392,7 +386,6 @@ test "interface validation - edge cases" {
 }
 
 test "interface validation - comprehensive integration" {
-    std.debug.print("Interface validation - comprehensive integration\n", .{});
 
     // This test validates the complete interface extraction and CID generation pipeline
     // with realistic code examples that combine multiple interface elements
@@ -486,7 +479,6 @@ test "interface validation - comprehensive integration" {
 // Validation Test Infrastructure
 
 fn validateTestCase(test_case: ValidationTestCase) !void {
-    std.debug.print("  Validating: {s}\n", .{test_case.name});
 
     // TODO: Implement actual validation once ASTDB integration is complete
     // This will involve:
@@ -500,8 +492,6 @@ fn validateTestCase(test_case: ValidationTestCase) !void {
     try testing.expect(test_case.version2.len > 0);
     try testing.expect(test_case.description.len > 0);
 
-    std.debug.print("    Expected: Interface CID should {s}\n", .{if (test_case.should_interface_change) "CHANGE" else "remain STABLE"});
-    std.debug.print("    Reason: {s}\n", .{test_case.description});
 
     // Placeholder validation - will be replaced with actual implementation
     const validation_passed = true; // TODO: Implement actual validation
@@ -538,26 +528,15 @@ const ValidationStats = struct {
 };
 
 fn generateValidationReport(stats: ValidationStats) void {
-    std.debug.print("\n=== Interface Validation Report ===\n", .{});
-    std.debug.print("Total Tests: {}\n", .{stats.total_tests});
-    std.debug.print("Passed: {}\n", .{stats.passed_tests});
-    std.debug.print("Failed: {}\n", .{stats.failed_tests});
-    std.debug.print("Interface Stability Tests: {}\n", .{stats.interface_stability_tests});
-    std.debug.print("Interface Change Tests: {}\n", .{stats.interface_change_tests});
 
     const success_rate = if (stats.total_tests > 0)
         (@as(f32, @floatFromInt(stats.passed_tests)) / @as(f32, @floatFromInt(stats.total_tests))) * 100.0
     else
         0.0;
 
-    std.debug.print("Success Rate: {d:.1}%\n", .{success_rate});
 
     if (stats.failed_tests == 0) {
-        std.debug.print("🎉 ALL INTERFACE VALIDATION TESTS PASSED!\n", .{});
-        std.debug.print("The interface vs implementation separation is WORKING CORRECTLY.\n", .{});
     } else {
-        std.debug.print("❌ INTERFACE VALIDATION FAILURES DETECTED!\n", .{});
-        std.debug.print("The incremental compilation foundation needs fixes.\n", .{});
     }
 }
 

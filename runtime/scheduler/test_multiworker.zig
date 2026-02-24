@@ -18,6 +18,7 @@ const Task = task_mod.Task;
 const TaskState = task_mod.TaskState;
 
 const budget_mod = @import("budget.zig");
+const compat_time = @import("compat_time");
 const Budget = budget_mod.Budget;
 
 // ============================================================================
@@ -102,7 +103,7 @@ test "Multi-worker: basic two-worker execution" {
     // Wait for completion (increased timeout for loaded systems)
     var attempts: usize = 0;
     while (execution_counter.load(.seq_cst) < 4 and attempts < 5000) : (attempts += 1) {
-        std.Thread.sleep(1_000_000);
+        compat_time.sleep(1_000_000);
     }
 
     sched.stop();
@@ -145,7 +146,7 @@ test "Multi-worker: work stealing under load" {
     // Wait for completion
     var attempts: usize = 0;
     while (execution_counter.load(.seq_cst) < task_count and attempts < 5000) : (attempts += 1) {
-        std.Thread.sleep(1_000_000);
+        compat_time.sleep(1_000_000);
     }
 
     sched.stop();
@@ -193,7 +194,7 @@ test "Multi-worker: asymmetric load distribution" {
     // Wait for completion
     var attempts: usize = 0;
     while (execution_counter.load(.seq_cst) < task_count and attempts < 5000) : (attempts += 1) {
-        std.Thread.sleep(1_000_000);
+        compat_time.sleep(1_000_000);
     }
 
     sched.stop();
@@ -241,7 +242,7 @@ test "Multi-worker: yielding tasks resume correctly" {
     // Wait for completion (each task increments 3 times, 10s timeout for yielding tasks)
     var attempts: usize = 0;
     while (execution_counter.load(.seq_cst) < 9 and attempts < 10000) : (attempts += 1) {
-        std.Thread.sleep(1_000_000);
+        compat_time.sleep(1_000_000);
     }
 
     sched.stop();
@@ -284,7 +285,7 @@ test "Multi-worker: stress test" {
     // Wait for completion (10 second timeout for stress test)
     var attempts: usize = 0;
     while (execution_counter.load(.seq_cst) < task_count and attempts < 10000) : (attempts += 1) {
-        std.Thread.sleep(1_000_000);
+        compat_time.sleep(1_000_000);
     }
 
     sched.stop();
@@ -321,7 +322,7 @@ test "Multi-worker: spawn API" {
     // Wait for completion
     var attempts: usize = 0;
     while (execution_counter.load(.seq_cst) < 2 and attempts < 5000) : (attempts += 1) {
-        std.Thread.sleep(1_000_000);
+        compat_time.sleep(1_000_000);
     }
 
     sched.stop();
@@ -366,7 +367,7 @@ test "Multi-worker: statistics tracking" {
     // Wait for completion
     var attempts: usize = 0;
     while (execution_counter.load(.seq_cst) < task_count and attempts < 5000) : (attempts += 1) {
-        std.Thread.sleep(1_000_000);
+        compat_time.sleep(1_000_000);
     }
 
     sched.stop();

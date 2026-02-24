@@ -188,9 +188,6 @@ test "Basic performance test" {
     const duration_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
     const ops_per_second = @as(f64, @floatFromInt(iterations * 2)) / (duration_ms / 1000.0); // 2 ops per iteration
 
-    std.debug.print("\nMock Daemon Performance:\n", .{});
-    std.debug.print("  {} operations in {d:.2} ms\n", .{ iterations * 2, duration_ms });
-    std.debug.print("  {d:.0} operations/second\n", .{ops_per_second});
 
     // Basic performance validation
     try testing.expect(ops_per_second > 1000); // Should be fast for simple operations

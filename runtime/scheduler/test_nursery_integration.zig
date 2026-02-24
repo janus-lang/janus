@@ -24,6 +24,7 @@ const NurseryState = nursery_mod.NurseryState;
 const NurseryResult = nursery_mod.NurseryResult;
 
 const budget_mod = @import("budget.zig");
+const compat_time = @import("compat_time");
 const Budget = budget_mod.Budget;
 
 // ============================================================================
@@ -89,7 +90,7 @@ test "Nursery + Scheduler: basic spawn and completion" {
     // Wait for tasks to complete
     var attempts: usize = 0;
     while (test_counter.load(.seq_cst) < 2 and attempts < 10000) : (attempts += 1) {
-        std.Thread.sleep(1_000_000);
+        compat_time.sleep(1_000_000);
     }
 
     sched.stop();
@@ -306,7 +307,7 @@ test "Nursery + Scheduler: worker notification increments count" {
     // Wait for completion
     var attempts: usize = 0;
     while (nursery.completed_count.load(.acquire) < count and attempts < 10000) : (attempts += 1) {
-        std.Thread.sleep(1_000_000);
+        compat_time.sleep(1_000_000);
     }
 
     sched.stop();

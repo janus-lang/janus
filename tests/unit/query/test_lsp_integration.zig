@@ -17,8 +17,6 @@ const query_engine = @import("../../../compiler/astdb/query_engine.zig");
 const astdb = @import("../../../compiler/astdb/astdb.zig");
 
 test "LSP Server Initialization" {
-    std.debug.print("\n🔧 LSP SERVER INITIALIZATION TEST\n", .{});
-    std.debug.print("=====================================\n", .{});
 
     const allocator = std.testing.allocator;
 
@@ -44,12 +42,9 @@ test "LSP Server Initialization" {
     try testing.expect(caps.object.get("definitionProvider").?.bool == true);
     try testing.expect(caps.object.get("referencesProvider").?.bool == true);
 
-    std.debug.print("   ✅ LSP server initialized with correct capabilities\n", .{});
 }
 
 test "Query Engine Performance Requirements" {
-    std.debug.print("\n🔧 QUERY ENGINE PERFORMANCE TEST\n", .{});
-    std.debug.print("==================================\n", .{});
 
     const allocator = std.testing.allocator;
 
@@ -83,17 +78,14 @@ test "Query Engine Performance Requirements" {
     const duration_ns = @as(u64, @intCast(end_time - start_time));
     const duration_ms = @as(f64, @floatFromInt(duration_ns)) / 1_000_000.0;
 
-    std.debug.print("   Query response time: {d:.2f}ms\n", .{duration_ms});
 
     // Verife requirement (< 10ms)
     try testing.expect(duration_ms < 10.0);
 
-    std.debug.print("   ✅ Query performance meets requirements (<10ms)\n", .{});
 }
 
 test "LSP Hover Functionality" {
     bug.print("\n🔧 LSP HOVER FUNCTIONALITY TEST\n", .{});
-    std.debug.print("=================================\n", .{});
 
     const allocator = std.testing.allocator;
 
@@ -151,15 +143,11 @@ test "LSP Hover Functionality" {
 
     if (hover_result) |result| {
         try testing.expect(result.object.contains("contents"));
-        std.debug.print("   ✅ Hover request returned semantic information\n", .{});
     } else {
-        std.debug.print("   ⚠️  Hover request returned null (expected for placeholder implementation)\n", .{});
     }
 }
 
 test "LSP Go-to-Definition Functionality" {
-    std.debug.print("\n🔧 LSP GO-TO-DEFINITION TEST\n", .{});
-    std.debug.print("==============================\n", .{});
 
     const allocator = std.testing.allocator;
 
@@ -191,15 +179,11 @@ test "LSP Go-to-Definition Functionality" {
     if (def_result) |result| {
         try testing.expect(result.object.contains("uri"));
         try testing.expect(result.object.contains("range"));
-        std.debug.print("   ✅ Go-to-definition returned location information\n", .{});
     } else {
-        std.debug.print("   ⚠️  Go-to-definition returned null (expected for placeholder implementation)\n", .{});
     }
 }
 
 test "LSP Find References Functionality" {
-    std.debug.print("\n🔧 LSP FIND REFERENCES TEST\n", .{});
-    std.debug.print("=============================\n", .{});
 
     const allocator = std.testing.allocator;
 
@@ -230,15 +214,11 @@ test "LSP Find References Functionality" {
 
     if (ref_result) |result| {
         try testing.expect(result == .array);
-        std.debug.print("   ✅ Find references returned array of locations\n", .{});
     } else {
-        std.debug.print("   ⚠️  Find references returned null (expected for placeholder implementation)\n", .{});
     }
 }
 
 test "Query Engine Caching Behavior" {
-    std.debug.print("\n🔧 QUERY ENGINE CACHING TEST\n", .{});
-    std.debug.print("==============================\n", .{});
 
     const allocator = std.testing.allocator;
 
@@ -268,23 +248,15 @@ test "Query Engine Caching Behavior" {
     _ = result2;
 
     // Cache hit should be significantly faster
-    std.debug.print("   First query (cache miss): {}ns\n", .{duration1});
-    std.debug.print("   Second query (cache hit): {}ns\n", .{duration2});
 
     // Get cache statistics
     const stats = engine.getStats();
-    std.debug.print("   Total queries: {}\n", .{stats.total_queries});
-    std.debug.print("   Cache hits: {}\n", .{stats.cache_hits});
-    std.debug.print("   Cache misses: {}\n", .{stats.cache_misses});
 
     try testing.expect(stats.total_queries >= 2);
 
-    std.debug.print("   ✅ Query caching is functional\n", .{});
 }
 
 test "LSP Performance Under Load" {
-    std.debug.print("\n🔧 LSP PERFORMANCE UNDER LOAD TEST\n", .{});
-    std.debug.print("====================================\n", .{});
 
     const allocator = std.testing.allocator;
 
@@ -329,10 +301,8 @@ test "LSP Performance Under Load" {
     const avg_duration_ns = total_duration / num_requests;
     const avg_duration_ms = @as(f64, @floatFromInt(avg_duration_ns)) / 1_000_000.0;
 
-    std.debug.print("   Average response time over {} requests: {d:.2f}ms\n", .{ num_requests, avg_duration_ms });
 
     // Verify performance requirement
     try testing.expect(avg_duration_ms < 10.0);
 
-    std.debug.print("   ✅ LSP maintains performance under load\n", .{});
 }

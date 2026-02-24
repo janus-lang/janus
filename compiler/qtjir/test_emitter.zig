@@ -796,29 +796,9 @@ test "Scenario 36: LLVM IR to executable compilation" {
     const llvm_ir = try llvm_emitter.emit(&ir_graph);
     defer allocator.free(llvm_ir);
 
-    // Compile to executable
-    const exe_path = "test_jit_output";
-    llvm_emitter.compileToExecutable(llvm_ir, exe_path) catch |err| {
-        // Compilation may fail if clang is not available - that's okay for now
-        if (err == error.CompilationFailed) {
-            std.debug.print("Note: Clang not available, skipping executable test\n", .{});
-            return;
-        }
-        return err;
-    };
-
-    // Verify executable exists
-    const file = std.fs.cwd().openFile(exe_path, .{}) catch |err| {
-        if (err == error.FileNotFound) {
-            std.debug.print("Note: Executable not created, skipping test\n", .{});
-            return;
-        }
-        return err;
-    };
-    file.close();
-
-    // Clean up
-    compat_fs.deleteFile(exe_path) catch {};
+    // compileToExecutable removed in 0.16 — e2e tests use std.process.run pipeline
+    // Verify IR was generated (functional test only)
+    try testing.expect(llvm_ir.len > 0);
 }
 
 // BDD Scenario 37: JIT Execution Interface

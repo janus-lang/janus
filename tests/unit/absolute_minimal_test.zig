@@ -7,7 +7,6 @@ const std = @import("std");
 // This will help us understand exactly where the leaks are coming from
 
 test "Absolute Minimal - Just Arena Dupe" {
-    std.debug.print("🔍 Testing Arena Dupe...\n", .{});
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
@@ -23,15 +22,12 @@ test "Absolute Minimal - Just Arena Dupe" {
     // Check for memory leaks
     const leaked = gpa.deinit();
     if (leaked == .leak) {
-        std.debug.print("❌ MEMORY LEAK IN ARENA DUPE\n", .{});
         return error.MemoryLeak;
     }
 
-    std.debug.print("✅ ARENA DUPE TEST PASSED\n", .{});
 }
 
 test "Absolute Minimal - Parent Alloc + Arena Dupe" {
-    std.debug.print("🔍 Testing Combined Approach...\n", .{});
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
@@ -52,15 +48,12 @@ test "Absolute Minimal - Parent Alloc + Arena Dupe" {
     // Check for memory leaks
     const leaked = gpa.deinit();
     if (leaked == .leak) {
-        std.debug.print("❌ MEMORY LEAK IN COMBINED APPROACH\n", .{});
         return error.MemoryLeak;
     }
 
-    std.debug.print("✅ COMBINED APPROACH TEST PASSED\n", .{});
 }
 
 test "Absolute Minimal - Struct with Arena" {
-    std.debug.print("🔍 Testing Struct Approach...\n", .{});
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
@@ -99,9 +92,7 @@ test "Absolute Minimal - Struct with Arena" {
     // Check for memory leaks
     const leaked = gpa.deinit();
     if (leaked == .leak) {
-        std.debug.print("❌ MEMORY LEAK IN STRUCT APPROACH\n", .{});
         return error.MemoryLeak;
     }
 
-    std.debug.print("✅ STRUCT APPROACH TEST PASSED\n", .{});
 }

@@ -1112,7 +1112,7 @@ fn test_route_with_app(
 ) ![]u8 {
     var buf = std.ArrayList(u8){};
     errdefer buf.deinit(allocator);
-    try routeHttp(app, method, path, content_type, authorization, body, buf.writer(allocator), allocator, resolver);
+    try routeHttp(app, method, path, content_type, authorization, body, json_helpers.arrayListWriter(&buf, allocator), allocator, resolver);
     return try buf.toOwnedSlice(allocator);
 }
 

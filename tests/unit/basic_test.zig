@@ -4,11 +4,9 @@
 const std = @import("std");
 
 pub fn main() !void {
-    std.debug.print("Hello from basic test!\n", .{});
 
     // Test if we can import the tokenizer
     const Tokenizer = @import("compiler/libjanus/tokenizer.zig");
-    std.debug.print("Tokenizer imported successfully!\n", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -22,7 +20,5 @@ pub fn main() !void {
     const tokens = try tokenizer.tokenize();
     defer allocator.free(tokens);
 
-    std.debug.print("Tokenized {} tokens from: {s}\n", .{ tokens.len, source });
 
-    std.debug.print("SUCCESS: Core tokenizer is working!\n", .{});
 }

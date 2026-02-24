@@ -37,8 +37,6 @@ test "Step 2: Comptime VM Integration Contract - DISCIPLINED IMPLEMENTATION" {
     var comptime_vm = try ComptimeVM.init(allocator, &astdb_system);
     defer comptime_vm.deinit();
 
-    std.debug.print("\n🔒 STEP 2: COMPTIME VM INTEGRATION CONTRACT\n", .{});
-    std.debug.print("============================================\n", .{});
 
     // Test program with comptime expressions
     const test_source =
@@ -51,7 +49,6 @@ test "Step 2: Comptime VM Integration Contract - DISCIPLINED IMPLEMENTATION" {
         \\}
     ;
 
-    std.debug.print("📄 Testing comptime integration ({d} bytes)\n", .{test_source.len});
 
     // Initialize parser with Comptime VM integration
     var parser = try EnhancedASTDBParser.initWithComptimeVM(allocator, test_source, &astdb_system, &comptime_vm);
@@ -61,20 +58,15 @@ test "Step 2: Comptime VM Integration Contract - DISCIPLINED IMPLEMENTATION" {
     const root_node = try parser.parseProgram();
     const snapshot = parser.getSnapshot();
 
-    std.debug.print("✅ Parsing complete: {} nodes\n", .{snapshot.nodeCount()});
 
     // CONTRACT VALIDATION: Verify comptime expressions were registered
-    std.debug.print("\n🔗 Validating Comptime VM Integration Contract\n", .{});
 
     // Test 1: Verify PI constant registration
     const pi_name = try astdb_system.str_interner.get("PI");
     const pi_result = comptime_vm.getConstantValue(pi_name);
 
-    std.debug.print("🔍 Testing PI constant registration: ", .{});
     if (pi_result) |_| {
-        std.debug.print("✅ REGISTERED\n", .{});
     } else {
-        std.debug.print("❌ NOT REGISTERED\n", .{});
         return error.IntegrationFailed;
     }
 
@@ -82,11 +74,8 @@ test "Step 2: Comptime VM Integration Contract - DISCIPLINED IMPLEMENTATION" {
     const buffer_size_name = try astdb_system.str_interner.get("BUFFER_SIZE");
     const buffer_size_result = comptime_vm.getConstantValue(buffer_size_name);
 
-    std.debug.print("🔍 Testing BUFFER_SIZE constant registration: ", .{});
     if (buffer_size_result) |_| {
-        std.debug.print("✅ REGISTERED\n", .{});
     } else {
-        std.debug.print("❌ NOT REGISTERED\n", .{});
         return error.IntegrationFailed;
     }
 
@@ -94,27 +83,18 @@ test "Step 2: Comptime VM Integration Contract - DISCIPLINED IMPLEMENTATION" {
     const message_name = try astdb_system.str_interner.get("MESSAGE");
     const message_result = comptime_vm.getConstantValue(message_name);
 
-    std.debug.print("🔍 Testing MESSAGE constant registration: ", .{});
     if (message_result) |_| {
-        std.debug.print("✅ REGISTERED\n", .{});
     } else {
-        std.debug.print("❌ NOT REGISTERED\n", .{});
         return error.IntegrationFailed;
     }
 
     // Test 4: Verify evaluation statistics
     const stats = comptime_vm.getEvaluationStats();
-    std.debug.print("🔍 Comptime evaluations: {d} total, {d} cached\n", .{ stats.total_evaluations, stats.cached_results });
 
     // Should have evaluated at least 3 constants
     try testing.expect(stats.total_evaluations >= 3);
     try testing.expect(stats.cached_results >= 3);
 
-    std.debug.print("\n🎉 SUCCESS: Comptime VM Integration Contract Working!\n", .{});
-    std.debug.print("✅ Parser successfully registers comptime expressions\n", .{});
-    std.debug.print("✅ ComptimeVM evaluates expressions correctly\n", .{});
-    std.debug.print("✅ Contract boundaries are enforced\n", .{});
-    std.debug.print("✅ Integration is deterministic and testable\n", .{});
 
     _ = root_node; // Suppress unused variable warning
 }
@@ -125,7 +105,6 @@ test "Step 2: Comptime VM Contract Structure Validation" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    std.debug.print("\n📋 Testing Comptime VM Contract Structures\n", .{});
 
     // Test ComptimeVMInputContract validation
     var dependencies = std.ArrayList(astdb.NodeId){};
@@ -149,7 +128,6 @@ test "Step 2: Comptime VM Contract Structure Validation" {
     };
 
     try testing.expect(contracts.ContractValidation.validateComptimeVMInput(&input_contract));
-    std.debug.print("✅ ComptimeVMInputContract validation passed\n", .{});
 
     // Test ComptimeVMOutputContract validation
     const output_contract = contracts.ComptimeVMOutputContract{
@@ -161,7 +139,5 @@ test "Step 2: Comptime VM Contract Structure Validation" {
     };
 
     try testing.expect(contracts.ContractValidation.validateComptimeVMOutput(&output_contract));
-    std.debug.print("✅ ComptimeVMOutputContract validation passed\n", .{});
 
-    std.debug.print("✅ All contract structures are well-formed and validated\n", .{});
 }

@@ -89,7 +89,6 @@ test "LLVM Dispatch Codegen - Direct Call Generation" {
     try testing.expect(ir_ref.metadata.deterministic_hash.len == 32);
     try testing.expect(ir_ref.metadata.strategy_used == .direct_call);
 
-    std.debug.print("✅ Direct call IR generated successfully\n");
     {
         const hex_chars = "0123456789abcdef";
         var hex_buf: [&ir_ref.metadata.deterministic_hash.len * 2]u8 = undefined;
@@ -97,7 +96,6 @@ test "LLVM Dispatch Codegen - Direct Call Generation" {
             hex_buf[i * 2] = hex_chars[byte >> 4];
             hex_buf[i * 2 + 1] = hex_chars[byte & 0x0f];
         }
-        std.debug.print("IR Hash: {s}\n", .{hex_buf});
     }
 }
 
@@ -139,7 +137,6 @@ test "LLVM Dispatch Codegen - Switch Dispatch Generation" {
     try testing.expect(std.mem.indexOf(u8, ir_ref.ir_text, "label %case1") != null);
     try testing.expect(ir_ref.metadata.strategy_used == .switch_dispatch);
 
-    std.debug.print("✅ Switch dispatch IR generated successfully\n");
 }
 
 test "LLVM Dispatch Codegen - Jump Table Stub Generation" {
@@ -172,7 +169,6 @@ test "LLVM Dispatch Codegen - Jump Table Stub Generation" {
     try testing.expect(std.mem.indexOf(u8, ir_ref.ir_text, "@jump_table") != null);
     try testing.expect(ir_ref.metadata.strategy_used == .jump_table);
 
-    std.debug.print("✅ Jump table stub generated successfully\n");
 }
 
 test "LLVM Dispatch Codegen - Perfect Hash Stub Generation" {
@@ -203,7 +199,6 @@ test "LLVM Dispatch Codegen - Perfect Hash Stub Generation" {
     try testing.expect(std.mem.indexOf(u8, ir_ref.ir_text, "@hash_table") != null);
     try testing.expect(ir_ref.metadata.strategy_used == .perfect_hash);
 
-    std.debug.print("✅ Perfect hash stub generated successfully\n");
 }
 
 test "LLVM Dispatch Codegen - IR Dump Functionality" {
@@ -238,11 +233,9 @@ test "LLVM Dispatch Codegen - IR Dump Functionality" {
     _ = try codegen.emitCall(call_site, strategy);
 
     // Test IR dump (output goes to debug print)
-    std.debug.print("\n=== Testing IR Dump ===\n");
     try codegen.dumpIR(1, .llvm_ir);
     try codegen.dumpIR(1, .debug_info);
 
-    std.debug.print("✅ IR dump functionality verified\n");
 }
 
 test "LLVM Dispatch Codegen - Deterministic Hash Consistency" {
@@ -283,7 +276,6 @@ test "LLVM Dispatch Codegen - Deterministic Hash Consistency" {
     // Verify deterministic hashes are identical
     try testing.expect(std.mem.eql(u8, &ir_ref1.metadata.deterministic_hash, &ir_ref2.metadata.deterministic_hash));
 
-    std.debug.print("✅ Deterministic hash consistency verified\n");
     {
         const hex_chars = "0123456789abcdef";
         var hex_buf: [&ir_ref1.metadata.deterministic_hash.len * 2]u8 = undefined;
@@ -291,7 +283,6 @@ test "LLVM Dispatch Codegen - Deterministic Hash Consistency" {
             hex_buf[i * 2] = hex_chars[byte >> 4];
             hex_buf[i * 2 + 1] = hex_chars[byte & 0x0f];
         }
-        std.debug.print("Hash: {s}\n", .{hex_buf});
     }
 }
 
@@ -350,11 +341,9 @@ test "LLVM Dispatch Codegen - AI Auditability" {
     try testing.expect(decisions[1].strategy == .switch_dispatch); // Moderate path
     try testing.expect(decisions[2].strategy == .jump_table); // Complex path
 
-    std.debug.print("✅ AI auditability verified - {} decisions recorded\n", .{decisions.len});
 
     // Print decision audit trail
     for (decisions, 0..) |decision, i| {
-        std.debug.print("Decision {}: {} -> {} (freq: {d:.1f})\n", .{ i + 1, decision.site.function_name, @tagName(decision.strategy), decision.site.call_frequency });
     }
 }
 
@@ -425,10 +414,7 @@ test "LLVM Dispatch Codegen - End-to-End Integration" {
     try testing.expect(std.mem.eql(u8, main_ir.function_name, "main"));
     try testing.expect(fib_ir.metadata.strategy_used == .direct_call); // High frequency
 
-    std.debug.print("✅ End-to-end integration successful\n");
-    std.debug.print("Generated IR for {} functions\n", .{codegen.generated_functions.items.len});
 
     // Dump the complete IR for inspection
-    std.debug.print("\n=== Complete Generated IR ===\n");
     try codegen.dumpIR(1, .llvm_ir);
 }

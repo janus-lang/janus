@@ -8,14 +8,11 @@ test "tokenizer only test" {
     const allocator = std.testing.allocator;
     const source = "func main() { print(\"Hello, Janus!\") }";
 
-    std.debug.print("Testing tokenizer...\n", .{});
 
     // Test just the tokenizer step
     const tokens = janus.tokenize(source, allocator) catch |err| {
-        std.debug.print("Tokenize failed: {}\n", .{err});
         return;
     };
     defer allocator.free(tokens);
 
-    std.debug.print("Tokenize successful! Got {} tokens\n", .{tokens.len});
 }

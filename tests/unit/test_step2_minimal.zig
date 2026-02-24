@@ -20,12 +20,10 @@ test "Step 2: Minimal Comptime VM Integration Test" {
     var comptime_vm = try ComptimeVM.init(allocator, &astdb_system);
     defer comptime_vm.deinit();
 
-    std.debug.print("\n🔒 STEP 2: MINIMAL COMPTIME VM INTEGRATION TEST\n", .{});
 
     // Only const declarations - no functions or expressions
     const test_source = "const PI = 3.14159\nconst SIZE = 1024";
 
-    std.debug.print("📄 Testing: {s}\n", .{test_source});
 
     // Test with comptime VM integration
     var parser = try EnhancedASTDBParser.initWithComptimeVM(allocator, test_source, &astdb_system, &comptime_vm);
@@ -34,16 +32,13 @@ test "Step 2: Minimal Comptime VM Integration Test" {
     const root_node = try parser.parseProgram();
     const snapshot = parser.getSnapshot();
 
-    std.debug.print("✅ Parsed {} nodes\n", .{snapshot.nodeCount()});
 
     // Check if constants were registered
     const pi_name = try astdb_system.str_interner.get("PI");
     const pi_result = comptime_vm.getConstantValue(pi_name);
 
     if (pi_result) |_| {
-        std.debug.print("✅ PI registered with Comptime VM\n", .{});
     } else {
-        std.debug.print("❌ PI not registered\n", .{});
         return error.TestFailed;
     }
 
@@ -51,19 +46,14 @@ test "Step 2: Minimal Comptime VM Integration Test" {
     const size_result = comptime_vm.getConstantValue(size_name);
 
     if (size_result) |_| {
-        std.debug.print("✅ SIZE registered with Comptime VM\n", .{});
     } else {
-        std.debug.print("❌ SIZE not registered\n", .{});
         return error.TestFailed;
     }
 
     const stats = comptime_vm.getEvaluationStats();
-    std.debug.print("📊 Stats: {d} evaluations, {d} cached\n", .{ stats.total_evaluations, stats.cached_results });
 
     if (stats.total_evaluations >= 2) {
-        std.debug.print("🎉 SUCCESS: Comptime VM Integration Working!\n", .{});
     } else {
-        std.debug.print("❌ FAILED: Expected at least 2 evaluations\n", .{});
         return error.TestFailed;
     }
 

@@ -25,18 +25,12 @@ pub fn main() !void {
         \\}
     ;
 
-    std.debug.print("🔧 Testing Fixed Tokenizer with North Star MVP\n", .{});
-    std.debug.print("=" ** 50 ++ "\n", .{});
-    std.debug.print("Source:\n{s}\n", .{north_star_source});
-    std.debug.print("=" ** 50 ++ "\n", .{});
 
     const tokens = tokenizer.tokenize(allocator, north_star_source) catch |err| {
-        std.debug.print("❌ Tokenization failed: {}\n", .{err});
         return;
     };
     defer allocator.free(tokens);
 
-    std.debug.print("✅ Tokenized {} tokens successfully!\n\n", .{tokens.len});
 
     // Show key tokens for North Star features
     var comptime_found = false;
@@ -44,7 +38,6 @@ pub fn main() !void {
     var func_count: u32 = 0;
 
     for (tokens, 0..) |token, i| {
-        std.debug.print("{:2}: {:12} '{s}'\n", .{ i, token.token_type, token.literal });
 
         switch (token.token_type) {
             .Func => func_count += 1,
@@ -54,14 +47,8 @@ pub fn main() !void {
         }
     }
 
-    std.debug.print("\n🎯 North Star Analysis:\n", .{});
-    std.debug.print("  Functions found: {}\n", .{func_count});
-    std.debug.print("  Comptime block: {}\n", .{comptime_found});
-    std.debug.print("  Assert calls: {}\n", .{assert_found});
 
     if (func_count >= 2 and comptime_found and assert_found) {
-        std.debug.print("\n🎉 FORGE UNBLOCKED! Tokenizer ready for North Star assault!\n", .{});
     } else {
-        std.debug.print("\n⚠️  Missing North Star components in tokenization\n", .{});
     }
 }

@@ -19,6 +19,7 @@ fn compileToObject(
     module_name: []const u8,
     tmp_dir: std.testing.TmpDir,
 ) ![]const u8 {
+    const io = testing.io;
     var parser = janus_parser.Parser.init(allocator);
     defer parser.deinit();
 
@@ -40,15 +41,14 @@ fn compileToObject(
     const llvm_ir = try emitter.toString();
     defer allocator.free(llvm_ir);
 
-    std.debug.print("\n=== LLVM IR ({s}) ===\n{s}\n", .{ module_name, llvm_ir });
 
-    const ir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    const ir_path = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", allocator);
     defer allocator.free(ir_path);
 
     // Write IR file
     const ir_file = try std.fmt.allocPrint(allocator, "{s}.ll", .{module_name});
     defer allocator.free(ir_file);
-    try tmp_dir.dir.writeFile(.{ .sub_path = ir_file, .data = llvm_ir });
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = ir_file, .data = llvm_ir });
 
     // Compile to object
     const ir_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, ir_file });
@@ -58,14 +58,12 @@ fn compileToObject(
     const obj_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, obj_file });
     defer allocator.free(obj_file);
 
-    const llc_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const llc_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{ "llc", "-opaque-pointers", "-filetype=obj", ir_file_path, "-o", obj_file_path },
     });
     defer allocator.free(llc_result.stdout);
     defer allocator.free(llc_result.stderr);
-    if (llc_result.term.Exited != 0) {
-        std.debug.print("LLC STDERR: {s}\n", .{llc_result.stderr});
+    if (llc_result.term.exited != 0) {
         return error.LLCFailed;
     }
 
@@ -78,7 +76,8 @@ fn linkAndRun(
     exe_name: []const u8,
     tmp_dir: std.testing.TmpDir,
 ) ![]u8 {
-    const ir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    const io = testing.io;
+    const ir_path = try tmp_dir.dir.realPathFileAlloc(io, ".", allocator);
     defer allocator.free(ir_path);
 
     // Compile runtime
@@ -88,14 +87,12 @@ fn linkAndRun(
     const emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{rt_obj_path});
     defer allocator.free(emit_arg);
 
-    const zig_build_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const zig_build_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{ "zig", "build-obj", "runtime/janus_rt.zig", emit_arg, "-lc" },
     });
     defer allocator.free(zig_build_result.stdout);
     defer allocator.free(zig_build_result.stderr);
-    if (zig_build_result.term.Exited != 0) {
-        std.debug.print("RUNTIME COMPILE STDERR: {s}\n", .{zig_build_result.stderr});
+    if (zig_build_result.term.exited != 0) {
         return error.RuntimeCompilationFailed;
     }
 
@@ -114,25 +111,21 @@ fn linkAndRun(
     try link_args.append(allocator, "-o");
     try link_args.append(allocator, exe_file_path);
 
-    const link_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const link_result = try std.process.run(allocator, io, .{
         .argv = link_args.items,
     });
     defer allocator.free(link_result.stdout);
     defer allocator.free(link_result.stderr);
-    if (link_result.term.Exited != 0) {
-        std.debug.print("LINK STDERR: {s}\n", .{link_result.stderr});
+    if (link_result.term.exited != 0) {
         return error.LinkFailed;
     }
 
     // Execute
-    const exec_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const exec_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{exe_file_path},
     });
     defer allocator.free(exec_result.stderr);
-    if (exec_result.term.Exited != 0) {
-        std.debug.print("EXEC STDERR: {s}\n", .{exec_result.stderr});
+    if (exec_result.term.exited != 0) {
         allocator.free(exec_result.stdout);
         return error.ExecutionFailed;
     }
@@ -179,12 +172,10 @@ test "Multi-file: Call function from another module" {
     const output = try linkAndRun(allocator, &obj_files, "multifile_test", tmp_dir);
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // add(3, 4) = 7, multiply(5, 6) = 30
     try testing.expectEqualStrings("7\n30\n", output);
 
-    std.debug.print("\n=== MULTI-FILE COMPILATION TEST PASSED ===\n", .{});
 }
 
 test "Multi-file: Shared utility function" {
@@ -218,12 +209,10 @@ test "Multi-file: Shared utility function" {
     const output = try linkAndRun(allocator, &obj_files, "util_test", tmp_dir);
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // square(7) = 49, square(3) = 9
     try testing.expectEqualStrings("49\n9\n", output);
 
-    std.debug.print("\n=== SHARED UTILITY TEST PASSED ===\n", .{});
 }
 
 fn compileFileToObject(
@@ -281,7 +270,6 @@ fn extractImportsAndCompile(
                         const full_path = try std.fs.path.join(allocator, &[_][]const u8{ search_dir, file_name });
                         defer allocator.free(full_path);
 
-                        std.debug.print("=== Found import: {s} -> {s} ===\n", .{ module_name, full_path });
 
                         // Compile the dependency
                         const obj_path = try compileFileToObject(allocator, full_path, module_name, tmp_dir);
@@ -300,6 +288,7 @@ fn extractImportsAndCompile(
 
 test "Import syntax: import mathlib with file resolution" {
     const allocator = testing.allocator;
+    const io = testing.io;
 
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
@@ -314,7 +303,7 @@ test "Import syntax: import mathlib with file resolution" {
         \\    return a - b
         \\}
     ;
-    try tmp_dir.dir.writeFile(.{ .sub_path = "mathlib.jan", .data = mathlib_source });
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = "mathlib.jan", .data = mathlib_source });
 
     // Main module with import statement
     const main_source =
@@ -329,7 +318,7 @@ test "Import syntax: import mathlib with file resolution" {
     ;
 
     // Get the temp dir path for import resolution
-    const search_dir = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    const search_dir = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", allocator);
     defer allocator.free(search_dir);
 
     // Extract imports and compile all modules
@@ -353,16 +342,15 @@ test "Import syntax: import mathlib with file resolution" {
     const output = try linkAndRun(allocator, all_objs.items, "import_test", tmp_dir);
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // add(10, 5) = 15, sub(10, 5) = 5
     try testing.expectEqualStrings("15\n5\n", output);
 
-    std.debug.print("\n=== IMPORT SYNTAX TEST PASSED ===\n", .{});
 }
 
 test "Selective import: use mathlib.{add, multiply}" {
     const allocator = testing.allocator;
+    const io = testing.io;
 
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
@@ -381,7 +369,7 @@ test "Selective import: use mathlib.{add, multiply}" {
         \\    return x
         \\}
     ;
-    try tmp_dir.dir.writeFile(.{ .sub_path = "mathlib.jan", .data = mathlib_source });
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = "mathlib.jan", .data = mathlib_source });
 
     // Main module with selective import
     const main_source =
@@ -396,7 +384,7 @@ test "Selective import: use mathlib.{add, multiply}" {
     ;
 
     // Get the temp dir path for module resolution
-    const search_dir = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    const search_dir = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", allocator);
     defer allocator.free(search_dir);
 
     // Extract use statements and compile
@@ -420,12 +408,10 @@ test "Selective import: use mathlib.{add, multiply}" {
     const output = try linkAndRun(allocator, all_objs.items, "selective_test", tmp_dir);
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // add(7, 3) = 10, multiply(4, 5) = 20
     try testing.expectEqualStrings("10\n20\n", output);
 
-    std.debug.print("\n=== SELECTIVE IMPORT TEST PASSED ===\n", .{});
 }
 
 fn extractUseSelectiveAndCompile(
@@ -471,12 +457,6 @@ fn extractUseSelectiveAndCompile(
                         const full_path = try std.fs.path.join(allocator, &[_][]const u8{ search_dir, file_name });
                         defer allocator.free(full_path);
 
-                        std.debug.print("=== Found use: {s} -> {s} (selective: {}) ===\n", .{
-                            module_name,
-                            full_path,
-                            node.kind == .use_selective,
-                        });
-
                         // Compile the dependency
                         const obj_path = try compileFileToObject(allocator, full_path, module_name, tmp_dir);
                         try dep_objs.append(allocator, obj_path);
@@ -494,6 +474,7 @@ fn extractUseSelectiveAndCompile(
 
 test "Module namespacing: mathlib.add() qualified calls" {
     const allocator = testing.allocator;
+    const io = testing.io;
 
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
@@ -508,7 +489,7 @@ test "Module namespacing: mathlib.add() qualified calls" {
         \\    return a - b
         \\}
     ;
-    try tmp_dir.dir.writeFile(.{ .sub_path = "mathlib.jan", .data = mathlib_source });
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = "mathlib.jan", .data = mathlib_source });
 
     // Main module with qualified calls (mathlib.add instead of just add)
     const main_source =
@@ -523,7 +504,7 @@ test "Module namespacing: mathlib.add() qualified calls" {
     ;
 
     // Get the temp dir path for import resolution
-    const search_dir = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    const search_dir = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", allocator);
     defer allocator.free(search_dir);
 
     // Extract imports and compile all modules
@@ -547,22 +528,21 @@ test "Module namespacing: mathlib.add() qualified calls" {
     const output = try linkAndRun(allocator, all_objs.items, "namespace_test", tmp_dir);
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // mathlib.add(8, 2) = 10, mathlib.sub(8, 2) = 6
     try testing.expectEqualStrings("10\n6\n", output);
 
-    std.debug.print("\n=== MODULE NAMESPACING TEST PASSED ===\n", .{});
 }
 
 test "Extern function: std.io module with extern func declarations" {
     const allocator = testing.allocator;
+    const io = testing.io;
 
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
     // Create std directory
-    try tmp_dir.dir.makeDir("std");
+    try tmp_dir.dir.createDir(io, "std", .default_dir);
 
     // Write std/io.jan with extern function declarations
     const io_source =
@@ -574,7 +554,7 @@ test "Extern function: std.io module with extern func declarations" {
         \\    janus_print_int(x)
         \\}
     ;
-    try tmp_dir.dir.writeFile(.{ .sub_path = "std/io.jan", .data = io_source });
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = "std/io.jan", .data = io_source });
 
     // Main module that imports std.io
     const main_source =
@@ -587,7 +567,7 @@ test "Extern function: std.io module with extern func declarations" {
     ;
 
     // Get the temp dir path for import resolution
-    const search_dir = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    const search_dir = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", allocator);
     defer allocator.free(search_dir);
 
     // Parse main to find imports
@@ -637,7 +617,6 @@ test "Extern function: std.io module with extern func declarations" {
                 const full_path = try std.fs.path.join(allocator, &[_][]const u8{ search_dir, file_name });
                 defer allocator.free(full_path);
 
-                std.debug.print("=== Found import: {s} -> {s} ===\n", .{ module_name, full_path });
 
                 // Compile the dependency (use last part as module name for LLVM)
                 const llvm_module_name = path_parts.items[path_parts.items.len - 1];
@@ -664,10 +643,8 @@ test "Extern function: std.io module with extern func declarations" {
     const output = try linkAndRun(allocator, all_objs.items, "std_io_test", tmp_dir);
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // std.io.print_int(42) and std.io.print_int(100)
     try testing.expectEqualStrings("42\n100\n", output);
 
-    std.debug.print("\n=== STD.IO MODULE WITH EXTERN FUNC TEST PASSED ===\n", .{});
 }

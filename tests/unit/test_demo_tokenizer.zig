@@ -22,7 +22,6 @@ test "Demo.jan Tokenization Test" {
         \\}
     ;
 
-    std.debug.print("\n=== DEMO TOKENIZER TEST ===\n", .{});
 
     var tokenizer = Tokenizer.init(allocator, source);
     var token_count: u32 = 0;
@@ -30,14 +29,12 @@ test "Demo.jan Tokenization Test" {
     // Tokenize and verify key tokens
     while (true) {
         const token = tokenizer.nextToken() catch |err| {
-            std.debug.print("Error: {}\n", .{err});
             return err;
         };
 
         token_count += 1;
 
         // Print all tokens for debugging
-        std.debug.print("Token {}: {} = '{}'\n", .{
             token_count,
             @tagName(token.type),
             token.value,
@@ -48,8 +45,6 @@ test "Demo.jan Tokenization Test" {
         }
     }
 
-    std.debug.print("Total tokens: {}\n", .{token_count});
-    std.debug.print("=== TOKENIZATION SUCCESS ===\n", .{});
 
     // Basic validation
     try testing.expect(token_count > 10);

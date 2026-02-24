@@ -55,7 +55,6 @@ test ":service profile: Using statement parses correctly" {
     // Verify we have IR nodes
     try testing.expect(ir_graphs.items.len > 0);
 
-    std.debug.print("\n=== USING STATEMENT COMPILES TO QTJIR ===\n", .{});
 }
 
 test ":service profile: Using shared statement parses correctly" {
@@ -80,7 +79,6 @@ test ":service profile: Using shared statement parses correctly" {
     // Verify parsing succeeded
     try testing.expect(snapshot.nodeCount() > 0);
 
-    std.debug.print("\n=== USING SHARED STATEMENT COMPILES ===\n", .{});
 }
 
 test ":service profile: Using with type annotation parses correctly" {
@@ -105,7 +103,6 @@ test ":service profile: Using with type annotation parses correctly" {
     // Verify parsing succeeded
     try testing.expect(snapshot.nodeCount() > 0);
 
-    std.debug.print("\n=== USING WITH TYPE ANNOTATION COMPILES ===\n", .{});
 }
 
 test ":service profile: Using with walrus operator parses correctly" {
@@ -130,5 +127,4 @@ test ":service profile: Using with walrus operator parses correctly" {
     // Verify parsing succeeded
     try testing.expect(snapshot.nodeCount() > 0);
 
-    std.debug.print("\n=== USING WITH WALRUS OPERATOR COMPILES ===\n", .{});
 }

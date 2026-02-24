@@ -5,6 +5,5 @@ const std = @import("std");
 const testing = std.testing;
 
 test "basic test" {
-    std.debug.print("Hello from basic test!\n", .{});
     try testing.expect(true);
 }

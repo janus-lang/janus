@@ -12,6 +12,7 @@ const astdb_core = @import("astdb_core");
 
 test "Runtime Panic Execution" {
     const allocator = testing.allocator;
+    const io = testing.io;
 
     // ========== STEP 1: Parse Source to ASTDB ==========
     const source =
@@ -46,20 +47,19 @@ test "Runtime Panic Execution" {
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const ir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    const ir_path = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", allocator);
     defer allocator.free(ir_path);
 
     const ir_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "panic.ll" });
     defer allocator.free(ir_file_path);
 
-    try tmp_dir.dir.writeFile(.{ .sub_path = "panic.ll", .data = llvm_ir });
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = "panic.ll", .data = llvm_ir });
 
     // ========== STEP 5: Compile LLVM IR to Object File ==========
     const obj_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "panic.o" });
     defer allocator.free(obj_file_path);
 
-    const llc_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const llc_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "llc",
             "-opaque-pointers",
@@ -72,8 +72,7 @@ test "Runtime Panic Execution" {
     defer allocator.free(llc_result.stdout);
     defer allocator.free(llc_result.stderr);
 
-    if (llc_result.term.Exited != 0) {
-        std.debug.print("LLC FAILED: {s}\n", .{llc_result.stderr});
+    if (llc_result.term.exited != 0) {
         return error.LLCFailed;
     }
 
@@ -88,8 +87,7 @@ test "Runtime Panic Execution" {
     defer allocator.free(emit_arg);
 
     // Compile Runtime
-    const zig_build_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const zig_build_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "zig", // Assuming zig is in PATH (it must be to run tests)
             "build-obj",
@@ -101,14 +99,12 @@ test "Runtime Panic Execution" {
     defer allocator.free(zig_build_result.stdout);
     defer allocator.free(zig_build_result.stderr);
 
-    if (zig_build_result.term.Exited != 0) {
-        std.debug.print("RUNTIME COMPILATION FAILED: {s}\n", .{zig_build_result.stderr});
+    if (zig_build_result.term.exited != 0) {
         return error.RuntimeCompilationFailed;
     }
 
     // Link
-    const link_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const link_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "cc",
             obj_file_path,
@@ -120,14 +116,12 @@ test "Runtime Panic Execution" {
     defer allocator.free(link_result.stdout);
     defer allocator.free(link_result.stderr);
 
-    if (link_result.term.Exited != 0) {
-        std.debug.print("LINK FAILED: {s}\n", .{link_result.stderr});
+    if (link_result.term.exited != 0) {
         return error.LinkFailed;
     }
 
     // ========== STEP 7: Execute and Verify Panic ==========
-    const exec_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const exec_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{exe_file_path},
     });
     defer allocator.free(exec_result.stdout);
@@ -135,9 +129,8 @@ test "Runtime Panic Execution" {
 
     // Expect Exit Code 1
     switch (exec_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 1) {
-                std.debug.print("Expected exit code 1, got {d}\n", .{code});
                 return error.ExpectedPanicExit;
             }
         },
@@ -145,8 +138,6 @@ test "Runtime Panic Execution" {
     }
 
     // Expect "PANIC: Test Panic" in stderr
-    std.debug.print("Stderr: {s}\n", .{exec_result.stderr});
     try testing.expect(std.mem.indexOf(u8, exec_result.stderr, "PANIC: Test Panic") != null);
 
-    std.debug.print("✅ Panic Test Passed\n", .{});
 }

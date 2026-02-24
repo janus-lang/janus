@@ -27,7 +27,6 @@ test "Epic 1.4.1: Compile and Execute Hello World end-to-end" {
 
     try testing.expectEqualStrings("Hello, World!\n", output);
 
-    std.debug.print("\n=== HELLO WORLD EXECUTED SUCCESSFULLY ===\n", .{});
 }
 
 test "Epic 1.4.1: Verify print function signature" {
@@ -72,5 +71,4 @@ test "Epic 1.4.1: Verify print function signature" {
     }
 
     try testing.expect(found_call);
-    std.debug.print("\n=== Call node has function name set correctly ===\n", .{});
 }

@@ -148,7 +148,6 @@ test "LSP document lifecycle with validation" {
     const updated_unit = context.astdb.getUnit(unit_id).?;
     try testing.expectEqualStrings(updated_content, updated_unit.source);
 
-    std.debug.print("✅ LSP document lifecycle test passed\n", .{});
 }
 
 test "LSP hover with validation engine integration" {
@@ -174,7 +173,6 @@ test "LSP hover with validation engine integration" {
         allocator.free(response);
     }
 
-    std.debug.print("✅ LSP hover integration test passed\n", .{});
 }
 
 test "LSP go-to-definition with symbol resolution" {
@@ -201,7 +199,6 @@ test "LSP go-to-definition with symbol resolution" {
     // Should find the function definition
     try testing.expect(definition_node != null);
 
-    std.debug.print("✅ LSP go-to-definition integration test passed\n", .{});
 }
 
 test "LSP real-time diagnostics with validation errors" {
@@ -242,7 +239,6 @@ test "LSP real-time diagnostics with validation errors" {
     try testing.expect(err.location.line > 0);
     try testing.expect(err.location.column > 0);
 
-    std.debug.print("✅ LSP real-time diagnostics test passed\n", .{});
 }
 
 test "LSP performance with concurrent validation requests" {
@@ -282,5 +278,4 @@ test "LSP performance with concurrent validation requests" {
         }
     }
 
-    std.debug.print("✅ LSP performance test passed: {d:.2}ms for 10 requests\n", .{duration_ms});
 }

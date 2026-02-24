@@ -30,23 +30,16 @@ test "Debug: using statement AST structure" {
     const snapshot = try parser.parseWithSource(source);
     defer snapshot.deinit();
 
-    std.debug.print("\n=== AST STRUCTURE ===\n", .{});
-    std.debug.print("Total nodes: {d}\n", .{snapshot.nodeCount()});
 
     // Find using_resource_stmt nodes
     for (snapshot.core_snapshot.nodes.items, 0..) |node, i| {
         if (node.kind == .using_resource_stmt or node.kind == .using_shared_stmt) {
-            std.debug.print("\nFound using statement at index {d}\n", .{i});
-            std.debug.print("  Kind: {s}\n", .{@tagName(node.kind)});
-            std.debug.print("  Child range: {d}..{d}\n", .{node.child_lo, node.child_hi});
             
             // Print children
             for (snapshot.core_snapshot.edges.items[node.child_lo..node.child_hi], 0..) |child_edge, j| {
                 const child_node = snapshot.core_snapshot.nodes.items[child_edge];
-                std.debug.print("    [{d}] Kind: {s}\n", .{j, @tagName(child_node.kind)});
             }
         }
     }
 
-    std.debug.print("\n=== END AST STRUCTURE ===\n", .{});
 }

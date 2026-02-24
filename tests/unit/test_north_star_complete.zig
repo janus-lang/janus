@@ -12,8 +12,6 @@ test "North Star MVP - Complete Revolutionary Pipeline" {
     defer _ = gpa.deinit();
     _ = gpa.allocator();
 
-    std.debug.print("\n🎯 NORTH STAR MVP - COMPLETE REVOLUTIONARY PIPELINE\n", .{});
-    std.debug.print("=====================================================\n", .{});
 
     // The actual North Star program we need to compile
     const north_star_program =
@@ -40,11 +38,8 @@ test "North Star MVP - Complete Revolutionary Pipeline" {
         \\}
     ;
 
-    std.debug.print("📄 North Star Program ({d} bytes):\n", .{north_star_program.len});
-    std.debug.print("{s}\n", .{north_star_program});
 
     // Phase 1: Tokenization (Revolutionary Foundation)
-    std.debug.print("\n📊 Phase 1: Revolutionary Tokenization\n", .{});
 
     // Simulate tokenization results
     const TokenType = enum { func, identifier, lparen, rparen, arrow, lbrace, rbrace, comptime_kw, let, walrus_assign, string, exclamation, eof };
@@ -62,11 +57,8 @@ test "North Star MVP - Complete Revolutionary Pipeline" {
         .eof,
     };
 
-    std.debug.print("✅ Tokenization: {d} expected tokens identified\n", .{expected_tokens.len});
-    std.debug.print("✅ Revolutionary operators: := (walrus), ! (error union), -> (arrow)\n", .{});
 
     // Phase 2: Parsing (ASTDB Integration)
-    std.debug.print("\n🏗️ Phase 2: ASTDB Content-Addressed Parsing\n", .{});
 
     // Simulate ASTDB parsing results
     const NodeType = enum { program, function_def, parameter, comptime_block, meta_call };
@@ -79,15 +71,12 @@ test "North Star MVP - Complete Revolutionary Pipeline" {
         parameters: u32 = 4, // a, b, path, cap
     }{};
 
-    std.debug.print("✅ AST Structure: {d} functions, {d} comptime blocks, {d} meta calls\n", .{
         ast_structure.functions,
         ast_structure.comptime_blocks,
         ast_structure.meta_calls,
     });
-    std.debug.print("✅ Content-addressed storage: Deterministic CID computation\n", .{});
 
     // Phase 3: Semantic Analysis (Effect & Capability System)
-    std.debug.print("\n🔒 Phase 3: Revolutionary Semantic Analysis\n", .{});
 
     // Simulate effect system analysis
     const FunctionAnalysis = struct {
@@ -105,11 +94,9 @@ test "North Star MVP - Complete Revolutionary Pipeline" {
 
     for (function_analyses) |analysis| {
         const status = if (analysis.is_valid) "✅" else "❌";
-        std.debug.print("{s} {s}: effects={s}, capabilities={s}\n", .{ status, analysis.name, analysis.effects, analysis.capabilities });
     }
 
     // Phase 4: Comptime Execution (Meta-Programming VM)
-    std.debug.print("\n⚡ Phase 4: Comptime VM Meta-Programming\n", .{});
 
     // Simulate comptime assertions
     const ComptimeAssertion = struct {
@@ -125,11 +112,9 @@ test "North Star MVP - Complete Revolutionary Pipeline" {
 
     for (comptime_assertions) |assertion| {
         const status = if (assertion.result) "✅" else "❌";
-        std.debug.print("{s} assert({s})\n", .{ status, assertion.assertion });
     }
 
     // Phase 5: Revolutionary Validation
-    std.debug.print("\n🚀 Phase 5: Revolutionary Architecture Validation\n", .{});
 
     const RevolutionaryMetrics = struct {
         memory_leaks: u32 = 0,
@@ -141,15 +126,8 @@ test "North Star MVP - Complete Revolutionary Pipeline" {
 
     const metrics = RevolutionaryMetrics{};
 
-    std.debug.print("✅ Memory leaks: {d} (arena-based architecture)\n", .{metrics.memory_leaks});
-    std.debug.print("✅ Query performance: {d}ms (sub-10ms revolutionary target)\n", .{metrics.query_time_ms});
-    std.debug.print("✅ Deterministic builds: {any} (content-addressed)\n", .{metrics.build_deterministic});
-    std.debug.print("✅ Safety overhead: {d}% (compile-time verification)\n", .{metrics.safety_overhead_percent});
-    std.debug.print("✅ Content-addressed nodes: {d}\n", .{metrics.content_addressed_nodes});
 
     // Final Validation
-    std.debug.print("\n🎉 NORTH STAR MVP - REVOLUTIONARY PIPELINE COMPLETE\n", .{});
-    std.debug.print("====================================================\n", .{});
 
     const pipeline_success = true;
     const all_assertions_pass = true;
@@ -158,20 +136,8 @@ test "North Star MVP - Complete Revolutionary Pipeline" {
         metrics.build_deterministic and
         metrics.safety_overhead_percent == 0;
 
-    std.debug.print("\n📊 FINAL RESULTS:\n", .{});
-    std.debug.print("   - Pipeline Success: {any}\n", .{pipeline_success});
-    std.debug.print("   - All Assertions Pass: {any}\n", .{all_assertions_pass});
-    std.debug.print("   - Revolutionary Metrics Met: {any}\n", .{revolutionary_metrics_met});
 
     if (pipeline_success and all_assertions_pass and revolutionary_metrics_met) {
-        std.debug.print("\n🔥 SUCCESS: THE ASTDB REVOLUTION IS PRODUCTION READY! 🔥\n", .{});
-        std.debug.print("\nThe North Star MVP demonstrates:\n", .{});
-        std.debug.print("• Memory safety through architecture, not debugging\n", .{});
-        std.debug.print("• Compile-time verification through advanced type systems\n", .{});
-        std.debug.print("• Deterministic builds through content-addressed storage\n", .{});
-        std.debug.print("• Revolutionary performance through modern data structures\n", .{});
-        std.debug.print("• Meta-programming through comptime VM execution\n", .{});
-        std.debug.print("\n🚀 THE FUTURE OF COMPILER ARCHITECTURE IS OPERATIONAL! 🚀\n", .{});
     }
 
     // Test assertions

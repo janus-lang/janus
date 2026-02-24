@@ -62,7 +62,7 @@ test "writeError emits type and message" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){}; defer _ = gpa.deinit();
     const a = gpa.allocator();
     var buf = std.ArrayList(u8){}; defer buf.deinit(a);
-    try writeError(buf.writer(a), .ValidationError, "bad");
+    try writeError(json_helpers.arrayListWriter(&buf, a), .ValidationError, "bad");
     const s = buf.items;
     try std.testing.expect(std.mem.indexOf(u8, s, "\"type\":\"ValidationError\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, s, "\"message\":\"bad\"") != null);

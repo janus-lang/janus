@@ -18,8 +18,6 @@ const Thread = std.Thread;
 const lsp_server = @import("../../../lsp/janus_lsp_server.zig");
 
 test "LSP Server Error Resilience - Uncrashable Server" {
-    std.debug.print("\n🛡️  LSP SERVER ERROR RESILIENCE TEST\n", .{});
-    std.debug.print("=====================================\n", .{});
 
     const allocator = std.testing.allocator;
 
@@ -34,7 +32,6 @@ test "LSP Server Error Resilience - Uncrashable Server" {
     defer server.deinit();
 
     // Test 1: Invalid JSON parameters
-    std.debug.print("🧪 Test 1: Invalid JSON Parameters\n", .{});
 
     const invalid_params = json.Value{
         .object = std.json.ObjectMap.init(allocator),
@@ -44,19 +41,15 @@ test "LSP Server Error Resilience - Uncrashable Server" {
     const hover_result = server.handleHover(invalid_params);
     try testing.expect(hover_result == null); // Graceful failure
 
-    std.debug.print("   ✅ Server survived invalid hover parameters\n", .{});
 
     // Test 2: Null parameters
-    std.debug.print("🧪 Test 2: Null Parameters\n", .{});
 
     const null_params = json.Value{ .null = {} };
     const def_result = server.handleDefinition(null_params);
     try testing.expect(def_result == null); // Graceful failure
 
-    std.debug.print("   ✅ Server survived null parameters\n", .{});
 
     // Test 3: Malformed document change
-    std.debug.print("🧪 Test 3: Malformed Document Change\n", .{});
 
     const malformed_change = json.Value{
         .object = std.json.ObjectMap.init(allocator),
@@ -66,14 +59,10 @@ test "LSP Server Error Resilience - Uncrashable Server" {
     server.handleTextDocumentDidChange(malformed_change);
     // Should not crash - void return means it handled the error internally
 
-    std.debug.print("   ✅ Server survived malformed document change\n", .{});
 
-    std.debug.print("🛡️  Error resilience: ALL TESTS PASSED - Server is uncrashable!\n", .{});
 }
 
 test "LSP Server Incremental Document Synchronization" {
-    std.debug.print("\n📝 INCREMENTAL DOCUMENT SYNCHRONIZATION TEST\n", .{});
-    std.debug.print("=============================================\n", .{});
 
     const allocator = std.testing.allocator;
 
@@ -82,7 +71,6 @@ test "LSP Server Incremental Document Synchronization" {
     defer server.deinit();
 
     // Test 1: Full document replacement
-    std.debug.print("🧪 Test 1: Full Document Replacement\n", .{});
 
     const initial_content = "func hello() {\n    print(\"Hello, World!\");\n}";
 
@@ -112,10 +100,8 @@ test "LSP Server Incremental Document Synchronization" {
 
     server.handleTextDocumentDidChange(full_change_params);
 
-    std.debug.print("   ✅ Full document replacement successful\n", .{});
 
     // Test 2: Incremental change (insert text)
-    std.debug.print("🧪 Test 2: Incremental Text Insertion\n", .{});
 
     const incremental_params = json.Value{
         .object = std.json.ObjectMap.init(allocator),
@@ -165,10 +151,8 @@ test "LSP Server Incremental Document Synchronization" {
 
     server.handleTextDocumentDidChange(incremental_params);
 
-    std.debug.print("   ✅ Incremental text insertion successful\n", .{});
 
     // Test 3: Multiple incremental changes in one request
-    std.debug.print("🧪 Test 3: Multiple Incremental Changes\n", .{});
 
     const multi_params = json.Value{
         .object = std.json.ObjectMap.init(allocator),
@@ -218,14 +202,10 @@ test "LSP Server Incremental Document Synchronization" {
 
     server.handleTextDocumentDidChange(multi_params);
 
-    std.debug.print("   ✅ Multiple incremental changes successful\n", .{});
 
-    std.debug.print("📝 Incremental synchronization: ALL TESTS PASSED!\n", .{});
 }
 
 test "LSP Server Concurrent Request Handling" {
-    std.debug.print("\n⚡ CONCURRENT REQUEST HANDLING TEST\n", .{});
-    std.debug.print("===================================\n", .{});
 
     const allocator = std.testing.allocator;
 
@@ -262,7 +242,6 @@ test "LSP Server Concurrent Request Handling" {
 
     server.handleTextDocumentDidChange(setup_params);
 
-    std.debug.print("🧪 Test: Concurrent Hover Requests\n", .{});
 
     // Simulate concurrent requests from multiple threads
     const num_threads = 4;
@@ -341,29 +320,22 @@ test "LSP Server Concurrent Request Handling" {
         if (result) successful_threads += 1;
     }
 
-    std.debug.print("   Successful threads: {}/{}\n", .{ successful_threads, num_threads });
 
     // At least 75% of threads should succeed
     try testing.expect(successful_threads >= (num_threads * 3 / 4));
 
-    std.debug.print("   ✅ Concurrent request handling successful\n", .{});
 
     // Test server statistics
     const stats = server.query_engine.getStats();
-    std.debug.print("   Total queries processed: {}\n", .{stats.total_queries});
-    std.debug.print("   Cache hit rate: {d:.1f}%\n", .{if (stats.total_queries > 0)
         @as(f64, @floatFromInt(stats.cache_hits)) / @as(f64, @floatFromInt(stats.total_queries)) * 100.0
     else
         0.0});
 
     try testing.expect(stats.total_queries > 0);
 
-    std.debug.print("⚡ Concurrent handling: ALL TESTS PASSED!\n", .{});
 }
 
 test "LSP Server Performance Under Stress" {
-    std.debug.print("\n🔥 LSP SERVER STRESS TEST\n", .{});
-    std.debug.print("=========================\n", .{});
 
     const allocator = std.testing.allocator;
 
@@ -374,7 +346,6 @@ test "LSP Server Performance Under Stress" {
     defer server.deinit();
 
     // Stress test: Rapid document changes + queries
-    std.debug.print("🧪 Stress Test: Rapid Document Changes + Queries\n", .{});
 
     const num_iterations = 100;
     var total_duration: u64 = 0;
@@ -447,14 +418,9 @@ test "LSP Server Performance Under Stress" {
     const avg_duration_ms = @as(f64, @floatFromInt(total_duration)) / @as(f64, @floatFromInt(num_iterations)) / 1_000_000.0;
     const success_rate = @as(f64, @floatFromInt(successful_operations)) / @as(f64, @floatFromInt(num_iterations)) * 100.0;
 
-    std.debug.print("   Operations: {}\n", .{num_iterations});
-    std.debug.print("   Average duration: {d:.2f}ms\n", .{avg_duration_ms});
-    std.debug.print("   Success rate: {d:.1f}%\n", .{success_rate});
 
     // Require 90% success rate under stress
     try testing.expect(success_rate >= 90.0);
 
-    std.debug.print("   ✅ Server maintained performance under stress\n", .{});
 
-    std.debug.print("🔥 Stress test: ALL TESTS PASSED!\n", .{});
 }

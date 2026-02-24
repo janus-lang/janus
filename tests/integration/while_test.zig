@@ -60,5 +60,4 @@ test "While Loop - Basic Parsing and Lowering" {
     try testing.expect(has_label);
     try testing.expect(has_jump);
 
-    std.debug.print("\n✅ While loop parsing and lowering verified\n", .{});
 }

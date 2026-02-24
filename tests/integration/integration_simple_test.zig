@@ -9,11 +9,9 @@ test "simple integration test" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
-    std.debug.print("Creating resolver...\n", .{});
     var resolver = try SemanticResolver.init(gpa.allocator());
     defer resolver.deinit();
 
-    std.debug.print("Creating call site...\n", .{});
     const call_site = CallSite{
         .function_name = "test",
         .argument_types = &[_]u32{},
@@ -26,9 +24,7 @@ test "simple integration test" {
         },
     };
 
-    std.debug.print("Resolving...\n", .{});
     var result = try resolver.resolve(call_site);
     defer result.deinit(gpa.allocator());
 
-    std.debug.print("Test completed successfully\n", .{});
 }

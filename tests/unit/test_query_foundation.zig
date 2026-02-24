@@ -18,5 +18,4 @@ test "basic query context" {
 
     try testing.expect(key.eql(key2));
 
-    std.debug.print("Query foundation test passed!\n", .{});
 }

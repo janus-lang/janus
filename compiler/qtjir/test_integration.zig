@@ -348,7 +348,6 @@ test "Performance: Full pipeline (1000 nodes)" {
     const duration_ns = end_time - start_time;
     const duration_ms = @as(f64, @floatFromInt(duration_ns)) / 1_000_000.0;
 
-    std.debug.print("Full pipeline (1000 nodes): {d:.2} ms\n", .{duration_ms});
 
     // Performance assertion: should complete in reasonable time
     try testing.expect(duration_ms < 500.0);
@@ -378,7 +377,6 @@ test "Performance: Validation (5000 nodes)" {
     const duration_ns = end_time - start_time;
     const duration_ms = @as(f64, @floatFromInt(duration_ns)) / 1_000_000.0;
 
-    std.debug.print("Validation (5000 nodes): {d:.2} ms\n", .{duration_ms});
 
     // Performance assertion
     try testing.expect(duration_ms < 100.0);
@@ -412,7 +410,6 @@ test "Performance: Emission (500 nodes)" {
     const duration_ns = end_time - start_time;
     const duration_ms = @as(f64, @floatFromInt(duration_ns)) / 1_000_000.0;
 
-    std.debug.print("Emission (500 nodes): {d:.2} ms\n", .{duration_ms});
 
     // Performance assertion
     try testing.expect(duration_ms < 200.0);

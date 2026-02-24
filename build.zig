@@ -529,6 +529,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         });
         janusd_main_mod.?.addImport("utcp_registry", utcp_registry_mod.?);
+        janusd_main_mod.?.addImport("compat_time", compat_time_mod);
         const janusd = b.addExecutable(.{
             .name = "janusd",
             .root_module = b.createModule(.{
@@ -671,8 +672,14 @@ pub fn build(b: *std.Build) void {
         utcp_transport_bdd_tests.root_module.link_objects.append(b.allocator, .{ .other_step = blake3_lib }) catch @panic("OOM");
         utcp_transport_bdd_tests.root_module.addIncludePath(b.path("third_party/blake3/c"));
         utcp_transport_bdd_tests.root_module.addImport("std_utcp", utcp_registry_mod.?);
-        utcp_transport_bdd_tests.root_module.addImport("janusd_utcp", janusd_main_mod.?);
+        const janusd_utcp_manual_mod = b.createModule(.{
+            .root_source_file = b.path("cmd/janusd/utcp_manual.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        utcp_transport_bdd_tests.root_module.addImport("janusd_utcp", janusd_utcp_manual_mod);
         utcp_transport_bdd_tests.root_module.addImport("rsp1", rsp1_mod);
+        utcp_transport_bdd_tests.root_module.link_libc = true;
         const run_utcp_transport_bdd_tests = b.addRunArtifact(utcp_transport_bdd_tests);
         test_step.dependOn(&run_utcp_transport_bdd_tests.step);
     }
@@ -930,6 +937,7 @@ pub fn build(b: *std.Build) void {
     });
     identifier_inference_tests.root_module.addIncludePath(b.path("."));
     identifier_inference_tests.root_module.addImport("astdb", lib_mod);
+    identifier_inference_tests.root_module.addImport("semantic", semantic_mod);
     const run_identifier_inference_tests = b.addRunArtifact(identifier_inference_tests);
 
     const test_identifier_inference_step = b.step("test-identifier-inference", "Run Identifier Inference tests");
@@ -1157,6 +1165,8 @@ pub fn build(b: *std.Build) void {
         worker_integration_tests.root_module.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
     }
 
+    worker_integration_tests.root_module.addImport("compat_time", compat_time_mod);
+    worker_integration_tests.root_module.link_libc = true;
     const run_worker_integration_tests = b.addRunArtifact(worker_integration_tests);
     const test_worker_integration_step = b.step("test-worker-integration", "Run worker integration tests (SPEC-021 Phase 7)");
     test_worker_integration_step.dependOn(&run_worker_integration_tests.step);
@@ -1177,6 +1187,8 @@ pub fn build(b: *std.Build) void {
         multiworker_tests.root_module.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
     }
 
+    multiworker_tests.root_module.addImport("compat_time", compat_time_mod);
+    multiworker_tests.root_module.link_libc = true;
     const run_multiworker_tests = b.addRunArtifact(multiworker_tests);
     const test_multiworker_step = b.step("test-multiworker", "Run multi-worker work-stealing tests (SPEC-021 Phase 8)");
     test_multiworker_step.dependOn(&run_multiworker_tests.step);
@@ -1195,6 +1207,8 @@ pub fn build(b: *std.Build) void {
         nursery_integration_tests.root_module.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
     }
 
+    nursery_integration_tests.root_module.addImport("compat_time", compat_time_mod);
+    nursery_integration_tests.root_module.link_libc = true;
     const run_nursery_integration_tests = b.addRunArtifact(nursery_integration_tests);
     const test_nursery_integration_step = b.step("test-nursery-integration", "Run nursery + scheduler integration tests (SPEC-021 Phase 9)");
     test_nursery_integration_step.dependOn(&run_nursery_integration_tests.step);
@@ -1213,6 +1227,8 @@ pub fn build(b: *std.Build) void {
         scheduler_tests.root_module.addAssemblyFile(b.path("runtime/scheduler/context_switch.s"));
     }
 
+    scheduler_tests.root_module.addImport("compat_time", compat_time_mod);
+    scheduler_tests.root_module.link_libc = true;
     const run_scheduler_tests = b.addRunArtifact(scheduler_tests);
     const test_scheduler_step = b.step("test-scheduler", "Run scheduler unit tests (SPEC-021)");
     test_scheduler_step.dependOn(&run_scheduler_tests.step);
@@ -1380,6 +1396,7 @@ pub fn build(b: *std.Build) void {
     forge_hello_tests.root_module.addImport("qtjir", qtjir_mod);
     forge_hello_tests.root_module.addImport("astdb_core", astdb_core_mod);
     forge_hello_tests.root_module.addImport("pipeline", pipeline_mod);
+    forge_hello_tests.root_module.addImport("compat_fs", compat_fs_mod);
 
     const run_forge_hello = b.addRunArtifact(forge_hello_tests);
     run_forge_hello.cwd = b.path(".");
@@ -1688,6 +1705,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     qtjir_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    qtjir_e2e_tests.root_module.addImport("zig_parser", zig_parser_mod);
     linkLLVMLib(qtjir_e2e_tests.root_module, "LLVM");
     const run_qtjir_e2e_tests = b.addRunArtifact(qtjir_e2e_tests);
 
@@ -1704,6 +1722,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     qtjir_jfind_hello_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    qtjir_jfind_hello_tests.root_module.addImport("zig_parser", zig_parser_mod);
     linkLLVMLib(qtjir_jfind_hello_tests.root_module, "LLVM");
     const run_qtjir_jfind_hello_tests = b.addRunArtifact(qtjir_jfind_hello_tests);
 
@@ -1752,6 +1771,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     qtjir_integration_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    qtjir_integration_tests.root_module.addImport("compat_time", compat_time_mod);
     const run_qtjir_integration_tests = b.addRunArtifact(qtjir_integration_tests);
 
     const test_integration_step = b.step("test-integration", "Run QTJIR integration tests");
@@ -2176,6 +2196,7 @@ pub fn build(b: *std.Build) void {
     import_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
     import_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
     import_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    import_e2e_tests.root_module.addImport("compat_fs", compat_fs_mod);
     const run_import_e2e_tests = b.addRunArtifact(import_e2e_tests);
 
     const test_import_e2e_step = b.step("test-import-e2e", "Run Import/Module end-to-end integration test");
@@ -2344,6 +2365,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     channel_tests.root_module.addImport("janus_rt", janus_rt_mod);
+    channel_tests.root_module.link_libc = true;
     const run_channel_tests = b.addRunArtifact(channel_tests);
 
     const test_channels_step = b.step("test-channels", "Run Channel integration tests (:service profile Phase 3)");
@@ -2388,7 +2410,8 @@ pub fn build(b: *std.Build) void {
             }),
         });
         janusd_tests.root_module.addImport("utcp_registry", utcp_registry_mod.?);
-        // add imports for janusd tests if needed in future
+        janusd_tests.root_module.addImport("compat_time", compat_time_mod);
+        janusd_tests.root_module.link_libc = true;
         const run_janusd_tests = b.addRunArtifact(janusd_tests);
         test_step.dependOn(&run_janusd_tests.step);
     }
@@ -2463,6 +2486,8 @@ pub fn build(b: *std.Build) void {
             }),
         });
         e2e_http_tests.root_module.addImport("janusd_main", janusd_main_mod.?);
+        e2e_http_tests.root_module.addImport("compat_time", compat_time_mod);
+        e2e_http_tests.root_module.link_libc = true;
         const run_e2e_http_tests = b.addRunArtifact(e2e_http_tests);
         test_step.dependOn(&run_e2e_http_tests.step);
     }
@@ -2579,7 +2604,7 @@ pub fn build(b: *std.Build) void {
     });
     graft_proto_mod.addImport("std_caps", std_caps_mod);
     graft_proto_tests.root_module.addImport("std_caps", std_caps_mod);
-    // std_caps module intentionally not wired here to keep graft tests independent
+    graft_proto_tests.root_module.addImport("compat_fs", compat_fs_mod);
     graft_proto_tests.root_module.link_objects.append(b.allocator, .{ .other_step = zig_graft_proto }) catch @panic("OOM");
     const run_graft_proto_tests = b.addRunArtifact(graft_proto_tests);
     test_step.dependOn(&run_graft_proto_tests.step);

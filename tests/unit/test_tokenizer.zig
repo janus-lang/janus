@@ -27,7 +27,6 @@ pub fn main() !void {
         \\end
     ;
 
-    std.debug.print("Tokenizing Janus source:\n{s}\n\n", .{source});
 
     var tok = tokenizer.Tokenizer.init(allocator, source);
     defer tok.deinit();
@@ -35,10 +34,8 @@ pub fn main() !void {
     const tokens = try tok.tokenize();
     defer allocator.free(tokens);
 
-    std.debug.print("Generated {d} tokens:\n", .{tokens.len});
 
     for (tokens, 0..) |token, i| {
-        std.debug.print("{d:2}: {s:12} '{s}' at {d}:{d}\n", .{
             i,
             @tagName(token.type),
             token.lexeme,
@@ -47,5 +44,4 @@ pub fn main() !void {
         });
     }
 
-    std.debug.print("\n✅ Tokenizer test completed successfully!\n", .{});
 }

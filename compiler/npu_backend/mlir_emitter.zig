@@ -41,6 +41,13 @@ pub const MLIREmitter = struct {
         self.output.deinit(self.allocator);
     }
 
+    /// Append formatted text to output buffer. Replaces ArrayList.writer() removed in Zig 0.16.
+    fn appendFmt(self: *MLIREmitter, comptime fmt: []const u8, args: anytype) !void {
+        const formatted = try std.fmt.allocPrint(self.allocator, fmt, args);
+        defer self.allocator.free(formatted);
+        try self.output.appendSlice(self.allocator, formatted);
+    }
+
     /// Emit QTJIR graph to MLIR text format
     /// Returns: MLIR module text (caller owns memory)
     /// Doctrine: Syntactic Honesty - Direct QTJIR → MLIR mapping
@@ -121,7 +128,7 @@ pub const MLIREmitter = struct {
         const b_id = if (node.inputs.items.len > 1) node.inputs.items[1] else 0;
 
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("%{d} = linalg.matmul ins(%{d}, %{d} : tensor<?x?xf32>, tensor<?x?xf32>) " ++
+        try self.appendFmt("%{d} = linalg.matmul ins(%{d}, %{d} : tensor<?x?xf32>, tensor<?x?xf32>) " ++
             "outs(%init : tensor<?x?xf32>) -> tensor<?x?xf32>\n", .{ node_id, a_id, b_id });
     }
 
@@ -130,7 +137,7 @@ pub const MLIREmitter = struct {
         const kernel_id = if (node.inputs.items.len > 1) node.inputs.items[1] else 0;
 
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("%{d} = linalg.conv_2d ins(%{d}, %{d} : tensor<?x?x?x?xf32>, tensor<?x?x?x?xf32>) " ++
+        try self.appendFmt("%{d} = linalg.conv_2d ins(%{d}, %{d} : tensor<?x?x?x?xf32>, tensor<?x?x?x?xf32>) " ++
             "outs(%init : tensor<?x?x?x?xf32>) -> tensor<?x?x?x?xf32>\n", .{ node_id, input_id, kernel_id });
     }
 
@@ -138,17 +145,17 @@ pub const MLIREmitter = struct {
         const input_id = if (node.inputs.items.len > 0) node.inputs.items[0] else 0;
 
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("%{d} = linalg.generic {{indexing_maps = [affine_map<(d0) -> (d0)>, affine_map<(d0) -> (d0)>], " ++
+        try self.appendFmt("%{d} = linalg.generic {{indexing_maps = [affine_map<(d0) -> (d0)>, affine_map<(d0) -> (d0)>], " ++
             "iterator_types = [\"parallel\"]}} ins(%{d} : tensor<?xf32>) outs(%init : tensor<?xf32>) {{\n", .{ node_id, input_id });
 
         self.indent_level += 1;
         try self.emitLine("^bb0(%arg0: f32, %arg1: f32):");
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("  %cst = arith.constant 0.0 : f32\n", .{});
+        try self.appendFmt("  %cst = arith.constant 0.0 : f32\n", .{});
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("  %max = arith.maximumf %arg0, %cst : f32\n", .{});
+        try self.appendFmt("  %max = arith.maximumf %arg0, %cst : f32\n", .{});
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("  linalg.yield %max : f32\n", .{});
+        try self.appendFmt("  linalg.yield %max : f32\n", .{});
         self.indent_level -= 1;
 
         try self.emitLine("} -> tensor<?xf32>");
@@ -158,14 +165,14 @@ pub const MLIREmitter = struct {
         const input_id = if (node.inputs.items.len > 0) node.inputs.items[0] else 0;
 
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("%{d} = janus.tensor.softmax %{d} : tensor<?xf32> -> tensor<?xf32>\n", .{ node_id, input_id });
+        try self.appendFmt("%{d} = janus.tensor.softmax %{d} : tensor<?xf32> -> tensor<?xf32>\n", .{ node_id, input_id });
     }
 
     fn emitTensorReduce(self: *MLIREmitter, node: *const IRNode, node_id: usize) !void {
         const input_id = if (node.inputs.items.len > 0) node.inputs.items[0] else 0;
 
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("%{d} = linalg.reduce ins(%{d} : tensor<?xf32>) outs(%init : tensor<f32>) " ++
+        try self.appendFmt("%{d} = linalg.reduce ins(%{d} : tensor<?xf32>) outs(%init : tensor<f32>) " ++
             "dimensions = [0]\n", .{ node_id, input_id });
     }
 
@@ -179,7 +186,7 @@ pub const MLIREmitter = struct {
         const c_id = if (node.inputs.items.len > 2) node.inputs.items[2] else 0;
 
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("%{d} = janus.ssm.scan %{d}, %{d}, %{d} : " ++
+        try self.appendFmt("%{d} = janus.ssm.scan %{d}, %{d}, %{d} : " ++
             "(tensor<?x?xf32>, tensor<?x?xf32>, tensor<?x?xf32>) -> tensor<?xf32>\n", .{ node_id, a_id, b_id, c_id });
     }
 
@@ -190,7 +197,7 @@ pub const MLIREmitter = struct {
         const delta_id = if (node.inputs.items.len > 3) node.inputs.items[3] else 0;
 
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("%{d} = janus.ssm.selective_scan %{d}, %{d}, %{d}, %{d} : " ++
+        try self.appendFmt("%{d} = janus.ssm.selective_scan %{d}, %{d}, %{d}, %{d} : " ++
             "(tensor<?x?xf32>, tensor<?x?xf32>, tensor<?x?xf32>, tensor<?xf32>) -> tensor<?xf32>\n", .{ node_id, a_id, b_id, c_id, delta_id });
     }
 
@@ -202,14 +209,14 @@ pub const MLIREmitter = struct {
         const metadata = node.quantum_metadata orelse return;
 
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("%{d} = janus.quantum.gate \"{s}\" qubits=[", .{ node_id, @tagName(metadata.gate_type) });
+        try self.appendFmt("%{d} = janus.quantum.gate \"{s}\" qubits=[", .{ node_id, @tagName(metadata.gate_type) });
 
         for (metadata.qubits, 0..) |qubit, i| {
-            if (i > 0) try self.output.writer(self.allocator).print(", ", .{});
-            try self.output.writer(self.allocator).print("{d}", .{qubit});
+            if (i > 0) try self.appendFmt(", ", .{});
+            try self.appendFmt("{d}", .{qubit});
         }
 
-        try self.output.writer(self.allocator).print("] : !janus.qstate\n", .{});
+        try self.appendFmt("] : !janus.qstate\n", .{});
     }
 
     fn emitQuantumMeasure(self: *MLIREmitter, node: *const IRNode, node_id: usize) !void {
@@ -217,7 +224,7 @@ pub const MLIREmitter = struct {
         const qubit = if (metadata.qubits.len > 0) metadata.qubits[0] else 0;
 
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("%{d} = janus.quantum.measure qubit={d} : !janus.qstate -> i1\n", .{ node_id, qubit });
+        try self.appendFmt("%{d} = janus.quantum.measure qubit={d} : !janus.qstate -> i1\n", .{ node_id, qubit });
     }
 
     // ========================================================================
@@ -228,11 +235,11 @@ pub const MLIREmitter = struct {
         switch (node.data) {
             .integer => |val| {
                 try self.emitIndent();
-                try self.output.writer(self.allocator).print("%{d} = arith.constant {d} : i64\n", .{ node_id, val });
+                try self.appendFmt("%{d} = arith.constant {d} : i64\n", .{ node_id, val });
             },
             .float => |val| {
                 try self.emitIndent();
-                try self.output.writer(self.allocator).print("%{d} = arith.constant {d} : f32\n", .{ node_id, val });
+                try self.appendFmt("%{d} = arith.constant {d} : f32\n", .{ node_id, val });
             },
             else => {
                 try self.emitComment("Unsupported constant type");
@@ -247,14 +254,14 @@ pub const MLIREmitter = struct {
         };
 
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("%{d} = func.call @{s}(", .{ node_id, func_name });
+        try self.appendFmt("%{d} = func.call @{s}(", .{ node_id, func_name });
 
         for (node.inputs.items, 0..) |input_id, i| {
-            if (i > 0) try self.output.writer(self.allocator).print(", ", .{});
-            try self.output.writer(self.allocator).print("%{d}", .{input_id});
+            if (i > 0) try self.appendFmt(", ", .{});
+            try self.appendFmt("%{d}", .{input_id});
         }
 
-        try self.output.writer(self.allocator).print(") : () -> ()\n", .{});
+        try self.appendFmt(") : () -> ()\n", .{});
     }
 
     // ========================================================================
@@ -269,7 +276,7 @@ pub const MLIREmitter = struct {
 
     fn emitComment(self: *MLIREmitter, comment: []const u8) !void {
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("// {s}\n", .{comment});
+        try self.appendFmt("// {s}\n", .{comment});
     }
 
     fn emitIndent(self: *MLIREmitter) !void {

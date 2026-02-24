@@ -10,14 +10,11 @@ const contracts = @import("compiler/libjanus/integration_contracts.zig");
 // GRANITE-SOLID ComptimeVM Validation Test
 // Comprehensive zero-leak validation using the same patterns as StringInterner
 test "Granite-Solid ComptimeVM - Zero Leak Validation" {
-    std.debug.print("\n🔧 GRANITE-SOLID COMPTIME VM VALIDATION\n", .{});
-    std.debug.print("==========================================\n", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
     // Test 1: Basic initialization and cleanup
-    std.debug.print("📋 Test 1: Basic Initialization\n", .{});
     {
         var astdb_system = try astdb.ASTDBSystem.init(allocator, true);
         defer astdb_system.deinit();
@@ -29,11 +26,9 @@ test "Granite-Solid ComptimeVM - Zero Leak Validation" {
         try testing.expectEqual(@as(u32, 0), stats.total_evaluations);
         try testing.expectEqual(@as(u32, 0), stats.cached_constants);
 
-        std.debug.print("✅ Basic initialization works\n", .{});
     }
 
     // Test 2: Single evaluation cycle
-    std.debug.print("📋 Test 2: Single Evaluation Cycle\n", .{});
     {
         var astdb_system = try astdb.ASTDBSystem.init(allocator, true);
         defer astdb_system.deinit();
@@ -62,11 +57,9 @@ test "Granite-Solid ComptimeVM - Zero Leak Validation" {
         const stored_value = comptime_vm.getConstantValue(const_name);
         try testing.expect(stored_value != null);
 
-        std.debug.print("✅ Single evaluation cycle works\n", .{});
     }
 
     // Test 3: Multiple evaluation cycles (stress test)
-    std.debug.print("📋 Test 3: Multiple Evaluation Stress Test\n", .{});
     {
         var astdb_system = try astdb.ASTDBSystem.init(allocator, true);
         defer astdb_system.deinit();
@@ -101,23 +94,18 @@ test "Granite-Solid ComptimeVM - Zero Leak Validation" {
         try testing.expectEqual(@as(u32, 100), stats.total_evaluations);
         try testing.expectEqual(@as(u32, 100), stats.cached_constants);
 
-        std.debug.print("✅ Stress test with 100 evaluations works\n", .{});
     }
 
     // GRANITE-SOLID: Final memory leak check
     const leaked = gpa.deinit();
     if (leaked == .ok) {
-        std.debug.print("🎉 GRANITE-SOLID VALIDATION PASSED: ZERO MEMORY LEAKS\n", .{});
     } else {
-        std.debug.print("❌ MEMORY LEAKS DETECTED\n", .{});
         try testing.expect(false);
     }
 }
 
 // Test ComptimeVM integration with existing test patterns
 test "Granite-Solid ComptimeVM - Integration Compatibility" {
-    std.debug.print("\n🔧 INTEGRATION COMPATIBILITY TEST\n", .{});
-    std.debug.print("==================================\n", .{});
 
     const allocator = std.testing.allocator;
 
@@ -156,5 +144,4 @@ test "Granite-Solid ComptimeVM - Integration Compatibility" {
     const is_valid_output = contracts.ContractValidation.validateComptimeVMOutput(&output);
     try testing.expect(is_valid_output);
 
-    std.debug.print("✅ Integration compatibility maintained\n", .{});
 }

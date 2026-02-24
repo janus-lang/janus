@@ -36,6 +36,7 @@ pub const switchContext = continuation_mod.switchContext;
 pub const initFiberContext = continuation_mod.initFiberContext;
 
 pub const nursery_mod = @import("nursery.zig");
+pub const compat_time = @import("compat_time");
 pub const Nursery = nursery_mod.Nursery;
 pub const NurseryState = nursery_mod.NurseryState;
 pub const NurseryResult = nursery_mod.NurseryResult;
@@ -356,7 +357,7 @@ test "Scheduler: submit task" {
     // Wait for task to complete
     var attempts: usize = 0;
     while (task.state != .Completed and attempts < 1000) : (attempts += 1) {
-        std.Thread.sleep(1_000_000);
+        compat_time.sleep(1_000_000);
     }
 
     sched.stop();

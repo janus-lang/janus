@@ -14,6 +14,7 @@ const astdb_core = @import("astdb_core");
 
 test "jfind: End-to-end compilation with native Zig grafting" {
     const allocator = testing.allocator;
+    const io = testing.io;
 
     // ========== STEP 1: Parse jfind.jan Source ==========
     // Full jfind with if-else (syntax: if ... do ... else ... end)
@@ -45,7 +46,6 @@ test "jfind: End-to-end compilation with native Zig grafting" {
 
     // Verify we have nodes
     try testing.expect(snapshot.nodeCount() > 0);
-    std.debug.print("\n=== Parsed {d} AST nodes ===\n", .{snapshot.nodeCount()});
 
     // ========== STEP 2: Lower ASTDB to QTJIR with Extern Registry ==========
     const unit_id: astdb_core.UnitId = @enumFromInt(0);
@@ -55,13 +55,10 @@ test "jfind: End-to-end compilation with native Zig grafting" {
     defer result.deinit(allocator);
 
     try testing.expect(result.graphs.items.len > 0);
-    std.debug.print("=== Lowered to {d} QTJIR graphs ===\n", .{result.graphs.items.len});
-    std.debug.print("=== Extern registry has {d} functions ===\n", .{result.extern_registry.functions.count()});
 
     // Print extern functions
     var fn_iter = result.extern_registry.functions.iterator();
     while (fn_iter.next()) |entry| {
-        std.debug.print("  Extern: {s}\n", .{entry.key_ptr.*});
     }
 
     // ========== STEP 3: Emit QTJIR to LLVM IR ==========
@@ -76,7 +73,6 @@ test "jfind: End-to-end compilation with native Zig grafting" {
     const llvm_ir = try emitter.toString();
     defer allocator.free(llvm_ir);
 
-    std.debug.print("\n=== LLVM IR ===\n{s}\n", .{llvm_ir});
 
     // Verify LLVM IR contains expected elements
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "define") != null);
@@ -88,21 +84,19 @@ test "jfind: End-to-end compilation with native Zig grafting" {
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const tmp_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    const tmp_path = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", allocator);
     defer allocator.free(tmp_path);
 
     const ir_file_path = try std.fs.path.join(allocator, &[_][]const u8{ tmp_path, "jfind.ll" });
     defer allocator.free(ir_file_path);
 
-    try tmp_dir.dir.writeFile(.{ .sub_path = "jfind.ll", .data = llvm_ir });
-    std.debug.print("=== LLVM IR written to: {s} ===\n", .{ir_file_path});
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = "jfind.ll", .data = llvm_ir });
 
     // ========== STEP 5: Compile LLVM IR to Object File ==========
     const jfind_obj_path = try std.fs.path.join(allocator, &[_][]const u8{ tmp_path, "jfind.o" });
     defer allocator.free(jfind_obj_path);
 
-    const llc_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const llc_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "llc",
             "-O3",              // MAXIMUM OPTIMIZATION
@@ -116,15 +110,13 @@ test "jfind: End-to-end compilation with native Zig grafting" {
     defer allocator.free(llc_result.stderr);
 
     switch (llc_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
-                std.debug.print("LLC STDERR: {s}\n", .{llc_result.stderr});
                 return error.LLCFailed;
             }
         },
         else => return error.LLCFailed,
     }
-    std.debug.print("=== jfind.o compiled ===\n", .{});
 
     // ========== STEP 6: Compile Runtime ==========
     const rt_obj_path = try std.fs.path.join(allocator, &[_][]const u8{ tmp_path, "janus_rt.o" });
@@ -133,8 +125,7 @@ test "jfind: End-to-end compilation with native Zig grafting" {
     const rt_emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{rt_obj_path});
     defer allocator.free(rt_emit_arg);
 
-    const rt_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const rt_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "zig",
             "build-obj",
@@ -147,11 +138,9 @@ test "jfind: End-to-end compilation with native Zig grafting" {
     defer allocator.free(rt_result.stdout);
     defer allocator.free(rt_result.stderr);
 
-    if (rt_result.term.Exited != 0) {
-        std.debug.print("Runtime compilation failed: {s}\n", .{rt_result.stderr});
+    if (rt_result.term.exited != 0) {
         return error.RuntimeCompilationFailed;
     }
-    std.debug.print("=== janus_rt.o compiled ===\n", .{});
 
     // ========== STEP 7: Compile Grafted fs_ops.zig ==========
     const fs_ops_obj_path = try std.fs.path.join(allocator, &[_][]const u8{ tmp_path, "fs_ops.o" });
@@ -160,8 +149,7 @@ test "jfind: End-to-end compilation with native Zig grafting" {
     const fs_emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{fs_ops_obj_path});
     defer allocator.free(fs_emit_arg);
 
-    const fs_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const fs_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "zig",
             "build-obj",
@@ -174,18 +162,15 @@ test "jfind: End-to-end compilation with native Zig grafting" {
     defer allocator.free(fs_result.stdout);
     defer allocator.free(fs_result.stderr);
 
-    if (fs_result.term.Exited != 0) {
-        std.debug.print("fs_ops compilation failed: {s}\n", .{fs_result.stderr});
+    if (fs_result.term.exited != 0) {
         return error.FsOpsCompilationFailed;
     }
-    std.debug.print("=== fs_ops.o compiled ===\n", .{});
 
     // ========== STEP 8: Link Everything ==========
     const exe_path = try std.fs.path.join(allocator, &[_][]const u8{ tmp_path, "jfind" });
     defer allocator.free(exe_path);
 
-    const link_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const link_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "cc",
             jfind_obj_path,
@@ -199,19 +184,16 @@ test "jfind: End-to-end compilation with native Zig grafting" {
     defer allocator.free(link_result.stderr);
 
     switch (link_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
-                std.debug.print("LINK STDERR: {s}\n", .{link_result.stderr});
                 return error.LinkFailed;
             }
         },
         else => return error.LinkFailed,
     }
-    std.debug.print("=== jfind executable linked ===\n", .{});
 
     // ========== STEP 9: Execute jfind ==========
-    const exec_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const exec_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{exe_path},
         .cwd = tmp_path, // Run in temp dir so we have a known directory
     });
@@ -219,20 +201,16 @@ test "jfind: End-to-end compilation with native Zig grafting" {
     defer allocator.free(exec_result.stderr);
 
     switch (exec_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
-                std.debug.print("EXEC STDERR: {s}\n", .{exec_result.stderr});
-                std.debug.print("Exit code: {d}\n", .{code});
                 return error.ExecutionFailed;
             }
         },
         else => {
-            std.debug.print("EXEC terminated abnormally: {any}\n", .{exec_result.term});
             return error.ExecutionFailed;
         },
     }
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{exec_result.stdout});
 
     // Verify output - should have 0s and 1s (file/dir markers) and final count
     try testing.expect(exec_result.stdout.len > 0);
@@ -246,14 +224,11 @@ test "jfind: End-to-end compilation with native Zig grafting" {
         count += 1;
     }
 
-    std.debug.print("Found {d} output lines, last line: '{s}'\n", .{ count, last_line });
 
     // Last line should be the total count (a number > 0)
     const total = std.fmt.parseInt(i32, last_line, 10) catch {
-        std.debug.print("Failed to parse count from last line\n", .{});
         return error.InvalidOutput;
     };
 
     try testing.expect(total > 0);
-    std.debug.print("\n✅ jfind executed successfully! Found {d} entries ✅\n", .{total});
 }

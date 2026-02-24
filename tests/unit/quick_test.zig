@@ -4,5 +4,4 @@
 const std = @import("std");
 
 pub fn main() !void {
-    std.debug.print("Quick test: Janus compiler is working!\n", .{});
 }

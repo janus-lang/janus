@@ -1178,8 +1178,7 @@ test "QTJIR: Graph Construction and Topology" {
     try std.testing.expectEqual(str_node, graph.nodes.items[call_node].inputs.items[0]);
     try std.testing.expectEqual(Tenancy.CPU_Serial, graph.nodes.items[call_node].tenancy);
 
-    // Visual Inspection
-    graph.dump();
+    // Visual inspection: graph.dump() removed for IPC compat
 }
 
 test "QTJIR: Future Tenancy Hinge" {

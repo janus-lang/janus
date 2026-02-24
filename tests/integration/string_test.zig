@@ -12,6 +12,7 @@ const astdb_core = @import("astdb_core");
 
 test "String API Execution" {
     const allocator = testing.allocator;
+    const io = testing.io;
 
     // ========== STEP 1: Parse Source to ASTDB ==========
     const source =
@@ -59,20 +60,19 @@ test "String API Execution" {
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const ir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    const ir_path = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", allocator);
     defer allocator.free(ir_path);
 
     const ir_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "string.ll" });
     defer allocator.free(ir_file_path);
 
-    try tmp_dir.dir.writeFile(.{ .sub_path = "string.ll", .data = llvm_ir });
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = "string.ll", .data = llvm_ir });
 
     // ========== STEP 5: Compile LLVM IR to Object File ==========
     const obj_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "string.o" });
     defer allocator.free(obj_file_path);
 
-    const llc_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const llc_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "llc",
             "-opaque-pointers",
@@ -85,8 +85,7 @@ test "String API Execution" {
     defer allocator.free(llc_result.stdout);
     defer allocator.free(llc_result.stderr);
 
-    if (llc_result.term.Exited != 0) {
-        std.debug.print("LLC FAILED: {s}\n", .{llc_result.stderr});
+    if (llc_result.term.exited != 0) {
         return error.LLCFailed;
     }
 
@@ -101,8 +100,7 @@ test "String API Execution" {
     defer allocator.free(emit_arg);
 
     // Compile Runtime
-    const zig_build_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const zig_build_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "zig", // Assuming zig is in PATH (it must be to run tests)
             "build-obj",
@@ -114,14 +112,12 @@ test "String API Execution" {
     defer allocator.free(zig_build_result.stdout);
     defer allocator.free(zig_build_result.stderr);
 
-    if (zig_build_result.term.Exited != 0) {
-        std.debug.print("RUNTIME COMPILATION FAILED: {s}\n", .{zig_build_result.stderr});
+    if (zig_build_result.term.exited != 0) {
         return error.RuntimeCompilationFailed;
     }
 
     // Link
-    const link_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const link_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "cc",
             obj_file_path,
@@ -133,21 +129,18 @@ test "String API Execution" {
     defer allocator.free(link_result.stdout);
     defer allocator.free(link_result.stderr);
 
-    if (link_result.term.Exited != 0) {
-        std.debug.print("LINK FAILED: {s}\n", .{link_result.stderr});
+    if (link_result.term.exited != 0) {
         return error.LinkFailed;
     }
 
     // ========== STEP 7: Execute and Verify Output ==========
-    const exec_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const exec_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{exe_file_path},
     });
     defer allocator.free(exec_result.stdout);
     defer allocator.free(exec_result.stderr);
 
-    if (exec_result.term.Exited != 0) {
-        std.debug.print("EXEC FAILED: {s}\n", .{exec_result.stderr});
+    if (exec_result.term.exited != 0) {
         return error.ExecutionFailed;
     }
 
@@ -160,5 +153,4 @@ test "String API Execution" {
 
     try testing.expectEqualStrings(expected, exec_result.stdout);
 
-    std.debug.print("✅ String Test Passed\n", .{});
 }

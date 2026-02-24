@@ -40,7 +40,7 @@ test "compileAdapter returns artifact path" {
     var parsed = try std.json.parseFromSlice(std.json.Value, a, body, .{});
     defer parsed.deinit();
     var buf = std.ArrayList(u8){}; defer buf.deinit(a);
-    try compileAdapter(parsed.value, a, buf.writer(a));
+    try compileAdapter(parsed.value, a, json_helpers.arrayListWriter(&buf, a));
     const s = buf.items;
     try std.testing.expect(std.mem.indexOf(u8, s, "\"artifact\":\"zig-out/main.o\"") != null);
 }
@@ -52,7 +52,7 @@ test "queryAstAdapter returns empty matches" {
     var parsed = try std.json.parseFromSlice(std.json.Value, a, body, .{});
     defer parsed.deinit();
     var buf = std.ArrayList(u8){}; defer buf.deinit(a);
-    try queryAstAdapter(parsed.value, a, buf.writer(a));
+    try queryAstAdapter(parsed.value, a, json_helpers.arrayListWriter(&buf, a));
     const s = buf.items;
     try std.testing.expect(std.mem.indexOf(u8, s, "\"matches\":[]") != null);
 }
@@ -64,7 +64,7 @@ test "diagnosticsListAdapter returns diagnostics array" {
     var parsed = try std.json.parseFromSlice(std.json.Value, a, body, .{});
     defer parsed.deinit();
     var buf = std.ArrayList(u8){}; defer buf.deinit(a);
-    try diagnosticsListAdapter(parsed.value, a, buf.writer(a));
+    try diagnosticsListAdapter(parsed.value, a, json_helpers.arrayListWriter(&buf, a));
     const s = buf.items;
     try std.testing.expect(std.mem.indexOf(u8, s, "\"diagnostics\":[]") != null);
 }

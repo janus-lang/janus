@@ -11,5 +11,4 @@ test "simple ambiguous test" {
     // This should pass if ambiguous resolution works
     try test_suite.testAmbiguousResolution();
 
-    std.debug.print("Ambiguous resolution test passed!\n", .{});
 }

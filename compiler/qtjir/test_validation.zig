@@ -15,7 +15,6 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    std.debug.print("\n=== QTJIR Validation Tests ===\n\n", .{});
 
     try testValidGraph(allocator);
     try testDanglingEdge(allocator);
@@ -24,11 +23,9 @@ pub fn main() !void {
     try testComplexAcyclicGraph(allocator);
     try testTenancyWarning(allocator);
 
-    std.debug.print("\n✅ All validation tests passed!\n", .{});
 }
 
 fn testValidGraph(allocator: std.mem.Allocator) !void {
-    std.debug.print("Test: Valid Graph... ", .{});
     
     var g = QTJIRGraph.init(allocator);
     defer g.deinit();
@@ -42,15 +39,12 @@ fn testValidGraph(allocator: std.mem.Allocator) !void {
     defer result.deinit();
     
     if (result.has_errors) {
-        std.debug.print("✗ Validation failed with errors:\n", .{});
         result.dump();
         return error.TestFailed;
     }
-    std.debug.print("✓\n", .{});
 }
 
 fn testDanglingEdge(allocator: std.mem.Allocator) !void {
-    std.debug.print("Test: Dangling Edge Detection... ", .{});
     
     var g = QTJIRGraph.init(allocator);
     defer g.deinit();
@@ -63,7 +57,6 @@ fn testDanglingEdge(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 
     if (!result.has_errors) {
-        std.debug.print("✗ Expected error but validation passed\n", .{});
         return error.TestFailed;
     }
 
@@ -77,16 +70,13 @@ fn testDanglingEdge(allocator: std.mem.Allocator) !void {
     }
 
     if (found) {
-        std.debug.print("✓\n", .{});
     } else {
-        std.debug.print("✗ Wrong error or missing diagnostic\n", .{});
         result.dump();
         return error.TestFailed;
     }
 }
 
 fn testCycleDetection(allocator: std.mem.Allocator) !void {
-    std.debug.print("Test: Cycle Detection... ", .{});
     
     var g = QTJIRGraph.init(allocator);
     defer g.deinit();
@@ -102,7 +92,6 @@ fn testCycleDetection(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 
     if (!result.has_errors) {
-        std.debug.print("✗ Expected cycle error but validation passed\n", .{});
         return error.TestFailed;
     }
 
@@ -115,16 +104,13 @@ fn testCycleDetection(allocator: std.mem.Allocator) !void {
     }
 
     if (found) {
-        std.debug.print("✓\n", .{});
     } else {
-        std.debug.print("✗ Wrong error: expected cycle detection\n", .{});
         result.dump();
         return error.TestFailed;
     }
 }
 
 fn testSelfCycle(allocator: std.mem.Allocator) !void {
-    std.debug.print("Test: Self-Referencing Cycle... ", .{});
     
     var g = QTJIRGraph.init(allocator);
     defer g.deinit();
@@ -137,7 +123,6 @@ fn testSelfCycle(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 
     if (!result.has_errors) {
-        std.debug.print("✗ Expected cycle error but validation passed\n", .{});
         return error.TestFailed;
     }
 
@@ -150,16 +135,13 @@ fn testSelfCycle(allocator: std.mem.Allocator) !void {
     }
 
     if (found) {
-        std.debug.print("✓\n", .{});
     } else {
-        std.debug.print("✗ Wrong error: expected cycle detection\n", .{});
         result.dump();
         return error.TestFailed;
     }
 }
 
 fn testComplexAcyclicGraph(allocator: std.mem.Allocator) !void {
-    std.debug.print("Test: Complex Acyclic Graph (Diamond)... ", .{});
     
     var g = QTJIRGraph.init(allocator);
     defer g.deinit();
@@ -179,15 +161,12 @@ fn testComplexAcyclicGraph(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 
     if (result.has_errors) {
-        std.debug.print("✗ Validation failed with errors:\n", .{});
         result.dump();
         return error.TestFailed;
     }
-    std.debug.print("✓\n", .{});
 }
 
 fn testTenancyWarning(allocator: std.mem.Allocator) !void {
-    std.debug.print("Test: Tenancy Consistency Warning... ", .{});
     
     var g = QTJIRGraph.init(allocator);
     defer g.deinit();
@@ -205,7 +184,6 @@ fn testTenancyWarning(allocator: std.mem.Allocator) !void {
 
     // Should have warnings but no errors (Phase 1/2 policy)
     if (result.has_errors) {
-        std.debug.print("✗ Validation failed with errors (expected warnings only):\n", .{});
         result.dump();
         return error.TestFailed;
     }
@@ -219,9 +197,7 @@ fn testTenancyWarning(allocator: std.mem.Allocator) !void {
     }
 
     if (found) {
-        std.debug.print("✓ (warning expected)\n", .{});
     } else {
-        std.debug.print("✗ Expected tenancy warning not found\n", .{});
         result.dump();
         return error.TestFailed;
     }

@@ -9,7 +9,6 @@ test "ComptimeVM Minimal Memory Fix Test" {
     const astdb = @import("compiler/libjanus/astdb.zig");
     const ComptimeVM = @import("compiler/comptime_vm.zig").ComptimeVM;
 
-    std.debug.print("\n🔧 MINIMAL COMPTIME VM MEMORY FIX TEST\n", .{});
 
     // Test that ComptimeVM can be created and destroyed without leaks
     var astdb_system = try astdb.ASTDBSystem.init(allocator, true);
@@ -22,5 +21,4 @@ test "ComptimeVM Minimal Memory Fix Test" {
     const stats = comptime_vm.getEvaluationStats();
     try testing.expectEqual(@as(u32, 0), stats.total_evaluations);
 
-    std.debug.print("✅ ComptimeVM memory fix test passed\n", .{});
 }

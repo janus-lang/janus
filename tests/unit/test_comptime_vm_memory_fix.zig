@@ -8,8 +8,6 @@ const testing = std.testing;
 // Test the memory leak fixes applied to ComptimeVM
 
 test "ComptimeVM Memory Leak Fix Validation" {
-    std.debug.print("\n🔧 COMPTIME VM MEMORY LEAK FIX VALIDATION\n", .{});
-    std.debug.print("==========================================\n", .{});
 
     const allocator = std.testing.allocator;
     const astdb = @import("compiler/libjanus/astdb.zig");
@@ -17,7 +15,6 @@ test "ComptimeVM Memory Leak Fix Validation" {
     const contracts = @import("compiler/libjanus/integration_contracts.zig");
 
     // Test 1: Basic functionality still works
-    std.debug.print("\n🧪 Test 1: Basic Functionality\n", .{});
     {
         var astdb_system = try astdb.ASTDBSystem.init(allocator, true);
         defer astdb_system.deinit();
@@ -49,11 +46,9 @@ test "ComptimeVM Memory Leak Fix Validation" {
         const output = try comptime_vm.evaluateExpression(&input_contract);
         try testing.expect(output.success);
 
-        std.debug.print("   ✅ Basic functionality working\n", .{});
     }
 
     // Test 2: Reduced Memory Pressure Test
-    std.debug.print("\n🧪 Test 2: Reduced Memory Pressure\n", .{});
     {
         // Use single ASTDB system for efficiency
         var astdb_system = try astdb.ASTDBSystem.init(allocator, true);
@@ -97,15 +92,9 @@ test "ComptimeVM Memory Leak Fix Validation" {
             }
 
             if (cycle % 2 == 0) {
-                std.debug.print("   🔄 Cycle {d}/5 completed\n", .{cycle + 1});
             }
         }
 
-        std.debug.print("   ✅ Reduced memory pressure test completed\n", .{});
     }
 
-    std.debug.print("\n🎯 COMPTIME VM MEMORY LEAK FIX VALIDATION COMPLETE\n", .{});
-    std.debug.print("✅ Memory leak fixes applied and validated\n", .{});
-    std.debug.print("✅ Arena allocator integration working\n", .{});
-    std.debug.print("✅ HashMap pre-allocation effective\n", .{});
 }

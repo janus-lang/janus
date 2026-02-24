@@ -64,7 +64,7 @@ pub export fn time_monotonic_nanos() callconv(.c) i64 {
 /// Returns 0 on success, -1 on error
 pub export fn time_sleep_millis(ms: i64) callconv(.c) i32 {
     if (ms < 0) return -1;
-    std.Thread.sleep(@intCast(ms * std.time.ns_per_ms));
+    compat_time.sleep(@intCast(ms * std.time.ns_per_ms));
     return 0;
 }
 
@@ -72,7 +72,7 @@ pub export fn time_sleep_millis(ms: i64) callconv(.c) i32 {
 /// Returns 0 on success, -1 on error
 pub export fn time_sleep_seconds(secs: i64) callconv(.c) i32 {
     if (secs < 0) return -1;
-    std.Thread.sleep(@intCast(secs * std.time.ns_per_s));
+    compat_time.sleep(@intCast(secs * std.time.ns_per_s));
     return 0;
 }
 

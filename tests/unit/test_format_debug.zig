@@ -10,6 +10,5 @@ pub fn main() !void {
     };
 
     for (achievements) |achievement| {
-        std.debug.print("   {s}\n", .{achievement});
     }
 }

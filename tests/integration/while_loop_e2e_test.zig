@@ -37,28 +37,27 @@ fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name: []
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const ir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    const ir_path = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", allocator);
     defer allocator.free(ir_path);
 
     const ir_file = try std.fmt.allocPrint(allocator, "{s}.ll", .{test_name});
     defer allocator.free(ir_file);
     const ir_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, ir_file });
     defer allocator.free(ir_file_path);
-    try tmp_dir.dir.writeFile(.{ .sub_path = ir_file, .data = llvm_ir });
+    const io = testing.io;
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = ir_file, .data = llvm_ir });
 
     const obj_file = try std.fmt.allocPrint(allocator, "{s}.o", .{test_name});
     defer allocator.free(obj_file);
     const obj_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, obj_file });
     defer allocator.free(obj_file_path);
 
-    const llc_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const llc_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{ "llc", "-opaque-pointers", "-filetype=obj", ir_file_path, "-o", obj_file_path },
     });
     defer allocator.free(llc_result.stdout);
     defer allocator.free(llc_result.stderr);
-    if (llc_result.term.Exited != 0) {
-        std.debug.print("LLC STDERR: {s}\n", .{llc_result.stderr});
+    if (llc_result.term.exited != 0) {
         return error.LLCFailed;
     }
 
@@ -71,28 +70,25 @@ fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name: []
     const emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{rt_obj_path});
     defer allocator.free(emit_arg);
 
-    const zig_build_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const zig_build_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{ "zig", "build-obj", "runtime/janus_rt.zig", emit_arg, "-lc" },
     });
     defer allocator.free(zig_build_result.stdout);
     defer allocator.free(zig_build_result.stderr);
-    if (zig_build_result.term.Exited != 0) return error.RuntimeCompilationFailed;
+    if (zig_build_result.term.exited != 0) return error.RuntimeCompilationFailed;
 
-    const link_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const link_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{ "cc", obj_file_path, rt_obj_path, "-o", exe_file_path },
     });
     defer allocator.free(link_result.stdout);
     defer allocator.free(link_result.stderr);
-    if (link_result.term.Exited != 0) return error.LinkFailed;
+    if (link_result.term.exited != 0) return error.LinkFailed;
 
-    const exec_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const exec_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{exe_file_path},
     });
     defer allocator.free(exec_result.stderr);
-    if (exec_result.term.Exited != 0) {
+    if (exec_result.term.exited != 0) {
         allocator.free(exec_result.stdout);
         return error.ExecutionFailed;
     }
@@ -121,10 +117,8 @@ test "Epic 1.7: While loop - count down from 5" {
     const output = try compileAndRun(allocator, source, "while_countdown");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
     try testing.expectEqualStrings("0\n1\n2\ndone\n", output);
 
-    std.debug.print("\n✅ ✅ ✅ WHILE LOOP STRUCTURE TEST PASSED ✅ ✅ ✅\n", .{});
 }
 
 test "Epic 1.7: While loop with let variable - countdown" {
@@ -148,7 +142,6 @@ test "Epic 1.7: While loop with let variable - countdown" {
     const snapshot = try parser.parseWithSource(source);
     defer snapshot.deinit();
 
-    std.debug.print("\n=== Parsed {d} AST nodes ===\n", .{snapshot.nodeCount()});
 
     const unit_id: astdb_core.UnitId = @enumFromInt(0);
     var ir_graphs = try qtjir.lower.lowerUnit(allocator, &snapshot.core_snapshot, unit_id);
@@ -157,11 +150,7 @@ test "Epic 1.7: While loop with let variable - countdown" {
         ir_graphs.deinit(allocator);
     }
 
-    std.debug.print("\n=== QTJIR Graph ===\n", .{});
-    std.debug.print("Nodes: {d}\n", .{ir_graphs.items[0].nodes.items.len});
-    for (ir_graphs.items[0].nodes.items, 0..) |node, idx| {
-        std.debug.print("  [{d}] {s}\n", .{ idx, @tagName(node.op) });
-    }
+    try testing.expect(ir_graphs.items[0].nodes.items.len > 0);
 
     // Verify while loop structure exists
     var has_label = false;
@@ -177,7 +166,6 @@ test "Epic 1.7: While loop with let variable - countdown" {
     try testing.expect(has_branch); // Condition check
     try testing.expect(has_jump); // Back-edge
 
-    std.debug.print("\n✅ ✅ ✅ WHILE LOOP IR STRUCTURE VERIFIED ✅ ✅ ✅\n", .{});
 }
 
 test "Epic 1.7: While loop - simple iteration" {
@@ -197,12 +185,10 @@ test "Epic 1.7: While loop - simple iteration" {
     const output = try compileAndRun(allocator, source, "while_skip");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT (WHILE SKIPPED) ===\n{s}\n", .{output});
 
     // 0 > 1 is false, so while body never executes, just prints 42
     try testing.expectEqualStrings("42\n", output);
 
-    std.debug.print("\n✅ ✅ ✅ WHILE LOOP (SKIP BODY) EXECUTED SUCCESSFULLY ✅ ✅ ✅\n", .{});
 }
 
 test "Epic 1.7: While true with limited iterations via for" {
@@ -223,14 +209,12 @@ test "Epic 1.7: While true with limited iterations via for" {
     const output = try compileAndRun(allocator, source, "while_for_combo");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT (FOR+IF COMBO) ===\n{s}\n", .{output});
 
     // i=1: 1>1 false, skip
     // i=2: 2>1 true, print 2
     // i=3: 3>1 true, print 3
     try testing.expectEqualStrings("2\n3\n", output);
 
-    std.debug.print("\n✅ ✅ ✅ FOR+IF COMBO EXECUTED SUCCESSFULLY ✅ ✅ ✅\n", .{});
 }
 
 test "Epic 1.7: True while loop with var - countdown" {
@@ -251,12 +235,10 @@ test "Epic 1.7: True while loop with var - countdown" {
     const output = try compileAndRun(allocator, source, "while_countdown_var");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT (TRUE WHILE) ===\n{s}\n", .{output});
 
     // 3, 2, 1, 0
     try testing.expectEqualStrings("3\n2\n1\n0\n", output);
 
-    std.debug.print("\n✅ ✅ ✅ TRUE WHILE LOOP WITH VAR PASSED ✅ ✅ ✅\n", .{});
 }
 
 test "Epic 1.7: While loop with break" {
@@ -280,12 +262,10 @@ test "Epic 1.7: While loop with break" {
     const output = try compileAndRun(allocator, source, "while_break");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT (WHILE WITH BREAK) ===\n{s}\n", .{output});
 
     // 0, 1, 2, then break, then 99
     try testing.expectEqualStrings("0\n1\n2\n99\n", output);
 
-    std.debug.print("\n✅ ✅ ✅ WHILE LOOP WITH BREAK PASSED ✅ ✅ ✅\n", .{});
 }
 
 test "Epic 1.7: While loop with continue" {
@@ -308,10 +288,8 @@ test "Epic 1.7: While loop with continue" {
     const output = try compileAndRun(allocator, source, "while_continue");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT (WHILE WITH CONTINUE) ===\n{s}\n", .{output});
 
     // 1, 2, skip 3, 4, 5
     try testing.expectEqualStrings("1\n2\n4\n5\n", output);
 
-    std.debug.print("\n✅ ✅ ✅ WHILE LOOP WITH CONTINUE PASSED ✅ ✅ ✅\n", .{});
 }

@@ -20,11 +20,7 @@ test "UTCP Transport: Client requests manual from janusd" {
 
     // Given a janusd instance is running on localhost:7654
     // When the client sends a "manual" request
-    var manual_json = std.ArrayList(u8){};
-    defer manual_json.deinit(allocator);
-
-    try utcp_manual.writeManualJSON(manual_json.writer(allocator), .{});
-    const json_bytes = try manual_json.toOwnedSlice(allocator);
+    const json_bytes = try utcp_manual.renderManualToOwnedSlice(allocator, .{});
     defer allocator.free(json_bytes);
 
     var parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_bytes, .{});
@@ -53,11 +49,7 @@ test "UTCP Transport: Manual contains tool definitions with capabilities" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var manual_json = std.ArrayList(u8){};
-    defer manual_json.deinit(allocator);
-
-    try utcp_manual.writeManualJSON(manual_json.writer(allocator), .{});
-    const json_bytes = try manual_json.toOwnedSlice(allocator);
+    const json_bytes = try utcp_manual.renderManualToOwnedSlice(allocator, .{});
     defer allocator.free(json_bytes);
 
     var parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_bytes, .{});

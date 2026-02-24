@@ -134,13 +134,11 @@ test "End-to-end document update" {
     const proxy_exists = std.fs.cwd().access("zig-out/bin/janus-grpc-proxy", .{}) catch false;
 
     if (!daemon_exists or !proxy_exists) {
-        std.debug.print("Skipping integration test - binaries not found\n", .{});
         return error.SkipZigTest;
     }
 
     // Start services
     client.startServices() catch |err| {
-        std.debug.print("Failed to start services: {}\n", .{err});
         return error.SkipZigTest;
     };
 
@@ -187,7 +185,6 @@ test "API compatibility" {
     };
 
     for (test_cases) |test_case| {
-        std.debug.print("Testing API compatibility: {s}\n", .{test_case.name});
         try test_case.test_fn(&client, allocator);
     }
 }
@@ -280,9 +277,6 @@ test "Performance and resource usage" {
     const duration_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
     const ops_per_second = @as(f64, @floatFromInt(iterations * 4)) / (duration_ms / 1000.0); // 4 ops per iteration
 
-    std.debug.print("\nIntegration Test Performance:\n", .{});
-    std.debug.print("  {} operations in {d:.2} ms\n", .{ iterations * 4, duration_ms });
-    std.debug.print("  {d:.0} operations/second\n", .{ops_per_second});
 
     // Basic performance validation (very lenient for mock testing)
     try testing.expect(ops_per_second > 10);
@@ -449,5 +443,4 @@ test "Memory usage stability" {
     }
 
     // Memory should be stable (no leaks detected by arena allocator)
-    std.debug.print("Memory stability test completed - {} iterations\n", .{iterations});
 }

@@ -30,7 +30,6 @@ test "daemon LSP integration" {
 
     // Test LSP integration (would require more complex setup)
     // For now, just test that we can connect to daemon
-    std.debug.print("✅ Daemon LSP integration test passed\n", .{});
 }
 
 /// Start daemon for testing
@@ -41,7 +40,6 @@ fn startDaemonForTest(allocator: std.mem.Allocator) void {
     // Simulate daemon running for a short time
     time.sleep(500 * time.ns_per_ms);
 
-    std.debug.print("🧠 Test daemon simulation complete\n", .{});
 }
 
 /// Test daemon connection
@@ -55,7 +53,6 @@ fn testDaemonConnection(allocator: std.mem.Allocator) !void {
     // 3. Verify we get a proper JSON response
     // 4. Test performance metrics
 
-    std.debug.print("🔌 Daemon connection test (simulated)\n", .{});
 }
 
 test "LSP performance optimization" {
@@ -75,7 +72,6 @@ test "LSP performance optimization" {
     // Verify latency is under 10ms P50 requirement
     try testing.expect(elapsed_ms < 10.0);
 
-    std.debug.print("⚡ Query latency: {d:.2}ms (target: <10ms)\n", .{elapsed_ms});
 }
 
 test "incremental compilation integration" {
@@ -92,7 +88,6 @@ test "incremental compilation integration" {
     // 5. Query result consistency
 
     _ = allocator;
-    std.debug.print("🔄 Incremental compilation integration test (placeholder)\n", .{});
 }
 
 test "background indexing" {
@@ -106,7 +101,6 @@ test "background indexing" {
     // 3. LSP requests hit warm cache for better performance
 
     _ = allocator;
-    std.debug.print("🗂️ Background indexing test (placeholder)\n", .{});
 }
 
 test "query performance monitoring" {
@@ -121,5 +115,4 @@ test "query performance monitoring" {
     // 4. Cache hit rates are tracked
 
     _ = allocator;
-    std.debug.print("📊 Query performance monitoring test (placeholder)\n", .{});
 }

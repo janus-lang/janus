@@ -34,33 +34,31 @@ fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name: []
     const llvm_ir = try emitter.toString();
     defer allocator.free(llvm_ir);
 
-    std.debug.print("\n=== LLVM IR ===\n{s}\n", .{llvm_ir});
 
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const ir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    const ir_path = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", allocator);
     defer allocator.free(ir_path);
 
     const ir_file = try std.fmt.allocPrint(allocator, "{s}.ll", .{test_name});
     defer allocator.free(ir_file);
     const ir_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, ir_file });
     defer allocator.free(ir_file_path);
-    try tmp_dir.dir.writeFile(.{ .sub_path = ir_file, .data = llvm_ir });
+    const io = testing.io;
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = ir_file, .data = llvm_ir });
 
     const obj_file = try std.fmt.allocPrint(allocator, "{s}.o", .{test_name});
     defer allocator.free(obj_file);
     const obj_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, obj_file });
     defer allocator.free(obj_file_path);
 
-    const llc_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const llc_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{ "llc", "-opaque-pointers", "-filetype=obj", ir_file_path, "-o", obj_file_path },
     });
     defer allocator.free(llc_result.stdout);
     defer allocator.free(llc_result.stderr);
-    if (llc_result.term.Exited != 0) {
-        std.debug.print("LLC STDERR: {s}\n", .{llc_result.stderr});
+    if (llc_result.term.exited != 0) {
         return error.LLCFailed;
     }
 
@@ -73,28 +71,25 @@ fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name: []
     const emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{rt_obj_path});
     defer allocator.free(emit_arg);
 
-    const zig_build_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const zig_build_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{ "zig", "build-obj", "runtime/janus_rt.zig", emit_arg, "-lc" },
     });
     defer allocator.free(zig_build_result.stdout);
     defer allocator.free(zig_build_result.stderr);
-    if (zig_build_result.term.Exited != 0) return error.RuntimeCompilationFailed;
+    if (zig_build_result.term.exited != 0) return error.RuntimeCompilationFailed;
 
-    const link_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const link_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{ "cc", obj_file_path, rt_obj_path, "-o", exe_file_path },
     });
     defer allocator.free(link_result.stdout);
     defer allocator.free(link_result.stderr);
-    if (link_result.term.Exited != 0) return error.LinkFailed;
+    if (link_result.term.exited != 0) return error.LinkFailed;
 
-    const exec_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const exec_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{exe_file_path},
     });
     defer allocator.free(exec_result.stderr);
-    if (exec_result.term.Exited != 0) {
+    if (exec_result.term.exited != 0) {
         allocator.free(exec_result.stdout);
         return error.ExecutionFailed;
     }
@@ -114,11 +109,9 @@ test "Epic 4.1: Simple string println" {
     const output = try compileAndRun(allocator, source, "string_hello");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     try testing.expectEqualStrings("Hello, World!\n", output);
 
-    std.debug.print("\n=== SIMPLE STRING PRINTLN PASSED ===\n", .{});
 }
 
 test "Epic 4.2: Multiple string prints" {
@@ -135,11 +128,9 @@ test "Epic 4.2: Multiple string prints" {
     const output = try compileAndRun(allocator, source, "string_multi");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     try testing.expectEqualStrings("First\nSecond\nThird\n", output);
 
-    std.debug.print("\n=== MULTIPLE STRING PRINTS PASSED ===\n", .{});
 }
 
 test "Epic 4.3: String with print (no newline)" {
@@ -156,11 +147,9 @@ test "Epic 4.3: String with print (no newline)" {
     const output = try compileAndRun(allocator, source, "string_print");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     try testing.expectEqualStrings("Hello World\n", output);
 
-    std.debug.print("\n=== STRING PRINT NO NEWLINE PASSED ===\n", .{});
 }
 
 test "Epic 4.4: Mixed string and int output" {
@@ -177,11 +166,9 @@ test "Epic 4.4: Mixed string and int output" {
     const output = try compileAndRun(allocator, source, "string_mixed");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     try testing.expectEqualStrings("The answer is:\n42\ndone\n", output);
 
-    std.debug.print("\n=== MIXED STRING AND INT PASSED ===\n", .{});
 }
 
 test "Epic 4.5: String in conditional" {
@@ -201,11 +188,9 @@ test "Epic 4.5: String in conditional" {
     const output = try compileAndRun(allocator, source, "string_cond");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     try testing.expectEqualStrings("greater\n", output);
 
-    std.debug.print("\n=== STRING IN CONDITIONAL PASSED ===\n", .{});
 }
 
 test "Epic 4.6: String in loop" {
@@ -222,11 +207,9 @@ test "Epic 4.6: String in loop" {
     const output = try compileAndRun(allocator, source, "string_loop");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     try testing.expectEqualStrings("loop\nloop\nloop\n", output);
 
-    std.debug.print("\n=== STRING IN LOOP PASSED ===\n", .{});
 }
 
 test "Epic 4.7: String escape newline" {
@@ -241,11 +224,9 @@ test "Epic 4.7: String escape newline" {
     const output = try compileAndRun(allocator, source, "string_escape_nl");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     try testing.expectEqualStrings("Hello\nWorld", output);
 
-    std.debug.print("\n=== STRING ESCAPE NEWLINE PASSED ===\n", .{});
 }
 
 test "Epic 4.8: String escape tab" {
@@ -260,11 +241,9 @@ test "Epic 4.8: String escape tab" {
     const output = try compileAndRun(allocator, source, "string_escape_tab");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     try testing.expectEqualStrings("Col1\tCol2\tCol3", output);
 
-    std.debug.print("\n=== STRING ESCAPE TAB PASSED ===\n", .{});
 }
 
 test "Epic 4.9: String escape quote" {
@@ -279,11 +258,9 @@ test "Epic 4.9: String escape quote" {
     const output = try compileAndRun(allocator, source, "string_escape_quote");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     try testing.expectEqualStrings("She said \"hello\"", output);
 
-    std.debug.print("\n=== STRING ESCAPE QUOTE PASSED ===\n", .{});
 }
 
 test "Epic 4.10: String escape backslash" {
@@ -298,11 +275,9 @@ test "Epic 4.10: String escape backslash" {
     const output = try compileAndRun(allocator, source, "string_escape_backslash");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     try testing.expectEqualStrings("path\\to\\file", output);
 
-    std.debug.print("\n=== STRING ESCAPE BACKSLASH PASSED ===\n", .{});
 }
 
 test "Epic 4.11: Multiline string" {
@@ -319,11 +294,9 @@ test "Epic 4.11: Multiline string" {
     const output = try compileAndRun(allocator, source, "multiline_string");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     try testing.expectEqualStrings("Line 1\nLine 2\nLine 3", output);
 
-    std.debug.print("\n=== MULTILINE STRING PASSED ===\n", .{});
 }
 
 test "Epic 4.12: Null literal" {
@@ -339,10 +312,8 @@ test "Epic 4.12: Null literal" {
     const output = try compileAndRun(allocator, source, "null_literal");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // null is represented as 0
     try testing.expectEqualStrings("0\n", output);
 
-    std.debug.print("\n=== NULL LITERAL PASSED ===\n", .{});
 }

@@ -86,7 +86,6 @@ test "validation engine ASTDB query integration" {
     const symbols = try context.query_engine.getSymbolsInScope(unit_id, add_function);
     try testing.expect(symbols.len >= 2); // x and y parameters
 
-    std.debug.print("✅ Validation Engine ASTDB integration test passed\n", .{});
 }
 
 test "validation engine error reporting through ASTDB" {
@@ -119,7 +118,6 @@ test "validation engine error reporting through ASTDB" {
         try testing.expect(err.location.column > 0);
     }
 
-    std.debug.print("✅ Validation Engine error reporting integration test passed\n", .{});
 }
 
 test "incremental validation with ASTDB updates" {
@@ -158,7 +156,6 @@ test "incremental validation with ASTDB updates" {
     const current_unit = context.astdb.getUnit(unit_id).?;
     try testing.expectEqualStrings(updated_source, current_unit.source);
 
-    std.debug.print("✅ Incremental validation integration test passed\n", .{});
 }
 
 test "validation engine performance with large ASTDB" {
@@ -200,5 +197,4 @@ test "validation engine performance with large ASTDB" {
     // Performance requirement: < 100ms for 10 units
     try testing.expect(duration_ms < 100.0);
 
-    std.debug.print("✅ Validation performance test passed: {d:.2}ms for 10 units\n", .{duration_ms});
 }

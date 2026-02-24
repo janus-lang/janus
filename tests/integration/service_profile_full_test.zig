@@ -69,10 +69,8 @@ test ":service profile: Producer-Consumer with channels in nursery" {
     var found_channel_recv = false;
     var spawn_count: usize = 0;
 
-    std.debug.print("\n=== PRODUCER-CONSUMER QTJIR ===\n", .{});
     for (ir_graphs.items) |ir_graph| {
         for (ir_graph.nodes.items, 0..) |node, i| {
-            std.debug.print("  [{d}] {s}", .{ i, @tagName(node.op) });
             switch (node.op) {
                 .Nursery_Begin => found_nursery_begin = true,
                 .Nursery_End => found_nursery_end = true,
@@ -89,7 +87,6 @@ test ":service profile: Producer-Consumer with channels in nursery" {
                 .Channel_Recv => found_channel_recv = true,
                 else => {},
             }
-            std.debug.print("\n", .{});
         }
     }
 
@@ -110,7 +107,6 @@ test ":service profile: Producer-Consumer with channels in nursery" {
     const llvm_ir = try emitter.toString();
     defer allocator.free(llvm_ir);
 
-    std.debug.print("\n=== PRODUCER-CONSUMER LLVM IR ===\n{s}\n", .{llvm_ir});
 
     // Verify all runtime functions are called
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "janus_nursery_create") != null);
@@ -125,7 +121,6 @@ test ":service profile: Producer-Consumer with channels in nursery" {
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "@producer") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "@consumer") != null);
 
-    std.debug.print("\n=== PRODUCER-CONSUMER PIPELINE COMPLETE ===\n", .{});
 }
 
 test ":service profile: Select with spawned tasks" {
@@ -176,10 +171,8 @@ test ":service profile: Select with spawned tasks" {
     var found_select_add_default = false;
     var found_select_wait = false;
 
-    std.debug.print("\n=== SELECT QTJIR ===\n", .{});
     for (ir_graphs.items) |ir_graph| {
         for (ir_graph.nodes.items, 0..) |node, i| {
-            std.debug.print("  [{d}] {s}\n", .{ i, @tagName(node.op) });
             switch (node.op) {
                 .Select_Begin => found_select_begin = true,
                 .Select_Add_Recv => found_select_add_recv = true,
@@ -206,7 +199,6 @@ test ":service profile: Select with spawned tasks" {
     const llvm_ir = try emitter.toString();
     defer allocator.free(llvm_ir);
 
-    std.debug.print("\n=== SELECT LLVM IR ===\n{s}\n", .{llvm_ir});
 
     // Verify all select runtime functions are called
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "janus_select_create") != null);
@@ -215,7 +207,6 @@ test ":service profile: Select with spawned tasks" {
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "janus_select_add_default") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "janus_select_wait") != null);
 
-    std.debug.print("\n=== SELECT STATEMENT PIPELINE COMPLETE ===\n", .{});
 }
 
 test ":service profile: Complete CSP system (nursery + spawn + channels + select)" {
@@ -281,10 +272,8 @@ test ":service profile: Complete CSP system (nursery + spawn + channels + select
     var channel_create_count: usize = 0;
     var select_count: usize = 0;
 
-    std.debug.print("\n=== COMPLETE CSP QTJIR ===\n", .{});
     for (ir_graphs.items) |ir_graph| {
         for (ir_graph.nodes.items, 0..) |node, i| {
-            std.debug.print("  [{d}] {s}", .{ i, @tagName(node.op) });
             switch (node.op) {
                 .Nursery_Begin => nursery_count += 1,
                 .Spawn => {
@@ -298,7 +287,6 @@ test ":service profile: Complete CSP system (nursery + spawn + channels + select
                 .Select_Begin => select_count += 1,
                 else => {},
             }
-            std.debug.print("\n", .{});
         }
     }
 
@@ -316,7 +304,6 @@ test ":service profile: Complete CSP system (nursery + spawn + channels + select
     const llvm_ir = try emitter.toString();
     defer allocator.free(llvm_ir);
 
-    std.debug.print("\n=== COMPLETE CSP LLVM IR ===\n{s}\n", .{llvm_ir});
 
     // Verify ALL CSP runtime functions are present
     const required_functions = [_][]const u8{
@@ -335,7 +322,6 @@ test ":service profile: Complete CSP system (nursery + spawn + channels + select
     for (required_functions) |func_name| {
         const found = std.mem.indexOf(u8, llvm_ir, func_name) != null;
         if (!found) {
-            std.debug.print("ERROR: Missing runtime function: {s}\n", .{func_name});
         }
         try testing.expect(found);
     }
@@ -343,10 +329,4 @@ test ":service profile: Complete CSP system (nursery + spawn + channels + select
     // Verify thunk generation for spawns with args
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "__spawn_thunk") != null);
 
-    std.debug.print("\n=== COMPLETE CSP SYSTEM VALIDATED ===\n", .{});
-    std.debug.print("✓ Nurseries: {d}\n", .{nursery_count});
-    std.debug.print("✓ Spawns: {d}\n", .{spawn_count});
-    std.debug.print("✓ Channels: {d}\n", .{channel_create_count});
-    std.debug.print("✓ Selects: {d}\n", .{select_count});
-    std.debug.print("\n=== :service PROFILE 100% COMPLETE ===\n", .{});
 }

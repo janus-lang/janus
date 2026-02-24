@@ -9,5 +9,4 @@ test "Minimal ASTDB Import Test" {
     const astdb = @import("compiler/libjanus/astdb.zig");
     _ = astdb;
 
-    std.debug.print("✅ ASTDB import successful\n", .{});
 }

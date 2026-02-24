@@ -567,7 +567,6 @@ test "analyzeSource reports ArrayList instantiations and skips types/comments" {
     const allocator = std.testing.allocator;
     const source =
         \\const std = @import("std");
-const compat_fs = @import("compat_fs");
         \\
         \\pub fn sample(allocator: std.mem.Allocator) void {
         \\    var list_a: std.ArrayList(u8) = .empty;
