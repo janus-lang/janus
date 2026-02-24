@@ -2163,6 +2163,25 @@ pub fn build(b: *std.Build) void {
     test_string_e2e_step.dependOn(&run_string_e2e_tests.step);
     test_step.dependOn(&run_string_e2e_tests.step);
 
+    // String API Intrinsics E2E Tests
+    const string_api_e2e_tests = b.addTest(.{
+        .name = "string_api_e2e_tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/string_api_e2e_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    linkLLVMLib(string_api_e2e_tests.root_module, "LLVM-21");
+    string_api_e2e_tests.root_module.addImport("astdb_core", astdb_core_mod);
+    string_api_e2e_tests.root_module.addImport("janus_parser", libjanus_parser_mod);
+    string_api_e2e_tests.root_module.addImport("qtjir", qtjir_mod);
+    const run_string_api_e2e_tests = b.addRunArtifact(string_api_e2e_tests);
+
+    const test_string_api_e2e_step = b.step("test-string-api-e2e", "Run String API intrinsics end-to-end test");
+    test_string_api_e2e_step.dependOn(&run_string_api_e2e_tests.step);
+    test_step.dependOn(&run_string_api_e2e_tests.step);
+
     // Type Annotation E2E Tests
     const type_annotation_e2e_tests = b.addTest(.{
         .name = "type_annotation_e2e_tests",

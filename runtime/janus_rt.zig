@@ -173,6 +173,86 @@ export fn janus_string_concat_cstr(s1: [*:0]const u8, s2: [*:0]const u8) callcon
 }
 
 // ============================================================================
+// String Query Intrinsics (C-string, null-terminated)
+// ============================================================================
+
+/// str_contains(s, sub) → 1 if s contains sub, 0 otherwise
+export fn janus_str_contains(a: [*:0]const u8, b: [*:0]const u8) callconv(.c) i32 {
+    const ha = std.mem.span(a);
+    const ne = std.mem.span(b);
+    return if (std.mem.indexOf(u8, ha, ne) != null) 1 else 0;
+}
+
+/// str_starts_with(s, prefix) → 1 if s starts with prefix, 0 otherwise
+export fn janus_str_starts_with(a: [*:0]const u8, b: [*:0]const u8) callconv(.c) i32 {
+    const ha = std.mem.span(a);
+    const pre = std.mem.span(b);
+    return if (std.mem.startsWith(u8, ha, pre)) 1 else 0;
+}
+
+/// str_ends_with(s, suffix) → 1 if s ends with suffix, 0 otherwise
+export fn janus_str_ends_with(a: [*:0]const u8, b: [*:0]const u8) callconv(.c) i32 {
+    const ha = std.mem.span(a);
+    const suf = std.mem.span(b);
+    return if (std.mem.endsWith(u8, ha, suf)) 1 else 0;
+}
+
+/// str_equals(a, b) → 1 if equal, 0 otherwise
+export fn janus_str_equals(a: [*:0]const u8, b: [*:0]const u8) callconv(.c) i32 {
+    return if (std.mem.eql(u8, std.mem.span(a), std.mem.span(b))) 1 else 0;
+}
+
+/// str_compare(a, b) → -1 if a < b, 0 if equal, 1 if a > b
+export fn janus_str_compare(a: [*:0]const u8, b: [*:0]const u8) callconv(.c) i32 {
+    const order = std.mem.order(u8, std.mem.span(a), std.mem.span(b));
+    return switch (order) {
+        .lt => -1,
+        .eq => 0,
+        .gt => 1,
+    };
+}
+
+/// str_index_of(s, needle) → byte index of first occurrence, or -1
+export fn janus_str_index_of(a: [*:0]const u8, b: [*:0]const u8) callconv(.c) i32 {
+    const ha = std.mem.span(a);
+    const ne = std.mem.span(b);
+    return if (std.mem.indexOf(u8, ha, ne)) |idx| @intCast(idx) else -1;
+}
+
+/// str_length(s) → byte length
+export fn janus_str_length(s: [*:0]const u8) callconv(.c) i32 {
+    return @intCast(std.mem.span(s).len);
+}
+
+/// str_is_empty(s) → 1 if length == 0, 0 otherwise
+export fn janus_str_is_empty(s: [*:0]const u8) callconv(.c) i32 {
+    return if (std.mem.span(s).len == 0) 1 else 0;
+}
+
+/// str_char_count(s) → number of UTF-8 codepoints, or -1 on invalid UTF-8
+export fn janus_str_char_count(s: [*:0]const u8) callconv(.c) i32 {
+    const slice = std.mem.span(s);
+    var count: i32 = 0;
+    var i: usize = 0;
+    while (i < slice.len) {
+        const byte_len = std.unicode.utf8ByteSequenceLength(slice[i]) catch return -1;
+        if (i + byte_len > slice.len) return -1;
+        if (byte_len > 1) {
+            _ = std.unicode.utf8Decode(slice[i..][0..byte_len]) catch return -1;
+        }
+        count += 1;
+        i += byte_len;
+    }
+    return count;
+}
+
+/// str_is_valid_utf8(s) → 1 if valid UTF-8, 0 otherwise
+export fn janus_str_is_valid_utf8(s: [*:0]const u8) callconv(.c) i32 {
+    const slice = std.mem.span(s);
+    return if (std.unicode.utf8ValidateSlice(slice)) 1 else 0;
+}
+
+// ============================================================================
 // I/O API - Using C stdio for compatibility
 // ============================================================================
 

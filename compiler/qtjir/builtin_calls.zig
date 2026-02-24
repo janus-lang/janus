@@ -51,6 +51,18 @@ pub const builtins = [_]BuiltinCall{
     .{ .janus_name = "string_data_intrinsic", .runtime_name = "string_data_intrinsic", .min_args = 1, .max_args = 1, .return_type = .ptr },
     .{ .janus_name = "string_len_intrinsic", .runtime_name = "string_len_intrinsic", .min_args = 1, .max_args = 1, .return_type = .i32 },
 
+    // === String Query Operations (C-string intrinsics) ===
+    .{ .janus_name = "str_contains", .runtime_name = "janus_str_contains", .min_args = 2, .max_args = 2, .return_type = .i32 },
+    .{ .janus_name = "str_starts_with", .runtime_name = "janus_str_starts_with", .min_args = 2, .max_args = 2, .return_type = .i32 },
+    .{ .janus_name = "str_ends_with", .runtime_name = "janus_str_ends_with", .min_args = 2, .max_args = 2, .return_type = .i32 },
+    .{ .janus_name = "str_equals", .runtime_name = "janus_str_equals", .min_args = 2, .max_args = 2, .return_type = .i32 },
+    .{ .janus_name = "str_compare", .runtime_name = "janus_str_compare", .min_args = 2, .max_args = 2, .return_type = .i32 },
+    .{ .janus_name = "str_index_of", .runtime_name = "janus_str_index_of", .min_args = 2, .max_args = 2, .return_type = .i32 },
+    .{ .janus_name = "str_length", .runtime_name = "janus_str_length", .min_args = 1, .max_args = 1, .return_type = .i32 },
+    .{ .janus_name = "str_is_empty", .runtime_name = "janus_str_is_empty", .min_args = 1, .max_args = 1, .return_type = .i32 },
+    .{ .janus_name = "str_char_count", .runtime_name = "janus_str_char_count", .min_args = 1, .max_args = 1, .return_type = .i32 },
+    .{ .janus_name = "str_is_valid_utf8", .runtime_name = "janus_str_is_valid_utf8", .min_args = 1, .max_args = 1, .return_type = .i32 },
+
     // === StringHandle Operations (Dynamic Strings) ===
     .{ .janus_name = "string_create", .runtime_name = "janus_string_create", .min_args = 3, .max_args = 3, .return_type = .ptr },
     .{ .janus_name = "string_concat_handle", .runtime_name = "janus_string_concat", .min_args = 3, .max_args = 3, .return_type = .ptr },

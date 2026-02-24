@@ -1181,6 +1181,12 @@ pub const LLVMEmitter = struct {
             var args = [_]llvm.Value{ s1_arg, s2_arg };
             const result = llvm.c.LLVMBuildCall2(self.builder, func_type, func_fn, &args, 2, "concat_cstr");
             try self.values.put(node.id, result);
+        } else if (isStrStrIntrinsic(func_name)) {
+            // (i8*, i8*) → i32 string query intrinsics
+            try self.emitPtrPtrToI32Call(node, func_name);
+        } else if (isStrIntrinsic(func_name)) {
+            // (i8*) → i32 string query intrinsics
+            try self.emitPtrToI32Call(node, func_name);
         } else {
             // Check extern registry for native Zig function signatures
             if (self.extern_registry) |registry| {
@@ -1291,6 +1297,57 @@ pub const LLVMEmitter = struct {
         if (!is_void) {
             try self.values.put(node.id, result);
         }
+    }
+
+    /// Emit a (i8*, i8*) → i32 call for two-arg string intrinsics
+    fn emitPtrPtrToI32Call(self: *LLVMEmitter, node: *const IRNode, func_name: []const u8) !void {
+        if (node.inputs.items.len < 2) return error.MissingArgument;
+        const a_arg = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+        const b_arg = self.values.get(node.inputs.items[1]) orelse return error.MissingOperand;
+
+        const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+        const ptr_type = llvm.c.LLVMPointerType(i8_type, 0);
+        const i32_type = llvm.int32TypeInContext(self.context);
+
+        var param_types = [_]llvm.Type{ ptr_type, ptr_type };
+        const func_type = llvm.functionType(i32_type, &param_types, 2, false);
+
+        const name_z = try self.allocator.dupeZ(u8, func_name);
+        defer self.allocator.free(name_z);
+
+        var func_fn = llvm.c.LLVMGetNamedFunction(self.module, name_z.ptr);
+        if (func_fn == null) {
+            func_fn = llvm.addFunction(self.module, name_z.ptr, func_type);
+        }
+
+        var args = [_]llvm.Value{ a_arg, b_arg };
+        const result = llvm.c.LLVMBuildCall2(self.builder, func_type, func_fn, &args, 2, "str_result");
+        try self.values.put(node.id, result);
+    }
+
+    /// Emit a (i8*) → i32 call for one-arg string intrinsics
+    fn emitPtrToI32Call(self: *LLVMEmitter, node: *const IRNode, func_name: []const u8) !void {
+        if (node.inputs.items.len < 1) return error.MissingArgument;
+        const s_arg = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+        const ptr_type = llvm.c.LLVMPointerType(i8_type, 0);
+        const i32_type = llvm.int32TypeInContext(self.context);
+
+        var param_types = [_]llvm.Type{ptr_type};
+        const func_type = llvm.functionType(i32_type, &param_types, 1, false);
+
+        const name_z = try self.allocator.dupeZ(u8, func_name);
+        defer self.allocator.free(name_z);
+
+        var func_fn = llvm.c.LLVMGetNamedFunction(self.module, name_z.ptr);
+        if (func_fn == null) {
+            func_fn = llvm.addFunction(self.module, name_z.ptr, func_type);
+        }
+
+        var args = [_]llvm.Value{s_arg};
+        const result = llvm.c.LLVMBuildCall2(self.builder, func_type, func_fn, &args, 1, "str_result");
+        try self.values.put(node.id, result);
     }
 
     /// Convert LLVM type string to actual LLVM type
@@ -3224,3 +3281,33 @@ pub const LLVMEmitter = struct {
         try self.values.put(node.id, result);
     }
 };
+
+/// Check if func_name is a two-arg (i8*, i8*) → i32 string intrinsic
+fn isStrStrIntrinsic(name: []const u8) bool {
+    const names = [_][]const u8{
+        "janus_str_contains",
+        "janus_str_starts_with",
+        "janus_str_ends_with",
+        "janus_str_equals",
+        "janus_str_compare",
+        "janus_str_index_of",
+    };
+    for (&names) |n| {
+        if (std.mem.eql(u8, name, n)) return true;
+    }
+    return false;
+}
+
+/// Check if func_name is a one-arg (i8*) → i32 string intrinsic
+fn isStrIntrinsic(name: []const u8) bool {
+    const names = [_][]const u8{
+        "janus_str_length",
+        "janus_str_is_empty",
+        "janus_str_char_count",
+        "janus_str_is_valid_utf8",
+    };
+    for (&names) |n| {
+        if (std.mem.eql(u8, name, n)) return true;
+    }
+    return false;
+}
