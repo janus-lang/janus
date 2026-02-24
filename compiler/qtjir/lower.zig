@@ -64,6 +64,7 @@ pub const ImplEntry = struct {
     type_name: []const u8,
     trait_name: ?[]const u8, // null for standalone impl
     methods: std.ArrayListUnmanaged(ImplMethod),
+    vtable_key: ?[]const u8 = null, // "Type_Trait" — pre-computed for vtable lookup
 };
 
 pub const TraitImplMeta = struct {
@@ -84,6 +85,7 @@ pub const TraitImplMeta = struct {
                 self.allocator.free(m.qualified_name);
             }
             ie.methods.deinit(self.allocator);
+            if (ie.vtable_key) |k| self.allocator.free(k);
         }
         self.impls.deinit(self.allocator);
         self.skip_node_ids.deinit(self.allocator);
@@ -141,6 +143,16 @@ pub const LoweringContext = struct {
     // SPEC-025 Phase C Sprint 2: maps variable name → struct type name
     // Populated when let/var binds a struct literal, consumed by method dispatch
     type_map: std.StringHashMap([]const u8),
+
+    // SPEC-025 Phase C Sprint 4: maps variable name → dyn trait binding info
+    // Populated when let/var binds &dyn Trait, consumed by dynamic dispatch
+    dyn_bindings: std.StringHashMap(DynBinding),
+
+    const DynBinding = struct {
+        trait_name: []const u8, // borrowed from interner
+        vtable_key: []const u8, // borrowed from trait_meta ImplEntry
+        construct_id: u32, // Vtable_Construct node ID
+    };
 
     const PendingJump = struct {
         jump_id: u32,
@@ -200,6 +212,7 @@ pub const LoweringContext = struct {
             .closure_counter = 0,
             .mutable_capture_indices = std.StringHashMap(u32).init(allocator),
             .type_map = std.StringHashMap([]const u8).init(allocator),
+            .dyn_bindings = std.StringHashMap(DynBinding).init(allocator),
         };
     }
 
@@ -273,6 +286,7 @@ pub const LoweringContext = struct {
         self.pending_closures.deinit(self.allocator);
         self.mutable_capture_indices.deinit();
         self.type_map.deinit();
+        self.dyn_bindings.deinit();
     }
 
     /// Clone a string using the Graph's allocator for sovereign ownership.
@@ -407,10 +421,21 @@ pub fn collectTraitImplMetadata(
                     });
                 }
             }
+            // Pre-compute vtable key: "Type_Trait" (single source of truth)
+            var vtable_key: ?[]const u8 = null;
+            if (trait_name) |tn| {
+                const key_len = type_name.len + 1 + tn.len;
+                const key_buf = try allocator.alloc(u8, key_len);
+                @memcpy(key_buf[0..type_name.len], type_name);
+                key_buf[type_name.len] = '_';
+                @memcpy(key_buf[type_name.len + 1 ..], tn);
+                vtable_key = key_buf;
+            }
             try meta.impls.append(allocator, .{
                 .type_name = type_name,
                 .trait_name = trait_name,
                 .methods = methods,
+                .vtable_key = vtable_key,
             });
         }
     }
@@ -488,7 +513,7 @@ pub fn lowerUnitWithExterns(allocator: std.mem.Allocator, snapshot: *const Snaps
         if (meta.skip_node_ids.get(node_id) != null) continue;
 
         if (node.kind == .func_decl or node.kind == .async_func_decl) {
-            if (try lowerFunctionToGraph(allocator, snapshot, unit_id, node_id, &node, &result.graphs)) |ir_graph| {
+            if (try lowerFunctionToGraph(allocator, snapshot, unit_id, node_id, &node, &result.graphs, &meta)) |ir_graph| {
                 try result.graphs.append(allocator, ir_graph);
             }
         } else if (node.kind == .test_decl) {
@@ -777,6 +802,7 @@ fn lowerFunctionToGraph(
     node_id: NodeId,
     node: *const AstNode,
     out_closures: *std.ArrayListUnmanaged(QTJIRGraph),
+    trait_meta: ?*const TraitImplMeta,
 ) !?QTJIRGraph {
     const children = snapshot.getChildren(node_id);
     if (children.len == 0) return null;
@@ -789,6 +815,7 @@ fn lowerFunctionToGraph(
 
     var ir_graph = QTJIRGraph.initWithName(allocator, name);
     var ctx = LoweringContext.init(allocator, snapshot, unit_id, &ir_graph);
+    if (trait_meta) |tm| ctx.trait_meta = tm;
     defer ctx.deinit();
 
     try ctx.pushScope(.Function);
@@ -2649,6 +2676,45 @@ fn lowerFieldCall(
             return try lowerChannelMethod(ctx, full_path, callee_id, children);
         }
 
+        // SPEC-025 Phase C Sprint 4: Dynamic dispatch — intercept &dyn Trait receivers
+        if (std.mem.lastIndexOfScalar(u8, full_path, '.')) |dot_idx| {
+            const receiver_name = full_path[0..dot_idx];
+            const method_name = full_path[dot_idx + 1 ..];
+
+            if (ctx.dyn_bindings.get(receiver_name)) |dyn_binding| {
+                if (ctx.trait_meta) |tmeta| {
+                    // Look up trait def to compute slot index
+                    if (tmeta.traits.get(dyn_binding.trait_name)) |trait_def| {
+                        var slot_index: ?u32 = null;
+                        for (trait_def.methods.items, 0..) |m, i| {
+                            if (std.mem.eql(u8, m.name, method_name)) {
+                                slot_index = @intCast(i);
+                                break;
+                            }
+                        }
+                        if (slot_index) |si| {
+                            // Lower explicit args
+                            var args = std.ArrayListUnmanaged(u32){};
+                            defer args.deinit(ctx.allocator);
+                            for (children[1..]) |arg_id| {
+                                const arg = ctx.snapshot.getNode(arg_id) orelse continue;
+                                const arg_val = try lowerExpression(ctx, arg_id, arg);
+                                try args.append(ctx.allocator, arg_val);
+                            }
+
+                            // Emit Vtable_Lookup: data.integer = slot, inputs[0] = fat_ptr, inputs[1..] = args
+                            const lookup_id = try ctx.builder.createNode(.Vtable_Lookup);
+                            var lookup_node = &ctx.builder.graph.nodes.items[lookup_id];
+                            lookup_node.data = .{ .integer = @intCast(si) };
+                            try lookup_node.inputs.append(ctx.allocator, dyn_binding.construct_id);
+                            try lookup_node.inputs.appendSlice(ctx.builder.graph.allocator, args.items);
+                            return lookup_id;
+                        }
+                    }
+                }
+            }
+        }
+
         // SPEC-025 Phase C: Static dispatch — resolve receiver.method to qualified name
         // Sprint 2: type-aware disambiguation via type_map
         if (ctx.trait_meta) |tmeta| {
@@ -3130,16 +3196,24 @@ fn lowerVarDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lo
     const token = ctx.snapshot.getToken(name_node.first_token) orelse return error.InvalidToken;
     const name = if (token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
 
-    // Determine initializer index and check for optional type
+    // Determine initializer index and check for optional/dyn type
     // If 3 children: [Name, Type, Init]
     // If 2 children: [Name, Init]
     var is_optional_type = false;
+    var is_dyn_trait = false;
+    var dyn_trait_name: []const u8 = "";
     const init_id = if (children.len == 3) blk: {
-        // Check if type annotation is optional
         const type_id = children[1];
         const type_node = ctx.snapshot.getNode(type_id);
         if (type_node != null and type_node.?.kind == .optional_type) {
             is_optional_type = true;
+        } else if (type_node != null and type_node.?.kind == .dyn_trait_ref) {
+            // SPEC-025 Phase C Sprint 4: &dyn Trait type annotation
+            is_dyn_trait = true;
+            const trait_tok = ctx.snapshot.getToken(type_node.?.last_token);
+            if (trait_tok != null and trait_tok.?.str != null) {
+                dyn_trait_name = ctx.snapshot.astdb.str_interner.getString(trait_tok.?.str.?);
+            }
         }
         break :blk children[2];
     } else children[1];
@@ -3175,6 +3249,37 @@ fn lowerVarDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lo
                 if (type_tok != null and type_tok.?.str != null) {
                     const type_name = ctx.snapshot.astdb.str_interner.getString(type_tok.?.str.?);
                     try ctx.type_map.put(name, type_name);
+                }
+            }
+        }
+    }
+
+    // SPEC-025 Phase C Sprint 4: &dyn Trait binding — emit Vtable_Construct
+    if (is_dyn_trait and dyn_trait_name.len > 0) {
+        if (ctx.trait_meta) |tmeta| {
+            const concrete_type = ctx.type_map.get(name);
+            if (concrete_type) |ct| {
+                for (tmeta.impls.items) |impl_entry| {
+                    if (!std.mem.eql(u8, impl_entry.type_name, ct)) continue;
+                    const tn = impl_entry.trait_name orelse continue;
+                    if (!std.mem.eql(u8, tn, dyn_trait_name)) continue;
+                    const vk = impl_entry.vtable_key orelse continue;
+
+                    // Emit Vtable_Construct: data.string = vtable_key, inputs[0] = init_val
+                    const construct_id = try ctx.builder.createNode(.Vtable_Construct);
+                    var construct_node = &ctx.builder.graph.nodes.items[construct_id];
+                    construct_node.data = .{ .string = try ctx.dupeForGraph(vk) };
+                    try construct_node.inputs.append(ctx.allocator, init_val);
+
+                    // Register dyn binding for dispatch resolution
+                    try ctx.dyn_bindings.put(name, .{
+                        .trait_name = dyn_trait_name,
+                        .vtable_key = vk,
+                        .construct_id = construct_id,
+                    });
+
+                    try ctx.scope.put(name, construct_id);
+                    return construct_id;
                 }
             }
         }

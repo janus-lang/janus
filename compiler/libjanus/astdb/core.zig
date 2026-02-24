@@ -77,6 +77,7 @@ pub const NodeKind = enum {
     function_type,
     named_type,
     error_union_type, // T ! E
+    dyn_trait_ref, // &dyn Trait — fat pointer trait object
 
     // Patterns
     identifier_pattern,

@@ -413,3 +413,68 @@ test "TRAIT-020: LoweringResult carries trait_meta for vtable construction" {
     try testing.expect(found_point_graph);
     try testing.expect(found_circle_graph);
 }
+
+test "TRAIT-030: &dyn Trait binding emits Vtable_Construct and dynamic dispatch" {
+    const allocator = testing.allocator;
+
+    var p = janus_parser.Parser.init(allocator);
+    defer p.deinit();
+
+    const source =
+        \\struct Point { x: i32 }
+        \\trait Drawable { func draw(self) -> i32 }
+        \\impl Drawable for Point {
+        \\    func draw(self) -> i32 do
+        \\        return 1
+        \\    end
+        \\}
+        \\func main() -> i32 do
+        \\    let p: &dyn Drawable = Point{ x: 10 }
+        \\    return p.draw()
+        \\end
+    ;
+
+    const snapshot = try p.parseWithSource(source);
+    defer snapshot.deinit();
+    const unit_id: astdb.UnitId = @enumFromInt(0);
+
+    var result = try lower.lowerUnitWithExterns(allocator, &snapshot.core_snapshot, unit_id, null);
+    defer result.deinit(allocator);
+
+    // Find the main graph
+    var main_graph: ?*const graph_mod.QTJIRGraph = null;
+    for (result.graphs.items) |*g| {
+        if (std.mem.eql(u8, g.function_name, "main")) {
+            main_graph = g;
+            break;
+        }
+    }
+    const mg = main_graph orelse return error.TestUnexpectedResult;
+
+    // Vtable_Construct must exist with key "Point_Drawable"
+    try testing.expect(hasNodeWithOp(mg, .Vtable_Construct, "Point_Drawable"));
+
+    // Vtable_Lookup must exist with slot index 0
+    var found_lookup = false;
+    for (mg.nodes.items) |node| {
+        if (node.op == .Vtable_Lookup) {
+            switch (node.data) {
+                .integer => |i| {
+                    if (i == 0) found_lookup = true;
+                },
+                else => {},
+            }
+        }
+    }
+    try testing.expect(found_lookup);
+
+    // Vtable_Lookup's first input must be the Vtable_Construct node
+    for (mg.nodes.items) |node| {
+        if (node.op == .Vtable_Lookup and node.inputs.items.len >= 1) {
+            const construct_ref = node.inputs.items[0];
+            const construct_node = mg.nodes.items[construct_ref];
+            try testing.expectEqual(graph_mod.OpCode.Vtable_Construct, construct_node.op);
+            break;
+        }
+    }
+}

@@ -3172,20 +3172,28 @@ pub const LLVMEmitter = struct {
         const ptr_type = llvm.c.LLVMPointerType(i8_type, 0);
         const fn_ptr = llvm.buildLoad2(self.builder, ptr_type, slot_ptr, "fn.ptr");
 
-        // Build function type for indirect call (MVP: all i32)
+        // Extract data pointer from fat pointer for self parameter
+        const data_ptr = llvm.buildExtractValue(self.builder, fat_ptr, 0, "self.ptr");
+
+        // Cast data pointer to i32 for MVP type uniformity
         const i32_type = llvm.int32TypeInContext(self.context);
-        const arg_count = node.inputs.items.len - 1; // exclude fat ptr
-        const param_types = try self.allocator.alloc(llvm.Type, arg_count);
+        const self_as_i32 = llvm.c.LLVMBuildPtrToInt(self.builder, data_ptr, i32_type, "self.i32");
+
+        // Build function type for indirect call (MVP: all i32, self prepended)
+        const explicit_arg_count = node.inputs.items.len - 1; // exclude fat ptr
+        const total_arg_count = explicit_arg_count + 1; // self + explicit args
+        const param_types = try self.allocator.alloc(llvm.Type, total_arg_count);
         defer self.allocator.free(param_types);
         for (param_types) |*pt| pt.* = i32_type;
 
-        const func_type = llvm.functionType(i32_type, param_types.ptr, @intCast(arg_count), false);
+        const func_type = llvm.functionType(i32_type, param_types.ptr, @intCast(total_arg_count), false);
 
-        // Collect arguments
-        const args = try self.allocator.alloc(llvm.Value, arg_count);
+        // Collect arguments: self first, then explicit args
+        const args = try self.allocator.alloc(llvm.Value, total_arg_count);
         defer self.allocator.free(args);
+        args[0] = self_as_i32;
         for (node.inputs.items[1..], 0..) |input_id, i| {
-            args[i] = self.values.get(input_id) orelse return error.MissingOperand;
+            args[i + 1] = self.values.get(input_id) orelse return error.MissingOperand;
         }
 
         // Indirect call
@@ -3194,7 +3202,7 @@ pub const LLVMEmitter = struct {
             func_type,
             fn_ptr,
             args.ptr,
-            @intCast(arg_count),
+            @intCast(total_arg_count),
             "dyn.call",
         );
 

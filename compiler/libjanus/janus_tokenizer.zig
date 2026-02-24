@@ -152,6 +152,7 @@ pub const TokenType = enum {
     trait_kw,
     impl_kw,
     type_kw,
+    dyn_kw,
 
     // Special
     newline,
@@ -786,6 +787,7 @@ pub const Tokenizer = struct {
             .{ "trait", .trait_kw },
             .{ "impl", .impl_kw },
             .{ "type", .type_kw },
+            .{ "dyn", .dyn_kw },
             .{ "using", .using }, // Added for :full spec support logic in parser
 
             // :sovereign profile (High-Assurance)

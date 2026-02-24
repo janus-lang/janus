@@ -124,6 +124,7 @@ pub const Token = struct {
         union_,
         trait,
         impl,
+        dyn_,
         export_,
         import_,
         as_,
@@ -345,6 +346,7 @@ pub const AstNode = struct {
         error_union_type, // Error handling: T ! E (:core profile)
         function_type,
         named_type,
+        dyn_trait_ref, // &dyn Trait — fat pointer trait object
 
         // Patterns
         identifier_pattern,

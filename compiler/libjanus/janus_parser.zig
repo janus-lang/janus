@@ -556,6 +556,7 @@ fn convertTokenType(janus_type: tokenizer.TokenType) TokenKind {
         .trait_kw => .trait,
         .impl_kw => .impl,
         .type_kw => .type_,
+        .dyn_kw => .dyn_,
 
         // Special
         .newline => .newline,
@@ -1805,6 +1806,23 @@ fn parseTypePrimary(parser: *ParserState, nodes: *std.ArrayList(astdb_core.AstNo
             .child_lo = children_start,
             .child_hi = children_end,
         };
+    }
+
+    // &dyn Trait — fat pointer trait object reference (SPEC-025 Phase C Sprint 4)
+    if (parser.match(.bitwise_and)) {
+        _ = parser.advance(); // consume '&'
+        if (parser.match(.dyn_)) {
+            _ = parser.advance(); // consume 'dyn'
+            _ = try parser.consume(.identifier); // consume trait name
+            return astdb_core.AstNode{
+                .kind = .dyn_trait_ref,
+                .first_token = @enumFromInt(start_token),
+                .last_token = @enumFromInt(parser.current - 1),
+                .child_lo = 0,
+                .child_hi = 0,
+            };
+        }
+        return error.UnexpectedToken; // bare & in type position = error
     }
 
     // Optional Type: ?T

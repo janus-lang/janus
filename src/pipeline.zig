@@ -215,8 +215,9 @@ pub const Pipeline = struct {
                     continue;
                 }
 
-                // Build vtable key: "Type_Trait"
-                const key = std.fmt.allocPrint(allocator, "{s}_{s}", .{ impl_entry.type_name, trait_name }) catch continue;
+                // Use pre-computed vtable key from ImplEntry
+                const pre_key = impl_entry.vtable_key orelse continue;
+                const key = allocator.dupe(u8, pre_key) catch continue;
                 vtable_keys.append(allocator, key) catch {
                     allocator.free(key);
                     allocator.free(methods);

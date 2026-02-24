@@ -311,4 +311,10 @@ test "VTABLE-003: Full vtable dispatch — construct + lookup + indirect call" {
     try testing.expect(std.mem.indexOf(u8, ir_str, "load ptr") != null);
     // Indirect call returns i32 (name "dyn.call")
     try testing.expect(std.mem.indexOf(u8, ir_str, "call i32") != null);
+
+    // VTABLE-004: Verify self data pointer extraction from fat pointer
+    // extractvalue { ptr, ptr } for index 0 = data pointer
+    try testing.expect(std.mem.indexOf(u8, ir_str, "self.ptr") != null);
+    // ptrtoint conversion for MVP i32 self parameter
+    try testing.expect(std.mem.indexOf(u8, ir_str, "ptrtoint") != null);
 }
