@@ -87,7 +87,7 @@ test "Epic 1.6: If statement - condition true branch" {
     defer allocator.free(obj_file_path);
 
     const llc_result = try std.process.run(allocator, io, .{
-        .argv = &[_][]const u8{ "llc", "-opaque-pointers", "-filetype=obj", ir_file_path, "-o", obj_file_path },
+        .argv = &[_][]const u8{ "llc",  "-filetype=obj", ir_file_path, "-o", obj_file_path },
     });
     defer allocator.free(llc_result.stdout);
     defer allocator.free(llc_result.stderr);
@@ -181,7 +181,7 @@ test "Epic 1.6: If statement - condition false branch" {
     defer allocator.free(obj_file_path);
 
     const llc_result = try std.process.run(allocator, io, .{
-        .argv = &[_][]const u8{ "llc", "-opaque-pointers", "-filetype=obj", ir_file_path, "-o", obj_file_path },
+        .argv = &[_][]const u8{ "llc",  "-filetype=obj", ir_file_path, "-o", obj_file_path },
     });
     defer allocator.free(llc_result.stdout);
     defer allocator.free(llc_result.stderr);
@@ -271,7 +271,7 @@ test "Epic 1.6: If without else" {
     defer allocator.free(obj_file_path);
 
     const llc_result = try std.process.run(allocator, io, .{
-        .argv = &[_][]const u8{ "llc", "-opaque-pointers", "-filetype=obj", ir_file_path, "-o", obj_file_path },
+        .argv = &[_][]const u8{ "llc",  "-filetype=obj", ir_file_path, "-o", obj_file_path },
     });
     defer allocator.free(llc_result.stdout);
     defer allocator.free(llc_result.stderr);

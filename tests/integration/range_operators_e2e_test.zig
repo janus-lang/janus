@@ -64,7 +64,7 @@ test "Range operators: Inclusive range (0..3)" {
     defer allocator.free(obj_file);
 
     const llc_result = try std.process.run(allocator, io, .{
-        .argv = &[_][]const u8{ "llc", "-opaque-pointers", "-filetype=obj", ir_file, "-o", obj_file },
+        .argv = &[_][]const u8{ "llc",  "-filetype=obj", ir_file, "-o", obj_file },
     });
     defer allocator.free(llc_result.stdout);
     defer allocator.free(llc_result.stderr);
@@ -157,7 +157,7 @@ test "Range operators: Exclusive range (0..<4)" {
     defer allocator.free(obj_file);
 
     const llc_result = try std.process.run(allocator, io, .{
-        .argv = &[_][]const u8{ "llc", "-opaque-pointers", "-filetype=obj", ir_file, "-o", obj_file },
+        .argv = &[_][]const u8{ "llc",  "-filetype=obj", ir_file, "-o", obj_file },
     });
     defer allocator.free(llc_result.stdout);
     defer allocator.free(llc_result.stderr);
