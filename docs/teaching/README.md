@@ -289,8 +289,9 @@ See `CONTRIBUTING.md` for guidelines.
 
 ## License
 
-All teaching materials are licensed under **LSL-1.0** (Lax Society License).
-Use freely for education, commercial training, or personal learning.
+All teaching materials are licensed under **LCL-1.0** (Libertaria Commonwealth License).
+Use freely for education, training, or personal learning — modifications must be shared back.
+See `legal/LICENSE_COMMONWEALTH.md` for details.
 
 ---
 
