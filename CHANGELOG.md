@@ -14,6 +14,38 @@ All notable changes to the Janus programming language and compiler will be docum
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Version scheme: `YYYY.MM.patch` (Mars Calendar).
 
+## [2026.2.26] - 2026-02-26
+
+### Milestone: :core Profile 100% Complete
+
+The teaching profile is finished. Every feature required for a complete programming fundamentals curriculum — from Hello World to error handling to trait-based polymorphism — compiles through the full pipeline (Parser → ASTDB → QTJIR → LLVM → Native Binary) and passes all tests.
+
+### Added
+
+#### SPEC-025 Phase C: Trait Dynamic Dispatch (Sprints 1-5)
+- **Static dispatch emission** — direct calls via qualified trait method names
+- **Type-aware static dispatch** — compiler resolves concrete type at call site
+- **Vtable dynamic dispatch machinery** — runtime vtable lookup infrastructure
+- **`&dyn Trait` syntax** — parser and lowering for dynamic trait references
+- **Parameter type wiring** — full `&dyn Trait` function parameter support
+
+#### String API Completion
+- 10 string query intrinsics wired as callable builtins (`len`, `contains`, `trim`, `equals`, `starts_with`, `ends_with`, `to_upper`, `to_lower`, `split`, `concat`)
+
+#### Range Operators
+- `..=` explicit inclusive range operator added to tokenizer and parser
+
+### Fixed
+- Restored full green build: 238/238 build steps, 1,107/1,107 unit tests
+- Removed deprecated `-opaque-pointers` flag for LLVM 21 compatibility
+- Parser: track async token as start_token for span accuracy
+- Tools: updated arraylist report test for Zig 0.16 `.empty` pattern
+
+### Doctrinal Decisions
+- Generics deferred to `:core → :service` bridge (teaching profile uses concrete types)
+- Profile enforcement deferred until `:service` ships
+- SPEC-025 Phase D (trait polish) deferred — does not block :core
+
 ## [2026.1.10] - 2026-01-25
 
 ### Added

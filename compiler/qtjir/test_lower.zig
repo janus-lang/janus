@@ -79,8 +79,8 @@ test "Lower: Hello World" {
         }
     }
     
-    for (ir_graph.nodes.items, 0..) |node, i| {
-    }
+    // Validation: graph has nodes (structure verified above)
+    try testing.expect(ir_graph.nodes.items.len > 0);
     
     try testing.expect(found_call);
     try testing.expect(found_str);
