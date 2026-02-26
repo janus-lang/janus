@@ -285,7 +285,7 @@ pub const DispatchErrorReporter = struct {
         conflicting_implementations: []const ImplementationRef,
     ) !AmbiguousDispatchError {
         // Perform specificity analysis
-        var specificity_analysis = ArrayList(AmbiguousDispatchError.SpecificityComparison).init(self.allocator);
+        var specificity_analysis: ArrayList(AmbiguousDispatchError.SpecificityComparison) = .empty;
         defer specificity_analysis.deinit();
 
         for (conflicting_implementations, 0..) |impl1, i| {
@@ -296,7 +296,7 @@ pub const DispatchErrorReporter = struct {
         }
 
         // Generate suggested fixes
-        var suggested_fixes = ArrayList(AmbiguousDispatchError.SuggestedFix).init(self.allocator);
+        var suggested_fixes: ArrayList(AmbiguousDispatchError.SuggestedFix) = .empty;
         defer suggested_fixes.deinit();
 
         try self.generateAmbiguityFixes(&suggested_fixes, conflicting_implementations, argument_types);
@@ -320,7 +320,7 @@ pub const DispatchErrorReporter = struct {
         available_implementations: []const ImplementationRef,
     ) !NoMatchingImplementationError {
         // Analyze why each implementation was rejected
-        var rejection_analysis = ArrayList(RejectionInfo).init(self.allocator);
+        var rejection_analysis: ArrayList(RejectionInfo) = .empty;
         defer rejection_analysis.deinit();
 
         for (available_implementations) |impl| {
@@ -329,7 +329,7 @@ pub const DispatchErrorReporter = struct {
         }
 
         // Generate suggested fixes
-        var suggested_fixes = ArrayList(NoMatchingImplementationError.SuggestedFix).init(self.allocator);
+        var suggested_fixes: ArrayList(NoMatchingImplementationError.SuggestedFix) = .empty;
         defer suggested_fixes.deinit();
 
         try self.generateNoMatchFixes(&suggested_fixes, available_implementations, argument_types);
@@ -350,7 +350,7 @@ pub const DispatchErrorReporter = struct {
         impl1: ImplementationRef,
         impl2: ImplementationRef,
     ) !AmbiguousDispatchError.SpecificityComparison {
-        var parameter_analysis = ArrayList(AmbiguousDispatchError.SpecificityComparison.ParameterComparison).init(self.allocator);
+        var parameter_analysis: ArrayList(AmbiguousDispatchError.SpecificityComparison.ParameterComparison) = .empty;
         defer parameter_analysis.deinit();
 
         const min_params = @min(impl1.param_types.len, impl2.param_types.len);
@@ -749,7 +749,7 @@ test "DispatchErrorReporter error formatting" {
     defer reporter.freeAmbiguousDispatchError(&error_info);
 
     // Test that error can be formatted without crashing
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit();
 
     try std.fmt.format(buffer.writer(), "{}", .{error_info});

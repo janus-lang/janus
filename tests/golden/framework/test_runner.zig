@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 const ArrayList = std.array_list.Managed;
 const Allocator = std.mem.Allocator;
 const ImportedTestMetadata = @import("test_metadata.zig").TestMetadata;
@@ -224,7 +226,7 @@ pub const TestRunner = struct {
             self.allocator.free(test_cases);
         }
 
-        var results = ArrayList(TestResult).init(self.allocator);
+        var results: ArrayList(TestResult) = .empty;
         defer results.deinit();
 
         if (self.config.parallel_execution) {
@@ -239,7 +241,7 @@ pub const TestRunner = struct {
             results.items.len,
         });
 
-        return results.toOwnedSlice();
+        return try results.toOwnedSlice(alloc);
     }
 
     /// Run a single test by name
@@ -252,10 +254,10 @@ pub const TestRunner = struct {
 
     /// Discover all test cases in the test directory
     fn discoverTestCases(self: *Self) ![]TestCase {
-        var test_cases = ArrayList(TestCase).init(self.allocator);
+        var test_cases: ArrayList(TestCase) = .empty;
         defer test_cases.deinit();
 
-        var dir = std.fs.cwd().openDir(self.config.test_directory, .{ .iterate = true }) catch |err| {
+        var dir = compat_fs.openDir(self.config.test_directory, .{ .iterate = true }) catch |err| {
             std.log.err("Failed to open test directory '{s}': {}", .{ self.config.test_directory, err });
             return err;
         };
@@ -277,7 +279,7 @@ pub const TestRunner = struct {
         }
 
         std.log.info("Discovered {} golden test cases", .{test_cases.items.len});
-        return test_cases.toOwnedSlice();
+        return try test_cases.toOwnedSlice(alloc);
     }
 
     /// Load a single test case by name
@@ -285,7 +287,7 @@ pub const TestRunner = struct {
         const source_path = try std.fmt.allocPrint(self.allocator, "{s}/{s}.jan", .{ self.config.test_directory, test_name });
         errdefer self.allocator.free(source_path);
 
-        const source_content = std.fs.cwd().readFileAlloc(self.allocator, source_path, 1024 * 1024 // 1MB max file size
+        const source_content = compat_fs.readFileAlloc(self.allocator, source_path, 1024 * 1024 // 1MB max file size
         ) catch |err| {
             std.log.err("Failed to read test file '{s}': {}", .{ source_path, err });
             return err;
@@ -320,7 +322,7 @@ pub const TestRunner = struct {
         // In a full implementation, this would use a thread pool
         const max_workers = @min(self.config.max_parallel_workers, test_cases.len);
 
-        var completed_results = ArrayList(TestResult).init(self.allocator);
+        var completed_results: ArrayList(TestResult) = .empty;
         defer completed_results.deinit();
 
         // Simple parallel execution - in practice would use proper thread pool
@@ -337,7 +339,7 @@ pub const TestRunner = struct {
     fn executeTestCase(self: *Self, test_case: TestCase) !TestResult {
         const start_time = std.time.milliTimestamp();
 
-        var diagnostic_messages = ArrayList(DiagnosticMessage).init(self.allocator);
+        var diagnostic_messages: ArrayList(DiagnosticMessage) = .empty;
         defer diagnostic_messages.deinit();
 
         // Check if test should be skipped for current platform
@@ -350,7 +352,7 @@ pub const TestRunner = struct {
                 .phase = .loading,
                 .message = try std.fmt.allocPrint(self.allocator, "Test skipped for platform {s}", .{current_platform.toString()}),
                 .context = try self.allocator.dupe(u8, "Platform filtering"),
-                .timestamp = std.time.timestamp(),
+                .timestamp = compat_time.timestamp(),
             });
 
             return TestResult{
@@ -375,7 +377,7 @@ pub const TestRunner = struct {
                 .phase = .loading,
                 .message = try std.fmt.allocPrint(self.allocator, "Failed to initialize error registry: {}", .{err}),
                 .context = try self.allocator.dupe(u8, "Framework initialization"),
-                .timestamp = std.time.timestamp(),
+                .timestamp = compat_time.timestamp(),
             });
 
             const end_time = std.time.milliTimestamp();
@@ -398,7 +400,7 @@ pub const TestRunner = struct {
                 .phase = .loading,
                 .message = try std.fmt.allocPrint(self.allocator, "Failed to parse test metadata: {}", .{err}),
                 .context = try self.allocator.dupe(u8, "Metadata parsing"),
-                .timestamp = std.time.timestamp(),
+                .timestamp = compat_time.timestamp(),
             });
 
             const end_time = std.time.milliTimestamp();
@@ -422,7 +424,7 @@ pub const TestRunner = struct {
             .phase = .ir_generation,
             .message = try self.allocator.dupe(u8, "Starting IR generation"),
             .context = try std.fmt.allocPrint(self.allocator, "Platform: {s}, Optimization: {s}", .{ current_platform.toString(), optimization_level.toString() }),
-            .timestamp = std.time.timestamp(),
+            .timestamp = compat_time.timestamp(),
         });
 
         var ir_result = ir_integration.generateIR(test_case.source_path, current_platform.toString(), optimization_level.toString()) catch |err| {
@@ -455,7 +457,7 @@ pub const TestRunner = struct {
                 .phase = .ir_generation,
                 .message = try self.allocator.dupe(u8, formatted_report),
                 .context = try self.allocator.dupe(u8, "IR generation failed"),
-                .timestamp = std.time.timestamp(),
+                .timestamp = compat_time.timestamp(),
             });
 
             const end_time = std.time.milliTimestamp();
@@ -476,7 +478,7 @@ pub const TestRunner = struct {
                 .phase = .ir_generation,
                 .message = try self.allocator.dupe(u8, ir_result.error_message orelse "Unknown IR generation error"),
                 .context = try self.allocator.dupe(u8, "Compiler error"),
-                .timestamp = std.time.timestamp(),
+                .timestamp = compat_time.timestamp(),
             });
 
             const end_time = std.time.milliTimestamp();
@@ -496,7 +498,7 @@ pub const TestRunner = struct {
             .phase = .servicelden_comparison,
             .message = try self.allocator.dupe(u8, "Starting golden comparison"),
             .context = try std.fmt.allocPrint(self.allocator, "Generated {} bytes of IR", .{ir_result.generated_ir.len}),
-            .timestamp = std.time.timestamp(),
+            .timestamp = compat_time.timestamp(),
         });
 
         var comparison_result = ir_integration.compareWithGolden(ir_result, parsed_metadata) catch |err| {
@@ -505,7 +507,7 @@ pub const TestRunner = struct {
                 .phase = .servicelden_comparison,
                 .message = try std.fmt.allocPrint(self.allocator, "Golden comparison failed: {}", .{err}),
                 .context = try self.allocator.dupe(u8, "Comparison error"),
-                .timestamp = std.time.timestamp(),
+                .timestamp = compat_time.timestamp(),
             });
 
             const end_time = std.time.milliTimestamp();
@@ -533,7 +535,7 @@ pub const TestRunner = struct {
                 .phase = .performance_validation,
                 .message = try self.allocator.dupe(u8, "Starting performance validation"),
                 .context = try std.fmt.allocPrint(self.allocator, "Expected {} performance metrics", .{test_case.metadata.expected_performance.len}),
-                .timestamp = std.time.timestamp(),
+                .timestamp = compat_time.timestamp(),
             });
 
             // Create a mock dispatch function for benchmarking
@@ -561,7 +563,7 @@ pub const TestRunner = struct {
                     .phase = .performance_validation,
                     .message = try std.fmt.allocPrint(self.allocator, "Performance benchmark failed: {}", .{err}),
                     .context = try self.allocator.dupe(u8, "Benchmark execution error"),
-                    .timestamp = std.time.timestamp(),
+                    .timestamp = compat_time.timestamp(),
                 });
 
                 const end_time = std.time.milliTimestamp();
@@ -582,7 +584,7 @@ pub const TestRunner = struct {
                     .phase = .performance_validation,
                     .message = try std.fmt.allocPrint(self.allocator, "Failed to load performance baseline: {}", .{err}),
                     .context = try self.allocator.dupe(u8, "Baseline loading"),
-                    .timestamp = std.time.timestamp(),
+                    .timestamp = compat_time.timestamp(),
                 });
                 null;
             };
@@ -594,7 +596,7 @@ pub const TestRunner = struct {
                     .phase = .performance_validation,
                     .message = try std.fmt.allocPrint(self.allocator, "Performance comparison failed: {}", .{err}),
                     .context = try self.allocator.dupe(u8, "Baseline comparison error"),
-                    .timestamp = std.time.timestamp(),
+                    .timestamp = compat_time.timestamp(),
                 });
 
                 const end_time = std.time.milliTimestamp();
@@ -614,7 +616,7 @@ pub const TestRunner = struct {
                 .phase = .performance_validation,
                 .message = try std.fmt.allocPrint(self.allocator, "Performance validation {s}: dispatch overhead {} ns", .{ if (validation_result.passed) "passed" else "failed", validation_result.current_measurement.dispatch_overhead_ns }),
                 .context = try self.allocator.dupe(u8, validation_result.detailed_analysis),
-                .timestamp = std.time.timestamp(),
+                .timestamp = compat_time.timestamp(),
             });
 
             performance_result = validation_result;
@@ -648,7 +650,7 @@ pub const TestRunner = struct {
                 .phase = .servicelden_comparison,
                 .message = try std.fmt.allocPrint(self.allocator, "Found {} semantic differences and {} contract violations", .{ comparison_result.semantic_differences.len, comparison_result.contract_violations.len }),
                 .context = try self.allocator.dupe(u8, "Golden comparison results"),
-                .timestamp = std.time.timestamp(),
+                .timestamp = compat_time.timestamp(),
             });
         }
 
@@ -659,7 +661,7 @@ pub const TestRunner = struct {
             .phase = .result_aggregation,
             .message = try std.fmt.allocPrint(self.allocator, "Test completed with status: {}", .{final_status}),
             .context = try std.fmt.allocPrint(self.allocator, "Execution time: {}ms", .{end_time - start_time}),
-            .timestamp = std.time.timestamp(),
+            .timestamp = compat_time.timestamp(),
         });
 
         return TestResult{
@@ -720,14 +722,14 @@ pub const TestRunner = struct {
     /// Parse test metadata from embedded comments in Janus source
     pub fn parseTestMetadata(self: *Self, source_content: []const u8) !TestMetadata {
         var expected_strategy: ?[]const u8 = null;
-        var expected_performance = ArrayList(TestMetadata.PerformanceExpectation).init(self.allocator);
+        var expected_performance: ArrayList(TestMetadata.PerformanceExpectation) = .empty;
         defer expected_performance.deinit();
 
         var platforms: TestMetadata.PlatformFilter = .all;
-        var optimization_levels = ArrayList(TestConfig.OptimizationLevel).init(self.allocator);
+        var optimization_levels: ArrayList(TestConfig.OptimizationLevel) = .empty;
         defer optimization_levels.deinit();
 
-        var skip_platforms = ArrayList(TestConfig.Platform).init(self.allocator);
+        var skip_platforms: ArrayList(TestConfig.Platform) = .empty;
         defer skip_platforms.deinit();
 
         var timeout_override: ?u32 = null;

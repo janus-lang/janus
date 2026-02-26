@@ -18,6 +18,8 @@
 //
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 const serde = @import("serde_shim.zig");
 const crypto = @import("crypto_dilithium.zig");
 const libjanus = @import("libjanus");
@@ -325,7 +327,7 @@ pub const TarZstCreator = struct {
                     .mode = 0o644,
                     .uid = 0,
                     .gid = 0,
-                    .mtime = std.time.timestamp(),
+                    .mtime = compat_time.timestamp(),
                 });
             }
         }
@@ -340,7 +342,7 @@ pub const TarZstCreator = struct {
                 .mode = 0o444, // Read-only
                 .uid = 0,
                 .gid = 0,
-                .mtime = std.time.timestamp(),
+                .mtime = compat_time.timestamp(),
             });
         }
     }
@@ -354,7 +356,7 @@ pub const TarZstCreator = struct {
             const full_path = try std.fs.path.join(self.allocator, &.{ base_path, binary_path });
             defer self.allocator.free(full_path);
 
-            const content = try std.fs.cwd().readFileAlloc(self.allocator, full_path, std.math.maxInt(usize));
+            const content = try compat_fs.readFileAlloc(self.allocator, full_path, std.math.maxInt(usize));
             defer self.allocator.free(content);
 
             try files.append(self.allocator, FileInfo{
@@ -363,7 +365,7 @@ pub const TarZstCreator = struct {
                 .mode = 0o755, // Executable
                 .uid = 0,
                 .gid = 0,
-                .mtime = std.time.timestamp(),
+                .mtime = compat_time.timestamp(),
             });
         }
 
@@ -478,7 +480,7 @@ pub const PackagePacker = struct {
     }
 
     fn scanDirectory(self: *PackagePacker, package: *PackageLayout, dir_path: []const u8, relative_path: []const u8) !void {
-        var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
+        var dir = try compat_fs.openDir(dir_path, .{ .iterate = true });
         defer dir.close();
 
         var iter = dir.iterate();
@@ -587,7 +589,7 @@ pub const PackagePacker = struct {
     }
 
     fn hashFile(self: *PackagePacker, file_path: []const u8, hasher: *std.crypto.hash.Blake3) !void {
-        const content = try std.fs.cwd().readFileAlloc(self.allocator, file_path, std.math.maxInt(usize));
+        const content = try compat_fs.readFileAlloc(self.allocator, file_path, std.math.maxInt(usize));
         defer self.allocator.free(content);
         hasher.update(content);
     }
@@ -618,11 +620,11 @@ pub const PackagePacker = struct {
 
     fn writeJpkFormat(self: *PackagePacker, package: *PackageLayout, output_path: []const u8) !void {
         // Create .jpk directory structure
-        try std.fs.cwd().makePath(output_path);
+        try compat_fs.makeDir(output_path);
 
         const package_dir = try std.fs.path.join(self.allocator, &.{ output_path, "package" });
         defer self.allocator.free(package_dir);
-        try std.fs.cwd().makePath(package_dir);
+        try compat_fs.makeDir(package_dir);
 
         // Write manifest.kdl
         if (package.manifest) |_| {
@@ -633,7 +635,7 @@ pub const PackagePacker = struct {
                 const p = package.programs.items[0];
                 const manifest_content = try self.generateManifestKdl(p.name, p.version);
                 defer self.allocator.free(manifest_content);
-                try std.fs.cwd().writeFile(.{ .sub_path = manifest_path, .data = manifest_content });
+                try compat_fs.writeFile(.{ .sub_path = manifest_path, .data = manifest_content });
             }
         }
 
@@ -645,7 +647,7 @@ pub const PackagePacker = struct {
             const hash_hex = try hexSlice(self.allocator, &hash);
             defer self.allocator.free(hash_hex);
 
-            try std.fs.cwd().writeFile(.{ .sub_path = hash_path, .data = hash_hex });
+            try compat_fs.writeFile(.{ .sub_path = hash_path, .data = hash_hex });
         }
 
         // Write SBOM
@@ -653,7 +655,7 @@ pub const PackagePacker = struct {
             const sbom_path = try std.fs.path.join(self.allocator, &.{ package_dir, "sbom.json" });
             defer self.allocator.free(sbom_path);
 
-            try std.fs.cwd().writeFile(.{ .sub_path = sbom_path, .data = sbom });
+            try compat_fs.writeFile(.{ .sub_path = sbom_path, .data = sbom });
         }
 
         // Optional signing (auto-seal)
@@ -673,7 +675,7 @@ pub const PackagePacker = struct {
         const archive_data = try tar_creator.createDeterministicArchive(package);
         defer self.allocator.free(archive_data);
 
-        try std.fs.cwd().writeFile(.{ .sub_path = output_path, .data = archive_data });
+        try compat_fs.writeFile(.{ .sub_path = output_path, .data = archive_data });
         std.debug.print("✅ Package written in deterministic tar.zst format\n", .{});
     }
 
@@ -683,7 +685,7 @@ pub const PackagePacker = struct {
     }
 
     fn signIntoPackage(self: *PackagePacker, package_dir: []const u8, hash: [32]u8, key_path: []const u8) !void {
-        const priv = try std.fs.cwd().readFileAlloc(self.allocator, key_path, 4096);
+        const priv = try compat_fs.readFileAlloc(self.allocator, key_path, 4096);
         defer self.allocator.free(priv);
 
         const sig = try crypto.sign(std.mem.trim(u8, priv, " \n\r\t"), &hash, self.allocator);
@@ -701,7 +703,7 @@ pub const PackagePacker = struct {
 
         const sigs_dir = try std.fs.path.join(self.allocator, &.{ package_dir, "signatures" });
         defer self.allocator.free(sigs_dir);
-        try std.fs.cwd().makePath(sigs_dir);
+        try compat_fs.makeDir(sigs_dir);
         const sig_name = try std.fmt.allocPrint(self.allocator, "{s}.sig", .{keyid});
         defer self.allocator.free(sig_name);
         const pub_name = try std.fmt.allocPrint(self.allocator, "{s}.pub", .{keyid});
@@ -710,8 +712,8 @@ pub const PackagePacker = struct {
         defer self.allocator.free(sig_out);
         const pk_out = try std.fs.path.join(self.allocator, &.{ sigs_dir, pub_name });
         defer self.allocator.free(pk_out);
-        try std.fs.cwd().writeFile(.{ .sub_path = sig_out, .data = sig });
-        try std.fs.cwd().writeFile(.{ .sub_path = pk_out, .data = pub_key });
+        try compat_fs.writeFile(.{ .sub_path = sig_out, .data = sig });
+        try compat_fs.writeFile(.{ .sub_path = pk_out, .data = pub_key });
         std.debug.print("🔏 Auto-sealed into package signatures (keyid={s})\n", .{keyid});
     }
 };

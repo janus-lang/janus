@@ -51,32 +51,32 @@ The feature is designed to have minimal performance overhead:
 ### Basic Usage
 ```janus
 // :core profile - only basic allocator contexts
-func main() {
+func main() do
     let alloc = Allocator.create(heap);
     let list = List.with(alloc, 10);
     // ...
-}
+end
 ```
 
 ### Region Usage
 ```janus
 // :script profile - region blocks enabled
-func main() {
-    region temp {
+func main() do
+    region temp do
         let buffer = Buffer.with(temp_allocator, 100);
         // ...
-    } // buffer is automatically cleaned up
-}
+    end // buffer is automatically cleaned up
+end
 ```
 
 ### Using Blocks
 ```janus
 // :sovereign profile - using blocks enabled
-func main() {
-    using file = open_file("test.txt") {
+func main() do
+    using file = open_file("test.txt") do
         // use file
-    } // file is automatically closed
-}
+    end // file is automatically closed
+end
 ```
 
 ## Migration

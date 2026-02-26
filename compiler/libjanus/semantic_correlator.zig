@@ -24,6 +24,7 @@
 //!   - This expects the OLD UserProfile shape
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 const nextgen = @import("nextgen_diagnostic.zig");
@@ -131,7 +132,7 @@ pub const CIDHistory = struct {
             if (!std.mem.eql(u8, &existing.cid, &snapshot.cid)) {
                 // CID changed - archive the old one
                 const history_ptr = self.snapshots.getPtr(name) orelse blk: {
-                    try self.snapshots.put(name, ArrayList(CIDSnapshot).init(self.allocator));
+                    try self.snapshots.put(name, ArrayList(CIDSnapshot).empty);
                     break :blk self.snapshots.getPtr(name).?;
                 };
                 try history_ptr.append(try existing.clone(self.allocator));
@@ -162,7 +163,7 @@ pub const CIDHistory = struct {
 
     /// Get all entities that changed since a timestamp
     pub fn getChangesSince(self: *const CIDHistory, since_timestamp: i64) ![]const CIDSnapshot {
-        var changes = ArrayList(CIDSnapshot).init(self.allocator);
+        var changes: ArrayList(CIDSnapshot) = .empty;
 
         var iter = self.current.iterator();
         while (iter.next()) |entry| {
@@ -171,7 +172,7 @@ pub const CIDHistory = struct {
             }
         }
 
-        return changes.toOwnedSlice();
+        return try changes.toOwnedSlice(alloc);
     }
 };
 
@@ -201,7 +202,7 @@ pub const SemanticCorrelator = struct {
             .allocator = allocator,
             .config = config,
             .history = CIDHistory.init(allocator),
-            .active_diagnostics = ArrayList(ActiveDiagnostic).init(allocator),
+            .active_diagnostics = .empty,
             .cascades = std.AutoHashMap(DiagnosticId, ArrayList(DiagnosticId)).init(allocator),
         };
     }
@@ -228,7 +229,7 @@ pub const SemanticCorrelator = struct {
         related_entities: []const []const u8,
     ) !SemanticContext {
         // Collect related CIDs
-        var related_cids = ArrayList(RelatedCID).init(self.allocator);
+        var related_cids: ArrayList(RelatedCID) = .empty;
         errdefer {
             for (related_cids.items) |*cid| {
                 cid.deinit(self.allocator);
@@ -252,10 +253,10 @@ pub const SemanticCorrelator = struct {
         }
 
         // Detect changes
-        const now = std.time.timestamp();
+        const now = compat_time.timestamp();
         const window_start = now - self.config.change_window_seconds;
 
-        var detected_changes = ArrayList(SemanticChange).init(self.allocator);
+        var detected_changes: ArrayList(SemanticChange) = .empty;
         errdefer {
             for (detected_changes.items) |*change| {
                 change.deinit(self.allocator);
@@ -317,7 +318,7 @@ pub const SemanticCorrelator = struct {
         diagnostic_id: DiagnosticId,
         error_site_cid: CID,
     ) ![]CorrelatedError {
-        var correlated = ArrayList(CorrelatedError).init(self.allocator);
+        var correlated: ArrayList(CorrelatedError) = .empty;
         errdefer correlated.deinit();
 
         // Look for diagnostics with similar error sites
@@ -348,7 +349,7 @@ pub const SemanticCorrelator = struct {
             }
         }
 
-        return correlated.toOwnedSlice();
+        return try correlated.toOwnedSlice(alloc);
     }
 
     /// Identify the root cause among a group of errors
@@ -409,7 +410,7 @@ pub const SemanticCorrelator = struct {
             .id = id,
             .error_site_cid = error_site_cid,
             .affected_entities = entities,
-            .timestamp = std.time.timestamp(),
+            .timestamp = compat_time.timestamp(),
         });
 
         // Check if this is caused by existing errors
@@ -497,7 +498,7 @@ pub const SemanticCorrelator = struct {
             if (has_overlap) {
                 // existing error might have caused new error
                 var caused = self.cascades.get(existing.id) orelse blk: {
-                    const list = ArrayList(DiagnosticId).init(self.allocator);
+                    const list = ArrayList(DiagnosticId).empty;
                     try self.cascades.put(existing.id, list);
                     break :blk self.cascades.get(existing.id).?;
                 };
@@ -523,7 +524,7 @@ fn entityKindToRelationship(kind: CIDSnapshot.EntityKind) RelatedCID.Relationshi
 
 /// Format semantic context for display
 pub fn formatSemanticContext(allocator: Allocator, context: SemanticContext) ![]const u8 {
-    var output = ArrayList(u8).init(allocator);
+    var output: ArrayList(u8) = .empty;
     const writer = output.writer();
 
     if (context.detected_changes.len > 0) {
@@ -549,7 +550,7 @@ pub fn formatSemanticContext(allocator: Allocator, context: SemanticContext) ![]
         }
     }
 
-    return output.toOwnedSlice();
+    return try output.toOwnedSlice(alloc);
 }
 
 /// Format a CID as a short hex string
@@ -643,7 +644,7 @@ test "SemanticCorrelator builds context" {
         .entity_name = "UserProfile",
         .entity_kind = .struct_type,
         .signature = "{ name: string }",
-        .timestamp = std.time.timestamp() - 100, // Recent change
+        .timestamp = compat_time.timestamp() - 100, // Recent change
         .file_path = "models.jan",
         .line = 10,
     });

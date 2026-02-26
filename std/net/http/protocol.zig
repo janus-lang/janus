@@ -370,7 +370,7 @@ pub const HttpParser = struct {
     /// Parse HTTP headers with zero-copy design
     fn parse_headers(headers_data: []const u8, request: *HttpRequest, allocator: std.mem.Allocator) HttpError!void {
         var header_lines = std.mem.split(u8, headers_data, "\r\n");
-        var headers_list = std.ArrayList(HttpHeader).init(allocator);
+        var headers_list: std.ArrayList(HttpHeader) = .empty;
         defer headers_list.deinit();
 
         while (header_lines.next()) |line| {

@@ -4,6 +4,7 @@
 // ASTDB → QTJIR Lowering
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const astdb = @import("astdb_core"); // Using the same name as in tests for now
 const graph = @import("graph.zig");
 const builtin_calls = @import("builtin_calls.zig");
@@ -38,7 +39,58 @@ const IRBuilder = graph.IRBuilder;
 const OpCode = graph.OpCode;
 const GateType = graph.GateType;
 
-pub const LowerError = error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable };
+pub const LowerError = error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable, InvalidUsingBegin, InvalidUsingEnd, MissingTraitImpl, DuplicateTraitImpl };
+
+// --- Trait/Impl Metadata (SPEC-025 Phase B) ---
+
+pub const TraitMethodSig = struct {
+    name: []const u8,
+    has_default: bool, // true if trait provides do...end body
+    func_node_id: ?NodeId = null, // AST node for default body (Phase C)
+};
+
+pub const TraitDef = struct {
+    name: []const u8,
+    methods: std.ArrayListUnmanaged(TraitMethodSig),
+};
+
+pub const ImplMethod = struct {
+    name: []const u8, // original method name
+    qualified_name: []const u8, // Type_Trait_method or Type_method (heap-allocated)
+    func_node_id: NodeId,
+};
+
+pub const ImplEntry = struct {
+    type_name: []const u8,
+    trait_name: ?[]const u8, // null for standalone impl
+    methods: std.ArrayListUnmanaged(ImplMethod),
+    vtable_key: ?[]const u8 = null, // "Type_Trait" — pre-computed for vtable lookup
+};
+
+pub const TraitImplMeta = struct {
+    traits: std.StringHashMap(TraitDef),
+    impls: std.ArrayListUnmanaged(ImplEntry),
+    skip_node_ids: std.AutoHashMapUnmanaged(NodeId, void),
+    allocator: std.mem.Allocator,
+
+    pub fn deinit(self: *TraitImplMeta) void {
+        var it = self.traits.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.methods.deinit(self.allocator);
+        }
+        self.traits.deinit();
+
+        for (self.impls.items) |*ie| {
+            for (ie.methods.items) |m| {
+                self.allocator.free(m.qualified_name);
+            }
+            ie.methods.deinit(self.allocator);
+            if (ie.vtable_key) |k| self.allocator.free(k);
+        }
+        self.impls.deinit(self.allocator);
+        self.skip_node_ids.deinit(self.allocator);
+    }
+};
 
 pub const LoweringContext = struct {
     allocator: std.mem.Allocator,
@@ -76,6 +128,31 @@ pub const LoweringContext = struct {
 
     // Track which QTJIR nodes produce error union values
     error_union_nodes: std.AutoHashMapUnmanaged(u32, void),
+
+    // Closures (SPEC-024 Phase A): pending closure graphs generated during lowering
+    pending_closures: std.ArrayListUnmanaged(QTJIRGraph),
+    closure_counter: u32,
+
+    // Phase C: mutable capture tracking — maps capture name → capture index
+    // Used inside closure bodies so reads/writes emit Closure_Env_Load/Store
+    mutable_capture_indices: std.StringHashMap(u32),
+
+    // SPEC-025 Phase C: trait/impl metadata for static dispatch resolution
+    trait_meta: ?*const TraitImplMeta = null,
+
+    // SPEC-025 Phase C Sprint 2: maps variable name → struct type name
+    // Populated when let/var binds a struct literal, consumed by method dispatch
+    type_map: std.StringHashMap([]const u8),
+
+    // SPEC-025 Phase C Sprint 4: maps variable name → dyn trait binding info
+    // Populated when let/var binds &dyn Trait, consumed by dynamic dispatch
+    dyn_bindings: std.StringHashMap(DynBinding),
+
+    const DynBinding = struct {
+        trait_name: []const u8, // borrowed from interner
+        vtable_key: []const u8, // borrowed from trait_meta ImplEntry
+        construct_id: u32, // Vtable_Construct node ID
+    };
 
     const PendingJump = struct {
         jump_id: u32,
@@ -131,6 +208,11 @@ pub const LoweringContext = struct {
             .slice_nodes = .{},
             .optional_nodes = .{},
             .error_union_nodes = .{},
+            .pending_closures = .{},
+            .closure_counter = 0,
+            .mutable_capture_indices = std.StringHashMap(u32).init(allocator),
+            .type_map = std.StringHashMap([]const u8).init(allocator),
+            .dyn_bindings = std.StringHashMap(DynBinding).init(allocator),
         };
     }
 
@@ -200,6 +282,11 @@ pub const LoweringContext = struct {
         self.slice_nodes.deinit(self.allocator);
         self.optional_nodes.deinit(self.allocator);
         self.error_union_nodes.deinit(self.allocator);
+        for (self.pending_closures.items) |*g| g.deinit();
+        self.pending_closures.deinit(self.allocator);
+        self.mutable_capture_indices.deinit();
+        self.type_map.deinit();
+        self.dyn_bindings.deinit();
     }
 
     /// Clone a string using the Graph's allocator for sovereign ownership.
@@ -210,16 +297,187 @@ pub const LoweringContext = struct {
     }
 };
 
+// --- Trait/Impl Helpers (SPEC-025 Phase B) ---
+
+/// Extract identifier text from an identifier node via string interner.
+fn extractIdentName(snapshot: *const Snapshot, node_id: NodeId) ?[]const u8 {
+    const node = snapshot.getNode(node_id) orelse return null;
+    if (node.kind != .identifier) return null;
+    const token = snapshot.getToken(node.first_token) orelse return null;
+    return if (token.str) |str_id| snapshot.astdb.str_interner.getString(str_id) else null;
+}
+
+/// Extract function name from a func_decl's first child edge (the name identifier).
+fn extractFuncDeclName(snapshot: *const Snapshot, node_id: NodeId) ?[]const u8 {
+    const children = snapshot.getChildren(node_id);
+    if (children.len == 0) return null;
+    return extractIdentName(snapshot, children[0]);
+}
+
+/// Detect whether a func_decl has a body (statements) or is a bodyless trait signature.
+fn funcDeclHasBody(snapshot: *const Snapshot, node_id: NodeId) bool {
+    const children = snapshot.getChildren(node_id);
+    for (children) |child_id| {
+        const child = snapshot.getNode(child_id) orelse continue;
+        switch (child.kind) {
+            .block_stmt, .return_stmt, .expr_stmt, .let_stmt, .var_stmt,
+            .const_stmt, .if_stmt, .while_stmt, .for_stmt, .defer_stmt,
+            .break_stmt, .continue_stmt, .fail_stmt, .match_stmt,
+            => return true,
+            else => {},
+        }
+    }
+    return false;
+}
+
+/// Pass 1: Collect trait definitions and impl entries from a compilation unit.
+/// Builds skip_node_ids set for func_decl children of trait/impl blocks so
+/// the main lowering loop does not re-lower them as top-level functions.
+pub fn collectTraitImplMetadata(
+    snapshot: *const Snapshot,
+    allocator: std.mem.Allocator,
+    unit_id: UnitId,
+) !TraitImplMeta {
+    var meta = TraitImplMeta{
+        .traits = std.StringHashMap(TraitDef).init(allocator),
+        .impls = .{},
+        .skip_node_ids = .{},
+        .allocator = allocator,
+    };
+    errdefer meta.deinit();
+
+    const unit = snapshot.astdb.getUnitConst(unit_id) orelse return error.InvalidUnitId;
+
+    for (unit.nodes, 0..) |node, i| {
+        const node_id: NodeId = @enumFromInt(@as(u32, @intCast(i)));
+
+        if (node.kind == .trait_decl) {
+            const children = snapshot.getChildren(node_id);
+            if (children.len < 2) continue;
+            const trait_name = extractIdentName(snapshot, children[0]) orelse continue;
+
+            var methods: std.ArrayListUnmanaged(TraitMethodSig) = .{};
+            for (children[1..]) |child_id| {
+                const child = snapshot.getNode(child_id) orelse continue;
+                if (child.kind == .func_decl) {
+                    try meta.skip_node_ids.put(allocator, child_id, {});
+                    const method_name = extractFuncDeclName(snapshot, child_id) orelse continue;
+                    const has_body = funcDeclHasBody(snapshot, child_id);
+                    try methods.append(allocator, .{
+                        .name = method_name,
+                        .has_default = has_body,
+                        .func_node_id = if (has_body) child_id else null,
+                    });
+                }
+            }
+            try meta.traits.put(trait_name, .{ .name = trait_name, .methods = methods });
+        } else if (node.kind == .impl_decl) {
+            const children = snapshot.getChildren(node_id);
+            if (children.len < 2) continue;
+
+            const edge1_node = snapshot.getNode(children[1]) orelse continue;
+            var type_name: []const u8 = undefined;
+            var trait_name: ?[]const u8 = null;
+            var method_start: usize = undefined;
+
+            if (edge1_node.kind == .identifier) {
+                // impl Trait for Type → edges: [trait_name, type_name, func_decl, ...]
+                trait_name = extractIdentName(snapshot, children[0]);
+                type_name = extractIdentName(snapshot, children[1]) orelse continue;
+                method_start = 2;
+            } else {
+                // impl Type → edges: [type_name, func_decl, ...]
+                type_name = extractIdentName(snapshot, children[0]) orelse continue;
+                method_start = 1;
+            }
+
+            // Duplicate detection: (Type, Trait) pair already registered?
+            if (trait_name) |tn| {
+                for (meta.impls.items) |existing| {
+                    if (existing.trait_name) |existing_tn| {
+                        if (std.mem.eql(u8, existing.type_name, type_name) and
+                            std.mem.eql(u8, existing_tn, tn))
+                        {
+                            return error.DuplicateTraitImpl;
+                        }
+                    }
+                }
+            }
+
+            var methods: std.ArrayListUnmanaged(ImplMethod) = .{};
+            for (children[method_start..]) |child_id| {
+                const child = snapshot.getNode(child_id) orelse continue;
+                if (child.kind == .func_decl) {
+                    try meta.skip_node_ids.put(allocator, child_id, {});
+                    const method_name = extractFuncDeclName(snapshot, child_id) orelse continue;
+                    const qualified_name = if (trait_name) |tn|
+                        try std.fmt.allocPrint(allocator, "{s}_{s}_{s}", .{ type_name, tn, method_name })
+                    else
+                        try std.fmt.allocPrint(allocator, "{s}_{s}", .{ type_name, method_name });
+                    try methods.append(allocator, .{
+                        .name = method_name,
+                        .qualified_name = qualified_name,
+                        .func_node_id = child_id,
+                    });
+                }
+            }
+            // Pre-compute vtable key: "Type_Trait" (single source of truth)
+            var vtable_key: ?[]const u8 = null;
+            if (trait_name) |tn| {
+                const key_len = type_name.len + 1 + tn.len;
+                const key_buf = try allocator.alloc(u8, key_len);
+                @memcpy(key_buf[0..type_name.len], type_name);
+                key_buf[type_name.len] = '_';
+                @memcpy(key_buf[type_name.len + 1 ..], tn);
+                vtable_key = key_buf;
+            }
+            try meta.impls.append(allocator, .{
+                .type_name = type_name,
+                .trait_name = trait_name,
+                .methods = methods,
+                .vtable_key = vtable_key,
+            });
+        }
+    }
+
+    return meta;
+}
+
+/// Validate that all trait impls provide every required (non-default) method.
+pub fn validateImplCompleteness(
+    traits: *const std.StringHashMap(TraitDef),
+    impls: []const ImplEntry,
+) !void {
+    for (impls) |impl_entry| {
+        const tn = impl_entry.trait_name orelse continue; // standalone → skip
+        const trait_def = traits.get(tn) orelse continue;
+        for (trait_def.methods.items) |required| {
+            if (required.has_default) continue; // has default body → not required
+            var found = false;
+            for (impl_entry.methods.items) |provided| {
+                if (std.mem.eql(u8, provided.name, required.name)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return error.MissingTraitImpl;
+        }
+    }
+}
+
 /// Result of lowering with external function registry
 /// For native Zig integration during bootstrap phase
 pub const LoweringResult = struct {
     graphs: std.ArrayListUnmanaged(QTJIRGraph),
     extern_registry: extern_registry.ExternRegistry,
+    // SPEC-025 Phase C Sprint 3: trait metadata for vtable construction
+    trait_meta: ?TraitImplMeta = null,
 
     pub fn deinit(self: *LoweringResult, allocator: std.mem.Allocator) void {
         for (self.graphs.items) |*g| g.deinit();
         self.graphs.deinit(allocator);
         self.extern_registry.deinit();
+        if (self.trait_meta) |*m| m.deinit();
     }
 };
 
@@ -241,12 +499,21 @@ pub fn lowerUnitWithExterns(allocator: std.mem.Allocator, snapshot: *const Snaps
         }
     }
 
-    // Second pass: Lower function declarations
+    // Trait/Impl pass: collect metadata + validate completeness (SPEC-025 Phase B)
+    // Meta ownership transfers to result for vtable construction (Phase C Sprint 3)
+    var meta = try collectTraitImplMetadata(snapshot, allocator, unit_id);
+    errdefer meta.deinit();
+    try validateImplCompleteness(&meta.traits, meta.impls.items);
+
+    // Second pass: Lower function declarations (skip trait/impl children)
     for (unit.nodes, 0..) |node, i| {
         const node_id: NodeId = @enumFromInt(@as(u32, @intCast(i)));
 
+        // Skip func_decls that belong to trait/impl blocks
+        if (meta.skip_node_ids.get(node_id) != null) continue;
+
         if (node.kind == .func_decl or node.kind == .async_func_decl) {
-            if (try lowerFunctionToGraph(allocator, snapshot, unit_id, node_id, &node)) |ir_graph| {
+            if (try lowerFunctionToGraph(allocator, snapshot, unit_id, node_id, &node, &result.graphs, &meta)) |ir_graph| {
                 try result.graphs.append(allocator, ir_graph);
             }
         } else if (node.kind == .test_decl) {
@@ -255,6 +522,17 @@ pub fn lowerUnitWithExterns(allocator: std.mem.Allocator, snapshot: *const Snaps
             }
         }
     }
+
+    // Lower impl methods as namespaced graphs (SPEC-025 Phase B)
+    for (meta.impls.items) |impl_entry| {
+        for (impl_entry.methods.items) |method| {
+            const impl_graph = try lowerImplMethodToGraph(allocator, snapshot, unit_id, method, &result.graphs);
+            try result.graphs.append(allocator, impl_graph);
+        }
+    }
+
+    // Transfer meta ownership to result (consumed by pipeline for vtable construction)
+    result.trait_meta = meta;
 
     return result;
 }
@@ -297,9 +575,18 @@ pub fn lowerUnit(allocator: std.mem.Allocator, snapshot: *const Snapshot, unit_i
     // Get unit
     const unit = snapshot.astdb.getUnitConst(unit_id) orelse return error.InvalidUnitId;
 
+    // Trait/Impl pass: collect metadata + validate completeness (SPEC-025 Phase B)
+    var meta = try collectTraitImplMetadata(snapshot, allocator, unit_id);
+    defer meta.deinit();
+    try validateImplCompleteness(&meta.traits, meta.impls.items);
+
     // Iterate over top-level nodes
     for (unit.nodes, 0..) |node, i| {
         const node_id: NodeId = @enumFromInt(@as(u32, @intCast(i)));
+
+        // Skip func_decls that belong to trait/impl blocks (SPEC-025 Phase B)
+        if (meta.skip_node_ids.get(node_id) != null) continue;
+
         // We only care about function declarations for now
         if (node.kind == .func_decl or node.kind == .async_func_decl) {
             // Create graph for this function
@@ -308,11 +595,23 @@ pub fn lowerUnit(allocator: std.mem.Allocator, snapshot: *const Snapshot, unit_i
             if (children.len > 0) {
                 const name_node = snapshot.getNode(children[0]);
                 if (name_node != null and name_node.?.kind == .identifier) {
+                    // Guard: skip anonymous function literals (SPEC-024).
+                    // Named functions have: func NAME(...)  → name token is at func_token + 1
+                    // Anonymous functions:  func() -> T ... → first child is return-type, not name
+                    const func_tok_idx = @intFromEnum(node.first_token);
+                    const name_tok_idx = @intFromEnum(name_node.?.first_token);
+                    // For async_func_decl the sequence is: async func NAME → +2
+                    const expected_name_pos: u32 = if (node.kind == .async_func_decl)
+                        func_tok_idx + 2
+                    else
+                        func_tok_idx + 1;
+                    if (name_tok_idx != expected_name_pos) continue;
                     const token = snapshot.getToken(name_node.?.first_token);
                     const name = if (token != null and token.?.str != null) snapshot.astdb.str_interner.getString(token.?.str.?) else "anon";
 
                     var ir_graph = QTJIRGraph.initWithName(allocator, name);
                     var ctx = LoweringContext.init(allocator, snapshot, unit_id, &ir_graph);
+                    ctx.trait_meta = &meta; // SPEC-025 Phase C: static dispatch resolution
                     defer ctx.deinit();
 
                     try ctx.pushScope(.Function); // Root scope
@@ -330,6 +629,12 @@ pub fn lowerUnit(allocator: std.mem.Allocator, snapshot: *const Snapshot, unit_i
 
                     try lowerFuncDecl(&ctx, node_id, &node);
                     try graphs.append(allocator, ir_graph);
+
+                    // Drain closure graphs generated during lowering (SPEC-024 Phase A)
+                    for (ctx.pending_closures.items) |closure_g| {
+                        try graphs.append(allocator, closure_g);
+                    }
+                    ctx.pending_closures.clearRetainingCapacity();
                 }
             }
         } else if (node.kind == .test_decl) {
@@ -343,10 +648,11 @@ pub fn lowerUnit(allocator: std.mem.Allocator, snapshot: *const Snapshot, unit_i
 
                     // Prefix with "test:" to distinguish from functions
                     const name = try std.fmt.allocPrint(allocator, "test:{s}", .{raw_name});
-                    // Note: name is owned by graph (technically leaked until JitRunner cleans it up)
 
                     var ir_graph = QTJIRGraph.initWithName(allocator, name);
+                    ir_graph.name_owned = true;
                     var ctx = LoweringContext.init(allocator, snapshot, unit_id, &ir_graph);
+                    ctx.trait_meta = &meta; // SPEC-025 Phase C: static dispatch resolution
                     defer ctx.deinit();
 
                     try ctx.pushScope(.Function);
@@ -363,8 +669,53 @@ pub fn lowerUnit(allocator: std.mem.Allocator, snapshot: *const Snapshot, unit_i
 
                     try lowerTestDecl(&ctx, node_id, &node);
                     try graphs.append(allocator, ir_graph);
+
+                    // Drain closure graphs generated during lowering (SPEC-024 Phase A)
+                    for (ctx.pending_closures.items) |closure_g| {
+                        try graphs.append(allocator, closure_g);
+                    }
+                    ctx.pending_closures.clearRetainingCapacity();
                 }
             }
+        }
+    }
+
+    // Lower impl methods as namespaced graphs (SPEC-025 Phase B)
+    for (meta.impls.items) |impl_entry| {
+        for (impl_entry.methods.items) |method| {
+            const impl_graph = try lowerImplMethodToGraph(allocator, snapshot, unit_id, method, &graphs);
+            try graphs.append(allocator, impl_graph);
+        }
+    }
+
+    // SPEC-025 Phase C: Lower unoverridden default trait methods as graphs
+    for (meta.impls.items) |impl_entry| {
+        const tn = impl_entry.trait_name orelse continue;
+        const trait_def = meta.traits.get(tn) orelse continue;
+        for (trait_def.methods.items) |trait_method| {
+            if (!trait_method.has_default) continue;
+            const default_node = trait_method.func_node_id orelse continue;
+            // Skip if impl overrides this method
+            var overridden = false;
+            for (impl_entry.methods.items) |im| {
+                if (std.mem.eql(u8, im.name, trait_method.name)) {
+                    overridden = true;
+                    break;
+                }
+            }
+            if (overridden) continue;
+            // Build qualified name: {Type}_{Trait}_{method}
+            const qname = try std.fmt.allocPrint(allocator, "{s}_{s}_{s}", .{
+                impl_entry.type_name, tn, trait_method.name,
+            });
+            defer allocator.free(qname);
+            // Reuse lowerImplMethodToGraph with a synthetic ImplMethod
+            const default_graph = try lowerImplMethodToGraph(allocator, snapshot, unit_id, .{
+                .name = trait_method.name,
+                .qualified_name = qname,
+                .func_node_id = default_node,
+            }, &graphs);
+            try graphs.append(allocator, default_graph);
         }
     }
 
@@ -415,14 +766,14 @@ fn processUseZig(
     defer allocator.free(relative_path);
 
     // Convert to absolute path for registry (so it works from any directory)
-    const full_path = std.fs.cwd().realpathAlloc(allocator, relative_path) catch |err| {
+    const full_path = compat_fs.realpathAlloc(allocator, relative_path) catch |err| {
         std.debug.print("Warning: Could not resolve Zig module path '{s}': {s}\n", .{ relative_path, @errorName(err) });
         return;
     };
     defer allocator.free(full_path);
 
     // Read the Zig file
-    const zig_source = std.fs.cwd().readFileAlloc(
+    const zig_source = compat_fs.readFileAlloc(
         allocator,
         full_path,
         10 * 1024 * 1024, // 10MB max
@@ -450,6 +801,8 @@ fn lowerFunctionToGraph(
     unit_id: UnitId,
     node_id: NodeId,
     node: *const AstNode,
+    out_closures: *std.ArrayListUnmanaged(QTJIRGraph),
+    trait_meta: ?*const TraitImplMeta,
 ) !?QTJIRGraph {
     const children = snapshot.getChildren(node_id);
     if (children.len == 0) return null;
@@ -462,6 +815,7 @@ fn lowerFunctionToGraph(
 
     var ir_graph = QTJIRGraph.initWithName(allocator, name);
     var ctx = LoweringContext.init(allocator, snapshot, unit_id, &ir_graph);
+    if (trait_meta) |tm| ctx.trait_meta = tm;
     defer ctx.deinit();
 
     try ctx.pushScope(.Function);
@@ -477,6 +831,54 @@ fn lowerFunctionToGraph(
     }
 
     try lowerFuncDecl(&ctx, node_id, node);
+
+    // Drain pending closures before ctx.deinit destroys them (SPEC-024 Phase A)
+    for (ctx.pending_closures.items) |closure_g| {
+        try out_closures.append(allocator, closure_g);
+    }
+    ctx.pending_closures.clearRetainingCapacity();
+
+    return ir_graph;
+}
+
+/// Lower an impl method to a QTJIR graph with a qualified name (SPEC-025 Phase B).
+/// Name follows: {Type}_{Trait}_{method} for trait impls, {Type}_{method} for standalone.
+fn lowerImplMethodToGraph(
+    allocator: std.mem.Allocator,
+    snapshot: *const Snapshot,
+    unit_id: UnitId,
+    method: ImplMethod,
+    out_graphs: *std.ArrayListUnmanaged(QTJIRGraph),
+) !QTJIRGraph {
+    // Sovereign Graph Doctrine: heap-dupe the qualified name for graph ownership
+    const name = try allocator.dupe(u8, method.qualified_name);
+    var ir_graph = QTJIRGraph.initWithName(allocator, name);
+    ir_graph.name_owned = true;
+
+    var ctx = LoweringContext.init(allocator, snapshot, unit_id, &ir_graph);
+    defer ctx.deinit();
+
+    try ctx.pushScope(.Function);
+    defer {
+        if (ctx.defer_stack.items.len > 0) {
+            var actions = ctx.defer_stack.pop().?.actions;
+            for (actions.items) |*a| {
+                a.args.deinit(ctx.allocator);
+                ctx.allocator.free(a.builtin_name);
+            }
+            actions.deinit(ctx.allocator);
+        }
+    }
+
+    const node = snapshot.getNode(method.func_node_id) orelse return error.InvalidNode;
+    try lowerFuncDecl(&ctx, method.func_node_id, node);
+
+    // Drain pending closures (SPEC-024 Phase A compatibility)
+    for (ctx.pending_closures.items) |closure_g| {
+        try out_graphs.append(allocator, closure_g);
+    }
+    ctx.pending_closures.clearRetainingCapacity();
+
     return ir_graph;
 }
 
@@ -500,6 +902,7 @@ fn lowerTestToGraph(
     const name = try std.fmt.allocPrint(allocator, "test:{s}", .{raw_name});
 
     var ir_graph = QTJIRGraph.initWithName(allocator, name);
+    ir_graph.name_owned = true;
     var ctx = LoweringContext.init(allocator, snapshot, unit_id, &ir_graph);
     defer ctx.deinit();
 
@@ -598,59 +1001,66 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
         }
 
         if (child.kind == .parameter) {
-            // std.debug.print("Found Parameter Node!\n", .{});
-            // child should have name and type
+            // SPEC-025 Sprint 5: Name from first_token, type from children[0]
+            const first_tok = ctx.snapshot.getToken(child.first_token);
+            const p_name = if (first_tok != null and first_tok.?.str != null)
+                ctx.snapshot.astdb.str_interner.getString(first_tok.?.str.?)
+            else
+                "arg";
+
+            // Type from children[0] if present (Sprint 5A wires type as child)
             const p_children = ctx.snapshot.getChildren(child_id);
-            // std.debug.print("Param Children Count: {d}\n", .{p_children.len});
-            if (p_children.len >= 2) {
-                const p_name_id = p_children[0];
-                const p_type_id = p_children[1];
-                _ = p_type_id; // Unused for now
+            var type_name: []const u8 = "i32";
+            var is_dyn_param = false;
+            var dyn_trait_name: []const u8 = "";
 
-                const p_name_node = ctx.snapshot.getNode(p_name_id);
-                const p_token = if (p_name_node) |pn| ctx.snapshot.getToken(pn.first_token) else null;
-                const p_name = if (p_token != null and p_token.?.str != null) ctx.snapshot.astdb.str_interner.getString(p_token.?.str.?) else "arg";
+            if (p_children.len >= 1) {
+                const p_type_node = ctx.snapshot.getNode(p_children[0]);
+                if (p_type_node) |tn| {
+                    if (tn.kind == .dyn_trait_ref) {
+                        // &dyn Trait parameter — fat pointer type
+                        type_name = "fat_ptr";
+                        is_dyn_param = true;
+                        const trait_tok = ctx.snapshot.getToken(tn.last_token);
+                        if (trait_tok != null and trait_tok.?.str != null) {
+                            dyn_trait_name = ctx.snapshot.astdb.str_interner.getString(trait_tok.?.str.?);
+                        }
+                    } else {
+                        // Primitive or named type — extract token text
+                        const type_tok = ctx.snapshot.getToken(tn.first_token);
+                        if (type_tok != null and type_tok.?.str != null) {
+                            type_name = ctx.snapshot.astdb.str_interner.getString(type_tok.?.str.?);
+                        }
+                    }
+                }
+            }
 
-                // std.debug.print("Registering param: '{s}'\n", .{p_name});
+            try params.append(ctx.allocator, .{
+                .name = try ctx.allocator.dupe(u8, p_name),
+                .type_name = type_name,
+            });
 
-                // Add to parameters list
-                try params.append(ctx.allocator, .{ .name = try ctx.allocator.dupe(u8, p_name), .type_name = "i32" }); // Default type for MVP
+            // Create Argument Node
+            const arg_node_id = try ctx.builder.createNode(.Argument);
+            ctx.builder.graph.nodes.items[arg_node_id].data = .{ .integer = param_idx };
+            param_idx += 1;
 
-                // Create Argument Node
-                const arg_node_id = try ctx.builder.createNode(.Argument);
-                ctx.builder.graph.nodes.items[arg_node_id].data = .{ .integer = param_idx };
-                param_idx += 1;
-
-                // Create Alloca + Store
-                const alloca_id = try ctx.builder.createNode(.Alloca);
-                ctx.builder.graph.nodes.items[alloca_id].data = .{ .string = try ctx.dupeForGraph(p_name) };
-
-                try ctx.scope.put(p_name, alloca_id);
-
-                const store_id = try ctx.builder.createNode(.Store);
-                try ctx.builder.graph.nodes.items[store_id].inputs.append(ctx.allocator, alloca_id);
-                try ctx.builder.graph.nodes.items[store_id].inputs.append(ctx.allocator, arg_node_id);
-
-                // std.debug.print("Scope Size after put: {d}\n", .{ctx.scope.count()});
+            if (is_dyn_param) {
+                // &dyn Trait param: Argument IS the fat pointer. Register directly.
+                try ctx.scope.put(p_name, arg_node_id);
+                if (dyn_trait_name.len > 0) {
+                    try ctx.dyn_bindings.put(p_name, .{
+                        .trait_name = dyn_trait_name,
+                        .vtable_key = "", // caller determines concrete vtable
+                        .construct_id = arg_node_id, // Argument node is the fat ptr
+                    });
+                }
             } else {
-                // Fallback: Scan tokens (Children count was 0)
-                const first_tok = ctx.snapshot.getToken(child.first_token);
-                const p_name = if (first_tok != null and first_tok.?.str != null) ctx.snapshot.astdb.str_interner.getString(first_tok.?.str.?) else "arg";
-
-                // std.debug.print("Registering param (token scan): '{s}'\n", .{p_name});
-
-                // Add to parameters list
-                try params.append(ctx.allocator, .{ .name = try ctx.allocator.dupe(u8, p_name), .type_name = "i32" });
-
-                // Create Argument Node
-                const arg_node_id = try ctx.builder.createNode(.Argument);
-                ctx.builder.graph.nodes.items[arg_node_id].data = .{ .integer = param_idx };
-                param_idx += 1;
-
-                // Create Alloca + Store
+                // Normal param: Alloca + Store
                 const alloca_id = try ctx.builder.createNode(.Alloca);
-                ctx.builder.graph.nodes.items[alloca_id].data = .{ .string = try ctx.dupeForGraph(p_name) };
-
+                ctx.builder.graph.nodes.items[alloca_id].data = .{
+                    .string = try ctx.dupeForGraph(p_name),
+                };
                 try ctx.scope.put(p_name, alloca_id);
 
                 const store_id = try ctx.builder.createNode(.Store);
@@ -723,7 +1133,7 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
             var last_stmt_child: ?NodeId = null;
             for (func_children) |child_id| {
                 const child = ctx.snapshot.getNode(child_id) orelse continue;
-                if (child.kind != .parameter and child.kind != .error_union_type) {
+                if (child.kind != .parameter and !isTypeAnnotation(child.kind)) {
                     last_stmt_child = child_id;
                 }
             }
@@ -742,7 +1152,7 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
             var last_expr_id: ?NodeId = null;
             for (func_children) |child_id| {
                 const child = ctx.snapshot.getNode(child_id) orelse continue;
-                if (child.kind == .parameter or child.kind == .error_union_type) continue;
+                if (child.kind == .parameter or isTypeAnnotation(child.kind)) continue;
 
                 // Check if this is the last statement
                 const is_last = blk: {
@@ -751,7 +1161,7 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
                     for (func_children) |check_id| {
                         if (check_after) {
                             const check_node = ctx.snapshot.getNode(check_id) orelse continue;
-                            if (check_node.kind != .parameter and check_node.kind != .error_union_type) {
+                            if (check_node.kind != .parameter and !isTypeAnnotation(check_node.kind)) {
                                 found_after = true;
                                 break;
                             }
@@ -796,7 +1206,7 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
                 // Find last non-parameter/non-type statement
                 for (func_children) |child_id| {
                     const child = ctx.snapshot.getNode(child_id) orelse continue;
-                    if (child.kind != .parameter and child.kind != .error_union_type) {
+                    if (child.kind != .parameter and !isTypeAnnotation(child.kind)) {
                         if (child.kind == .expr_stmt) {
                             last_expr_stmt_id = child_id;
                         } else {
@@ -810,7 +1220,7 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
             // Lower all but potentially last expression
             for (func_children) |child_id| {
                 const child = ctx.snapshot.getNode(child_id) orelse continue;
-                if (child.kind == .parameter or child.kind == .error_union_type) continue;
+                if (child.kind == .parameter or isTypeAnnotation(child.kind)) continue;
 
                 // If this is the last expr_stmt, handle it specially
                 if (last_expr_stmt_id) |last_id| {
@@ -835,6 +1245,273 @@ fn lowerFuncDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) !
         // Pop and Emit Defers
         var actions = try ctx.popScope();
         try ctx.emitDefersForScope(&actions);
+    }
+}
+
+/// Check if a node kind represents a type annotation (not a statement)
+fn isTypeAnnotation(kind: NodeKind) bool {
+    return switch (kind) {
+        .identifier, // Type names like "String", "File"
+        .primitive_type, // i32, bool, etc.
+        .named_type, // Named types
+        .pointer_type, // *T
+        .array_type, // [N]T
+        .slice_type, // []T
+        .slice_inclusive_expr, // [..] inclusive slice type
+        .slice_exclusive_expr, // [..<] exclusive slice type
+        .optional_type, // ?T
+        .error_union_type, // T!E
+        .dyn_trait_ref, // &dyn Trait (SPEC-025 Sprint 5)
+        => true,
+        else => false,
+    };
+}
+
+/// Collect captured variables from a closure body (SPEC-024 Phase B)
+/// Walks all AST nodes in the closure body and identifies identifiers that reference
+/// variables in the parent scope but are NOT in the closure's parameter list.
+fn collectCaptures(
+    ctx: *LoweringContext,
+    body_children: []const NodeId,
+    param_names: []const []const u8,
+) ![]graph.CapturedVar {
+    // Set to track unique captured variable names
+    var seen = std.StringHashMap(void).init(ctx.allocator);
+    defer seen.deinit();
+
+    var captures = std.ArrayListUnmanaged(graph.CapturedVar){};
+    errdefer captures.deinit(ctx.allocator);
+
+    // Walk all body children recursively
+    for (body_children) |child_id| {
+        const child = ctx.snapshot.getNode(child_id) orelse continue;
+        if (child.kind == .parameter or isTypeAnnotation(child.kind)) continue;
+        try walkForCaptures(ctx, child_id, param_names, &seen, &captures);
+    }
+
+    return try captures.toOwnedSlice(ctx.allocator);
+}
+
+/// Recursively walk AST nodes looking for identifier references to parent scope variables
+fn walkForCaptures(
+    ctx: *LoweringContext,
+    node_id: NodeId,
+    param_names: []const []const u8,
+    seen: *std.StringHashMap(void),
+    captures: *std.ArrayListUnmanaged(graph.CapturedVar),
+) !void {
+    const node = ctx.snapshot.getNode(node_id) orelse return;
+
+    if (node.kind == .identifier) {
+        const token = ctx.snapshot.getToken(node.first_token) orelse return;
+        const name = if (token.str) |str_id|
+            ctx.snapshot.astdb.str_interner.getString(str_id)
+        else
+            return;
+
+        // Skip if it's a closure parameter
+        for (param_names) |pname| {
+            if (std.mem.eql(u8, name, pname)) return;
+        }
+
+        // Skip if already seen
+        if (seen.contains(name)) return;
+
+        // Check if it exists in the parent scope — that makes it a capture
+        // Skip Fn_Ref and Closure_Create (function references, not value captures)
+        if (ctx.scope.get(name)) |parent_node_id| {
+            const parent_node = &ctx.builder.graph.nodes.items[parent_node_id];
+            if (parent_node.op != .Fn_Ref and parent_node.op != .Closure_Create) {
+                // Phase C: Alloca/Struct_Alloca → mutable (var), else immutable (let)
+                const is_mutable = (parent_node.op == .Alloca or parent_node.op == .Struct_Alloca);
+                const capture_index: u32 = @intCast(captures.items.len);
+                try captures.append(ctx.allocator, .{
+                    .name = try ctx.allocator.dupe(u8, name),
+                    .parent_alloca_id = parent_node_id,
+                    .index = capture_index,
+                    .is_mutable = is_mutable,
+                });
+                try seen.put(name, {});
+            }
+        }
+        return;
+    }
+
+    // Recurse into children
+    const children = ctx.snapshot.getChildren(node_id);
+    for (children) |child_id| {
+        try walkForCaptures(ctx, child_id, param_names, seen, captures);
+    }
+}
+
+/// Lower anonymous function literal (closure) (SPEC-024 Phase A+B)
+/// Phase A: Zero-capture closures produce Fn_Ref nodes
+/// Phase B: Closures with captures produce Closure_Create nodes with env
+fn lowerClosureLiteral(ctx: *LoweringContext, node_id: NodeId) LowerError!u32 {
+    const children = ctx.snapshot.getChildren(node_id);
+    if (children.len == 0) return error.InvalidNode;
+
+    // Generate unique anonymous function name
+    var name_buf: [64]u8 = undefined;
+    const anon_name = std.fmt.bufPrint(&name_buf, "__closure_{d}", .{ctx.closure_counter}) catch
+        return error.InvalidNode;
+    ctx.closure_counter += 1;
+
+    // --- First pass: collect parameter names for capture analysis ---
+    var param_name_list = std.ArrayListUnmanaged([]const u8){};
+    defer param_name_list.deinit(ctx.allocator);
+
+    for (children) |child_id| {
+        const child = ctx.snapshot.getNode(child_id) orelse continue;
+        if (child.kind == .parameter) {
+            const first_tok = ctx.snapshot.getToken(child.first_token);
+            const p_name = if (first_tok != null and first_tok.?.str != null)
+                ctx.snapshot.astdb.str_interner.getString(first_tok.?.str.?)
+            else
+                "arg";
+            try param_name_list.append(ctx.allocator, p_name);
+        }
+    }
+
+    // --- Capture analysis: detect references to parent scope variables ---
+    const captures = try collectCaptures(ctx, children, param_name_list.items);
+    defer {
+        for (captures) |cap| ctx.allocator.free(cap.name);
+        ctx.allocator.free(captures);
+    }
+
+    // --- Build closure graph ---
+    const anon_name_owned = ctx.allocator.dupe(u8, anon_name) catch
+        return error.OutOfMemory;
+
+    var closure_graph = QTJIRGraph.initWithName(ctx.allocator, anon_name_owned);
+    closure_graph.name_owned = true;
+    errdefer closure_graph.deinit();
+
+    var closure_ctx = LoweringContext.init(ctx.allocator, ctx.snapshot, ctx.unit_id, &closure_graph);
+    defer closure_ctx.deinit();
+
+    try closure_ctx.pushScope(.Function);
+
+    var params = std.ArrayListUnmanaged(graph.Parameter){};
+    errdefer params.deinit(ctx.allocator);
+
+    // Phase B: If captures exist, add hidden __env parameter as first argument
+    var param_idx: i32 = 0;
+    if (captures.len > 0) {
+        try params.append(ctx.allocator, .{
+            .name = try ctx.allocator.dupe(u8, "__env"),
+            .type_name = "ptr",
+        });
+        // __env is Argument 0
+        const env_arg_id = try closure_ctx.builder.createNode(.Argument);
+        closure_ctx.builder.graph.nodes.items[env_arg_id].data = .{ .integer = 0 };
+        param_idx = 1;
+
+        // Pre-seed closure scope with Closure_Env_Load for each captured variable
+        // Phase C: mutable captures use mutable_capture_indices (NOT scope)
+        // so each read/write emits a fresh Closure_Env_Load/Store node
+        for (captures) |cap| {
+            if (cap.is_mutable) {
+                try closure_ctx.mutable_capture_indices.put(cap.name, cap.index);
+            } else {
+                const env_load_id = try closure_ctx.builder.createClosureEnvLoad(cap.index);
+                try closure_ctx.scope.put(cap.name, env_load_id);
+            }
+        }
+    }
+
+    // Process explicit parameters
+    for (children) |child_id| {
+        const child = ctx.snapshot.getNode(child_id) orelse continue;
+
+        if (child.kind == .parameter) {
+            const first_tok = ctx.snapshot.getToken(child.first_token);
+            const p_name = if (first_tok != null and first_tok.?.str != null)
+                ctx.snapshot.astdb.str_interner.getString(first_tok.?.str.?)
+            else
+                "arg";
+
+            try params.append(ctx.allocator, .{
+                .name = try ctx.allocator.dupe(u8, p_name),
+                .type_name = "i32",
+            });
+
+            const arg_node_id = try closure_ctx.builder.createNode(.Argument);
+            closure_ctx.builder.graph.nodes.items[arg_node_id].data = .{ .integer = param_idx };
+            param_idx += 1;
+
+            const alloca_id = try closure_ctx.builder.createNode(.Alloca);
+            closure_ctx.builder.graph.nodes.items[alloca_id].data = .{ .string = try closure_ctx.dupeForGraph(p_name) };
+            try closure_ctx.scope.put(p_name, alloca_id);
+
+            const store_id = try closure_ctx.builder.createNode(.Store);
+            try closure_ctx.builder.graph.nodes.items[store_id].inputs.append(ctx.allocator, alloca_id);
+            try closure_ctx.builder.graph.nodes.items[store_id].inputs.append(ctx.allocator, arg_node_id);
+        }
+    }
+
+    // Assign parameters to closure graph
+    closure_graph.parameters = try params.toOwnedSlice(ctx.allocator);
+
+    // Store capture metadata on the closure graph (transfer ownership of name strings)
+    if (captures.len > 0) {
+        var graph_captures = std.ArrayListUnmanaged(graph.CapturedVar){};
+        errdefer graph_captures.deinit(ctx.allocator);
+        for (captures) |cap| {
+            try graph_captures.append(ctx.allocator, .{
+                .name = try ctx.allocator.dupe(u8, cap.name),
+                .parent_alloca_id = cap.parent_alloca_id,
+                .index = cap.index,
+                .is_mutable = cap.is_mutable,
+            });
+        }
+        closure_graph.captures = try graph_captures.toOwnedSlice(ctx.allocator);
+    }
+
+    // Lower the closure body — statements are direct children (no block_stmt wrapper)
+    try closure_ctx.pushScope(.Block);
+    for (children) |child_id| {
+        const child = ctx.snapshot.getNode(child_id) orelse continue;
+        if (child.kind == .parameter or isTypeAnnotation(child.kind)) continue;
+
+        try lowerStatement(&closure_ctx, child_id, child);
+    }
+    var actions = try closure_ctx.popScope();
+    try closure_ctx.emitDefersForScope(&actions);
+
+    // Pop the Function scope
+    var func_actions = try closure_ctx.popScope();
+    try closure_ctx.emitDefersForScope(&func_actions);
+
+    // Transfer closure graph to pending list (moves ownership of internal arrays)
+    try ctx.pending_closures.append(ctx.allocator, closure_graph);
+    // Reset local so errdefer won't double-free the moved data
+    closure_graph = QTJIRGraph.init(ctx.allocator);
+
+    // Phase B+C: Emit Closure_Create in parent if captures exist, else Fn_Ref (Phase A)
+    if (captures.len > 0) {
+        // Collect captured value/pointer nodes from parent scope
+        // Phase C: Mutable (var) captures pass the alloca pointer directly (by-reference)
+        //          Immutable (let) captures load the value (by-value, unchanged from Phase B)
+        var captured_value_ids = std.ArrayListUnmanaged(u32){};
+        defer captured_value_ids.deinit(ctx.allocator);
+        for (captures) |cap| {
+            if (cap.is_mutable) {
+                // Mutable: pass alloca directly — it IS a pointer in LLVM IR
+                try captured_value_ids.append(ctx.allocator, cap.parent_alloca_id);
+            } else {
+                const parent_node = &ctx.builder.graph.nodes.items[cap.parent_alloca_id];
+                const value_id = if (parent_node.op == .Alloca or parent_node.op == .Struct_Alloca)
+                    try ctx.builder.buildLoad(ctx.allocator, cap.parent_alloca_id, cap.name)
+                else
+                    cap.parent_alloca_id; // Direct value (let binding)
+                try captured_value_ids.append(ctx.allocator, value_id);
+            }
+        }
+        return try ctx.builder.createClosureCreate(anon_name, captured_value_ids.items);
+    } else {
+        return try ctx.builder.createFnRef(anon_name);
     }
 }
 
@@ -966,7 +1643,21 @@ fn lowerStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) 
             try lowerSelectStatement(ctx, node_id, node);
         },
 
-        else => {},
+        // :service profile - Resource Management (Phase 3)
+        .using_resource_stmt, .using_shared_stmt => {
+            std.log.debug("lowerStatement: using statement detected, kind={s}", .{@tagName(node.kind)});
+            try lowerUsingStatement(ctx, node_id, node);
+        },
+
+        // Module import - no lowering needed (handled at top level)
+        .using_decl => {
+            // Module import using statement - no code generation needed
+            // This is a compile-time only construct
+        },
+
+        else => {
+            std.log.debug("lowerStatement: UNHANDLED node kind {s}", .{@tagName(node.kind)});
+        },
     }
 }
 
@@ -1441,7 +2132,7 @@ fn lowerSliceForStatement(ctx: *LoweringContext, var_name: []const u8, slice_val
     try ctx.emitDefersForScope(&actions);
 }
 
-fn lowerArrayAccess(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable }!u32 {
+fn lowerArrayAccess(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!u32 {
     _ = node;
     const children = ctx.snapshot.getChildren(node_id);
     if (children.len < 2) return error.InvalidNode;
@@ -1509,7 +2200,7 @@ fn lowerSliceExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode, 
     return slice_node_id;
 }
 
-fn lowerExpression(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable }!u32 {
+fn lowerExpression(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!u32 {
     // Check cache
     if (ctx.node_map.get(node_id)) |id| return id;
 
@@ -1545,6 +2236,9 @@ fn lowerExpression(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
         .range_exclusive_expr => try lowerRangeExpr(ctx, node_id, node, false),
         .catch_expr => try lowerCatchExpr(ctx, node_id, node),
         .try_expr => try lowerTryExpr(ctx, node_id, node),
+
+        // :core profile - Closures (SPEC-024 Phase A)
+        .func_decl => try lowerClosureLiteral(ctx, node_id),
 
         // :service profile - Structured Concurrency
         .await_expr => try lowerAwaitExpr(ctx, node_id, node),
@@ -1704,7 +2398,7 @@ fn lowerBoolLiteral(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode
     return try ctx.builder.createConstant(.{ .boolean = val });
 }
 
-fn lowerCallExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable }!u32 {
+fn lowerCallExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!u32 {
     const scope = trace.trace("lowerCallExpr", "");
     defer scope.end();
 
@@ -1896,6 +2590,42 @@ fn lowerUserFunctionCall(
     const scope = trace.trace("lowerUserFunctionCall", name);
     defer scope.end();
 
+    // Resolve closure variables: check scope for Fn_Ref or Closure_Create (SPEC-024)
+    if (ctx.scope.get(name)) |ref_id| {
+        const ref_node = &ctx.builder.graph.nodes.items[ref_id];
+
+        // Phase B: Closure_Create → emit Closure_Call (indirect call with env)
+        if (ref_node.op == .Closure_Create) {
+            var args = std.ArrayListUnmanaged(u32){};
+            defer args.deinit(ctx.allocator);
+            for (children[1..]) |arg_id| {
+                const arg = ctx.snapshot.getNode(arg_id) orelse continue;
+                const arg_val = try lowerExpression(ctx, arg_id, arg);
+                try args.append(ctx.allocator, arg_val);
+            }
+            return try ctx.builder.createClosureCall(ref_id, args.items);
+        }
+
+        // Phase A: Fn_Ref → resolve to direct call with anonymous function name
+        if (ref_node.op == .Fn_Ref) {
+            const resolved_name = switch (ref_node.data) {
+                .string => |s| @as([]const u8, s),
+                else => name,
+            };
+            var args = std.ArrayListUnmanaged(u32){};
+            defer args.deinit(ctx.allocator);
+            for (children[1..]) |arg_id| {
+                const arg = ctx.snapshot.getNode(arg_id) orelse continue;
+                const arg_val = try lowerExpression(ctx, arg_id, arg);
+                try args.append(ctx.allocator, arg_val);
+            }
+            const call_node_id = try ctx.builder.createCall(args.items);
+            ctx.builder.graph.nodes.items[call_node_id].data = .{ .string = try ctx.dupeForGraph(resolved_name) };
+            return call_node_id;
+        }
+    }
+
+    // Default: direct function call by name
     var args = std.ArrayListUnmanaged(u32){};
     defer args.deinit(ctx.allocator);
 
@@ -1954,6 +2684,78 @@ fn lowerFieldCall(
             return try lowerChannelMethod(ctx, full_path, callee_id, children);
         }
 
+        // SPEC-025 Phase C Sprint 4: Dynamic dispatch — intercept &dyn Trait receivers
+        if (std.mem.lastIndexOfScalar(u8, full_path, '.')) |dot_idx| {
+            const receiver_name = full_path[0..dot_idx];
+            const method_name = full_path[dot_idx + 1 ..];
+
+            if (ctx.dyn_bindings.get(receiver_name)) |dyn_binding| {
+                if (ctx.trait_meta) |tmeta| {
+                    // Look up trait def to compute slot index
+                    if (tmeta.traits.get(dyn_binding.trait_name)) |trait_def| {
+                        var slot_index: ?u32 = null;
+                        for (trait_def.methods.items, 0..) |m, i| {
+                            if (std.mem.eql(u8, m.name, method_name)) {
+                                slot_index = @intCast(i);
+                                break;
+                            }
+                        }
+                        if (slot_index) |si| {
+                            // Lower explicit args
+                            var args = std.ArrayListUnmanaged(u32){};
+                            defer args.deinit(ctx.allocator);
+                            for (children[1..]) |arg_id| {
+                                const arg = ctx.snapshot.getNode(arg_id) orelse continue;
+                                const arg_val = try lowerExpression(ctx, arg_id, arg);
+                                try args.append(ctx.allocator, arg_val);
+                            }
+
+                            // Emit Vtable_Lookup: data.integer = slot, inputs[0] = fat_ptr, inputs[1..] = args
+                            const lookup_id = try ctx.builder.createNode(.Vtable_Lookup);
+                            var lookup_node = &ctx.builder.graph.nodes.items[lookup_id];
+                            lookup_node.data = .{ .integer = @intCast(si) };
+                            try lookup_node.inputs.append(ctx.allocator, dyn_binding.construct_id);
+                            try lookup_node.inputs.appendSlice(ctx.builder.graph.allocator, args.items);
+                            return lookup_id;
+                        }
+                    }
+                }
+            }
+        }
+
+        // SPEC-025 Phase C: Static dispatch — resolve receiver.method to qualified name
+        // Sprint 2: type-aware disambiguation via type_map
+        if (ctx.trait_meta) |tmeta| {
+            if (std.mem.lastIndexOfScalar(u8, full_path, '.')) |dot_idx| {
+                const receiver_name = full_path[0..dot_idx];
+                const method_name = full_path[dot_idx + 1 ..];
+                const receiver_type = ctx.type_map.get(receiver_name);
+
+                var qualified: ?[]const u8 = null;
+                var match_count: u32 = 0;
+                for (tmeta.impls.items) |impl_entry| {
+                    for (impl_entry.methods.items) |m| {
+                        if (std.mem.eql(u8, m.name, method_name)) {
+                            if (receiver_type) |rt| {
+                                // Type-aware: only match impl whose type matches receiver
+                                if (std.mem.eql(u8, impl_entry.type_name, rt)) {
+                                    qualified = m.qualified_name;
+                                    match_count += 1;
+                                }
+                            } else {
+                                // Fallback: Sprint 1 untyped heuristic
+                                qualified = m.qualified_name;
+                                match_count += 1;
+                            }
+                        }
+                    }
+                }
+                if (match_count == 1) {
+                    return try emitTraitMethodCall(ctx, qualified.?, children);
+                }
+            }
+        }
+
         // Generic field call - extract just the function name (last component)
         // For module-qualified calls like mathlib.add, use just "add" since
         // at LLVM level there are no namespaces - functions are global symbols
@@ -1966,6 +2768,30 @@ fn lowerFieldCall(
     }
 
     return error.UnsupportedCall;
+}
+
+// --- TRAIT DISPATCH HELPERS (SPEC-025 Phase C) ---
+
+/// Emit a Trait_Method_Call node with the qualified name and lowered args.
+fn emitTraitMethodCall(
+    ctx: *LoweringContext,
+    qualified_name: []const u8,
+    children: []const NodeId,
+) !u32 {
+    var args = std.ArrayListUnmanaged(u32){};
+    defer args.deinit(ctx.allocator);
+
+    for (children[1..]) |arg_id| {
+        const arg = ctx.snapshot.getNode(arg_id) orelse continue;
+        const arg_val = try lowerExpression(ctx, arg_id, arg);
+        try args.append(ctx.allocator, arg_val);
+    }
+
+    const node_id = try ctx.builder.createNode(.Trait_Method_Call);
+    var ir_node = &ctx.builder.graph.nodes.items[node_id];
+    ir_node.data = .{ .string = try ctx.dupeForGraph(qualified_name) };
+    try ir_node.inputs.appendSlice(ctx.builder.graph.allocator, args.items);
+    return node_id;
 }
 
 // --- CHANNEL HELPERS ---
@@ -2378,16 +3204,24 @@ fn lowerVarDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lo
     const token = ctx.snapshot.getToken(name_node.first_token) orelse return error.InvalidToken;
     const name = if (token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
 
-    // Determine initializer index and check for optional type
+    // Determine initializer index and check for optional/dyn type
     // If 3 children: [Name, Type, Init]
     // If 2 children: [Name, Init]
     var is_optional_type = false;
+    var is_dyn_trait = false;
+    var dyn_trait_name: []const u8 = "";
     const init_id = if (children.len == 3) blk: {
-        // Check if type annotation is optional
         const type_id = children[1];
         const type_node = ctx.snapshot.getNode(type_id);
         if (type_node != null and type_node.?.kind == .optional_type) {
             is_optional_type = true;
+        } else if (type_node != null and type_node.?.kind == .dyn_trait_ref) {
+            // SPEC-025 Phase C Sprint 4: &dyn Trait type annotation
+            is_dyn_trait = true;
+            const trait_tok = ctx.snapshot.getToken(type_node.?.last_token);
+            if (trait_tok != null and trait_tok.?.str != null) {
+                dyn_trait_name = ctx.snapshot.astdb.str_interner.getString(trait_tok.?.str.?);
+            }
         }
         break :blk children[2];
     } else children[1];
@@ -2410,6 +3244,52 @@ fn lowerVarDecl(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lo
             try some_node.inputs.append(ctx.allocator, init_val);
             try ctx.optional_nodes.put(ctx.allocator, some_id, {});
             init_val = some_id;
+        }
+    }
+
+    // SPEC-025 Sprint 2A: Track struct type for dispatch disambiguation
+    if (init_node.kind == .struct_literal) {
+        const struct_children = ctx.snapshot.getChildren(init_id);
+        if (struct_children.len >= 1) {
+            const type_child = ctx.snapshot.getNode(struct_children[0]);
+            if (type_child != null and type_child.?.kind == .identifier) {
+                const type_tok = ctx.snapshot.getToken(type_child.?.first_token);
+                if (type_tok != null and type_tok.?.str != null) {
+                    const type_name = ctx.snapshot.astdb.str_interner.getString(type_tok.?.str.?);
+                    try ctx.type_map.put(name, type_name);
+                }
+            }
+        }
+    }
+
+    // SPEC-025 Phase C Sprint 4: &dyn Trait binding — emit Vtable_Construct
+    if (is_dyn_trait and dyn_trait_name.len > 0) {
+        if (ctx.trait_meta) |tmeta| {
+            const concrete_type = ctx.type_map.get(name);
+            if (concrete_type) |ct| {
+                for (tmeta.impls.items) |impl_entry| {
+                    if (!std.mem.eql(u8, impl_entry.type_name, ct)) continue;
+                    const tn = impl_entry.trait_name orelse continue;
+                    if (!std.mem.eql(u8, tn, dyn_trait_name)) continue;
+                    const vk = impl_entry.vtable_key orelse continue;
+
+                    // Emit Vtable_Construct: data.string = vtable_key, inputs[0] = init_val
+                    const construct_id = try ctx.builder.createNode(.Vtable_Construct);
+                    var construct_node = &ctx.builder.graph.nodes.items[construct_id];
+                    construct_node.data = .{ .string = try ctx.dupeForGraph(vk) };
+                    try construct_node.inputs.append(ctx.allocator, init_val);
+
+                    // Register dyn binding for dispatch resolution
+                    try ctx.dyn_bindings.put(name, .{
+                        .trait_name = dyn_trait_name,
+                        .vtable_key = vk,
+                        .construct_id = construct_id,
+                    });
+
+                    try ctx.scope.put(name, construct_id);
+                    return construct_id;
+                }
+            }
         }
     }
 
@@ -2457,6 +3337,11 @@ fn lowerIdentifier(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
     const token = ctx.snapshot.getToken(node.first_token) orelse return error.InvalidToken;
     const name = if (token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
 
+    // Phase C: mutable captures — emit fresh Closure_Env_Load each time
+    if (ctx.mutable_capture_indices.get(name)) |capture_idx| {
+        return try ctx.builder.createClosureEnvLoad(capture_idx);
+    }
+
     if (ctx.scope.get(name)) |target_id| {
         const target_node = &ctx.builder.graph.nodes.items[target_id];
         if (target_node.op == .Alloca) {
@@ -2485,6 +3370,7 @@ fn lowerLValue(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Low
                     return error.InvalidCall; // Cannot assign to non-alloca
                 }
             } else {
+                std.log.err("lowerLValue: UndefinedVariable '{s}'", .{name});
                 return error.UndefinedVariable;
             }
         },
@@ -2551,7 +3437,7 @@ fn lowerRangeExpr(
     return range_node;
 }
 
-fn lowerBinaryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) error{ InvalidToken, InvalidCall, InvalidNode, UnsupportedCall, InvalidBinaryExpr, OutOfMemory, UndefinedVariable }!u32 {
+fn lowerBinaryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!u32 {
     _ = node;
     const children = ctx.snapshot.getChildren(node_id);
     if (children.len != 2) return error.InvalidBinaryExpr;
@@ -2585,6 +3471,17 @@ fn lowerBinaryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
 
     // Handle Assignment
     if (op_token_kind == .assign) { // .assign is mapped from .equal by parser
+        // Phase C: check if LHS is a mutable capture — emit Closure_Env_Store
+        if (lhs.kind == .identifier) {
+            const lhs_token = ctx.snapshot.getToken(lhs.first_token) orelse return error.InvalidToken;
+            const lhs_name = if (lhs_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+            if (ctx.mutable_capture_indices.get(lhs_name)) |capture_idx| {
+                const rhs_val = try lowerExpression(ctx, rhs_id, rhs);
+                _ = try ctx.builder.createClosureEnvStore(capture_idx, rhs_val);
+                return rhs_val;
+            }
+        }
+
         // LHS must be L-Value (Address)
         const lhs_addr = try lowerLValue(ctx, lhs_id, lhs);
         const rhs_val = try lowerExpression(ctx, rhs_id, rhs);
@@ -2613,6 +3510,25 @@ fn lowerBinaryExpr(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode)
     };
 
     if (compound_op) |op| {
+        // Phase C: check if LHS is a mutable capture — use Closure_Env_Load/Store
+        if (lhs.kind == .identifier) {
+            const lhs_token = ctx.snapshot.getToken(lhs.first_token) orelse return error.InvalidToken;
+            const lhs_name = if (lhs_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+            if (ctx.mutable_capture_indices.get(lhs_name)) |capture_idx| {
+                // Fresh load from env
+                const lhs_val = try ctx.builder.createClosureEnvLoad(capture_idx);
+                const rhs_val = try lowerExpression(ctx, rhs_id, rhs);
+                // Compute
+                const op_node = try ctx.builder.createNode(op);
+                var ir_node = &ctx.builder.graph.nodes.items[op_node];
+                try ir_node.inputs.append(ctx.allocator, lhs_val);
+                try ir_node.inputs.append(ctx.allocator, rhs_val);
+                // Store back through env
+                _ = try ctx.builder.createClosureEnvStore(capture_idx, op_node);
+                return op_node;
+            }
+        }
+
         // LHS must be L-Value (Address)
         const lhs_addr = try lowerLValue(ctx, lhs_id, lhs);
 
@@ -2808,9 +3724,49 @@ fn lowerArrayLiteral(ctx: *LoweringContext, node_id: NodeId, node: *const AstNod
 }
 
 /// Lower struct literal: Point { x: 10, y: 20 }
-/// Parser produces children as interleaved [name1, value1, name2, value2, ...]
+/// Also handles union variant construction: Option.Some { value: 42 }
+/// Parser produces children as interleaved [type, name1, value1, name2, value2, ...]
 fn lowerStructLiteral(ctx: *LoweringContext, node_id: NodeId) LowerError!u32 {
     const children = ctx.snapshot.getChildren(node_id);
+
+    // Check if first child is a field_expr (qualified union variant like Option.Some)
+    if (children.len >= 1) {
+        const type_id = children[0];
+        const type_node = ctx.snapshot.getNode(type_id) orelse return error.InvalidNode;
+
+        if (type_node.kind == .field_expr) {
+            // Qualified access: get type name and variant name
+            const fe_children = ctx.snapshot.getChildren(type_id);
+            if (fe_children.len >= 2) {
+                const left_node = ctx.snapshot.getNode(fe_children[0]) orelse return error.InvalidNode;
+                const right_node = ctx.snapshot.getNode(fe_children[1]) orelse return error.InvalidNode;
+
+                if (left_node.kind == .identifier and right_node.kind == .identifier) {
+                    const left_tok = ctx.snapshot.getToken(left_node.first_token) orelse return error.InvalidToken;
+                    const right_tok = ctx.snapshot.getToken(right_node.first_token) orelse return error.InvalidToken;
+                    const type_name = if (left_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+                    const variant_name = if (right_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+
+                    if (try findUnionVariantInfo(ctx, type_name, variant_name)) |info| {
+                        // Union variant — collect all payload field values
+                        var payload_ids = std.ArrayListUnmanaged(u32){};
+                        defer payload_ids.deinit(ctx.allocator);
+                        if (info.has_payload) {
+                            // children: [type, field_name1, field_value1, field_name2, field_value2, ...]
+                            var idx: usize = 1;
+                            while (idx + 1 < children.len) : (idx += 2) {
+                                const val_id = children[idx + 1];
+                                const val_node = ctx.snapshot.getNode(val_id) orelse return error.InvalidNode;
+                                const ir_val = try lowerExpression(ctx, val_id, val_node);
+                                try payload_ids.append(ctx.allocator, ir_val);
+                            }
+                        }
+                        return try ctx.builder.createUnionConstruct(info.tag_index, payload_ids.items);
+                    }
+                }
+            }
+        }
+    }
 
     // Collect field names and values (interleaved: name, value, name, value)
     var field_names = std.ArrayListUnmanaged([]const u8){};
@@ -2895,7 +3851,22 @@ fn lowerFieldExpr(ctx: *LoweringContext, node_id: NodeId) LowerError!u32 {
                 // This is an error variant access - return variant index as constant
                 return try ctx.builder.createConstant(.{ .integer = @intCast(variant_index) });
             }
-            // If not found as error variant, fall through to regular field access
+            // Check if this is an enum variant access (EnumType.Variant)
+            if (try findEnumVariantValue(ctx, error_type_name, field_node)) |tag_value| {
+                return try ctx.builder.createConstant(.{ .integer = tag_value });
+            }
+            // Check if this is a union unit variant access (UnionType.Variant)
+            const field_token_u = ctx.snapshot.getToken(field_node.first_token) orelse return error.InvalidToken;
+            const variant_name_u = if (field_token_u.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+            if (try findUnionVariantInfo(ctx, error_type_name, variant_name_u)) |info| {
+                if (!info.has_payload) {
+                    // Unit variant — emit Union_Construct with tag and empty payload
+                    return try ctx.builder.createUnionConstruct(info.tag_index, &[_]u32{});
+                }
+                // Variant with payload — requires struct literal syntax (Option.Some { value: 42 })
+                // Fall through to regular field access which will be handled by lowerStructLiteral
+            }
+            // If not found as error/enum/union variant, fall through to regular field access
             // which will fail with UndefinedVariable (correct behavior)
         }
     }
@@ -2960,6 +3931,159 @@ fn findErrorVariantIndex(ctx: *LoweringContext, error_type_name: []const u8, var
     }
 
     return null;
+}
+
+/// Find enum variant value in AST
+/// Returns the i32 tag value for the variant (auto-numbered or explicit)
+fn findEnumVariantValue(ctx: *LoweringContext, enum_type_name: []const u8, variant_node: *const AstNode) !?i32 {
+    const unit = ctx.snapshot.astdb.getUnitConst(ctx.unit_id) orelse return null;
+
+    // Get variant name from field access
+    const variant_token = ctx.snapshot.getToken(variant_node.first_token) orelse return null;
+    const variant_name = if (variant_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+    // Search for enum declaration with matching name
+    for (unit.nodes, 0..) |node, i| {
+        if (node.kind != .enum_decl) continue;
+
+        const enum_node_id: NodeId = @enumFromInt(@as(u32, @intCast(i)));
+        const enum_children = ctx.snapshot.getChildren(enum_node_id);
+        if (enum_children.len == 0) continue;
+
+        // First child is enum type name
+        const name_node = ctx.snapshot.getNode(enum_children[0]) orelse continue;
+        const name_token = ctx.snapshot.getToken(name_node.first_token) orelse continue;
+        const decl_name = if (name_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+        // Check if this is the enum type we're looking for
+        if (std.mem.eql(u8, decl_name, enum_type_name)) {
+            // Found the enum type - search for variant
+            // Variants are children[1..], auto-numbered starting at 0
+            var auto_value: i32 = 0;
+            for (enum_children[1..]) |variant_id| {
+                const var_node = ctx.snapshot.getNode(variant_id) orelse continue;
+                if (var_node.kind != .variant) continue;
+
+                // Check for explicit value (variant has children pointing to integer_literal)
+                const var_children = ctx.snapshot.getChildren(variant_id);
+                if (var_children.len > 0) {
+                    if (ctx.snapshot.getNode(var_children[0])) |vn| {
+                        if (vn.kind == .integer_literal) {
+                            if (ctx.snapshot.getToken(vn.first_token)) |vt| {
+                                const lexeme = unit.source[vt.span.start..vt.span.end];
+                                auto_value = std.fmt.parseInt(i32, lexeme, 10) catch auto_value;
+                            }
+                        }
+                    }
+                }
+
+                const var_token = ctx.snapshot.getToken(var_node.first_token) orelse continue;
+                const var_name = if (var_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+                if (std.mem.eql(u8, var_name, variant_name)) {
+                    return auto_value;
+                }
+
+                auto_value += 1;
+            }
+        }
+    }
+
+    return null;
+}
+
+/// Tagged union variant info (SPEC-023 Phase B+C)
+const UnionVariantInfo = struct {
+    tag_index: i64,
+    has_payload: bool,
+    field_count: u32,
+};
+
+/// Find union variant info in AST
+/// Returns tag index (0-indexed) and whether the variant has payload fields
+fn findUnionVariantInfo(ctx: *LoweringContext, type_name: []const u8, variant_name: []const u8) !?UnionVariantInfo {
+    const unit = ctx.snapshot.astdb.getUnitConst(ctx.unit_id) orelse return null;
+
+    for (unit.nodes, 0..) |node, i| {
+        if (node.kind != .union_decl) continue;
+
+        const union_node_id: NodeId = @enumFromInt(@as(u32, @intCast(i)));
+        const union_children = ctx.snapshot.getChildren(union_node_id);
+        if (union_children.len == 0) continue;
+
+        // First child is union type name
+        const name_node = ctx.snapshot.getNode(union_children[0]) orelse continue;
+        const name_token = ctx.snapshot.getToken(name_node.first_token) orelse continue;
+        const decl_name = if (name_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+        if (std.mem.eql(u8, decl_name, type_name)) {
+            // Found union — search variants (children[1..])
+            var tag: i64 = 0;
+            for (union_children[1..]) |variant_id| {
+                const var_node = ctx.snapshot.getNode(variant_id) orelse continue;
+                if (var_node.kind != .variant) continue;
+
+                const var_token = ctx.snapshot.getToken(var_node.first_token) orelse continue;
+                const var_name = if (var_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+                if (std.mem.eql(u8, var_name, variant_name)) {
+                    // Children are pairs: [field_name, field_type, ...]
+                    const var_children = ctx.snapshot.getChildren(variant_id);
+                    return .{
+                        .tag_index = tag,
+                        .has_payload = var_children.len > 0,
+                        .field_count = @intCast(var_children.len / 2),
+                    };
+                }
+
+                tag += 1;
+            }
+        }
+    }
+
+    return null;
+}
+
+/// Check if a union variant field at given index is f64 type
+/// Inspects the type annotation node in the variant declaration
+fn isUnionFieldFloat(ctx: *LoweringContext, type_name: []const u8, variant_name: []const u8, field_index: u32) bool {
+    const unit = ctx.snapshot.astdb.getUnitConst(ctx.unit_id) orelse return false;
+
+    for (unit.nodes, 0..) |node, i| {
+        if (node.kind != .union_decl) continue;
+
+        const union_node_id: NodeId = @enumFromInt(@as(u32, @intCast(i)));
+        const union_children = ctx.snapshot.getChildren(union_node_id);
+        if (union_children.len == 0) continue;
+
+        const name_node = ctx.snapshot.getNode(union_children[0]) orelse continue;
+        const name_token = ctx.snapshot.getToken(name_node.first_token) orelse continue;
+        const decl_name = if (name_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+        if (std.mem.eql(u8, decl_name, type_name)) {
+            for (union_children[1..]) |variant_id| {
+                const var_node = ctx.snapshot.getNode(variant_id) orelse continue;
+                if (var_node.kind != .variant) continue;
+
+                const var_token = ctx.snapshot.getToken(var_node.first_token) orelse continue;
+                const var_name = if (var_token.str) |str_id| ctx.snapshot.astdb.str_interner.getString(str_id) else "";
+
+                if (std.mem.eql(u8, var_name, variant_name)) {
+                    // Variant children: [name0, type0, name1, type1, ...]
+                    const var_children = ctx.snapshot.getChildren(variant_id);
+                    const type_child_idx = field_index * 2 + 1;
+                    if (type_child_idx >= var_children.len) return false;
+
+                    const type_node = ctx.snapshot.getNode(var_children[type_child_idx]) orelse return false;
+                    const type_tok = ctx.snapshot.getToken(type_node.first_token) orelse return false;
+                    const type_str = if (type_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+                    return std.mem.eql(u8, type_str, "f64");
+                }
+            }
+        }
+    }
+
+    return false;
 }
 
 fn lowerDeferStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
@@ -3152,9 +4276,103 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
             }
         }
 
+        // Track multi-field payload bindings for union destructuring
+        const UnionBinding = struct { name: []const u8, field_index: u32, is_float: bool };
+        var union_bindings = std.ArrayListUnmanaged(UnionBinding){};
+        defer union_bindings.deinit(ctx.allocator);
+
         if (is_wildcard) {
             // Always matches
             pattern_matches_val = try ctx.builder.createConstant(.{ .boolean = true });
+        } else if (pattern_node.kind == .struct_literal) {
+            // Union destructuring pattern: Option.Some { value: v }
+            // First child of struct_literal is the type (field_expr)
+            const pat_children = ctx.snapshot.getChildren(pattern_id);
+            if (pat_children.len >= 1) {
+                const pat_type_id = pat_children[0];
+                const pat_type_node = ctx.snapshot.getNode(pat_type_id) orelse return error.InvalidNode;
+
+                if (pat_type_node.kind == .field_expr) {
+                    const fe_children = ctx.snapshot.getChildren(pat_type_id);
+                    if (fe_children.len >= 2) {
+                        const left_n = ctx.snapshot.getNode(fe_children[0]) orelse return error.InvalidNode;
+                        const right_n = ctx.snapshot.getNode(fe_children[1]) orelse return error.InvalidNode;
+
+                        if (left_n.kind == .identifier and right_n.kind == .identifier) {
+                            const l_tok = ctx.snapshot.getToken(left_n.first_token) orelse return error.InvalidToken;
+                            const r_tok = ctx.snapshot.getToken(right_n.first_token) orelse return error.InvalidToken;
+                            const t_name = if (l_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+                            const v_name = if (r_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+
+                            if (try findUnionVariantInfo(ctx, t_name, v_name)) |info| {
+                                // Emit Union_Tag_Check
+                                pattern_matches_val = try ctx.builder.createUnionTagCheck(scrutinee_val, info.tag_index);
+
+                                // Capture all binding variable names from pattern fields
+                                // pat_children: [type, field_name1, binding1, field_name2, binding2, ...]
+                                if (info.has_payload) {
+                                    var field_idx: u32 = 0;
+                                    var pat_idx: usize = 1; // skip type child
+                                    while (pat_idx + 1 < pat_children.len) : (pat_idx += 2) {
+                                        const binding_node = ctx.snapshot.getNode(pat_children[pat_idx + 1]) orelse {
+                                            field_idx += 1;
+                                            continue;
+                                        };
+                                        if (binding_node.kind == .identifier) {
+                                            const b_tok = ctx.snapshot.getToken(binding_node.first_token) orelse {
+                                                field_idx += 1;
+                                                continue;
+                                            };
+                                            const bname = if (b_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+                                            const is_f = isUnionFieldFloat(ctx, t_name, v_name, field_idx);
+                                            try union_bindings.append(ctx.allocator, .{ .name = bname, .field_index = field_idx, .is_float = is_f });
+                                        }
+                                        field_idx += 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // If not a union pattern, fall through with pattern_matches_val = 0
+            // which will be handled by the generic branch below
+            if (pattern_matches_val == 0) {
+                const pattern_val = try lowerExpression(ctx, pattern_id, pattern_node);
+                const eq_node_id = try ctx.builder.createNode(.Equal);
+                var eq_node = &ctx.builder.graph.nodes.items[eq_node_id];
+                try eq_node.inputs.append(ctx.allocator, scrutinee_val);
+                try eq_node.inputs.append(ctx.allocator, pattern_val);
+                pattern_matches_val = eq_node_id;
+            }
+        } else if (pattern_node.kind == .field_expr) {
+            // Union unit variant pattern: Option.None
+            const fe_children = ctx.snapshot.getChildren(pattern_id);
+            if (fe_children.len >= 2) {
+                const left_n = ctx.snapshot.getNode(fe_children[0]) orelse return error.InvalidNode;
+                const right_n = ctx.snapshot.getNode(fe_children[1]) orelse return error.InvalidNode;
+
+                if (left_n.kind == .identifier and right_n.kind == .identifier) {
+                    const l_tok = ctx.snapshot.getToken(left_n.first_token) orelse return error.InvalidToken;
+                    const r_tok = ctx.snapshot.getToken(right_n.first_token) orelse return error.InvalidToken;
+                    const t_name = if (l_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+                    const v_name = if (r_tok.str) |s| ctx.snapshot.astdb.str_interner.getString(s) else "";
+
+                    if (try findUnionVariantInfo(ctx, t_name, v_name)) |info| {
+                        // Emit Union_Tag_Check for unit variant
+                        pattern_matches_val = try ctx.builder.createUnionTagCheck(scrutinee_val, info.tag_index);
+                    }
+                }
+            }
+            // Fallback to regular equality if not a union
+            if (pattern_matches_val == 0) {
+                const pattern_val = try lowerExpression(ctx, pattern_id, pattern_node);
+                const eq_node_id = try ctx.builder.createNode(.Equal);
+                var eq_node = &ctx.builder.graph.nodes.items[eq_node_id];
+                try eq_node.inputs.append(ctx.allocator, scrutinee_val);
+                try eq_node.inputs.append(ctx.allocator, pattern_val);
+                pattern_matches_val = eq_node_id;
+            }
         } else if (pattern_node.kind == .unary_expr) {
             // Check for negation pattern: !value means scrutinee != value
             const pattern_token = ctx.snapshot.getToken(pattern_node.first_token) orelse return error.InvalidToken;
@@ -3219,6 +4437,12 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
         // Backpatch True
         ctx.builder.graph.nodes.items[branch_id].inputs.items[1] = body_label_id;
 
+        // Union payload extraction: bind all destructured variables before body
+        for (union_bindings.items) |binding| {
+            const extract_id = try ctx.builder.createUnionPayloadExtract(scrutinee_val, binding.field_index, binding.is_float);
+            try ctx.scope.put(binding.name, extract_id);
+        }
+
         const body = ctx.snapshot.getNode(body_id) orelse continue;
         if (body.kind == .block_stmt) {
             try lowerBlock(ctx, body_id, body);
@@ -3262,7 +4486,7 @@ fn lowerMatch(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) Lowe
     // So we should follow that pattern.
     // We need to track all "Jump to End" nodes.
 
-    // var scope_jumps = std.ArrayList(u32).init(ctx.allocator);
+    // var scope_jumps: std.ArrayList(u32) = .empty;
     // defer scope_jumps.deinit();
 
     // Re-doing the loop logic briefly to correct the "End Label" issue:
@@ -3338,7 +4562,7 @@ fn lowerMatchCorrected(ctx: *LoweringContext, node_id: NodeId, node: *const AstN
     const scrutinee_node = ctx.snapshot.getNode(scrutinee_id) orelse return error.InvalidNode;
     const scrutinee_val = try lowerExpression(ctx, scrutinee_id, scrutinee_node);
 
-    var end_jumps = std.ArrayList(u32).init(ctx.allocator);
+    var end_jumps: std.ArrayList(u32) = .empty;
     defer end_jumps.deinit();
 
     // Iterate over arms
@@ -3953,4 +5177,87 @@ fn lowerSelectDefault(ctx: *LoweringContext, node_id: NodeId, node: *const AstNo
     var add_default_node = &ctx.builder.graph.nodes.items[add_default_id];
     try add_default_node.inputs.append(ctx.allocator, select_begin_id);
     return add_default_id;
+}
+
+/// Lower a using statement (:service profile - Phase 3)
+/// Syntax: using [shared] binding [: type] = open_expr do ... end
+/// For now: creates resource, executes body, then cleans up
+fn lowerUsingStatement(ctx: *LoweringContext, node_id: NodeId, node: *const AstNode) LowerError!void {
+    _ = node;
+    const children = ctx.snapshot.getChildren(node_id);
+    std.log.debug("lowerUsingStatement: node_id={d}, children.len={d}", .{@intFromEnum(node_id), children.len});
+    if (children.len < 3) {
+        std.log.debug("lowerUsingStatement: ERROR - children.len < 3", .{});
+        return error.InvalidNode;
+    }
+
+    // Children layout:
+    // [0] = binding name (identifier)
+    // [1] = optional type annotation OR open expression
+    // [2] = open expression (if type annotation present) OR first body statement
+    // [...] = remaining body statements
+    
+    // Children layout depends on whether type annotation is present:
+    // Without type: [0]=binding, [1]=open_expr, [2..]=body
+    // With type:    [0]=binding, [1]=type, [2]=open_expr, [3..]=body
+    var open_expr_index: usize = 1;
+    var body_start_index: usize = 2;
+    
+    // Heuristic: if children.len >= 4, there's likely a type annotation
+    if (children.len >= 4) {
+        open_expr_index = 2;
+        body_start_index = 3;
+    }
+
+    // 1. Evaluate the open expression to get the resource
+    const open_expr_id = children[open_expr_index];
+    const open_expr_node = ctx.snapshot.getNode(open_expr_id) orelse return error.InvalidNode;
+    const resource_val = try lowerExpression(ctx, open_expr_id, open_expr_node);
+
+    // 2. Create Using_Begin node (marks resource acquisition)
+    const using_begin_id = try ctx.builder.createNode(.Using_Begin);
+    var using_begin_node = &ctx.builder.graph.nodes.items[using_begin_id];
+    try using_begin_node.inputs.append(ctx.allocator, resource_val);
+
+    // 3. Bind the resource to the binding name in current scope
+    // Create an Alloca for the resource variable so it can be referenced
+    // in the body and properly tracked as an L-Value
+    const binding_id = children[0];
+    const binding_node = ctx.snapshot.getNode(binding_id) orelse return error.InvalidNode;
+
+    if (binding_node.kind == .identifier) {
+        const binding_token = ctx.snapshot.getToken(binding_node.first_token) orelse return error.InvalidNode;
+        const binding_name = if (binding_token.str) |sid| ctx.snapshot.astdb.str_interner.getString(sid) else "resource";
+
+        // Create Alloca for the resource variable
+        const alloca_id = try ctx.builder.createNode(.Alloca);
+        ctx.builder.graph.nodes.items[alloca_id].data = .{ .string = try ctx.dupeForGraph(binding_name) };
+
+        // Store the resource value into the Alloca
+        const store_id = try ctx.builder.createNode(.Store);
+        var store_node = &ctx.builder.graph.nodes.items[store_id];
+        try store_node.inputs.append(ctx.allocator, alloca_id);
+        try store_node.inputs.append(ctx.allocator, resource_val);
+
+        // Put the Alloca (not the value) in scope so it can be loaded/stored
+        // NOTE: binding_name comes from the string interner and lives as long as the snapshot
+        try ctx.scope.put(binding_name, alloca_id);
+        std.log.debug("lowerUsingStatement: Added '{s}' to scope", .{binding_name});
+    } else {
+        std.log.debug("lowerUsingStatement: binding_node.kind={s}, expected identifier", .{@tagName(binding_node.kind)});
+    }
+
+    // 4. Lower the body statements
+    if (children.len > body_start_index) {
+        for (children[body_start_index..]) |stmt_id| {
+            const stmt_node = ctx.snapshot.getNode(stmt_id) orelse continue;
+            try lowerStatement(ctx, stmt_id, stmt_node);
+        }
+    }
+
+    // 5. Create Using_End node (marks cleanup point - will call close())
+    const using_end_id = try ctx.builder.createNode(.Using_End);
+    var using_end_node = &ctx.builder.graph.nodes.items[using_end_id];
+    try using_end_node.inputs.append(ctx.allocator, using_begin_id);
+    try using_end_node.inputs.append(ctx.allocator, resource_val);
 }

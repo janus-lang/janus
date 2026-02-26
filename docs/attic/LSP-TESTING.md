@@ -45,16 +45,16 @@ In the **Extension Development Host**:
 1.  Create a file named `test.jan`.
 2.  Type valid code:
     ```janus
-    func main() {
+    func main() do
         let x = 42
-    }
+    end
     ```
     - **Expectation:** No errors.
 3.  Introduce a syntax error:
     ```janus
-    func main() {
-        let x = 
-    }
+    func main() do
+        let x =
+    end
     ```
     - **Expectation:** A **Red Squiggle** should appear under the error location (or near it).
     - **Expectation:** Hovering over the red squiggle shows `Parse error: ...`.
@@ -71,14 +71,14 @@ In the **Extension Development Host**:
 ### Test C: Goto Definition
 1.  Create a file with function and variable declarations:
     ```janus
-    func greet() {
+    func greet() do
         let message = "Hello"
-    }
-    
-    func main() {
+    end
+
+    func main() do
         greet()
         let x = 42
-    }
+    end
     ```
 2.  **F12 on `greet` call** (line 6):
     - **Expectation:** Cursor jumps to line 1 (`func greet()`)

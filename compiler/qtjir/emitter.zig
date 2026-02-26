@@ -35,6 +35,13 @@ pub const LLVMEmitter = struct {
         self.string_constants.deinit(self.allocator);
     }
 
+    /// Append formatted text to output buffer. Replaces ArrayList.writer() removed in Zig 0.16.
+    fn appendFmt(self: *LLVMEmitter, comptime fmt: []const u8, args: anytype) !void {
+        const formatted = try std.fmt.allocPrint(self.allocator, fmt, args);
+        defer self.allocator.free(formatted);
+        try self.output.appendSlice(self.allocator, formatted);
+    }
+
     /// Emit LLVM IR from QTJIR Graph
     pub fn emit(self: *LLVMEmitter, ir_graph: *const QTJIRGraph) ![]u8 {
         try self.emitHeader();
@@ -46,24 +53,23 @@ pub const LLVMEmitter = struct {
     }
 
     fn emitHeader(self: *LLVMEmitter) !void {
-        const writer = self.output.writer(self.allocator);
-        try writer.print("; Generated LLVM IR from QTJIR\n", .{});
-        try writer.print("target triple = \"x86_64-unknown-linux-gnu\"\n\n", .{});
+        try self.appendFmt("; Generated LLVM IR from QTJIR\n", .{});
+        try self.appendFmt("target triple = \"x86_64-unknown-linux-gnu\"\n\n", .{});
 
         // Declare external functions
-        try writer.print("declare i32 @printf(i8*, ...)\n", .{});
-        try writer.print("declare i32 @puts(i8*)\n", .{});
+        try self.appendFmt("declare i32 @printf(i8*, ...)\n", .{});
+        try self.appendFmt("declare i32 @puts(i8*)\n", .{});
 
         // NPU tensor runtime functions
-        try writer.print("declare i32 @npu_tensor_matmul(i32, i32)\n", .{});
-        try writer.print("declare i32 @npu_tensor_conv(i32, i32)\n", .{});
-        try writer.print("declare i32 @npu_tensor_reduce(i32)\n", .{});
+        try self.appendFmt("declare i32 @npu_tensor_matmul(i32, i32)\n", .{});
+        try self.appendFmt("declare i32 @npu_tensor_conv(i32, i32)\n", .{});
+        try self.appendFmt("declare i32 @npu_tensor_reduce(i32)\n", .{});
 
         // QPU quantum runtime functions
-        try writer.print("declare void @qpu_apply_gate(i32, i32)\n", .{});
-        try writer.print("declare i32 @qpu_measure(i32)\n", .{});
+        try self.appendFmt("declare void @qpu_apply_gate(i32, i32)\n", .{});
+        try self.appendFmt("declare i32 @qpu_measure(i32)\n", .{});
 
-        try writer.print("\n", .{});
+        try self.appendFmt("\n", .{});
     }
 
     fn collectStringConstants(self: *LLVMEmitter, ir_graph: *const QTJIRGraph) !void {
@@ -95,8 +101,6 @@ pub const LLVMEmitter = struct {
     }
 
     fn emitStringConstants(self: *LLVMEmitter) !void {
-        const writer = self.output.writer(self.allocator);
-
         for (self.string_constants.items) |str_const| {
             // Remove quotes if present
             const clean_str = if (str_const.content.len >= 2 and
@@ -106,38 +110,36 @@ pub const LLVMEmitter = struct {
             else
                 str_const.content;
 
-            try writer.print("@str{d} = private unnamed_addr constant [{d} x i8] c\"{s}\\00\"\n", .{ str_const.id, clean_str.len + 1, clean_str });
+            try self.appendFmt("@str{d} = private unnamed_addr constant [{d} x i8] c\"{s}\\00\"\n", .{ str_const.id, clean_str.len + 1, clean_str });
         }
 
         if (self.string_constants.items.len > 0) {
-            try writer.print("\n", .{});
+            try self.appendFmt("\n", .{});
         }
     }
 
     fn emitFunction(self: *LLVMEmitter, ir_graph: *const QTJIRGraph) !void {
-        const writer = self.output.writer(self.allocator);
-
         // Function signature with parameters
-        try writer.print("define i32 @{s}(", .{ir_graph.function_name});
+        try self.appendFmt("define i32 @{s}(", .{ir_graph.function_name});
 
         // Emit parameters
         for (ir_graph.parameters, 0..) |param, i| {
-            if (i > 0) try writer.print(", ", .{});
-            try writer.print("{s} %{s}", .{ param.type_name, param.name });
+            if (i > 0) try self.appendFmt(", ", .{});
+            try self.appendFmt("{s} %{s}", .{ param.type_name, param.name });
         }
 
-        try writer.print(") {{\n", .{});
-        try writer.print("entry:\n", .{});
+        try self.appendFmt(") {{\n", .{});
+        try self.appendFmt("entry:\n", .{});
 
         // Emit instructions
         for (ir_graph.nodes.items) |node| {
-            try self.emitNode(writer, &node, ir_graph);
+            try self.emitNode(&node, ir_graph);
         }
 
-        try writer.print("}}\n", .{});
+        try self.appendFmt("}}\n", .{});
     }
 
-    fn emitNode(self: *LLVMEmitter, writer: anytype, node: *const IRNode, ir_graph: *const QTJIRGraph) !void {
+    fn emitNode(self: *LLVMEmitter, node: *const IRNode, ir_graph: *const QTJIRGraph) !void {
         switch (node.op) {
             .Constant => {
                 // Constants are emitted inline when used
@@ -145,10 +147,10 @@ pub const LLVMEmitter = struct {
             .Phi => {
                 // Emit phi node: %result = phi i32 [%val1, %label1], [%val2, %label2]
                 if (node.inputs.items.len >= 2) {
-                    try writer.print("  %{d} = phi i32 ", .{node.id});
+                    try self.appendFmt("  %{d} = phi i32 ", .{node.id});
 
                     for (node.inputs.items, 0..) |input_id, i| {
-                        if (i > 0) try writer.print(", ", .{});
+                        if (i > 0) try self.appendFmt(", ", .{});
 
                         const input_node = &ir_graph.nodes.items[input_id];
                         var val_buf: [32]u8 = undefined;
@@ -161,10 +163,10 @@ pub const LLVMEmitter = struct {
                             try std.fmt.bufPrint(&val_buf, "%{d}", .{input_node.id});
 
                         // Simplified: use entry block for all phi inputs (proper basic blocks later)
-                        try writer.print("[{s}, %entry]", .{val});
+                        try self.appendFmt("[{s}, %entry]", .{val});
                     }
 
-                    try writer.print("\n", .{});
+                    try self.appendFmt("\n", .{});
                 }
             },
             .Load => {
@@ -221,7 +223,7 @@ pub const LLVMEmitter = struct {
                         else => unreachable,
                     };
 
-                    try writer.print("  %{d} = {s} i32 {s}, {s}\n", .{ node.id, op_name, a_val, b_val });
+                    try self.appendFmt("  %{d} = {s} i32 {s}, {s}\n", .{ node.id, op_name, a_val, b_val });
                 }
             },
             .Call => {
@@ -262,7 +264,7 @@ pub const LLVMEmitter = struct {
                                 else
                                     str_value;
 
-                                try writer.print("  %call{d} = call i32 @puts(i8* getelementptr inbounds ([{d} x i8], [{d} x i8]* @str{d}, i32 0, i32 0))\n", .{ node.id, clean_str.len + 1, clean_str.len + 1, str_id });
+                                try self.appendFmt("  %call{d} = call i32 @puts(i8* getelementptr inbounds ([{d} x i8], [{d} x i8]* @str{d}, i32 0, i32 0))\n", .{ node.id, clean_str.len + 1, clean_str.len + 1, str_id });
                             },
                             else => {},
                         }
@@ -276,10 +278,10 @@ pub const LLVMEmitter = struct {
                     if (value_node.op == .Constant) {
                         switch (value_node.data) {
                             .integer => |int_value| {
-                                try writer.print("  ret i32 {d}\n", .{int_value});
+                                try self.appendFmt("  ret i32 {d}\n", .{int_value});
                             },
                             else => {
-                                try writer.print("  ret i32 0\n", .{});
+                                try self.appendFmt("  ret i32 0\n", .{});
                             },
                         }
                     } else if (value_node.op == .Load) {
@@ -288,19 +290,19 @@ pub const LLVMEmitter = struct {
                             const param_idx = @as(usize, @intCast(value_node.data.integer));
                             if (param_idx < ir_graph.parameters.len) {
                                 const param_name = ir_graph.parameters[param_idx].name;
-                                try writer.print("  ret i32 %{s}\n", .{param_name});
+                                try self.appendFmt("  ret i32 %{s}\n", .{param_name});
                             } else {
-                                try writer.print("  ret i32 0\n", .{});
+                                try self.appendFmt("  ret i32 0\n", .{});
                             }
                         } else {
-                            try writer.print("  ret i32 0\n", .{});
+                            try self.appendFmt("  ret i32 0\n", .{});
                         }
                     } else {
                         // Return computed value (e.g., from Add, Phi operations)
-                        try writer.print("  ret i32 %{d}\n", .{value_node.id});
+                        try self.appendFmt("  ret i32 %{d}\n", .{value_node.id});
                     }
                 } else {
-                    try writer.print("  ret i32 0\n", .{});
+                    try self.appendFmt("  ret i32 0\n", .{});
                 }
             },
             .Tensor_Matmul => {
@@ -328,7 +330,7 @@ pub const LLVMEmitter = struct {
                     else
                         try std.fmt.bufPrint(&b_buf, "%{d}", .{b_node.id});
 
-                    try writer.print("  %{d} = call i32 @npu_tensor_matmul(i32 {s}, i32 {s})\n", .{ node.id, a_val, b_val });
+                    try self.appendFmt("  %{d} = call i32 @npu_tensor_matmul(i32 {s}, i32 {s})\n", .{ node.id, a_val, b_val });
                 }
             },
             .Quantum_Gate => {
@@ -337,7 +339,7 @@ pub const LLVMEmitter = struct {
                     const gate_type = @intFromEnum(qm.gate_type);
                     const qubit = if (qm.qubits.len > 0) qm.qubits[0] else 0;
 
-                    try writer.print("  call void @qpu_apply_gate(i32 {d}, i32 {d})\n", .{ gate_type, qubit });
+                    try self.appendFmt("  call void @qpu_apply_gate(i32 {d}, i32 {d})\n", .{ gate_type, qubit });
                 }
             },
             .Quantum_Measure => {
@@ -345,18 +347,18 @@ pub const LLVMEmitter = struct {
                 if (node.quantum_metadata) |qm| {
                     const qubit = if (qm.qubits.len > 0) qm.qubits[0] else 0;
 
-                    try writer.print("  %{d} = call i32 @qpu_measure(i32 {d})\n", .{ node.id, qubit });
+                    try self.appendFmt("  %{d} = call i32 @qpu_measure(i32 {d})\n", .{ node.id, qubit });
                 }
             },
             .Label => {
                 // Emit basic block label
-                try writer.print("lbl_{d}:\n", .{node.id});
+                try self.appendFmt("lbl_{d}:\n", .{node.id});
             },
             .Jump => {
                 // Emit unconditional branch
                 if (node.inputs.items.len > 0) {
                     const target = node.inputs.items[0];
-                    try writer.print("  br label %lbl_{d}\n", .{target});
+                    try self.appendFmt("  br label %lbl_{d}\n", .{target});
                 }
             },
             .Branch => {
@@ -378,7 +380,7 @@ pub const LLVMEmitter = struct {
                     else
                         try std.fmt.bufPrint(&cond_buf, "%{d}", .{cond_id});
 
-                    try writer.print("  br i1 {s}, label %lbl_{d}, label %lbl_{d}\n", .{ cond_val, true_target, false_target });
+                    try self.appendFmt("  br i1 {s}, label %lbl_{d}, label %lbl_{d}\n", .{ cond_val, true_target, false_target });
                 }
             },
             .Equal, .NotEqual, .Less, .LessEqual, .Greater, .GreaterEqual => {
@@ -416,7 +418,7 @@ pub const LLVMEmitter = struct {
                         else => unreachable,
                     };
 
-                    try writer.print("  %{d} = icmp {s} i32 {s}, {s}\n", .{ node.id, cmp_op, a_val, b_val });
+                    try self.appendFmt("  %{d} = icmp {s} i32 {s}, {s}\n", .{ node.id, cmp_op, a_val, b_val });
                 }
             },
             .Alloca, .Store => {
@@ -430,34 +432,5 @@ pub const LLVMEmitter = struct {
         }
     }
 
-    /// Compile LLVM IR to executable
-    pub fn compileToExecutable(self: *LLVMEmitter, llvm_ir: []const u8, output_path: []const u8) !void {
-        // Write LLVM IR to file for debugging
-        const ll_file = try std.fs.cwd().createFile("debug.ll", .{});
-        defer ll_file.close();
-        try ll_file.writeAll(llvm_ir);
-
-        // Compile using clang
-        var arena = std.heap.ArenaAllocator.init(self.allocator);
-        defer arena.deinit();
-        const arena_alloc = arena.allocator();
-
-        const args = [_][]const u8{
-            "clang",
-            "-O0",
-            "-o",
-            output_path,
-            "debug.ll",
-        };
-
-        var process = std.process.Child.init(&args, arena_alloc);
-        process.stdout_behavior = .Inherit;
-        process.stderr_behavior = .Inherit;
-
-        const result = try process.spawnAndWait();
-
-        if (result != .Exited or result.Exited != 0) {
-            return error.CompilationFailed;
-        }
-    }
+    // compileToExecutable removed — use std.process.run() pipeline instead
 };

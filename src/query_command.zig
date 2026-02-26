@@ -13,6 +13,8 @@
 // before we pivot them to our revolutionary capabilities.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
+const compat_fs = @import("compat_fs");
 const vfs = @import("vfs_adapter");
 const region = @import("mem/region.zig");
 const List = @import("mem/ctx/List.zig").List;
@@ -66,6 +68,21 @@ const JSONFormatter = struct {
     allocator: std.mem.Allocator,
     buffer: std.ArrayList(u8),
 
+    /// Writer that appends to the underlying ArrayList.
+    const Writer = struct {
+        parent: *JSONFormatter,
+
+        pub fn writeAll(self: Writer, data: []const u8) !void {
+            try self.parent.buffer.appendSlice(self.parent.allocator, data);
+        }
+
+        pub fn print(self: Writer, comptime fmt: []const u8, args: anytype) !void {
+            var buf: [4096]u8 = undefined;
+            const result = std.fmt.bufPrint(&buf, fmt, args) catch return error.NoSpaceLeft;
+            try self.parent.buffer.appendSlice(self.parent.allocator, result);
+        }
+    };
+
     fn init(allocator: std.mem.Allocator) JSONFormatter {
         return JSONFormatter{
             .allocator = allocator,
@@ -77,8 +94,8 @@ const JSONFormatter = struct {
         self.buffer.deinit(self.allocator);
     }
 
-    fn writer(self: *JSONFormatter) std.ArrayList(u8).Writer {
-        return self.buffer.writer(self.allocator);
+    fn writer(self: *JSONFormatter) Writer {
+        return Writer{ .parent = self };
     }
 
     fn toOwnedSlice(self: *JSONFormatter) ![]u8 {
@@ -168,7 +185,7 @@ pub const QueryCommand = struct {
 
     /// Query from stdin - blazing fast streaming analysis
     fn queryStdin(self: *QueryCommand, pattern: []const u8, case_sensitive: bool, format: OutputFormat, max_results: ?u32, context: u32) !void {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         std.debug.print("🔍 Janus High-Performance Log Query Engine\n", .{});
         std.debug.print("🎯 Pattern: \"{s}\"\n", .{pattern});
@@ -194,7 +211,8 @@ pub const QueryCommand = struct {
         var continue_running = true;
 
         while (continue_running) {
-            const read_bytes = try std.fs.File.stdin().read(chunk_buf[0..]);
+            const stdin_fd = compat_fs.stdin();
+            const read_bytes = stdin_fd.read(chunk_buf[0..]) catch 0;
             if (read_bytes == 0) {
                 if (partial_line.items.len > 0) {
                     const line_slice = partial_line.items;
@@ -253,7 +271,7 @@ pub const QueryCommand = struct {
             }
         }
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         self.stats.lines_processed = line_number;
         self.stats.matches_found = matches_found;
         self.stats.processing_time_ns = @intCast(end_time - start_time);
@@ -264,7 +282,7 @@ pub const QueryCommand = struct {
 
     /// Query multiple files - parallel processing for maximum speed
     fn queryFiles(self: *QueryCommand, files: [][]const u8, pattern: []const u8, case_sensitive: bool, format: OutputFormat, max_results: ?u32, context: u32) !void {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         std.debug.print("🔍 Janus High-Performance Log Query Engine\n", .{});
         std.debug.print("🎯 Pattern: \"{s}\"\n", .{pattern});
@@ -332,7 +350,7 @@ pub const QueryCommand = struct {
             }
         }
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         self.stats.lines_processed = total_lines;
         self.stats.matches_found = total_matches;
         self.stats.processing_time_ns = @intCast(end_time - start_time);
@@ -479,7 +497,7 @@ pub const QueryCommand = struct {
 
     /// Execute ASTDB semantic query - Task 6: CLI Tooling Implementation
     pub fn executeASTDBQuery(self: *QueryCommand, expression: []const u8, source_files: [][]const u8, options: QueryOptions) !void {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         std.debug.print("🧠 Janus ASTDB Semantic Query Engine\n", .{});
         std.debug.print("🎯 Expression: \"{s}\"\n", .{expression});
@@ -548,7 +566,7 @@ pub const QueryCommand = struct {
             std.debug.print("✅ {s}: {d} matches in {d} nodes\n", .{ file_path, file_matches, snapshot.nodeCount() });
         }
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         self.stats.matches_found = total_matches;
         self.stats.processing_time_ns = @intCast(end_time - start_time);
 
@@ -901,7 +919,7 @@ pub fn executeQuery(args: [][]const u8, allocator: std.mem.Allocator) !void {
 
 /// Execute LSP query with JSON output (Task 3: CLI Query Bridge)
 fn executeLSPQuery(query_type: LSPQueryType, args: [][]const u8, allocator: std.mem.Allocator) !void {
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Parse common arguments
     var json_output = false;
@@ -943,7 +961,7 @@ fn executeLSPQuery(query_type: LSPQueryType, args: [][]const u8, allocator: std.
     const result = try executeQueryEngine(query_type, source_file, position, node_id, allocator);
     defer freeQueryResult(result, allocator);
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const duration_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
 
     // Output results

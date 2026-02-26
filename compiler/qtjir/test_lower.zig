@@ -79,10 +79,8 @@ test "Lower: Hello World" {
         }
     }
     
-    std.debug.print("\n=== Test: Found {d} nodes ===\n", .{ir_graph.nodes.items.len});
-    for (ir_graph.nodes.items, 0..) |node, i| {
-        std.debug.print("Node {d}: op={s}\n", .{i, @tagName(node.op)});
-    }
+    // Validation: graph has nodes (structure verified above)
+    try testing.expect(ir_graph.nodes.items.len > 0);
     
     try testing.expect(found_call);
     try testing.expect(found_str);

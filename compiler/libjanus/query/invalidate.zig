@@ -72,7 +72,7 @@ pub const ChangeSet = struct {
         std.crypto.random.bytes(&batch_id);
 
         return ChangeSet{
-            .changes = std.ArrayList(SemanticChange).init(allocator),
+            .changes = .empty,
             .batch_id = batch_id,
             .created_at = std.time.milliTimestamp(),
             .allocator = allocator,
@@ -89,7 +89,7 @@ pub const ChangeSet = struct {
 
     /// Get all unique entities affected by this change set
     pub fn getAffectedEntities(self: ChangeSet) ![]CID {
-        var entities = std.ArrayList(CID).init(self.allocator);
+        var entities: std.ArrayList(CID) = .empty;
         defer entities.deinit();
 
         for (self.changes.items) |change| {
@@ -107,7 +107,7 @@ pub const ChangeSet = struct {
             }
         }
 
-        return entities.toOwnedSlice();
+        return try entities.toOwnedSlice(alloc);
     }
 };
 
@@ -185,7 +185,7 @@ pub const InvalidationEngine = struct {
     pub fn processChangeSet(self: *InvalidationEngine, change_set: ChangeSet) !InvalidationResult {
         const start_time = std.time.microTimestamp();
 
-        var invalidated_queries = std.ArrayList(MemoKey).init(self.allocator);
+        var invalidated_queries: std.ArrayList(MemoKey) = .empty;
         var cache_entries_removed: u32 = 0;
 
         // Process each change in the set

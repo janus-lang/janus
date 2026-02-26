@@ -151,7 +151,7 @@ fn generateFunctionIR(query_ctx: *QueryCtx, function_node: astdb.AstNode, config
     var ir_builder = IRBuilder.init(query_ctx.allocator, config);
     defer ir_builder.deinit();
 
-    var dependencies = std.ArrayList(CID).init(query_ctx.allocator);
+    var dependencies: std.ArrayList(CID) = .empty;
 
     // Generate function prologue
     try ir_builder.emitFunctionPrologue(function_node.function_name);
@@ -193,7 +193,7 @@ fn generateModuleIR(query_ctx: *QueryCtx, module_node: astdb.AstNode, config: Co
     var ir_builder = IRBuilder.init(query_ctx.allocator, config);
     defer ir_builder.deinit();
 
-    var dependencies = std.ArrayList(CID).init(query_ctx.allocator);
+    var dependencies: std.ArrayList(CID) = .empty;
     var function_count: u32 = 0;
 
     // Generate module prologue
@@ -243,7 +243,7 @@ fn generateTypeIR(query_ctx: *QueryCtx, type_node: astdb.AstNode, config: Codege
     var ir_builder = IRBuilder.init(query_ctx.allocator, config);
     defer ir_builder.deinit();
 
-    var dependencies = std.ArrayList(CID).init(query_ctx.allocator);
+    var dependencies: std.ArrayList(CID) = .empty;
 
     // Generate type definition IR
     try ir_builder.emitTypeDefinition(type_node.type_name);
@@ -280,7 +280,7 @@ fn generateExpressionIR(query_ctx: *QueryCtx, expr_node: astdb.AstNode, config: 
     var ir_builder = IRBuilder.init(query_ctx.allocator, config);
     defer ir_builder.deinit();
 
-    var dependencies = std.ArrayList(CID).init(query_ctx.allocator);
+    var dependencies: std.ArrayList(CID) = .empty;
 
     // Generate expression IR based on node type
     switch (expr_node.node_type) {
@@ -394,7 +394,7 @@ fn generateVariableIR(query_ctx: *QueryCtx, var_node: astdb.AstNode, config: Cod
     var ir_builder = IRBuilder.init(query_ctx.allocator, config);
     defer ir_builder.deinit();
 
-    var dependencies = std.ArrayList(CID).init(query_ctx.allocator);
+    var dependencies: std.ArrayList(CID) = .empty;
 
     // Get variable type
     const type_of = @import("type_of.zig");
@@ -435,7 +435,7 @@ fn generateAssignmentIR(query_ctx: *QueryCtx, assign_node: astdb.AstNode, config
     var ir_builder = IRBuilder.init(query_ctx.allocator, config);
     defer ir_builder.deinit();
 
-    var dependencies = std.ArrayList(CID).init(query_ctx.allocator);
+    var dependencies: std.ArrayList(CID) = .empty;
 
     // Generate value IR
     if (assign_node.assigned_value) |value_cid| {
@@ -505,8 +505,8 @@ const IRBuilder = struct {
         return IRBuilder{
             .allocator = allocator,
             .config = config,
-            .instructions = std.ArrayList(IRInstruction).init(allocator),
-            .registers = std.ArrayList(IRRegister).init(allocator),
+            .instructions = .empty,
+            .registers = .empty,
             .memory_usage = 0,
         };
     }

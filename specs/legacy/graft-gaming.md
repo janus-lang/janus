@@ -162,24 +162,24 @@ struct Inventory {
 grain Entity<u64> {
     var row: usize          // Index into tensor columns
     var components: BitSet  // Which components are attached
-    
-    handle activate() {
+
+    handle activate() do
         this.row = world.allocate_row(this.id)
-    }
-    
-    handle deactivate() {
+    end
+
+    handle deactivate() do
         world.free_row(this.row)
-    }
-    
+    end
+
     // Logic queries data via explicit reads
-    handle get_position() -> vec3 {
+    handle get_position() -> vec3 do
         return world.transforms.pos[this.row]
-    }
-    
+    end
+
     // Logic sends intents, doesn't write directly
-    handle move_to(target: vec3) {
+    handle move_to(target: vec3) do
         send IntentStream, .MoveTo{entity: this.id, target: target}
-    }
+    end
 }
 ```
 
@@ -190,24 +190,24 @@ grain Entity<u64> {
 func physics_system(
     dt: f32,
     query: Query[Transform, Velocity]
-) with device(npu) {
+) with device(npu) do
     // Runs on NPU/GPU via J-IR
     query.for_each { |t, v, i|
         t.pos[i] += v.linear[i] * dt
         t.rot[i] = t.rot[i].rotate(v.angular[i] * dt)
     }
-}
+end
 
 func health_system(
     query: Query[Health]
-) with device(cpu) {
+) with device(cpu) do
     // Health checks can run on CPU
     query.for_each { |h, i|
-        if h.current[i] <= 0.0 {
+        if h.current[i] <= 0.0 do
             send Entity(i), .Death
-        }
+        end
     }
-}
+end
 ```
 
 ### Intent Stream (Message Bus)
@@ -225,13 +225,13 @@ enum Intent {
 // Intent processor (runs each frame)
 grain IntentStream {
     var pending: Queue[Intent]
-    
-    handle receive(intent: Intent) {
+
+    handle receive(intent: Intent) do
         this.pending.push(intent)
-    }
-    
-    handle flush(world: World) {
-        for intent in this.pending.drain() {
+    end
+
+    handle flush(world: World) do
+        for intent in this.pending.drain() do
             match intent {
                 .MoveTo(e, t) => {
                     let i = Entity(e).row
@@ -249,8 +249,8 @@ grain IntentStream {
                     world.destroy_entity(e)
                 }
             }
-        }
-    }
+        end
+    end
 }
 ```
 
@@ -270,135 +270,135 @@ grain Guard<u64> {
     var behavior: BehaviorTree
     var patrol_route: []vec3
     var current_waypoint: usize
-    
-    handle activate() {
+
+    handle activate() do
         this.state = try db.load_guard_state(this.id)
         this.behavior = BehaviorTree.load("guard_patrol")
         this.patrol_route = try db.load_patrol_route(this.id)
-    }
-    
-    handle deactivate() {
+    end
+
+    handle deactivate() do
         try db.save_guard_state(this.id, this.state)
-    }
-    
+    end
+
     // Called every game tick
-    handle tick(dt: f64) {
+    handle tick(dt: f64) do
         let status = this.behavior.tick(this, dt)
-        
+
         match this.state.mode {
             .Patrol => this.do_patrol()
             .Chase(target) => this.do_chase(target)
             .Attack(target) => this.do_attack(target)
         }
-    }
-    
-    func do_patrol() {
+    end
+
+    func do_patrol() do
         let current_pos = Entity(this.id).get_position()
         let target = this.patrol_route[this.current_waypoint]
-        
-        if distance(current_pos, target) < 1.0 {
+
+        if distance(current_pos, target) < 1.0 do
             this.current_waypoint = (this.current_waypoint + 1) % this.patrol_route.len()
-        }
-        
+        end
+
         // Send intent - don't write memory directly
         send IntentStream, .MoveTo{entity: this.id, target: target}
-        
+
         // Check for intruders
         let nearby = try spatial_query.radius(current_pos, 10.0)
-        for entity_id in nearby {
-            if is_player(entity_id) {
+        for entity_id in nearby do
+            if is_player(entity_id) do
                 this.state.mode = .Chase(entity_id)
                 send Player(entity_id), .Spotted(this.id)
-            }
-        }
-    }
-    
-    func do_chase(target: u64) {
+            end
+        end
+    end
+
+    func do_chase(target: u64) do
         let target_pos = Entity(target).get_position()
         send IntentStream, .MoveTo{entity: this.id, target: target_pos}
-        
-        if distance(Entity(this.id).get_position(), target_pos) < 2.0 {
+
+        if distance(Entity(this.id).get_position(), target_pos) < 2.0 do
             this.state.mode = .Attack(target)
-        }
-    }
-    
-    func do_attack(target: u64) {
+        end
+    end
+
+    func do_attack(target: u64) do
         // Attack logic - sends damage intent
         send IntentStream, .TakeDamage{entity: target, amount: 10.0}
-        
+
         // Cooldown via timer
         send self, .AttackCooldown after 1000ms
-    }
-    
+    end
+
     // Fault tolerance: if something crashes, guard resets
-    handle crash(reason: Error) {
+    handle crash(reason: Error) do
         log.error("Guard crashed", id: this.id, reason: reason)
         this.state.mode = .Patrol
         this.current_waypoint = 0
-    }
+    end
 }
 
 // THE DATA (Bevy-Style Tensor Systems)
 func movement_system(
     dt: f32,
     query: Query[Transform, Velocity]
-) on device(npu) {
+) on device(npu) do
     query.for_each { |t, v, i|
         t.pos[i] += v.linear[i] * dt
     }
-}
+end
 
 func collision_system(
     query: Query[Transform, Collider]
-) on device(npu) {
+) on device(npu) do
     // Broad phase on NPU
     let pairs = collision_broad_phase(query)
-    
+
     // Narrow phase
-    for (a, b) in pairs {
-        if collision_narrow_phase(query[a], query[b]) {
+    for (a, b) in pairs do
+        if collision_narrow_phase(query[a], query[b]) do
             send Entity(a), .Collision(b)
             send Entity(b), .Collision(a)
-        }
-    }
-}
+        end
+    end
+end
 
 // THE ENGINE (Main Loop)
-func main(ctx: Context) {
+func main(ctx: Context) do
     let world = World.new(ctx.allocator)
-    
+
     // Spawn guards
-    for i in 0..10 {
+    for i in 0..10 do
         let guard = world.spawn_entity("guard_prefab")
         Guard(guard).activate()  // Virtual actor starts
-    }
-    
+    end
+
     // Game loop
-    loop {
+    loop do
         let dt = timer.delta()
-        
+
         // 1. Process intents from actors
         IntentStream.flush(world)
-        
+
         // 2. Run physics (NPU)
         movement_system(dt, world.query())
         collision_system(world.query())
-        
+
         // 3. Tick actors (logic)
-        for guard_id in world.guards() {
+        for guard_id in world.guards() do
             Guard(guard_id).tick(dt)
-        }
-        
+        end
+
         // 4. Render (GPU)
         renderer.draw(world)
-        
+
         // Hot reload check
-        if hot_reload.pending() {
+        if hot_reload.pending() do
             // Only actors reload - physics keeps running
             hot_reload.apply_actors()
-        }
-    }
-}
+        end
+    end
+end
 ```
 
 ---

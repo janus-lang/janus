@@ -336,7 +336,7 @@ pub const TypeSystem = struct {
                 .tensor => |t| {
                     self.allocator.free(t.dims);
                 },
-                .allocator => |_| {
+                .allocator => {
                     // No cleanup needed
                 },
                 .context_bound => |ctx_info| {
@@ -389,7 +389,7 @@ pub const TypeSystem = struct {
         is_async: bool, // :service profile - async function flag
     ) !TypeId {
         // Always allocate parameter types first to ensure consistent hashing
-        var param_list = ArrayList(TypeId).init(self.allocator);
+        var param_list: ArrayList(TypeId) = ArrayList(TypeId).init(self.allocator);
         defer param_list.deinit();
         try param_list.appendSlice(parameter_types);
         const owned_params = try param_list.toOwnedSlice();

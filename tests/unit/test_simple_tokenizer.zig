@@ -20,5 +20,4 @@ test "Simple Tokenizer Test" {
     const token2 = try tokenizer.nextToken();
     try testing.expect(token2.type == .identifier);
 
-    std.debug.print("Tokenizer working correctly!\n", .{});
 }

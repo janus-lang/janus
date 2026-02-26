@@ -10,6 +10,8 @@
 //! - Linking with proper object file ordering
 
 const std = @import("std");
+const testing = std.testing;
+const io = testing.io;
 
 /// Compile the Janus runtime and context switch assembly to a temp directory.
 /// Returns paths to the object files that must be linked.
@@ -38,8 +40,7 @@ pub fn compileRuntime(allocator: std.mem.Allocator, output_dir: []const u8) !Run
     const rt_emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{rt_obj_path});
     defer allocator.free(rt_emit_arg);
 
-    const zig_build_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const zig_build_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "zig",
             "build-obj",
@@ -51,8 +52,7 @@ pub fn compileRuntime(allocator: std.mem.Allocator, output_dir: []const u8) !Run
     defer allocator.free(zig_build_result.stdout);
     defer allocator.free(zig_build_result.stderr);
 
-    if (zig_build_result.term.Exited != 0) {
-        std.debug.print("RUNTIME COMPILATION FAILED:\n{s}\n", .{zig_build_result.stderr});
+    if (zig_build_result.term.exited != 0) {
         return error.RuntimeCompilationFailed;
     }
 
@@ -60,8 +60,7 @@ pub fn compileRuntime(allocator: std.mem.Allocator, output_dir: []const u8) !Run
     const asm_emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{asm_obj_path});
     defer allocator.free(asm_emit_arg);
 
-    const asm_build_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const asm_build_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "zig",
             "build-obj",
@@ -72,8 +71,7 @@ pub fn compileRuntime(allocator: std.mem.Allocator, output_dir: []const u8) !Run
     defer allocator.free(asm_build_result.stdout);
     defer allocator.free(asm_build_result.stderr);
 
-    if (asm_build_result.term.Exited != 0) {
-        std.debug.print("ASSEMBLY COMPILATION FAILED:\n{s}\n", .{asm_build_result.stderr});
+    if (asm_build_result.term.exited != 0) {
         return error.AssemblyCompilationFailed;
     }
 
@@ -91,8 +89,7 @@ pub fn linkWithRuntime(
     runtime_objs: RuntimeObjects,
     output_exe: []const u8,
 ) !void {
-    const link_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const link_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "cc",
             main_obj,
@@ -105,8 +102,7 @@ pub fn linkWithRuntime(
     defer allocator.free(link_result.stdout);
     defer allocator.free(link_result.stderr);
 
-    if (link_result.term.Exited != 0) {
-        std.debug.print("LINK FAILED:\n{s}\n", .{link_result.stderr});
+    if (link_result.term.exited != 0) {
         return error.LinkFailed;
     }
 }
@@ -117,14 +113,13 @@ pub fn executeProgram(allocator: std.mem.Allocator, exe_path: []const u8) !struc
     stderr: []const u8,
     exit_code: u8,
 } {
-    const result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{exe_path},
     });
 
     return .{
         .stdout = result.stdout,
         .stderr = result.stderr,
-        .exit_code = if (result.term == .Exited) result.term.Exited else 255,
+        .exit_code = if (result.term == .exited) result.term.exited else 255,
     };
 }

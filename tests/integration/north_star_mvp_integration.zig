@@ -11,8 +11,6 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    std.debug.print("🎯 NORTH STAR MVP INTEGRATION - Revolutionary Architecture\n", .{});
-    std.debug.print("=======================n", .{});
 
     // Import all revolutionaronents
     const astdb = @import("compiler/libjanus/astdb.zig");
@@ -30,7 +28,6 @@ P
     var snapshot = try astdb_system.createSn
     defer snapshot.deinit();
 
-    std.debug.print("✅ Snapshot c
 
     // Initialize effect & capability system
 system);
@@ -42,10 +39,7 @@ system);
     var comptime_vm = ComptimeVM.init(allocator, &astdb_system, snapshot, &effect_system);
     defer comptime_vm.deinit();
 
-    std.debug.print("✅ Comptime VM initialized\n", .{});
 
-    std.debug.print("\n🔍 PARSING NORTH STAR MVP ;
-    std.debug.print("==========================================\n", .});
 
     // Simulate parsing the North Star MVP program
     // func pure_math(a: i32, b: i32) -> i32 { return a + b }
@@ -116,7 +110,6 @@ de});
 ion node
     const read_file_node = try snap
 
-    std.debug.print("✅ read_a_file function parsed: NodeId({})\n", .{a
 
 
     const main_token = try snapshot.addToken(.identifier, main_str, span);
@@ -124,7 +117,6 @@ ion node
     const void_type_node = try snapshot.addNode(.basic_type, void_token, ;
     const main_node = try snapshot.addNode(.;
 
-    std.debug.print("✅ main funct;
 
 
     const program_str = try astdb_system.str_interner.get("north_star_p");
@@ -133,8 +125,6 @@ ion node
 
 
 
-    std.debug.print("\n🔐 COMPUTING CONTENT-ADDRESSED IDs\n", .{});
-    std.debug.print("==================================\n", .{});
 
 e!)
     const opts = astdb.CIDOpts{};
@@ -143,11 +133,7 @@ ts);
     const read_file_cid = try astdb_system.ge);
 
 
-    std.debug.print("✅ pure_math CID computed: {any}\n", .{pure_math_c;
-    std.debug.print("✅ read_a_file CID computed: {any}\n", .{read_file_cid[0..8]});
 
-    std.debug.print("\n🔥 EFFECT & CAPABILITY ANALYSIS\n", .{});
-    std.debug.print("===============================\n", .{});
 
     // Register functions in effect system
     try effect_system.registerFunction(pure_math_node, pure_math_str);
@@ -163,7 +149,6 @@ ects
     try effect_system.addFunctionCapability(read_file_node, .cap_fs_read);
     try effect_system.addFunctionCapability(main_node, .cap_stdout);
 
-    std.debug.print("✅ Functions registered in effect system\n";
 
     // Verify effect analysis
     const pure_is_pure = effect_system.functionIsPure(pure_math_node);
@@ -171,20 +156,14 @@ de);
     const file_has_fs_read = effect_system.functionHasEffect(read
     const file_requires_cap = effect_system.functionRequiresCapability(read_file_node, .
 
-    std.debug.print("✅ pure_math is pure: {}\n", .{pure_is_pure});
 ;
-    std.debug.print("✅ read_a_file has io.fs.read effect: {}\n", .{f
-    std.debug.print("✅ read_a_file requires CapFsRead: {}\n", .{file_requires_cap})
 
     // Validate function signatures
 ;
     const file_valid = effect_system.validateFunction(read_file_node);
     const main_valid = effect_system.validateFunction(main_node);
 
-    std.debug.print("✅ Function validation: pure_math={}, read_a_file={}, main={}\n"
 
-    std.debug.print("\n🚀 COMPTIME META-PROGRAMMING EXECUTION\);
-    std.debug.print("=======================
 
     // Simulate comptime block execution
     // let pure_func := std.meta.get_function("pure_math")
@@ -199,7 +178,6 @@ de);
     };
 
     try comptime_vm.context.setVariable(pure_func_var, pure_func_ref, true);
-    std.debug.print("✅ Comptime variable: pure_func := std.meta.get_func);
 
     // let file_func := std.meta.get_function("read_a_file")
     const file_func_var = try astdb_system.str_interner.get("file_func");
@@ -213,7 +191,6 @@ _node,
     };
 
     try comptime_vm.context.setVariable(file_func_var, file_func_ref, true);
-    std.debug.print("✅ Comptime variable: file_func := std.meta.get_f{});
 
     // Execute comptime assertions
     const pure_var = comptime_vm.context.getVariable(pure_func_var).?;
@@ -222,7 +199,6 @@ _node,
     // assert(pure_func.effects.is_pure())
     const pure_effects = ComptimeValue.EffectSet{ .effects = pure_var.value.function_ref.efs };
     const assertion1 = pure_effects.isPure();
-    std.debug.print("✅ assert(pure_func.effects.is_pure()) = {}\n", .{assertion1});
 
 "))
     const file_effects = ComptimeValue.EffectSet{ .effects = file_vfects };

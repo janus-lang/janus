@@ -3,6 +3,8 @@
 
 const std = @import("std");
 
+extern "c" fn getenv(name: [*:0]const u8) ?[*:0]const u8;
+
 pub const Principal = struct {
     id: []const u8,
     capabilities: []const []const u8,
@@ -27,12 +29,8 @@ pub fn envResolver() TokenResolver {
         .ctx = null,
         .resolveFn = struct {
             fn resolve(_: ?*anyopaque, token: []const u8, allocator: std.mem.Allocator) ResolveError!Principal {
-                const expect = std.process.getEnvVarOwned(allocator, "JANUS_API_KEY") catch |e| switch (e) {
-                    error.EnvironmentVariableNotFound => return error.UnknownToken,
-                    error.InvalidWtf8 => return error.InvalidToken,
-                    else => return error.InvalidToken,
-                };
-                defer allocator.free(expect);
+                const expect_ptr = getenv("JANUS_API_KEY") orelse return error.UnknownToken;
+                const expect = std.mem.sliceTo(expect_ptr, 0);
                 if (!std.mem.eql(u8, expect, token)) return error.UnknownToken;
 
                 const pid = try allocator.dupe(u8, "env:default");

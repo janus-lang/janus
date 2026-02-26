@@ -90,8 +90,8 @@ pub const ParserDispatchIntegration = struct {
     pub fn validateFamilies(self: *const ParserDispatchIntegration) !ValidationResult {
         var result = ValidationResult{
             .is_valid = true,
-            .conflicts = std.ArrayList(ConflictInfo).init(self.allocator),
-            .ambiguities = std.ArrayList(AmbiguityInfo).init(self.allocator),
+            .conflicts = .empty,
+            .ambiguities = .empty,
         };
 
         // Validate registry

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 const HashMap = std.HashMap;
@@ -101,7 +102,7 @@ pub const OptimizedDispatchTable = struct {
 
         pub fn lookup(self: *DecisionTreeNode, arg_types: []const TypeId) ?*const SignatureAnalyzer.Implementation {
             self.access_count += 1;
-            self.last_access_time = @intCast(std.time.timestamp());
+            self.last_access_time = @intCast(compat_time.timestamp());
 
             if (self.is_leaf) {
                 return self.implementation;
@@ -245,33 +246,33 @@ pub const OptimizedDispatchTable = struct {
         };
 
         // Benchmark linear search
-        const linear_start = std.time.nanoTimestamp();
+        const linear_start = compat_time.nanoTimestamp();
         for (0..iterations) |_| {
             for (test_cases) |args| {
                 _ = self.linearSearchLookup(args);
             }
         }
-        results.linear_search_ns = @intCast(std.time.nanoTimestamp() - linear_start);
+        results.linear_search_ns = @intCast(compat_time.nanoTimestamp() - linear_start);
 
         // Benchmark decision tree (if available)
         if (self.decision_tree != null) {
-            const tree_start = std.time.nanoTimestamp();
+            const tree_start = compat_time.nanoTimestamp();
             for (0..iterations) |_| {
                 for (test_cases) |args| {
                     _ = self.lookup(args);
                 }
             }
-            results.decision_tree_ns = @intCast(std.time.nanoTimestamp() - tree_start);
+            results.decision_tree_ns = @intCast(compat_time.nanoTimestamp() - tree_start);
         }
 
         // Benchmark compressed pattern matching
-        const pattern_start = std.time.nanoTimestamp();
+        const pattern_start = compat_time.nanoTimestamp();
         for (0..iterations) |_| {
             for (test_cases) |args| {
                 _ = self.compressedPatternLookup(args);
             }
         }
-        results.compressed_pattern_ns = @intCast(std.time.nanoTimestamp() - pattern_start);
+        results.compressed_pattern_ns = @intCast(compat_time.nanoTimestamp() - pattern_start);
 
         return results;
     }
@@ -376,8 +377,8 @@ pub const OptimizedDispatchTable = struct {
         const best_discriminator = self.findBestDiscriminator(entries);
 
         // Split entries based on discriminator
-        var left_entries = ArrayList(DispatchEntry).init(self.allocator);
-        var right_entries = ArrayList(DispatchEntry).init(self.allocator);
+        var left_entries: ArrayList(DispatchEntry) = .empty;
+        var right_entries: ArrayList(DispatchEntry) = .empty;
         defer left_entries.deinit();
         defer right_entries.deinit();
 
@@ -636,7 +637,7 @@ pub const DispatchMemoryProfiler = struct {
     pub fn init(allocator: Allocator) Self {
         return Self{
             .allocator = allocator,
-            .tables = ArrayList(*OptimizedDispatchTable).init(allocator),
+            .tables = .empty,
             .total_memory_used = 0,
             .peak_memory_used = 0,
             .allocation_count = 0,
@@ -1008,7 +1009,7 @@ test "DispatchMemoryProfiler functionality" {
     try testing.expect(profiler.total_memory_used > 0);
 
     // Test report generation
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit();
 
     try profiler.generateReport(buffer.writer());

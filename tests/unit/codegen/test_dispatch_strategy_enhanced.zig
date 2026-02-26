@@ -64,7 +64,6 @@ test "Enhanced Strategy Selection - Performance Profiling" {
     try testing.expect(decision.confidence_score > 0.0);
     try testing.expect(decision.alternatives_considered.len > 0);
 
-    std.debug.print("✅ Selected strategy: {} with confidence: {d:.2}\n", .{ strategy, decision.confidence_score });
 }
 
 test "Strategy Effectiveness Recording and Learning" {
@@ -115,7 +114,6 @@ test "Strategy Effectiveness Recording and Learning" {
     const switch_score = switch_effectiveness.calculateScore();
     try testing.expect(static_score > switch_score);
 
-    std.debug.print("✅ Static effectiveness: {d:.2}, Switch effectiveness: {d:.2}\n", .{ static_score, switch_score });
 }
 
 test "Fallback Mechanism - Strategy Failure Recovery" {
@@ -149,7 +147,6 @@ test "Fallback Mechanism - Strategy Failure Recovery" {
     const fallback4 = try selector.createFallbackStrategy(.InlineCache, test_site);
     try testing.expect(fallback4 == .SwitchTable); // Cycles back
 
-    std.debug.print("✅ Fallback chain: PerfectHash -> {} -> {} -> {} -> {}\n", .{ fallback1, fallback2, fallback3, fallback4 });
 }
 
 test "Strategy Selection Statistics and Analysis" {
@@ -175,7 +172,6 @@ test "Strategy Selection Statistics and Analysis" {
     try testing.expect(stats.average_confidence > 0.0);
 
     // Print statistics for verification
-    std.debug.print("✅ Strategy Selection Statistics:\n", .{});
     stats.print();
 }
 
@@ -203,5 +199,4 @@ test "Performance Profile Analysis" {
     const opt_potential = profile.optimizationPotential();
     try testing.expect(opt_potential > 0.0);
 
-    std.debug.print("✅ Performance profile - Frequency: {d:.1}, Args: {}, Optimization Potential: {d:.2}\n", .{ profile.call_frequency, profile.argument_count, opt_potential });
 }

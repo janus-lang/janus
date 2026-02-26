@@ -13,6 +13,30 @@
 // The engine selection is based on profile and execution mode, not IR structure.
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+
+/// Zig 0.16 compat: read entire file by path using POSIX openat + statx + read.
+/// Replaces removed compat_fs.readFileAlloc().
+fn readFileFromPath(allocator: std.mem.Allocator, path: []const u8, max_bytes: usize) ![]u8 {
+    const fd = try std.posix.openat(std.posix.AT.FDCWD, path, .{}, 0);
+    defer _ = std.os.linux.close(fd);
+    var stx: std.os.linux.Statx = undefined;
+    if (std.os.linux.statx(fd, "", 0x1000, std.os.linux.STATX.BASIC_STATS, &stx) != 0)
+        return error.FileNotFound;
+    const size: usize = @intCast(stx.size);
+    if (size > max_bytes) return error.FileTooBig;
+    const buf = try allocator.alloc(u8, size);
+    errdefer allocator.free(buf);
+    var total: usize = 0;
+    while (total < size) {
+        const rc = std.os.linux.read(fd, buf[total..].ptr, size - total);
+        const signed: isize = @bitCast(rc);
+        if (signed <= 0) break;
+        total += rc;
+    }
+    return buf[0..total];
+}
+const compat_time = @import("compat_time");
 const janus_lib = @import("janus_lib");
 const janus_parser = janus_lib.parser;
 const qtjir = @import("qtjir");
@@ -128,18 +152,14 @@ pub const JitRunner = struct {
     /// Execute a Janus source file using JIT compilation
     pub fn run(self: *JitRunner) RunError!ExecutionResult {
         const allocator = self.allocator;
-        const timer_start = std.time.nanoTimestamp();
+        const timer_start = compat_time.nanoTimestamp();
 
         // ========== STAGE 1: READ SOURCE ==========
         if (self.options.verbose) {
             std.debug.print("[JIT] Reading source: {s}\n", .{self.options.source_path});
         }
 
-        const source = std.fs.cwd().readFileAlloc(
-            allocator,
-            self.options.source_path,
-            10 * 1024 * 1024, // 10MB max
-        ) catch |err| switch (err) {
+        const source = readFileFromPath(allocator, self.options.source_path, 10 * 1024 * 1024) catch |err| switch (err) {
             error.FileNotFound => return RunError.FileNotFound,
             else => return RunError.InvalidSource,
         };
@@ -238,7 +258,7 @@ pub const JitRunner = struct {
             return RunError.JitCompilationFailed;
         }
 
-        const timer_end = std.time.nanoTimestamp();
+        const timer_end = compat_time.nanoTimestamp();
         const execution_time = @as(u64, @intCast(timer_end - timer_start));
 
         if (self.options.verbose) {
@@ -269,13 +289,13 @@ pub const JitRunner = struct {
     /// Execute all verified tests in the source file
     pub fn runTests(self: *JitRunner) RunError!TestSuiteResult {
         const allocator = self.allocator;
-        const timer_suite_start = std.time.nanoTimestamp();
+        const timer_suite_start = compat_time.nanoTimestamp();
 
         // ========== STAGE 1 & 2: COMPILE ==========
         // (Similar to run(), but we keep the graphs)
         if (self.options.verbose) std.debug.print("[JIT] Compiling tests: {s}\n", .{self.options.source_path});
 
-        const source = std.fs.cwd().readFileAlloc(allocator, self.options.source_path, 1_000_000) catch |err| {
+        const source = readFileFromPath(allocator, self.options.source_path, 1_000_000) catch |err| {
             if (err == error.FileNotFound) return RunError.FileNotFound;
             return RunError.ExecutionFailed;
         };
@@ -344,9 +364,9 @@ pub const JitRunner = struct {
                 const test_name = graph.function_name[5..]; // Skip "test:"
                 if (self.options.verbose) std.debug.print("[TEST] Running: {s}\n", .{test_name});
 
-                const t_start = std.time.nanoTimestamp();
+                const t_start = compat_time.nanoTimestamp();
                 const res = interp.run(qtjir.QTJIRGraph, graph.function_name);
-                const t_end = std.time.nanoTimestamp();
+                const t_end = compat_time.nanoTimestamp();
 
                 const passed = (res.exit_code == 0);
                 if (passed) passed_count += 1 else failed_count += 1;
@@ -368,7 +388,7 @@ pub const JitRunner = struct {
             }
         }
 
-        const suite_duration = @as(u64, @intCast(std.time.nanoTimestamp() - timer_suite_start));
+        const suite_duration = @as(u64, @intCast(compat_time.nanoTimestamp() - timer_suite_start));
 
         return TestSuiteResult{
             .passed = passed_count,

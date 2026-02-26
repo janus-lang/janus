@@ -35,9 +35,7 @@ test "parser must create proper parameter nodes for function declarations" {
     try testing.expect(unit.nodes.len > 0);
 
     // Debug: Print all nodes in the unit
-    std.debug.print("DEBUG: unit has {} nodes\n", .{unit.nodes.len});
     for (unit.nodes, 0..) |node, i| {
-        std.debug.print("DEBUG: nodes[{}] = {s}\n", .{ i, @tagName(node.kind) });
     }
 
     // SPECIFICATION: Source file should be the last node (root)
@@ -53,7 +51,6 @@ test "parser must create proper parameter nodes for function declarations" {
 
     // SPECIFICATION: Function node MUST have child nodes for parameters
     // This is the critical failure point - current parser sets child_hi = child_lo = 0
-    std.debug.print("DEBUG: func_node.child_lo={}, child_hi={}\n", .{ func_node.child_lo, func_node.child_hi });
     try testing.expect(func_node.child_hi > func_node.child_lo); // WILL FAIL - no children created
 
     // SPECIFICATION: Must have exactly 2 parameter child nodes
@@ -96,9 +93,7 @@ test "parser must parse let statement with type annotation and integer literal" 
     try testing.expect(unit.nodes.len > 0);
 
     // Debug: Print all nodes in the unit
-    std.debug.print("DEBUG: let statement unit has {} nodes\n", .{unit.nodes.len});
     for (unit.nodes, 0..) |node, i| {
-        std.debug.print("DEBUG: nodes[{}] = {s}\n", .{ i, @tagName(node.kind) });
     }
 
     // SPECIFICATION: Must have a let_stmt node

@@ -21,9 +21,7 @@ test "Minimal ASTDB Test" {
     var snapshot = astdb_system.createSnapshot();
     defer snapshot.deinit();
 
-    std.debug.print("✅ ASTDB system created successfully\n", .{});
 
     // Test basic functionality
     const stats = astdb_system.getStats();
-    std.debug.print("📊 ASTDB Stats: interned_strings={}, cached_cids={}\n", .{ stats.interned_strings, stats.cached_cids });
 }

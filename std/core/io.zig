@@ -98,7 +98,7 @@ pub fn input(allocator: std.mem.Allocator, prompt: ?[]const u8) ![]u8 {
     var buffer: [4096]u8 = undefined;
     const reader = stdin.reader(&buffer);
 
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .empty;
     errdefer result.deinit();
 
     while (true) {
@@ -111,7 +111,7 @@ pub fn input(allocator: std.mem.Allocator, prompt: ?[]const u8) ![]u8 {
         try result.append(byte);
     }
 
-    return result.toOwnedSlice();
+    return try result.toOwnedSlice(alloc);
 }
 
 /// Read a line from stdin without prompt (simpler signature)

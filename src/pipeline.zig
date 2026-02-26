@@ -15,10 +15,34 @@
 // 5. Link: Object File + Runtime → Executable
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const janus_lib = @import("janus_lib");
 const janus_parser = janus_lib.parser;
 const qtjir = @import("qtjir");
 const astdb_core = @import("astdb_core");
+
+/// Result from running a child process (compat shim for 0.16 Io-based API).
+const CmdResult = struct {
+    term: Term,
+    stdout: []u8,
+    stderr: []u8,
+
+    const Term = union(enum) { Exited: u8, other };
+};
+
+/// Run a command using 0.16's Io-threaded process API.
+fn runCmd(allocator: std.mem.Allocator, io: std.Io, argv: []const []const u8) !CmdResult {
+    const result = try std.process.run(allocator, io, .{ .argv = argv });
+    const exit_code: u8 = switch (result.term) {
+        .exited => |code| code,
+        else => 255,
+    };
+    return CmdResult{
+        .term = .{ .Exited = exit_code },
+        .stdout = result.stdout,
+        .stderr = result.stderr,
+    };
+}
 
 /// Embedded Zig runtime source - Maximum Sovereignty
 /// The compiler is self-contained and carries its own pure Zig runtime.
@@ -48,6 +72,9 @@ pub const CompileOptions = struct {
     /// Path to runtime directory containing janus_rt.zig and scheduler/
     /// If null, attempts to use embedded source (deprecated, won't work with scheduler)
     runtime_dir: ?[]const u8 = null,
+    /// IO handle for subprocess spawning. Required in test context where
+    /// global_single_threaded is not initialized. Defaults to global IO.
+    io: ?std.Io = null,
 };
 
 /// Compilation error types
@@ -78,13 +105,14 @@ pub const Pipeline = struct {
     /// Execute the full compilation pipeline
     pub fn compile(self: *Pipeline) !CompilationResult {
         const allocator = self.allocator;
+        const io = self.options.io orelse std.Io.Threaded.global_single_threaded.io();
 
         // ========== STAGE 1: READ SOURCE ==========
         if (self.options.verbose) {
             std.debug.print("Reading source: {s}\n", .{self.options.source_path});
         }
 
-        const source = std.fs.cwd().readFileAlloc(
+        const source = compat_fs.readFileAlloc(
             allocator,
             self.options.source_path,
             10 * 1024 * 1024, // 10MB max
@@ -147,6 +175,72 @@ pub const Pipeline = struct {
         // Set extern registry for native Zig function resolution
         emitter.setExternRegistry(&lowering_result.extern_registry);
 
+        // SPEC-025 Phase C Sprint 3: build vtable specs from trait metadata
+        var vtable_specs_buf = std.ArrayListUnmanaged(qtjir.llvm_emitter.LLVMEmitter.VtableSpec){};
+        defer vtable_specs_buf.deinit(allocator);
+        var vtable_method_lists = std.ArrayListUnmanaged([]const []const u8){};
+        defer {
+            for (vtable_method_lists.items) |list| allocator.free(list);
+            vtable_method_lists.deinit(allocator);
+        }
+        var vtable_keys = std.ArrayListUnmanaged([]u8){};
+        defer {
+            for (vtable_keys.items) |k| allocator.free(k);
+            vtable_keys.deinit(allocator);
+        }
+
+        if (lowering_result.trait_meta) |meta| {
+            for (meta.impls.items) |impl_entry| {
+                const trait_name = impl_entry.trait_name orelse continue;
+                const trait_def = meta.traits.get(trait_name) orelse continue;
+
+                // Build ordered method list following trait method order
+                const methods = allocator.alloc([]const u8, trait_def.methods.items.len) catch continue;
+                var valid = true;
+                for (trait_def.methods.items, 0..) |trait_method, i| {
+                    var found: ?[]const u8 = null;
+                    for (impl_entry.methods.items) |m| {
+                        if (std.mem.eql(u8, m.name, trait_method.name)) {
+                            found = m.qualified_name;
+                            break;
+                        }
+                    }
+                    if (found) |qn| {
+                        methods[i] = qn;
+                    } else {
+                        valid = false;
+                        break;
+                    }
+                }
+
+                if (!valid) {
+                    allocator.free(methods);
+                    continue;
+                }
+
+                // Use pre-computed vtable key from ImplEntry
+                const pre_key = impl_entry.vtable_key orelse continue;
+                const key = allocator.dupe(u8, pre_key) catch continue;
+                vtable_keys.append(allocator, key) catch {
+                    allocator.free(key);
+                    allocator.free(methods);
+                    continue;
+                };
+                vtable_method_lists.append(allocator, methods) catch {
+                    allocator.free(methods);
+                    continue;
+                };
+                vtable_specs_buf.append(allocator, .{
+                    .key = key,
+                    .method_qualified_names = methods,
+                }) catch continue;
+            }
+        }
+
+        if (vtable_specs_buf.items.len > 0) {
+            emitter.setVtableSpecs(vtable_specs_buf.items);
+        }
+
         emitter.emit(lowering_result.graphs.items) catch |err| {
             std.debug.print("LLVM emit error: {s}\n", .{@errorName(err)});
             return CompileError.EmitFailed;
@@ -160,17 +254,17 @@ pub const Pipeline = struct {
 
         // ========== STAGE 5: COMPILE LLVM IR → OBJECT FILE ==========
         // Create temporary directory for intermediate files
-        var tmp_dir = std.testing.tmpDir(.{});
-        defer tmp_dir.cleanup();
-
-        const tmp_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+        const pid = std.os.linux.getpid();
+        const tmp_path = try std.fmt.allocPrint(allocator, "/tmp/janus-compile-{d}", .{pid});
         defer allocator.free(tmp_path);
+        compat_fs.makeDir(tmp_path) catch {}; // ignore if exists
+        defer compat_fs.deleteTree(tmp_path) catch {};
 
         // Write LLVM IR to file
         const ir_file_path = try std.fs.path.join(allocator, &[_][]const u8{ tmp_path, "output.ll" });
         defer allocator.free(ir_file_path);
 
-        try tmp_dir.dir.writeFile(.{ .sub_path = "output.ll", .data = llvm_ir });
+        try compat_fs.writeFile(ir_file_path, llvm_ir);
 
         if (self.options.verbose) {
             std.debug.print("Compiling LLVM IR to object file...\n", .{});
@@ -180,15 +274,12 @@ pub const Pipeline = struct {
         const obj_file_path = try std.fs.path.join(allocator, &[_][]const u8{ tmp_path, "output.o" });
         defer allocator.free(obj_file_path);
 
-        const llc_result = try std.process.Child.run(.{
-            .allocator = allocator,
-            .argv = &[_][]const u8{
-                "llc",
-                "-filetype=obj",
-                ir_file_path,
-                "-o",
-                obj_file_path,
-            },
+        const llc_result = try runCmd(allocator, io, &[_][]const u8{
+            "llc",
+            "-filetype=obj",
+            ir_file_path,
+            "-o",
+            obj_file_path,
         });
         defer allocator.free(llc_result.stdout);
         defer allocator.free(llc_result.stderr);
@@ -225,7 +316,7 @@ pub const Pipeline = struct {
             // Fallback: write embedded source to temp (won't work with scheduler)
             const path = try std.fs.path.join(allocator, &[_][]const u8{ tmp_path, "janus_rt.zig" });
             runtime_source_path_owned = path;
-            try tmp_dir.dir.writeFile(.{ .sub_path = "janus_rt.zig", .data = RUNTIME_SOURCE_ZIG });
+            try compat_fs.writeFile(path, RUNTIME_SOURCE_ZIG);
             break :blk path;
         };
 
@@ -233,18 +324,15 @@ pub const Pipeline = struct {
         const emit_bin_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{runtime_obj_path});
         defer allocator.free(emit_bin_arg);
 
-        const zig_compile_result = try std.process.Child.run(.{
-            .allocator = allocator,
-            .argv = &[_][]const u8{
-                "zig",
-                "build-obj",
-                runtime_source_path,
-                "-O",
-                "ReleaseSafe",
-                "-fno-stack-check", // Disable stack probing to avoid __zig_probe_stack dependency
-                "-lc", // Link libc for malloc/free
-                emit_bin_arg,
-            },
+        const zig_compile_result = try runCmd(allocator, io, &[_][]const u8{
+            "zig",
+            "build-obj",
+            runtime_source_path,
+            "-O",
+            "ReleaseSafe",
+            "-fno-stack-check",
+            "-lc",
+            emit_bin_arg,
         });
         defer allocator.free(zig_compile_result.stdout);
         defer allocator.free(zig_compile_result.stderr);
@@ -269,7 +357,7 @@ pub const Pipeline = struct {
             defer allocator.free(asm_source_path);
 
             // Check if assembly file exists
-            std.fs.cwd().access(asm_source_path, .{}) catch {
+            _ = compat_fs.statFile(asm_source_path) catch {
                 // Assembly file not found - scheduler fiber support disabled
                 if (self.options.verbose) {
                     std.debug.print("Note: context_switch.s not found, fiber support disabled\n", .{});
@@ -287,14 +375,11 @@ pub const Pipeline = struct {
                 std.debug.print("Compiling context switch assembly...\n", .{});
             }
 
-            const asm_compile_result = try std.process.Child.run(.{
-                .allocator = allocator,
-                .argv = &[_][]const u8{
-                    "zig",
-                    "build-obj",
-                    asm_source_path,
-                    asm_emit_arg,
-                },
+            const asm_compile_result = try runCmd(allocator, io, &[_][]const u8{
+                "zig",
+                "build-obj",
+                asm_source_path,
+                asm_emit_arg,
             });
             defer allocator.free(asm_compile_result.stdout);
             defer allocator.free(asm_compile_result.stderr);
@@ -342,18 +427,15 @@ pub const Pipeline = struct {
             const module_emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{module_obj_path});
             defer allocator.free(module_emit_arg);
 
-            const module_compile_result = try std.process.Child.run(.{
-                .allocator = allocator,
-                .argv = &[_][]const u8{
-                    "zig",
-                    "build-obj",
-                    zig_path.*,
-                    "-O",
-                    "ReleaseSafe",
-                    "-fno-stack-check",
-                    "-lc",
-                    module_emit_arg,
-                },
+            const module_compile_result = try runCmd(allocator, io, &[_][]const u8{
+                "zig",
+                "build-obj",
+                zig_path.*,
+                "-O",
+                "ReleaseSafe",
+                "-fno-stack-check",
+                "-lc",
+                module_emit_arg,
             });
             defer allocator.free(module_compile_result.stdout);
             defer allocator.free(module_compile_result.stderr);
@@ -404,10 +486,7 @@ pub const Pipeline = struct {
         try link_argv.append(allocator, output_path);
 
         // Link with cc (still needed for startup code)
-        const link_result = try std.process.Child.run(.{
-            .allocator = allocator,
-            .argv = link_argv.items,
-        });
+        const link_result = try runCmd(allocator, io, link_argv.items);
         defer allocator.free(link_result.stdout);
         defer allocator.free(link_result.stderr);
 
@@ -431,7 +510,7 @@ pub const Pipeline = struct {
             const ir_output_path = try std.fmt.allocPrint(allocator, "{s}.ll", .{output_path});
             defer allocator.free(ir_output_path);
 
-            try std.fs.cwd().writeFile(.{ .sub_path = ir_output_path, .data = llvm_ir });
+            try compat_fs.writeFile(ir_output_path, llvm_ir);
             saved_llvm_ir = try allocator.dupe(u8, llvm_ir);
 
             if (self.options.verbose) {

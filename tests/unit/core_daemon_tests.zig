@@ -8,6 +8,7 @@
 //! Tests basic daemon functionality without complex ASTDB integration.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const libjanus = @import("libjanus");
 
@@ -168,7 +169,7 @@ test "Basic performance test" {
     defer daemon.deinit();
 
     const iterations = 100; // Reduced for faster testing
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     var i: u32 = 0;
     while (i < iterations) : (i += 1) {
@@ -183,13 +184,10 @@ test "Basic performance test" {
         try testing.expect(retrieved != null);
     }
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const duration_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
     const ops_per_second = @as(f64, @floatFromInt(iterations * 2)) / (duration_ms / 1000.0); // 2 ops per iteration
 
-    std.debug.print("\nMock Daemon Performance:\n", .{});
-    std.debug.print("  {} operations in {d:.2} ms\n", .{ iterations * 2, duration_ms });
-    std.debug.print("  {d:.0} operations/second\n", .{ops_per_second});
 
     // Basic performance validation
     try testing.expect(ops_per_second > 1000); // Should be fast for simple operations

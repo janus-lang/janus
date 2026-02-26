@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 const HashMap = std.HashMap;
@@ -497,7 +498,7 @@ pub const DispatchProfiler = struct {
         sampling_ratio: f64,
 
         pub fn init(config: ProfilingConfig) ProfilingSession {
-            const start_time = @as(u64, @intCast(std.time.nanoTimestamp()));
+            const start_time = @as(u64, @intCast(compat_time.nanoTimestamp()));
             return ProfilingSession{
                 .session_id = start_time,
                 .start_time = start_time,
@@ -511,7 +512,7 @@ pub const DispatchProfiler = struct {
         }
 
         pub fn end(self: *ProfilingSession) void {
-            self.end_time = @as(u64, @intCast(std.time.nanoTimestamp()));
+            self.end_time = @as(u64, @intCast(compat_time.nanoTimestamp()));
             self.duration = self.end_time - self.start_time;
 
             if (self.calls_profiled > 0) {
@@ -523,7 +524,7 @@ pub const DispatchProfiler = struct {
             self.calls_profiled += 1;
 
             // Simple random sampling based on sample rate
-            const random_value = @as(f64, @floatFromInt(@as(u32, @truncate(std.time.nanoTimestamp())))) / @as(f64, @floatFromInt(std.math.maxInt(u32)));
+            const random_value = @as(f64, @floatFromInt(@as(u32, @truncate(compat_time.nanoTimestamp())))) / @as(f64, @floatFromInt(std.math.maxInt(u32)));
 
             if (random_value < self.config.sample_rate) {
                 self.calls_sampled += 1;
@@ -549,8 +550,8 @@ pub const DispatchProfiler = struct {
             .config = config,
             .call_profiles = HashMap(CallSiteId, CallProfile).init(allocator),
             .signature_profiles = HashMap([]const u8, SignatureProfile).init(allocator),
-            .hot_paths = ArrayList(HotPath).init(allocator),
-            .optimization_opportunities = ArrayList(OptimizationOpportunity).init(allocator),
+            .hot_paths = .empty,
+            .optimization_opportunities = .empty,
             .counters = std.mem.zeroes(PerformanceCounters),
             .current_session = null,
         };
@@ -677,7 +678,7 @@ pub const DispatchProfiler = struct {
         try writer.print("Hot Call Sites:\n");
         try writer.print("---------------\n");
 
-        var hot_call_sites = ArrayList(*CallProfile).init(self.allocator);
+        var hot_call_sites: ArrayList(*CallProfile) = .empty;
         defer hot_call_sites.deinit();
 
         var call_iter = self.call_profiles.iterator();
@@ -804,7 +805,7 @@ pub const DispatchProfiler = struct {
                 if (signature_groups.getPtr(signature)) |group| {
                     try group.append(entry.key_ptr.*);
                 } else {
-                    var new_group = ArrayList(CallSiteId).init(self.allocator);
+                    var new_group: ArrayList(CallSiteId) = .empty;
                     try new_group.append(entry.key_ptr.*);
                     try signature_groups.put(signature, new_group);
                 }

@@ -14,7 +14,7 @@ pub const DependencyTracker = struct {
     current_query: ?context.MemoKey,
     dependencies: std.HashMap(context.MemoKey, DependencySet, MemoKeyContext, std.hash_map.default_max_load_percentage),
     reverse_dependencies: std.HashMap(Dependency, DependencySet, DependencyContext, std.hash_map.default_max_load_percentage),
-    mutex: std.Thread.Mutex,
+    mutex: @import("compat_mutex").Mutex,
 
     const Self = @This();
 
@@ -26,7 +26,7 @@ pub const DependencyTracker = struct {
             .current_query = null,
             .dependencies = std.HashMap(context.MemoKey, DependencySet, MemoKeyContext, std.hash_map.default_max_load_percentage).init(allocator),
             .reverse_dependencies = std.HashMap(Dependency, DependencySet, DependencyContext, std.hash_map.default_max_load_percentage).init(allocator),
-            .mutex = std.Thread.Mutex{},
+            .mutex = @import("compat_mutex").Mutex{},
         };
 
         return self;
@@ -123,7 +123,7 @@ pub const DependencyTracker = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        var invalidated_queries = std.ArrayList(context.MemoKey).init(self.allocator);
+        var invalidated_queries: std.ArrayList(context.MemoKey) = .empty;
         var processed = std.HashMap(context.MemoKey, void, MemoKeyContext, std.hash_map.default_max_load_percentage).init(self.allocator);
         defer processed.deinit();
 

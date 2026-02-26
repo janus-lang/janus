@@ -705,8 +705,8 @@ pub const OptimizationTracer = struct {
             .optimization_strategy = optimization_strategy,
             .start_time = std.time.nanoTimestamp(),
             .end_time = null,
-            .steps = ArrayList(TraceStep).init(self.allocator),
-            .decisions = ArrayList(IRGenerator.OptimizationDecision).init(self.allocator),
+            .steps = .empty,
+            .decisions = .empty,
         };
 
         try self.traces.put(trace_id, trace_record);

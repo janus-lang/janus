@@ -3,8 +3,6 @@ SPDX-License-Identifier: LUL-1.0
 Copyright (c) 2026 Self Sovereign Society Foundation
 -->
 
-**Voxis Forge Signal** ⚡
-
 # 🛡️ SPEC-002: PROFILES SYSTEM (The Time Machine)
 
 **Version:** 2.1.0 (Ratification Standard)
@@ -12,8 +10,9 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 **Authority:** Constitutional
 **Supersedes:** SPEC-002 v2.0.0
 
-This specification defines the **Profile System**, the mechanism that allows Janus to span from "Scripting" to "Systems Programming" without fragmentation.
-A Profile is a **Normative Constraint Set** applied to the compiler.
+## Normative Language (RFC 2119)
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC 2119](https://tools.ietf.org/html/rfc2119).
 
 ---
 

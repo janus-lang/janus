@@ -13,6 +13,7 @@
 //   janus build <source.jan> --verbose
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const pipeline = @import("pipeline.zig");
 
 /// Build command options
@@ -112,7 +113,7 @@ pub fn execute(allocator: std.mem.Allocator, args: []const []const u8) !u8 {
     // Locate runtime directory for scheduler support
     const runtime_dir: ?[]const u8 = std.process.getEnvVarOwned(allocator, "JANUS_RUNTIME_DIR") catch |err| blk: {
         if (err == error.EnvironmentVariableNotFound) {
-            break :blk std.fs.cwd().realpathAlloc(allocator, "runtime") catch null;
+            break :blk compat_fs.realpathAlloc(allocator, "runtime") catch null;
         }
         break :blk null;
     };

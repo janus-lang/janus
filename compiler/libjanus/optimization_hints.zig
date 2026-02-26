@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 const HashMap = std.HashMap;
@@ -224,7 +225,7 @@ pub const OptimizationHintsGenerator = struct {
         return Self{
             .allocator = allocator,
             .config = config,
-            .hints = ArrayList(OptimizationHint).init(allocator),
+            .hints = .empty,
             .stats = HintStats.init(allocator),
         };
     }
@@ -358,7 +359,7 @@ pub const OptimizationHintsGenerator = struct {
 
     /// Get hints by type
     pub fn getHintsByType(self: *const Self, hint_type: OptimizationHint.HintType) []const OptimizationHint {
-        var filtered_hints = ArrayList(OptimizationHint).init(self.allocator);
+        var filtered_hints: ArrayList(OptimizationHint) = .empty;
         defer filtered_hints.deinit();
 
         for (self.hints.items) |hint| {
@@ -367,12 +368,12 @@ pub const OptimizationHintsGenerator = struct {
             }
         }
 
-        return filtered_hints.toOwnedSlice() catch &.{};
+        return try filtered_hints.toOwnedSlice(alloc) catch &.{};
     }
 
     /// Get hints by priority
     pub fn getHintsByPriority(self: *const Self, priority: OptimizationHint.Priority) []const OptimizationHint {
-        var filtered_hints = ArrayList(OptimizationHint).init(self.allocator);
+        var filtered_hints: ArrayList(OptimizationHint) = .empty;
         defer filtered_hints.deinit();
 
         for (self.hints.items) |hint| {
@@ -381,12 +382,12 @@ pub const OptimizationHintsGenerator = struct {
             }
         }
 
-        return filtered_hints.toOwnedSlice() catch &.{};
+        return try filtered_hints.toOwnedSlice(alloc) catch &.{};
     }
 
     /// Get high-confidence hints suitable for automatic optimization
     pub fn getAutomaticOptimizationCandidates(self: *const Self) []const OptimizationHint {
-        var candidates = ArrayList(OptimizationHint).init(self.allocator);
+        var candidates: ArrayList(OptimizationHint) = .empty;
         defer candidates.deinit();
 
         for (self.hints.items) |hint| {
@@ -395,7 +396,7 @@ pub const OptimizationHintsGenerator = struct {
             }
         }
 
-        return candidates.toOwnedSlice() catch &.{};
+        return try candidates.toOwnedSlice(alloc) catch &.{};
     }
 
     /// Generate comprehensive hints report
@@ -476,7 +477,7 @@ pub const OptimizationHintsGenerator = struct {
     // Private hint generation methods
 
     fn generateStaticDispatchHint(self: *Self, profile: *const DispatchProfiler.CallProfile) !void {
-        const hint_id = @as(u64, @intCast(std.time.nanoTimestamp()));
+        const hint_id = @as(u64, @intCast(compat_time.nanoTimestamp()));
         const estimated_speedup = 1.8; // Static dispatch typically 1.5-2x faster
         const optimized_time = @as(u64, @intFromFloat(profile.avg_dispatch_time * 0.1)); // ~90% reduction
 
@@ -518,7 +519,7 @@ pub const OptimizationHintsGenerator = struct {
     }
 
     fn generateInlineCachingHint(self: *Self, profile: *const DispatchProfiler.CallProfile) !void {
-        const hint_id = @as(u64, @intCast(std.time.nanoTimestamp()));
+        const hint_id = @as(u64, @intCast(compat_time.nanoTimestamp()));
         const estimated_speedup = 1.4; // Inline caching typically 1.3-1.5x faster
         const optimized_time = @as(u64, @intFromFloat(profile.avg_dispatch_time * 0.7)); // ~30% reduction
 
@@ -560,7 +561,7 @@ pub const OptimizationHintsGenerator = struct {
     }
 
     fn generateHotPathSpecializationHint(self: *Self, profile: *const DispatchProfiler.CallProfile) !void {
-        const hint_id = @as(u64, @intCast(std.time.nanoTimestamp()));
+        const hint_id = @as(u64, @intCast(compat_time.nanoTimestamp()));
         const estimated_speedup = 2.5; // Hot path specialization can be very effective
         const optimized_time = @as(u64, @intFromFloat(profile.avg_dispatch_time * 0.4)); // ~60% reduction
 
@@ -602,7 +603,7 @@ pub const OptimizationHintsGenerator = struct {
     }
 
     fn generateMonomorphizationHint(self: *Self, profile: *const DispatchProfiler.SignatureProfile) !void {
-        const hint_id = @as(u64, @intCast(std.time.nanoTimestamp()));
+        const hint_id = @as(u64, @intCast(compat_time.nanoTimestamp()));
         const estimated_speedup = 1.6;
 
         const hint = OptimizationHint{
@@ -640,7 +641,7 @@ pub const OptimizationHintsGenerator = struct {
     }
 
     fn generateTableCompressionHint(self: *Self, profile: *const DispatchProfiler.SignatureProfile) !void {
-        const hint_id = @as(u64, @intCast(std.time.nanoTimestamp()));
+        const hint_id = @as(u64, @intCast(compat_time.nanoTimestamp()));
         const estimated_speedup = 1.2;
         const estimated_memory_savings = profile.implementations.count() * 32; // Rough estimate
 
@@ -679,7 +680,7 @@ pub const OptimizationHintsGenerator = struct {
     }
 
     fn generateProfileGuidedOptimizationHint(self: *Self, hot_path: *const DispatchProfiler.HotPath) !void {
-        const hint_id = @as(u64, @intCast(std.time.nanoTimestamp()));
+        const hint_id = @as(u64, @intCast(compat_time.nanoTimestamp()));
         const estimated_speedup = switch (hot_path.optimization_potential) {
             .critical => 3.0,
             .high => 2.2,
@@ -727,7 +728,7 @@ pub const OptimizationHintsGenerator = struct {
     }
 
     fn generateOpportunityHint(self: *Self, opportunity: *const DispatchProfiler.OptimizationOpportunity) !void {
-        const hint_id = @as(u64, @intCast(std.time.nanoTimestamp()));
+        const hint_id = @as(u64, @intCast(compat_time.nanoTimestamp()));
 
         const hint_type: OptimizationHint.HintType = switch (opportunity.type) {
             .static_dispatch => .static_dispatch,

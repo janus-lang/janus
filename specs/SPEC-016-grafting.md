@@ -6,6 +6,11 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 # 🛡️ SPEC-016: GRAFTING - SYNTAX & FLOW (Phase 2)
 
 **Version:** 1.0.0
+
+## Normative Language (RFC 2119)
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC 2119](https://tools.ietf.org/html/rfc2119).
+
 **Status:** **DRAFT**
 **Authority:** Constitutional
 **References:** [SPEC-005: Grammar](SPEC-005-grammar.md), [SPEC-007: ASTDB](SPEC-007-astdb-schema.md)

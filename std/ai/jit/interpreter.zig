@@ -6,6 +6,7 @@
 // Doctrine: Mechanism over Policy - simple interpreter, native codegen layered later
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const janus_context = @import("janus_context");
 
 // =============================================================================
@@ -687,14 +688,14 @@ pub const Interpreter = struct {
             // Check stdout capability if context is set
             if (self.context) |ctx| {
                 if (!ctx.canWriteStdout()) {
-                    const stderr = std.fs.File.stderr();
+                    const stderr = compat_fs.stderr();
                     stderr.writeAll("ERROR: Capability denied: stdout_write (SYNTACTIC HONESTY)\n") catch {};
                     return error.CapabilityDenied;
                 }
             }
 
             const add_newline = std.mem.eql(u8, callee_name, "janus_println");
-            const stdout = std.fs.File.stdout();
+            const stdout = compat_fs.stdout();
 
             // Get the first argument
             if (inputs.items.len > 0) {
@@ -736,7 +737,7 @@ pub const Interpreter = struct {
 
         // janus_panic
         if (std.mem.eql(u8, callee_name, "janus_panic")) {
-            const stderr = std.fs.File.stderr();
+            const stderr = compat_fs.stderr();
             if (inputs.items.len > 0) {
                 // Simplified panic for now
                 stderr.writeAll("PANIC\n") catch {};
@@ -764,7 +765,7 @@ pub const Interpreter = struct {
             // Check fs_read capability
             if (self.context) |ctx| {
                 if (!ctx.canReadFs()) {
-                    const stderr = std.fs.File.stderr();
+                    const stderr = compat_fs.stderr();
                     stderr.writeAll("ERROR: Capability denied: fs_read (SYNTACTIC HONESTY)\n") catch {};
                     return error.CapabilityDenied;
                 }
@@ -789,14 +790,14 @@ pub const Interpreter = struct {
                 // Check path is allowed
                 if (self.context) |ctx| {
                     if (!ctx.isPathAllowed(path)) {
-                        const stderr = std.fs.File.stderr();
+                        const stderr = compat_fs.stderr();
                         stderr.writeAll("ERROR: Path not allowed for filesystem operations\n") catch {};
                         return error.CapabilityDenied;
                     }
                 }
 
                 // Read file
-                const contents = std.fs.cwd().readFileAlloc(
+                const contents = compat_fs.readFileAlloc(
                     self.allocator,
                     path,
                     10 * 1024 * 1024, // 10MB max
@@ -819,7 +820,7 @@ pub const Interpreter = struct {
             // Check fs_write capability
             if (self.context) |ctx| {
                 if (!ctx.canWriteFs()) {
-                    const stderr = std.fs.File.stderr();
+                    const stderr = compat_fs.stderr();
                     stderr.writeAll("ERROR: Capability denied: fs_write (SYNTACTIC HONESTY)\n") catch {};
                     return error.CapabilityDenied;
                 }
@@ -846,14 +847,14 @@ pub const Interpreter = struct {
                 // Check path is allowed
                 if (self.context) |ctx| {
                     if (!ctx.isPathAllowed(path)) {
-                        const stderr = std.fs.File.stderr();
+                        const stderr = compat_fs.stderr();
                         stderr.writeAll("ERROR: Path not allowed for filesystem operations\n") catch {};
                         return error.CapabilityDenied;
                     }
                 }
 
                 // Write file
-                const file = std.fs.cwd().createFile(path, .{}) catch |err| {
+                const file = compat_fs.createFile(path, .{}) catch |err| {
                     if (self.verbose) std.debug.print("File write error: {}\n", .{err});
                     return;
                 };
@@ -939,7 +940,7 @@ pub const Interpreter = struct {
                     .string => |s| s,
                     else => "(null)",
                 };
-                std.fs.File.stdout().writeAll(s) catch {};
+                compat_fs.stdout().writeAll(s) catch {};
             }
             return;
         }

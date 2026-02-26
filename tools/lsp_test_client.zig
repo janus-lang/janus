@@ -8,6 +8,7 @@
 //! a full IDE integration.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const json = std.json;
 const print = std.debug.print;
 
@@ -81,7 +82,7 @@ pub fn main() !void {
     try text_document.object.put("uri", json.Value{ .string = "file://test_fibonacci.jan" });
     try text_document.object.put("version", json.Value{ .integer = 1 });
 
-    var content_changes_arr = std.ArrayList(json.Value).init(allocator);
+    var content_changes_arr: std.ArrayList(json.Value) = .empty;
     const content_changes = json.Value{ .array = content_changes_arr };
 
     var change_map = std.json.ObjectMap.init(allocator);
@@ -125,9 +126,9 @@ pub fn main() !void {
         try hover_params.object.put("textDocument", hover_text_document);
         try hover_params.object.put("position", position);
 
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
         const hover_result = try server.handleHover(hover_params);
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
 
         const duration_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
 
@@ -171,9 +172,9 @@ pub fn main() !void {
         try def_params.object.put("textDocument", def_text_document);
         try def_params.object.put("position", position);
 
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
         const def_result = try server.handleDefinition(def_params);
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
 
         const duration_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
 
@@ -215,9 +216,9 @@ pub fn main() !void {
         try ref_params.object.put("textDocument", ref_text_document);
         try ref_params.object.put("position", position);
 
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
         const ref_result = try server.handleReferences(ref_params);
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
 
         const duration_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
 

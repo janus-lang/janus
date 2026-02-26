@@ -6,6 +6,11 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 # SPEC-018: :core Profile — The Monastery Teaching Language
 
 **Version:** 1.0.0
+
+## Normative Language (RFC 2119)
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC 2119](https://tools.ietf.org/html/rfc2119).
+
 **Status:** CANONICAL (Implementation Status)
 **Authority:** Constitutional
 **Aliases:** `:min`, `:teaching`
@@ -129,7 +134,7 @@ The `:core` profile provides the following primitive types:
 | `i32` | 32-bit | Signed integer | `42`, `-17` |
 | `f64` | 64-bit | Floating point | `3.14`, `-2.5` |
 | `bool` | 1-bit | Boolean | `true`, `false` |
-| `void` | 0 | No return value | `func foo() {}` |
+| `void` | 0 | No return value | `func foo() do end` |
 
 **Note:** Despite some documentation referring to `i64`, the current implementation uses `i32` as the default integer type in std.core modules.
 
@@ -159,13 +164,13 @@ The following are **NOT** available in `:core`:
 [PCORE:4.1.1] Functions MUST have explicit type signatures:
 
 ```janus
-func add(a: i32, b: i32) -> i32 {
+func add(a: i32, b: i32) -> i32 do
     return a + b
-}
+end
 
-func greet(name: String) {
+func greet(name: String) do
     println("Hello!")
-}
+end
 ```
 
 [PCORE:4.1.2] **Extern Functions** (✅ IMPLEMENTED)
@@ -175,9 +180,9 @@ Declare external C-ABI functions without a body:
 ```janus
 extern func janus_print_int(x: i32)
 
-func print_number(x: i32) {
+func print_number(x: i32) do
     janus_print_int(x)
-}
+end
 ```
 
 ### 4.2 Variable Declarations (✅ IMPLEMENTED)
@@ -198,24 +203,24 @@ count = count + 1
 
 [PCORE:4.3.1] **Conditional branching:**
 ```janus
-if x > 0 {
+if x > 0 do
     println("positive")
-} else {
+else do
     println("zero or negative")
-}
+end
 ```
 
 [PCORE:4.3.2] **For loops** (range-based):
 ```janus
 // Inclusive range (0..10 means 0 to 10, inclusive)
-for i in 0..10 {
+for i in 0..10 do
     print_int(i)  // Prints 0,1,2,3,4,5,6,7,8,9,10
-}
+end
 
 // Exclusive range (0..<10 means 0 to 9, excluding 10)
-for i in 0..<10 {
+for i in 0..<10 do
     print_int(i)  // Prints 0,1,2,3,4,5,6,7,8,9
-}
+end
 ```
 
 **Range Operator Semantics:**
@@ -225,21 +230,21 @@ for i in 0..<10 {
 [PCORE:4.3.3] **While loops:**
 ```janus
 var count = 0
-while count < 100 {
+while count < 100 do
     count = count + 1
-}
+end
 ```
 
 [PCORE:4.3.4] **Early exit:**
 ```janus
-while true {
-    if done {
+while true do
+    if done do
         break
-    }
-    if skip {
+    end
+    if skip do
         continue
-    }
-}
+    end
+end
 ```
 
 ### 4.4 Pattern Matching (✅ IMPLEMENTED)
@@ -278,12 +283,12 @@ error DivisionError {
 }
 
 // Function returning error union
-func divide(a: i32, b: i32) -> i32 ! DivisionError {
-    if b == 0 {
+func divide(a: i32, b: i32) -> i32 ! DivisionError do
+    if b == 0 do
         fail DivisionError.DivisionByZero
-    }
+    end
     a / b
-}
+end
 ```
 
 [PCORE:4.6.2] **Error Propagation with `?`**
@@ -291,10 +296,10 @@ func divide(a: i32, b: i32) -> i32 ! DivisionError {
 The `?` operator propagates errors to the caller:
 
 ```janus
-func calculate(x: i32, y: i32) -> i32 ! DivisionError {
+func calculate(x: i32, y: i32) -> i32 ! DivisionError do
     let result = divide(x, y)?  // Propagate error if divide fails
     result * 2
-}
+end
 ```
 
 [PCORE:4.6.3] **Error Handling with `catch`**
@@ -302,13 +307,13 @@ func calculate(x: i32, y: i32) -> i32 ! DivisionError {
 The `catch` expression handles errors locally:
 
 ```janus
-func safe_divide(a: i32, b: i32) -> i32 {
-    let result = divide(a, b) catch err {
+func safe_divide(a: i32, b: i32) -> i32 do
+    let result = divide(a, b) catch |err| do
         println("Error occurred")
         return 0
-    }
+    end
     result
-}
+end
 ```
 
 [PCORE:4.6.4] **Semantics**
@@ -388,7 +393,7 @@ Janus provides comprehensive string operations through `std/core/string_ops.zig`
 ```janus
 use zig "std/core/string_ops.zig"
 
-func main() {
+func main() do
     // String comparison
     let eq = str_equals("hello", 5, "hello", 5)  // Returns 1 (true)
 
@@ -401,7 +406,7 @@ func main() {
 
     // Case conversion (buffer-based)
     let result_len = str_to_upper("hello", 5, buffer_ptr, buffer_len)
-}
+end
 ```
 
 **Available Operations:**
@@ -432,15 +437,15 @@ use zig "std/mem"
 use zig "std/ArrayList"
 use zig "std/HashMap"
 
-func main() {
+func main() do
     // Direct access to Zig's battle-tested stdlib!
     var list = zig.ArrayList(i32).init(zig.std.heap.page_allocator)
     defer list.deinit()
 
-    list.append(42) catch |err| {
+    list.append(42) catch |err| do
         zig.std.debug.print("Error: {}", .{err})
-    }
-}
+    end
+end
 ```
 
 **Impact:** This instantly gives `:core` access to:
@@ -565,9 +570,9 @@ The following end-to-end tests demonstrate working `:core` features:
 ### 9.1 Hello World (✅ WORKING)
 
 ```janus
-func main() {
+func main() do
     println("Hello, World!")
-}
+end
 ```
 
 ### 9.2 FizzBuzz (✅ WORKING)
@@ -575,20 +580,20 @@ func main() {
 ```janus
 import std.core.io
 
-func fizzbuzz(n: i32) {
-    for i in 1..n {
+func fizzbuzz(n: i32) do
+    for i in 1..n do
         match (i % 15, i % 3, i % 5) {
             (0, _, _) -> io.println("FizzBuzz"),
             (_, 0, _) -> io.println("Fizz"),
             (_, _, 0) -> io.println("Buzz"),
             _ -> io.print_int(i),
         }
-    }
-}
+    end
+end
 
-func main() {
+func main() do
     fizzbuzz(100)
-}
+end
 ```
 
 ### 9.3 Factorial (✅ WORKING)
@@ -596,16 +601,16 @@ func main() {
 ```janus
 import std.core.io
 
-func factorial(n: i32) -> i32 {
-    if n <= 1 {
+func factorial(n: i32) -> i32 do
+    if n <= 1 do
         return 1
-    }
+    end
     return n * factorial(n - 1)
-}
+end
 
-func main() {
+func main() do
     io.print_int(factorial(10))  // 3628800
-}
+end
 ```
 
 ### 9.4 ArrayList with Zig Grafting (🔥 NEW)
@@ -614,27 +619,27 @@ func main() {
 use zig "std/ArrayList"
 use zig "std/heap"
 
-func main() {
+func main() do
     // Direct access to Zig's ArrayList!
     var allocator = zig.heap.page_allocator
     var list = zig.ArrayList(i32).init(allocator)
     defer list.deinit()
 
     // Append items
-    list.append(10) catch |err| {
+    list.append(10) catch |err| do
         println("Error appending")
         return
-    }
-    list.append(20) catch |_| {}
-    list.append(30) catch |_| {}
+    end
+    list.append(20) catch |_| do end
+    list.append(30) catch |_| do end
 
     // Iterate
-    for list.items |item| {
+    for item in list.items do
         print_int(item)
-    }
+    end
 
     println("List complete!")
-}
+end
 ```
 
 ### 9.5 File I/O with Zig Grafting (🔥 NEW)
@@ -643,25 +648,25 @@ func main() {
 use zig "std/fs"
 use zig "std/heap"
 
-func main() {
+func main() do
     var allocator = zig.heap.page_allocator
 
     // Read file
-    var file = zig.fs.cwd().openFile("config.txt", .{}) catch |err| {
+    var file = zig.fs.cwd().openFile("config.txt", .{}) catch |err| do
         println("Could not open file")
         return
-    }
+    end
     defer file.close()
 
-    var content = file.readToEndAlloc(allocator, 1024 * 1024) catch |err| {
+    var content = file.readToEndAlloc(allocator, 1024 * 1024) catch |err| do
         println("Could not read file")
         return
-    }
+    end
     defer allocator.free(content)
 
     println("File contents:")
     println(content)
-}
+end
 ```
 
 ### 9.6 HashMap with Zig Grafting (🔥 NEW)
@@ -670,7 +675,7 @@ func main() {
 use zig "std/AutoHashMap"
 use zig "std/heap"
 
-func main() {
+func main() do
     var allocator = zig.heap.page_allocator
 
     // Create string-to-integer map
@@ -678,20 +683,20 @@ func main() {
     defer map.deinit()
 
     // Add entries
-    map.put("apples", 5) catch |_| {}
-    map.put("bananas", 3) catch |_| {}
-    map.put("oranges", 7) catch |_| {}
+    map.put("apples", 5) catch |_| do end
+    map.put("bananas", 3) catch |_| do end
+    map.put("oranges", 7) catch |_| do end
 
     // Lookup
     var apple_count = map.get("apples")
     match apple_count {
-        Some(count) -> {
+        Some(count) -> do
             print_int(count)
             println(" apples")
-        },
+        end,
         None -> println("No apples found"),
     }
-}
+end
 ```
 
 ---

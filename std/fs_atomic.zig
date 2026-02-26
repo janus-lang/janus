@@ -5,6 +5,8 @@
 // Atomic rename and write_atomic implementations for data integrity
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const Context = @import("std_context.zig").Context;
@@ -157,7 +159,7 @@ fn atomicRenameCrossDevice(
     try copyFileAtomic(src_path, dst_path, allocator);
 
     // Remove source file
-    std.fs.cwd().deleteFile(src_path) catch |err| {
+    compat_fs.deleteFile(src_path) catch |err| {
         // Log error but don't fail - file was successfully copied
         const error_msg = try std.fmt.allocPrint(allocator, "Failed to remove source after copy: {s}", .{@errorName(err)});
         if (result.error_details) |old| allocator.free(old);
@@ -181,7 +183,7 @@ fn copyFileAtomic(
     const src_file = try std.fs.cwd().openFile(src_path, .{});
     defer src_file.close();
 
-    const dst_file = try std.fs.cwd().createFile(dst_path, .{});
+    const dst_file = try compat_fs.createFile(dst_path, .{});
     defer dst_file.close();
 
     // Get source file size
@@ -232,7 +234,7 @@ pub fn atomicWrite(
     defer allocator.free(temp_path);
 
     // Create and write to temporary file
-    const temp_file = try std.fs.cwd().createFile(temp_path, .{ .truncate = true });
+    const temp_file = try compat_fs.createFile(temp_path, .{ .truncate = true });
     defer temp_file.close();
 
     // Write data in chunks with progress tracking
@@ -330,7 +332,7 @@ fn generateTempPath(target_path: []const u8, prefix: []const u8, allocator: Allo
     const target_name = std.fs.path.basename(target_path);
 
     // Generate unique suffix
-    const timestamp = std.time.nanoTimestamp();
+    const timestamp = compat_time.nanoTimestamp();
     const pid = std.os.linux.getpid();
     const random = std.crypto.random.int(u32);
 
@@ -348,7 +350,7 @@ fn generateTempPath(target_path: []const u8, prefix: []const u8, allocator: Allo
 fn fsyncDirectoryContainingPath(file_path: []const u8) !bool {
     const dir_path = std.fs.path.dirname(file_path) orelse return false;
 
-    const dir = std.fs.cwd().openDir(dir_path, .{}) catch return false;
+    const dir = compat_fs.openDir(dir_path, .{}) catch return false;
     defer dir.close();
 
     // Note: std.fs.Dir doesn't expose fsync, so we can't fsync directories
@@ -491,9 +493,9 @@ test "Atomic rename basic functionality" {
     const src_file = "/tmp/atomic_rename_src.txt";
     const dst_file = "/tmp/atomic_rename_dst.txt";
 
-    try std.fs.cwd().writeFile(.{ .sub_path = src_file, .data = "test data" });
-    defer std.fs.cwd().deleteFile(src_file) catch {};
-    defer std.fs.cwd().deleteFile(dst_file) catch {};
+    try compat_fs.writeFile(.{ .sub_path = src_file, .data = "test data" });
+    defer compat_fs.deleteFile(src_file) catch {};
+    defer compat_fs.deleteFile(dst_file) catch {};
 
     // Test atomic rename
     var result = try atomicRename(src_file, dst_file, allocator);
@@ -514,7 +516,7 @@ test "Atomic write basic functionality" {
     const test_file = "/tmp/atomic_write_test.txt";
     const test_data = "This is atomic write test data with some length to it.";
 
-    defer std.fs.cwd().deleteFile(test_file) catch {};
+    defer compat_fs.deleteFile(test_file) catch {};
 
     // Test atomic write
     const options = AtomicOptions{
@@ -540,7 +542,7 @@ test "Atomic write with options" {
     const test_file = "/tmp/atomic_write_options.txt";
     const test_data = "Options test data";
 
-    defer std.fs.cwd().deleteFile(test_file) catch {};
+    defer compat_fs.deleteFile(test_file) catch {};
 
     // Test with custom options
     const options = AtomicOptions{
@@ -567,7 +569,7 @@ test "Tri-signature pattern for atomic operations" {
     const test_file = "/tmp/atomic_tri_sig.txt";
     const test_data = "Tri-signature atomic write test";
 
-    defer std.fs.cwd().deleteFile(test_file) catch {};
+    defer compat_fs.deleteFile(test_file) catch {};
 
     // Test :min profile
     {
@@ -604,7 +606,7 @@ test "Atomic write integrity verification" {
     const test_file = "/tmp/atomic_integrity_test.txt";
     const test_data = "Integrity verification test data";
 
-    defer std.fs.cwd().deleteFile(test_file) catch {};
+    defer compat_fs.deleteFile(test_file) catch {};
 
     // Write atomically
     const options = AtomicOptions{ .paranoid_mode = true };

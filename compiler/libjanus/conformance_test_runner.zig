@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
@@ -30,7 +31,7 @@ pub const ConformanceTestRunner = struct {
         std.debug.print("🧪 Starting Comprehensive Dispatch Conformance Test Suite\n");
         std.debug.print("========================================================\n\n");
 
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         // Test Suite 1: Specification Conformance
         std.debug.print("📋 Test Suite 1: Specification Conformance\n");
@@ -72,7 +73,7 @@ pub const ConformanceTestRunner = struct {
         };
         try results.addResult("Stress Tests", stress_result);
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const total_time_ms = (end_time - start_time) / 1_000_000;
 
         results.total_duration_ms = total_time_ms;
@@ -189,7 +190,7 @@ pub const ConformanceTestRunner = struct {
         for (0..regression_runs) |run| {
             std.debug.print("Regression run {} of {}...\n", .{ run + 1, regression_runs });
 
-            const start_time = std.time.nanoTimestamp();
+            const start_time = compat_time.nanoTimestamp();
 
             var conformance_tests = try DispatchConformanceTests.init(self.allocator);
             defer conformance_tests.deinit();
@@ -201,7 +202,7 @@ pub const ConformanceTestRunner = struct {
                 continue;
             };
 
-            const end_time = std.time.nanoTimestamp();
+            const end_time = compat_time.nanoTimestamp();
             const run_time_ms = (end_time - start_time) / 1_000_000;
 
             std.debug.print("✅ Regression run {} passed ({} ms)\n", .{ run + 1, run_time_ms });
@@ -436,7 +437,7 @@ test "conformance test runner - report generation" {
     try results.addResult("Stress Tests", .passed);
     results.total_duration_ms = 5000;
 
-    var report_buffer = std.ArrayList(u8).init(testing.allocator);
+    var report_buffer: std.ArrayList(u8) = .empty;
     defer report_buffer.deinit();
 
     try runner.generateConformanceReport(results, report_buffer.writer());

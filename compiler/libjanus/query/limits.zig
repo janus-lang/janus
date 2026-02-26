@@ -193,7 +193,7 @@ pub const PerformanceMonitor = struct {
 
         pub fn init(allocator: Allocator) QueryMetrics {
             return QueryMetrics{
-                .samples = std.ArrayList(Sample).init(allocator),
+                .samples = .empty,
             };
         }
 
@@ -210,7 +210,7 @@ pub const PerformanceMonitor = struct {
             if (self.samples.items.len == 0) return;
 
             // Sort samples by execution time for percentile calculation
-            var times = std.ArrayList(u64).init(self.samples.allocator);
+            var times: std.ArrayList(u64) = .empty;
             defer times.deinit();
 
             var total_time: u64 = 0;
@@ -336,7 +336,7 @@ pub const PerformanceMonitor = struct {
 
     /// Generate performance report
     pub fn generateReport(self: *PerformanceMonitor, allocator: Allocator) !PerformanceReport {
-        var query_reports = std.ArrayList(QueryReport).init(allocator);
+        var query_reports: std.ArrayList(QueryReport) = .empty;
 
         var iterator = self.measurements.iterator();
         while (iterator.next()) |entry| {

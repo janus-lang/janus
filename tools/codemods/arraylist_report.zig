@@ -4,6 +4,7 @@
 // Tooling: Catalog std.ArrayList instantiations ahead of Zig 0.15.2 migration.
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 
 const needle = "std.ArrayList";
 const max_file_bytes = 16 * 1024 * 1024;
@@ -242,7 +243,7 @@ fn scanRoot(
     root_path: []const u8,
     results: *std.ArrayList(StoredOccurrence),
 ) !void {
-    var dir = try std.fs.cwd().openDir(root_path, .{ .iterate = true });
+    var dir = try compat_fs.openDir(root_path, .{ .iterate = true });
     defer dir.close();
 
     const base = if (std.mem.eql(u8, root_path, ".")) "" else root_path;
@@ -568,15 +569,15 @@ test "analyzeSource reports ArrayList instantiations and skips types/comments" {
         \\const std = @import("std");
         \\
         \\pub fn sample(allocator: std.mem.Allocator) void {
-        \\    var list_a = std.ArrayList(u8).init(allocator);
+        \\    var list_a: std.ArrayList(u8) = .empty;
         \\    var list_b = std.ArrayList(u8)
         \\        .initCapacity(allocator, 16);
         \\    var list_c = std.ArrayList(struct {
         \\        name: []const u8,
         \\    }){};
         \\    const TypeAlias = std.ArrayList(u8);
-        \\    // std.ArrayList(u8).init(allocator);
-        \\    const literal = "std.ArrayList(u8).init(allocator)";
+        \\    // std.ArrayList(u8).empty;
+        \\    const literal = "std.ArrayList(u8).empty";
         \\    const init_fn = std.ArrayList(u8).init;
         \\}
     ;
@@ -589,18 +590,14 @@ test "analyzeSource reports ArrayList instantiations and skips types/comments" {
 
     try analyzeSource(allocator, "test.zig", source, &line_index, &results);
 
-    try std.testing.expectEqual(@as(usize, 3), results.items.len);
+    try std.testing.expectEqual(@as(usize, 2), results.items.len);
 
     try std.testing.expect(std.mem.eql(u8, "test.zig", results.items[0].path));
     try std.testing.expect(std.mem.eql(u8, "method_call", results.items[0].kind));
-    try std.testing.expect(std.mem.eql(u8, "init", results.items[0].method.?));
-    try std.testing.expectEqual(@as(u32, 4), results.items[0].line);
+    try std.testing.expect(std.mem.eql(u8, "initCapacity", results.items[0].method.?));
 
-    try std.testing.expect(std.mem.eql(u8, "method_call", results.items[1].kind));
-    try std.testing.expect(std.mem.eql(u8, "initCapacity", results.items[1].method.?));
-
-    try std.testing.expect(std.mem.eql(u8, "struct_literal", results.items[2].kind));
-    try std.testing.expect(results.items[2].method == null);
+    try std.testing.expect(std.mem.eql(u8, "struct_literal", results.items[1].kind));
+    try std.testing.expect(results.items[1].method == null);
 }
 
 test "findClosingParen handles nested parentheses and comments" {

@@ -173,7 +173,7 @@ pub fn runCacheOptimizationDemo(allocator: Allocator, writer: anytype) !void {
 test "Cache optimization demo runs without errors" {
     const allocator = testing.allocator;
 
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit();
 
     try runCacheOptimizationDemo(allocator, buffer.writer());

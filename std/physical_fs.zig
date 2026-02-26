@@ -5,6 +5,7 @@
 // PhysicalFS (read-only baseline) implementation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const Context = @import("std_context.zig").Context;
@@ -79,7 +80,7 @@ pub const ReadDirIterator = struct {
 
     /// Initialize a new directory iterator
     pub fn init(path: []const u8, allocator: Allocator) !ReadDirIterator {
-        const dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch |err| switch (err) {
+        const dir = compat_fs.openDir(path, .{ .iterate = true }) catch |err| switch (err) {
             error.FileNotFound => return FsError.FileNotFound,
             error.AccessDenied => return FsError.PermissionDenied,
             error.NotDir => return FsError.NotDir,
@@ -300,7 +301,7 @@ pub const PhysicalFS = struct {
     pub fn metadata(self: PhysicalFS, path: []const u8) !FileMetadata {
         _ = self; // PhysicalFS is stateless, self not used in current implementation
 
-        const stat = std.fs.cwd().statFile(path) catch |err| switch (err) {
+        const stat = compat_fs.statFile(path) catch |err| switch (err) {
             error.FileNotFound => return FsError.FileNotFound,
             error.AccessDenied => return FsError.PermissionDenied,
             error.SystemResources => return FsError.OutOfMemory,
@@ -344,7 +345,7 @@ pub const PhysicalFS = struct {
     pub fn exists(self: PhysicalFS, path: []const u8) !bool {
         _ = self; // Not used in this implementation
 
-        const stat = std.fs.cwd().statFile(path) catch |err| switch (err) {
+        const stat = compat_fs.statFile(path) catch |err| switch (err) {
             error.FileNotFound => return false,
             error.AccessDenied => return FsError.PermissionDenied,
             error.SystemResources => return FsError.OutOfMemory,
@@ -490,9 +491,9 @@ test "PhysicalFS file reading" {
     // Create a test file
     const test_content = "Hello, PhysicalFS!";
     const test_file = "/tmp/janus_test_file.txt";
-    try std.fs.cwd().writeFile(.{ .sub_path = test_file, .data = test_content });
+    try compat_fs.writeFile(.{ .sub_path = test_file, .data = test_content });
 
-    defer std.fs.cwd().deleteFile(test_file) catch {};
+    defer compat_fs.deleteFile(test_file) catch {};
 
     // Test :min profile
     {
@@ -531,14 +532,14 @@ test "ReadDirIterator basic functionality" {
 
     // Create a test directory with files
     const test_dir = "/tmp/janus_test_dir";
-    try std.fs.cwd().makePath(test_dir);
+    try compat_fs.makeDir(test_dir);
 
-    defer std.fs.cwd().deleteTree(test_dir) catch {};
+    defer compat_fs.deleteTree(test_dir) catch {};
 
     // Create some test files
-    try std.fs.cwd().writeFile(test_dir ++ "/file1.txt", "content1");
-    try std.fs.cwd().writeFile(test_dir ++ "/file2.txt", "content2");
-    try std.fs.cwd().makeDir(test_dir ++ "/subdir");
+    try compat_fs.writeFile(test_dir ++ "/file1.txt", "content1");
+    try compat_fs.writeFile(test_dir ++ "/file2.txt", "content2");
+    try compat_fs.makeDir(test_dir ++ "/subdir");
 
     // Test directory iteration
     var iter = try ReadDirIterator.init(test_dir, allocator);
@@ -571,9 +572,9 @@ test "File RAII operations" {
     // Create a test file
     const test_content = "Hello, RAII File!";
     const test_file = "/tmp/janus_raii_test.txt";
-    try std.fs.cwd().writeFile(.{ .sub_path = test_file, .data = test_content });
+    try compat_fs.writeFile(.{ .sub_path = test_file, .data = test_content });
 
-    defer std.fs.cwd().deleteFile(test_file) catch {};
+    defer compat_fs.deleteFile(test_file) catch {};
 
     // Test file opening and reading
     var file = try File.open(test_file, allocator);
@@ -613,9 +614,9 @@ test "Directory iterator cleanup" {
 
     // Create a test directory
     const test_dir = "/tmp/janus_cleanup_test";
-    try std.fs.cwd().makePath(test_dir);
+    try compat_fs.makeDir(test_dir);
 
-    defer std.fs.cwd().deleteTree(test_dir) catch {};
+    defer compat_fs.deleteTree(test_dir) catch {};
 
     // Test that iterator cleanup works properly
     {

@@ -150,7 +150,7 @@ pub const DispatchTable = struct {
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return Self{
-            .entries = std.ArrayList(DispatchEntry).init(allocator),
+            .entries = .empty,
             .allocator = allocator,
         };
     }

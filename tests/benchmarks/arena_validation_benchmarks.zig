@@ -7,6 +7,7 @@
 //! for zero-leak validation operations.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
@@ -149,7 +150,7 @@ pub const ArenaValidationBenchmarks = struct {
         var total_memory: usize = 0;
         var all_zero_leak = true;
 
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         for (0..context_count) |i| {
             var context = ArenaValidationProof.init(self.allocator);
@@ -164,7 +165,7 @@ pub const ArenaValidationBenchmarks = struct {
             all_zero_leak = all_zero_leak and stats.zero_leak_guaranteed;
         }
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const total_test_duration = end_time - start_time;
         const avg_duration = @divTrunc(total_test_duration, @as(i128, @intCast(context_count)));
         const avg_memory = total_memory / context_count;

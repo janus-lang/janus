@@ -20,7 +20,7 @@ const MessagePackEncoder = struct {
     pub fn init(allocator: std.mem.Allocator) MessagePackEncoder {
         return .{
             .allocator = allocator,
-            .buffer = std.ArrayList(u8).init(allocator),
+            .buffer = .empty,
         };
     }
 

@@ -6,6 +6,7 @@
 // Doctrine: Temporal Honesty - JIT path maintains identical semantics to AOT
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 
 // Re-export core JIT types
 pub const semantic = @import("jit/semantic.zig");
@@ -110,9 +111,9 @@ pub const OrcJitEngine = struct {
         self: *OrcJitEngine,
         module: *const Module,
     ) !*ExecutionUnit {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
         defer {
-            const end_time = std.time.nanoTimestamp();
+            const end_time = compat_time.nanoTimestamp();
             self.stats.total_compile_time_ns += @intCast(end_time - start_time);
             self.stats.compilations_total += 1;
         }

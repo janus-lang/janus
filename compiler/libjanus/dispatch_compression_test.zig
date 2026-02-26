@@ -30,7 +30,7 @@ test "custom compression algorithm" {
     const allocator = testing.allocator;
 
     // Create test data with patterns typical of dispatch tables
-    var test_data = std.ArrayList(u8).init(allocator);
+    var test_data: std.ArrayList(u8) = .empty;
     defer test_data.deinit();
 
     // Simulate type IDs (4 bytes each) with repetitive patterns
@@ -61,7 +61,7 @@ test "hybrid compression with semantic and general compression" {
     const allocator = testing.allocator;
 
     // Create test data simulating dispatch table entries
-    var test_data = std.ArrayList(u8).init(allocator);
+    var test_data: std.ArrayList(u8) = .empty;
     defer test_data.deinit();
 
     // Add repeated patterns (simulating common type patterns)

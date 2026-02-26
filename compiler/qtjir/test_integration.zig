@@ -4,6 +4,7 @@
 // QTJIR Integration Test Suite - Phase 5 Epic 5.2
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const graph = @import("graph.zig");
 const emitter = @import("emitter.zig");
@@ -319,7 +320,7 @@ test "Performance: Full pipeline (1000 nodes)" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Create large graph
     var g = QTJIRGraph.init(allocator);
@@ -343,11 +344,10 @@ test "Performance: Full pipeline (1000 nodes)" {
     const llvm_ir = try llvm_emitter.emit(&g);
     defer allocator.free(llvm_ir);
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const duration_ns = end_time - start_time;
     const duration_ms = @as(f64, @floatFromInt(duration_ns)) / 1_000_000.0;
 
-    std.debug.print("Full pipeline (1000 nodes): {d:.2} ms\n", .{duration_ms});
 
     // Performance assertion: should complete in reasonable time
     try testing.expect(duration_ms < 500.0);
@@ -370,14 +370,13 @@ test "Performance: Validation (5000 nodes)" {
         _ = try builder.createConstant(.{ .integer = @intCast(i) });
     }
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
     _ = try g.validate();
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
 
     const duration_ns = end_time - start_time;
     const duration_ms = @as(f64, @floatFromInt(duration_ns)) / 1_000_000.0;
 
-    std.debug.print("Validation (5000 nodes): {d:.2} ms\n", .{duration_ms});
 
     // Performance assertion
     try testing.expect(duration_ms < 100.0);
@@ -403,15 +402,14 @@ test "Performance: Emission (500 nodes)" {
     var llvm_emitter = LLVMEmitter.init(allocator);
     defer llvm_emitter.deinit();
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
     const llvm_ir = try llvm_emitter.emit(&g);
     defer allocator.free(llvm_ir);
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
 
     const duration_ns = end_time - start_time;
     const duration_ms = @as(f64, @floatFromInt(duration_ns)) / 1_000_000.0;
 
-    std.debug.print("Emission (500 nodes): {d:.2} ms\n", .{duration_ms});
 
     // Performance assertion
     try testing.expect(duration_ms < 200.0);

@@ -79,6 +79,7 @@ pub const TokenType = enum {
     await_, // await expr - wait for async result
     nursery_, // nursery { } - structured concurrency scope
     spawn_, // spawn task - launch concurrent task
+    shared_, // using shared resource - shared resource management
     select_, // select { } - CSP multi-channel wait
     timeout_, // timeout(duration) - select timeout case
 
@@ -105,6 +106,7 @@ pub const TokenType = enum {
     pipe, // |
     dot_dot, // ..
     dot_dot_less, // ..<
+    dot_dot_equal, // ..=
     ampersand, // &
     // Optional chaining and null coalesce operators
     optional_chain, // ?.
@@ -146,7 +148,12 @@ pub const TokenType = enum {
     pipeline, // |>
     // Types/Structs (extended)
     struct_kw,
+    enum_kw,
+    union_kw,
+    trait_kw,
+    impl_kw,
     type_kw,
+    dyn_kw,
 
     // Special
     newline,
@@ -309,6 +316,9 @@ pub const Tokenizer = struct {
                     if (self.match('<')) {
                         const end_pos = self.currentPos();
                         try self.addToken(.dot_dot_less, "..<", SourceSpan.init(start_pos, end_pos));
+                    } else if (self.match('=')) {
+                        const end_pos = self.currentPos();
+                        try self.addToken(.dot_dot_equal, "..=", SourceSpan.init(start_pos, end_pos));
                     } else {
                         const end_pos = self.currentPos();
                         try self.addToken(.dot_dot, "..", SourceSpan.init(start_pos, end_pos));
@@ -776,7 +786,12 @@ pub const Tokenizer = struct {
             .{ "when", .when },
             .{ "unless", .unless },
             .{ "struct", .struct_kw },
+            .{ "enum", .enum_kw },
+            .{ "union", .union_kw },
+            .{ "trait", .trait_kw },
+            .{ "impl", .impl_kw },
             .{ "type", .type_kw },
+            .{ "dyn", .dyn_kw },
             .{ "using", .using }, // Added for :full spec support logic in parser
 
             // :sovereign profile (High-Assurance)
@@ -807,6 +822,7 @@ pub const Tokenizer = struct {
             .{ "await", .await_ },
             .{ "nursery", .nursery_ },
             .{ "spawn", .spawn_ },
+            .{ "shared", .shared_ },
             .{ "select", .select_ },
             .{ "timeout", .timeout_ },
         });
@@ -1023,6 +1039,22 @@ test "tokenizer exclusive range" {
 
     try std.testing.expect(tokens[0].type == .number);
     try std.testing.expect(tokens[1].type == .dot_dot_less);
+    try std.testing.expect(tokens[2].type == .number);
+    try std.testing.expect(tokens[3].type == .eof);
+}
+
+test "tokenizer explicit inclusive range" {
+    const allocator = std.testing.allocator;
+
+    const source = "1 ..= 5";
+    var tokenizer = Tokenizer.init(allocator, source);
+    defer tokenizer.deinit();
+
+    const tokens = try tokenizer.tokenize();
+    defer allocator.free(tokens);
+
+    try std.testing.expect(tokens[0].type == .number);
+    try std.testing.expect(tokens[1].type == .dot_dot_equal);
     try std.testing.expect(tokens[2].type == .number);
     try std.testing.expect(tokens[3].type == .eof);
 }

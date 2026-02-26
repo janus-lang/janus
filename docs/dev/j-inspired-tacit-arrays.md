@@ -175,15 +175,15 @@ let sum = [1, 2, 3, 4, 5] ->> {
 
 **Current:**
 ```janus
-func add_arrays(a: []f64, b: []f64) -> []f64 {
+func add_arrays(a: []f64, b: []f64) -> []f64 do
     requires a.len == b.len
-    
+
     var result = Array.new(a.len)
     for i in 0..a.len do
         result[i] = a[i] + b[i]
     end
     return result
-}
+end
 ```
 
 ### The J Way: Verbs on Arrays
@@ -454,13 +454,13 @@ let result = (a + b) * c  // But ONLY in :compute profile
 let result = a .+ b
 
 // Actually becomes (WITHOUT NPU backend):
-func slow_add(a: []f64, b: []f64) -> []f64 {
+func slow_add(a: []f64, b: []f64) -> []f64 do
     var result = Array.new(a.len)
     for i in 0..a.len do
         result[i] = a[i] + b[i]  // No SIMD, no fusion!
     end
     return result
-}
+end
 ```
 
 **This is NumPy without C—a slow library wrapper.**
@@ -516,17 +516,17 @@ end
 func gpu_compute(data: Tensor[f64, N])
     requires cap NPU { device: "CUDA" }
     -> Tensor[f64, N]
-{
+do
     return data .* 2.0  // Runs on GPU
-}
+end
 ```
 
 ### With Hot Reload (v0.2.8)
 ```janus
 // Change kernel function
-func process(x: Tensor[f64, N]) -> Tensor[f64, N] {
+func process(x: Tensor[f64, N]) -> Tensor[f64, N] do
     return x .+ 1.0  // Edit this
-}
+end
 
 // Hot reload patches the kernel
 // NPU recompiles, no full rebuild

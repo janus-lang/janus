@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const testing = std.testing;
 
 const proto = @import("graft_proto");
@@ -47,7 +48,7 @@ test "graft proto read_file owned buffer and free" {
     defer fs.deinit();
     const fname = "tmp_graft_read.txt";
     // Create a test file
-    var file = try std.fs.cwd().createFile(fname, .{ .truncate = true });
+    var file = try compat_fs.createFile(fname, .{ .truncate = true });
     defer file.close();
     const data = "Hello Buf";
     try file.writeAll(data);
@@ -56,7 +57,7 @@ test "graft proto read_file owned buffer and free" {
     defer owned.deinit();
     try testing.expectEqualStrings(data, owned.slice());
     // Cleanup
-    try std.fs.cwd().deleteFile(fname);
+    try compat_fs.deleteFile(fname);
 }
 
 test "graft proto read_file invalid and missing" {

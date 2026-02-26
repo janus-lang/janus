@@ -143,29 +143,29 @@ type ~Buffer = struct {
   capacity: usize
 }
 
-func process(buf: ~Buffer) -> ~Buffer {
+func process(buf: ~Buffer) -> ~Buffer do
   // Compiler inserts:
   // - retain(buf) on entry
   // - release(buf) on exit
   return buf
-}
+end
 ```
 
 #### Phase 2: Flow Analysis (v0.3.5)
 ```janus
-func borrow_only(buf: ~Buffer) -> i32 {
+func borrow_only(buf: ~Buffer) -> i32 do
   // Compiler detects: buf not stored, not returned
   // Optimization: Elide retain/release
   return buf.data.len
-}
+end
 
-func conditional_ownership(buf: ~Buffer, store: bool) -> ?~Buffer {
-  if store {
+func conditional_ownership(buf: ~Buffer, store: bool) -> ?~Buffer do
+  if store do
     return buf  // Transfer ownership (no release)
-  }
+  end
   // buf released here
   return null
-}
+end
 ```
 
 **Implementation Strategy:**
@@ -185,31 +185,31 @@ func conditional_ownership(buf: ~Buffer, store: bool) -> ?~Buffer {
 
 **Current Janus:**
 ```janus
-func process(x: ?File) {
-  if x != null {
+func process(x: ?File) do
+  if x != null do
     x.read()  // Error: x is still ?File
-  }
-}
+  end
+end
 ```
 
 **With Flow Typing:**
 ```janus
-func process(x: ?File) {
-  if x != null {
+func process(x: ?File) do
+  if x != null do
     x.read()  // OK: x narrowed to File in this block
-  }
-}
+  end
+end
 ```
 
 **Extended to Type Checks:**
 ```janus
-func handle(value: any) {
-  if value is i32 {
+func handle(value: any) do
+  if value is i32 do
     let n = value * 2  // value is i32 here
-  } else if value is string {
+  else if value is string do
     println(value)     // value is string here
-  }
-}
+  end
+end
 ```
 
 **Implementation:**

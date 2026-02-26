@@ -383,7 +383,7 @@ fn buildSignature(query_ctx: *QueryCtx, symbol_info: astdb.SymbolInfo, type_info
 }
 
 fn buildFunctionSignature(query_ctx: *QueryCtx, function_node: astdb.AstNode) ![]const u8 {
-    var signature = std.ArrayList(u8).init(query_ctx.allocator);
+    var signature: std.ArrayList(u8) = .empty;
     var writer = signature.writer();
 
     try writer.print("func {s}(", .{function_node.function_name});
@@ -403,7 +403,7 @@ fn buildFunctionSignature(query_ctx: *QueryCtx, function_node: astdb.AstNode) ![
         try writer.print(" -> {s}", .{return_type});
     }
 
-    return signature.toOwnedSlice();
+    return try signature.toOwnedSlice(alloc);
 }
 
 fn buildTypeSignature(query_ctx: *QueryCtx, type_node: astdb.AstNode) ![]const u8 {
@@ -411,7 +411,7 @@ fn buildTypeSignature(query_ctx: *QueryCtx, type_node: astdb.AstNode) ![]const u
 }
 
 fn buildMarkdownHover(query_ctx: *QueryCtx, name: []const u8, signature: []const u8, documentation: ?[]const u8, type_info: context.TypeInfo) ![]const u8 {
-    var markdown = std.ArrayList(u8).init(query_ctx.allocator);
+    var markdown: std.ArrayList(u8) = .empty;
     var writer = markdown.writer();
 
     try writer.print("```janus\n{s}\n```\n\n", .{signature});
@@ -430,11 +430,11 @@ fn buildMarkdownHover(query_ctx: *QueryCtx, name: []const u8, signature: []const
         try writer.print("**Optional:** Yes\n");
     }
 
-    return markdown.toOwnedSlice();
+    return try markdown.toOwnedSlice(alloc);
 }
 
 fn buildFunctionMarkdownHover(query_ctx: *QueryCtx, name: []const u8, signature: []const u8, documentation: ?[]const u8, effects_info: ?context.EffectsInfo) ![]const u8 {
-    var markdown = std.ArrayList(u8).init(query_ctx.allocator);
+    var markdown: std.ArrayList(u8) = .empty;
     var writer = markdown.writer();
 
     try writer.print("```janus\n{s}\n```\n\n", .{signature});
@@ -458,11 +458,11 @@ fn buildFunctionMarkdownHover(query_ctx: *QueryCtx, name: []const u8, signature:
         }
     }
 
-    return markdown.toOwnedSlice();
+    return try markdown.toOwnedSlice(alloc);
 }
 
 fn buildTypeMarkdownHover(query_ctx: *QueryCtx, name: []const u8, signature: []const u8, documentation: ?[]const u8) ![]const u8 {
-    var markdown = std.ArrayList(u8).init(query_ctx.allocator);
+    var markdown: std.ArrayList(u8) = .empty;
     var writer = markdown.writer();
 
     try writer.print("```janus\n{s}\n```\n\n", .{signature});
@@ -471,7 +471,7 @@ fn buildTypeMarkdownHover(query_ctx: *QueryCtx, name: []const u8, signature: []c
         try writer.print("{s}\n\n", .{doc});
     }
 
-    return markdown.toOwnedSlice();
+    return try markdown.toOwnedSlice(alloc);
 }
 
 fn buildVariableMarkdownHover(query_ctx: *QueryCtx, name: []const u8, signature: []const u8, documentation: ?[]const u8, type_info: context.TypeInfo) ![]const u8 {
@@ -483,7 +483,7 @@ fn buildMemberMarkdownHover(query_ctx: *QueryCtx, name: []const u8, signature: [
 }
 
 fn buildModuleMarkdownHover(query_ctx: *QueryCtx, module_path: []const u8, documentation: ?[]const u8) ![]const u8 {
-    var markdown = std.ArrayList(u8).init(query_ctx.allocator);
+    var markdown: std.ArrayList(u8) = .empty;
     var writer = markdown.writer();
 
     try writer.print("```janus\nimport {s}\n```\n\n", .{module_path});
@@ -494,7 +494,7 @@ fn buildModuleMarkdownHover(query_ctx: *QueryCtx, module_path: []const u8, docum
 
     try writer.print("**Module:** `{s}`\n", .{module_path});
 
-    return markdown.toOwnedSlice();
+    return try markdown.toOwnedSlice(alloc);
 }
 
 fn getDocumentation(query_ctx: *QueryCtx, cid: CID) !?[]const u8 {

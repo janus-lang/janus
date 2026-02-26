@@ -19,7 +19,7 @@ pub const CanonicalEncoder = struct {
     pub fn init(allocator: Allocator) Self {
         return Self{
             .allocator = allocator,
-            .buffer = std.ArrayList(u8).init(allocator),
+            .buffer = .empty,
         };
     }
 

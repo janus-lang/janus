@@ -4,6 +4,8 @@
 // Janus Build Cache — content-addressed artifact storage keyed by BLAKE3 CIDs
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 
 pub const Allocator = std.mem.Allocator;
 
@@ -32,7 +34,7 @@ pub const BuildCache = struct {
         defer self.allocator.free(dir_path);
 
         // Ensure directory exists
-        std.fs.cwd().makePath(dir_path) catch |err| switch (err) {
+        compat_fs.makeDir(dir_path) catch |err| switch (err) {
             error.PathAlreadyExists => {},
             else => return err,
         };
@@ -40,10 +42,10 @@ pub const BuildCache = struct {
         // Write to temp file then atomically rename
         const final_name = try std.fmt.allocPrint(self.allocator, "artifact-{s}.bin", .{flavor});
         defer self.allocator.free(final_name);
-        const tmp_name = try std.fmt.allocPrint(self.allocator, ".artifact-{s}.tmp-{d}", .{ flavor, std.time.nanoTimestamp() });
+        const tmp_name = try std.fmt.allocPrint(self.allocator, ".artifact-{s}.tmp-{d}", .{ flavor, compat_time.nanoTimestamp() });
         defer self.allocator.free(tmp_name);
 
-        var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = false });
+        var dir = try compat_fs.openDir(dir_path, .{ .iterate = false });
         defer dir.close();
 
         {
@@ -70,17 +72,17 @@ pub const BuildCache = struct {
         const dir_path = try path_buf.toOwnedSlice(self.allocator);
         defer self.allocator.free(dir_path);
 
-        std.fs.cwd().makePath(dir_path) catch |err| switch (err) {
+        compat_fs.makeDir(dir_path) catch |err| switch (err) {
             error.PathAlreadyExists => {},
             else => return err,
         };
 
         const final_name = try std.fmt.allocPrint(self.allocator, "meta-{s}.json", .{flavor});
         defer self.allocator.free(final_name);
-        const tmp_name = try std.fmt.allocPrint(self.allocator, ".meta-{s}.tmp-{d}", .{ flavor, std.time.nanoTimestamp() });
+        const tmp_name = try std.fmt.allocPrint(self.allocator, ".meta-{s}.tmp-{d}", .{ flavor, compat_time.nanoTimestamp() });
         defer self.allocator.free(tmp_name);
 
-        var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = false });
+        var dir = try compat_fs.openDir(dir_path, .{ .iterate = false });
         defer dir.close();
 
         {
@@ -101,7 +103,7 @@ pub const BuildCache = struct {
         defer self.allocator.free(hex);
         const dir_path = try std.fmt.allocPrint(allocator, "{s}/objects/{s}", .{ self.root, hex });
         defer allocator.free(dir_path);
-        var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch return &[_][:0]const u8{};
+        var dir = compat_fs.openDir(dir_path, .{ .iterate = true }) catch return &[_][:0]const u8{};
         defer dir.close();
         var it = dir.iterate();
         var flavors = std.ArrayList([:0]const u8){};
@@ -124,7 +126,7 @@ pub const BuildCache = struct {
         defer self.allocator.free(hex);
         const path = try std.fmt.allocPrint(self.allocator, "{s}/objects/{s}/artifact-{s}.bin", .{ self.root, hex, flavor });
         defer self.allocator.free(path);
-        return std.fs.cwd().readFileAlloc(self.allocator, path, 64 * 1024 * 1024);
+        return compat_fs.readFileAlloc(self.allocator, path, 64 * 1024 * 1024);
     }
 
     pub fn exists(self: *BuildCache, cid: [32]u8, flavor: []const u8) bool {
@@ -142,15 +144,15 @@ pub const BuildCache = struct {
         defer self.allocator.free(hex);
         const dir_path = try std.fmt.allocPrint(self.allocator, "{s}/objects/{s}", .{ self.root, hex });
         defer self.allocator.free(dir_path);
-        std.fs.cwd().makePath(dir_path) catch |err| switch (err) {
+        compat_fs.makeDir(dir_path) catch |err| switch (err) {
             error.PathAlreadyExists => {},
             else => return err,
         };
 
-        var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = false });
+        var dir = try compat_fs.openDir(dir_path, .{ .iterate = false });
         defer dir.close();
 
-        const tmp = try std.fmt.allocPrint(self.allocator, ".{s}.tmp-{d}", .{ filename, std.time.nanoTimestamp() });
+        const tmp = try std.fmt.allocPrint(self.allocator, ".{s}.tmp-{d}", .{ filename, compat_time.nanoTimestamp() });
         defer self.allocator.free(tmp);
         {
             var f = try dir.createFile(tmp, .{ .truncate = true, .exclusive = true });
@@ -181,7 +183,7 @@ test "BuildCache: store and load by Graph CID and flavor" {
     // Create a temp root under CWD
     const root = try std.fmt.allocPrint(A, ".janus/cache-test-{d}", .{std.time.milliTimestamp()});
     defer {
-        std.fs.cwd().deleteTree(root) catch {};
+        compat_fs.deleteTree(root) catch {};
         A.free(root);
     }
 

@@ -86,10 +86,10 @@ pub const SpecificityAnalyzer = struct {
         call_arg_types: []const TypeRegistry.TypeId,
     ) !SpecificityResult {
         // Filter implementations that match the call signature
-        var candidates = std.ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var candidates: std.ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer candidates.deinit();
 
-        var rejection_reasons = std.ArrayList(SpecificityResult.NoMatch.RejectionReason).init(self.allocator);
+        var rejection_reasons: std.ArrayList(SpecificityResult.NoMatch.RejectionReason) = .empty;
         defer {
             for (rejection_reasons.items) |reason| {
                 self.allocator.free(reason.reason);
@@ -146,7 +146,7 @@ pub const SpecificityAnalyzer = struct {
         impl_b: *const SignatureAnalyzer.Implementation,
         call_arg_types: []const TypeRegistry.TypeId,
     ) !SpecificityComparison {
-        var explanation = std.ArrayList(u8).init(self.allocator);
+        var explanation: std.ArrayList(u8) = .empty;
         defer explanation.deinit();
 
         var has_strict_subtype = false;
@@ -244,7 +244,7 @@ pub const SpecificityAnalyzer = struct {
         call_arg_types: []const TypeRegistry.TypeId,
     ) !SpecificityResult {
         // Find maximal elements in the partial order (not dominated by any other)
-        var maximal = std.ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var maximal: std.ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer maximal.deinit();
 
         for (candidates) |candidate| {
@@ -300,7 +300,7 @@ pub const SpecificityAnalyzer = struct {
         self: *SpecificityAnalyzer,
         ambiguous_match: *const SpecificityResult.AmbiguousMatch,
     ) ![]u8 {
-        var report = std.ArrayList(u8).init(self.allocator);
+        var report: std.ArrayList(u8) = .empty;
         defer report.deinit();
 
         try report.appendSlice("Ambiguous dispatch detected:\n");
@@ -334,7 +334,7 @@ pub const SpecificityAnalyzer = struct {
         try report.appendSlice("  2. Use explicit type annotations at the call site\n");
         try report.appendSlice("  3. Use qualified names to call a specific implementation\n");
 
-        return report.toOwnedSlice();
+        return try report.toOwnedSlice(alloc);
     }
 
     /// Generate detailed no-match report
@@ -342,7 +342,7 @@ pub const SpecificityAnalyzer = struct {
         self: *SpecificityAnalyzer,
         no_match: *const SpecificityResult.NoMatch,
     ) ![]u8 {
-        var report = std.ArrayList(u8).init(self.allocator);
+        var report: std.ArrayList(u8) = .empty;
         defer report.deinit();
 
         try report.appendSlice("No matching implementation found:\n");
@@ -384,7 +384,7 @@ pub const SpecificityAnalyzer = struct {
         try report.appendSlice("  2. Check if argument types are correct\n");
         try report.appendSlice("  3. Consider adding implicit conversions if appropriate\n");
 
-        return report.toOwnedSlice();
+        return try report.toOwnedSlice(alloc);
     }
 };
 

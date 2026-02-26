@@ -12,7 +12,6 @@ const SemanticResolver = @import("compiler/libjanus/semantic_resolver.zig").Sema
 const CallSite = @import("compiler/libjanus/semantic_resolver.zig").CallSite;
 
 test "Focused ambiguity test with conversions" {
-    std.debug.print("\n=== Starting Focused Ambiguity Test ===\n", .{});
 
     var type_registry = TypeRegistry.init(std.testing.allocator);
     defer type_registry.deinit();
@@ -39,7 +38,6 @@ test "Focused ambiguity test with conversions" {
     };
     try conversion_registry.registerConversion(i32_to_f64);
     try conversion_registry.registerConversion(f64_to_i32);
-    std.debug.print("✅ Registered conversions\n", .{});
 
     var scope_manager = try ScopeManager.init(std.testing.allocator);
     defer scope_manager.deinit();
@@ -81,7 +79,6 @@ test "Focused ambiguity test with conversions" {
 
     try scope_manager.current_scope.addFunction(&add_func1);
     try scope_manager.current_scope.addFunction(&add_func2);
-    std.debug.print("✅ Added 2 functions to scope\n", .{});
 
     // Call with (i32, i32) - should be ambiguous
     const call_site = CallSite{
@@ -96,37 +93,24 @@ test "Focused ambiguity test with conversions" {
         },
     };
 
-    std.debug.print("🔍 Resolving call: add(i32, i32)\n", .{});
-    std.debug.print("   Available functions:\n", .{});
-    std.debug.print("   - add(i32, f64) -> f64\n", .{});
-    std.debug.print("   - add(f64, i32) -> f64\n", .{});
-    std.debug.print("   Both require 1 conversion with cost 5\n", .{});
 
     var result = try resolver.resolve(call_site);
     defer result.deinit(std.testing.allocator);
 
     switch (result) {
         .success => |success| {
-            std.debug.print("❌ Expected ambiguity but got success: {s}\n", .{success.target_function.parameter_types});
-            std.debug.print("   Conversion cost: {d}\n", .{success.conversion_path.get().total_cost});
             try std.testing.expect(false);
         },
         .ambiguous => |ambiguous| {
-            std.debug.print("✅ Ambiguity correctly detected!\n", .{});
-            std.debug.print("   Candidates: {d}\n", .{ambiguous.candidates.len});
             for (ambiguous.candidates, 0..) |candidate, i| {
-                std.debug.print("   [{d}] {s} (cost: {d})\n", .{ i, candidate.candidate.function.parameter_types, candidate.conversion_path.get().total_cost });
             }
         },
         .no_matches => |no_matches| {
-            std.debug.print("❌ No matches found for: {s}\n", .{no_matches.function_name});
             try std.testing.expect(false);
         },
         .error_occurred => |err| {
-            std.debug.print("❌ Error occurred: {s}\n", .{err.message});
             try std.testing.expect(false);
         },
     }
 
-    std.debug.print("=== Test Complete ===\n", .{});
 }

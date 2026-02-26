@@ -6,7 +6,6 @@ const testing = std.testing;
 const astdb = @import("compiler/libjanus/astdb.zig");
 
 test "Simple ASTDB with Granite Interner Test" {
-    std.debug.print("\n🔧 SIMPLE ASTDB WITH GRANITE INTERNER TEST\n", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -28,14 +27,11 @@ test "Simple ASTDB with Granite Interner Test" {
     try testing.expectEqualStrings("hello", astdb_system.str_interner.str(hello_id));
     try testing.expectEqualStrings("world", astdb_system.str_interner.str(world_id));
 
-    std.debug.print("✅ ASTDB with granite interner works\n", .{});
 
     // Check for memory leaks
     const leaked = gpa.deinit();
     if (leaked == .ok) {
-        std.debug.print("🎉 ZERO MEMORY LEAKS WITH GRANITE INTERNER\n", .{});
     } else {
-        std.debug.print("❌ MEMORY LEAKS STILL DETECTED\n", .{});
         try testing.expect(false);
     }
 }

@@ -5,6 +5,7 @@
 // Every test must verify that generated IR matches canonical truth exactly
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const testing = std.testing;
 const ArrayList = std.array_list.Managed;
 
@@ -60,7 +61,7 @@ test "static dispatch IR generation - zero overhead contract" {
     try testing.expect(result.debug_info != null);
 
     // TODO: Validate generated IR text against golden reference
-    // const golden_ir = try std.fs.cwd().readFileAlloc(
+    // const golden_ir = try compat_fs.readFileAlloc(
     //     testing.allocator,
     //     "tests/golden/ir-generation/static_dispatch_zero_overhead_linux_x86_64_release_safe.ll",
     //     1024 * 1024
@@ -128,7 +129,7 @@ test "switch table dispatch IR generation - performance contract" {
     try testing.expect(result.debug_info != null);
 
     // TODO: Validate generated IR text against golden reference
-    // const golden_ir = try std.fs.cwd().readFileAlloc(
+    // const golden_ir = try compat_fs.readFileAlloc(
     //     testing.allocator,
     //     "tests/golden/ir-generation/dynamic_dispatch_switch_table_linux_x86_64_release_safe.ll",
     //     1024 * 1024

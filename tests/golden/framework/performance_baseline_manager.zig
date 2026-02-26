@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const PerformanceValidator = @import("performance_validator.zig").PerformanceValidator;
 
@@ -142,7 +144,7 @@ pub const PerformanceBaselineManager = struct {
             .optimization_level = try self.allocator.dupe(u8, optimization_level),
             .measurements = try self.allocator.dupe(PerformanceValidator.PerformanceMeasurement, measurements),
             .statistical_summary = statistical_summary,
-            .created_at = std.time.timestamp(),
+            .created_at = compat_time.timestamp(),
         };
 
         // Analyze if this should become the new baseline
@@ -251,7 +253,7 @@ pub const PerformanceBaselineManager = struct {
 
     /// Validate performance against configurable thresholds
     pub fn validateThresholds(self: *Self, _: []const u8, measurement: PerformanceValidator.PerformanceMeasurement, expected_thresholds: []const PerformanceThreshold) ![]ThresholdValidationResult {
-        var results = std.ArrayList(ThresholdValidationResult).init(self.allocator);
+        var results: std.ArrayList(ThresholdValidationResult) = .empty;
 
         for (expected_thresholds) |threshold| {
             const actual_value = switch (threshold.metric) {
@@ -285,7 +287,7 @@ pub const PerformanceBaselineManager = struct {
             try results.append(result);
         }
 
-        return results.toOwnedSlice();
+        return try results.toOwnedSlice(alloc);
     }
 
     /// Generate performance trend report
@@ -300,7 +302,7 @@ pub const PerformanceBaselineManager = struct {
         var trend_analysis = try self.analyzeTrend(measurements);
         defer trend_analysis.deinit(self.allocator);
 
-        var report = std.ArrayList(u8).init(self.allocator);
+        var report: std.ArrayList(u8) = .empty;
         var writer = report.writer();
 
         try writer.print("Performance Trend Report: {s}\n", .{test_name});
@@ -333,7 +335,7 @@ pub const PerformanceBaselineManager = struct {
         try writer.print("  Max: {} ns\n", .{max_val});
         try writer.print("  Range: {} ns ({d:.1}%)\n", .{ max_val - min_val, if (mean != 0) @as(f64, @floatFromInt(max_val - min_val)) / mean * 100 else 0 });
 
-        return report.toOwnedSlice();
+        return try report.toOwnedSlice(alloc);
     }
 
     // Performance threshold definitions
@@ -381,7 +383,7 @@ pub const PerformanceBaselineManager = struct {
 
         // Ensure directory exists
         if (std.fs.path.dirname(history_path)) |dir_path| {
-            std.fs.cwd().makePath(dir_path) catch |err| switch (err) {
+            compat_fs.makeDir(dir_path) catch |err| switch (err) {
                 error.PathAlreadyExists => {},
                 else => return err,
             };
@@ -396,12 +398,12 @@ pub const PerformanceBaselineManager = struct {
         defer history.deinit(self.allocator);
 
         // Add new version
-        var new_versions = std.ArrayList(BaselineVersion).init(self.allocator);
+        var new_versions: std.ArrayList(BaselineVersion) = .empty;
         try new_versions.appendSlice(history.versions);
 
         const new_version = BaselineVersion{
             .version = version,
-            .created_at = std.time.timestamp(),
+            .created_at = compat_time.timestamp(),
             .compiler_version = try self.allocator.dupe(u8, compiler_version),
             .platform = try self.allocator.dupe(u8, platform),
             .optimization_level = try self.allocator.dupe(u8, optimization_level),
@@ -436,7 +438,7 @@ pub const PerformanceBaselineManager = struct {
     }
 
     fn saveBaselineHistory(self: *Self, history: *const BaselineHistory, file_path: []const u8) !void {
-        const file = try std.fs.cwd().createFile(file_path, .{});
+        const file = try compat_fs.createFile(file_path, .{});
         defer file.close();
 
         // Write JSON history (simplified)
@@ -529,7 +531,7 @@ pub const PerformanceBaselineManager = struct {
 
         // Simplified - return placeholder measurements with timestamps
         const measurements = try self.allocator.alloc(PerformanceValidator.PerformanceMeasurement, 10);
-        const now = std.time.timestamp();
+        const now = compat_time.timestamp();
 
         for (measurements, 0..) |*measurement, i| {
             measurement.* = PerformanceValidator.PerformanceMeasurement.init();

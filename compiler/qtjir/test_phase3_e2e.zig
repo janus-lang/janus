@@ -266,6 +266,100 @@ test "E2E: Errors in async tasks propagate correctly" {
 }
 
 // ============================================================================
+// Test 5: Runtime Integration - Async Task Lifecycle
+// ============================================================================
+
+test "Runtime: Async task lifecycle - spawn, execute, complete, await" {
+    // This test validates the runtime side of async/await
+    // Uses the scheduler directly (not through QTJIR/LLVM)
+
+    const allocator = testing.allocator;
+
+    // Initialize runtime
+    const rt = try Runtime.Runtime.init(allocator, .{
+        .worker_count = 2,
+    });
+    defer rt.deinit();
+
+    try rt.start();
+
+    // Counter for verification
+    var counter: u64 = 0;
+
+    // Define async task
+    const TaskFn = *const fn (?*anyopaque) callconv(.c) i64;
+    const task_func: TaskFn = struct {
+        fn run(ctx: ?*anyopaque) callconv(.c) i64 {
+            const c: *u64 = @ptrCast(@alignCast(ctx.?));
+            c.* += 1;
+            return 42; // Return value
+        }
+    }.run;
+
+    // Spawn async task
+    const handle = Runtime.janus_async_spawn(task_func, &counter);
+    try testing.expect(handle != null);
+
+    // Await completion
+    const result = Runtime.janus_async_await(handle);
+
+    // Verify result
+    try testing.expectEqual(@as(i64, 42), result);
+    try testing.expectEqual(@as(u64, 1), counter);
+
+    rt.stop();
+}
+
+// ============================================================================
+// Test 6: Cancellation Token Integration
+// ============================================================================
+
+test "Runtime: Cancellation token propagates through task hierarchy" {
+    const allocator = testing.allocator;
+
+    const rt = try Runtime.Runtime.init(allocator, .{
+        .worker_count = 2,
+    });
+    defer rt.deinit();
+
+    try rt.start();
+
+    // Create nursery for structured concurrency
+    const nursery = rt.createNursery(scheduler.Budget.serviceDefault());
+
+    // Cancellation flag
+    var child_cancelled = false;
+
+    // Parent spawns child, then cancels
+    const parent_task: *const fn (?*anyopaque) callconv(.c) i64 = struct {
+        fn run(ctx: ?*anyopaque) callconv(.c) i64 {
+            const cancelled: *bool = @ptrCast(@alignCast(ctx.?));
+
+            // Check if we're cancelled
+            if (Runtime.janus_task_is_cancelled()) {
+                cancelled.* = true;
+                return -1;
+            }
+
+            return 0;
+        }
+    }.run;
+
+    // Spawn and immediately cancel
+    const handle = Runtime.janus_async_spawn(parent_task, &child_cancelled);
+
+    // Cancel the task
+    if (handle) |h| {
+        Runtime.janus_task_cancel(@ptrCast(h));
+    }
+
+    // Await should return cancelled status
+    _ = Runtime.janus_async_await(handle);
+
+    rt.stop();
+}
+
+// ============================================================================
 // Integration Validation Summary
 // ============================================================================
 

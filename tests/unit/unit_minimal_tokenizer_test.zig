@@ -57,7 +57,6 @@ const SimpleTokenizer = struct {
             }
 
             if (count >= 100) {
-                std.debug.print("ERROR: Loop exceeded safety limit!\n", .{});
                 return Token{ .token_type = TokenType.Illegal, .literal = "LOOP_ERROR" };
             }
 
@@ -77,14 +76,12 @@ const SimpleTokenizer = struct {
 pub fn main() !void {
     const test_input = "hello";
 
-    std.debug.print("Testing with: '{s}'\n", .{test_input});
 
     var tokenizer = SimpleTokenizer.init(test_input);
 
     var count: u32 = 0;
     while (count < 10) {
         const token = tokenizer.nextToken();
-        std.debug.print("Token {}: {} = '{s}'\n", .{ count, token.token_type, token.literal });
 
         if (token.token_type == TokenType.Eof) {
             break;
@@ -92,5 +89,4 @@ pub fn main() !void {
         count += 1;
     }
 
-    std.debug.print("Test completed successfully!\n", .{});
 }

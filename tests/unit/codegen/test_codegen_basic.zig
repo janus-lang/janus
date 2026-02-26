@@ -33,7 +33,6 @@ test "Codegen Module - Basic Functionality" {
     try testing.expect(std.mem.eql(u8, test_site.function_name, "test_function"));
     try testing.expect(test_site.arg_types.len == 2);
 
-    std.debug.print("✅ Basic codegen structures working\n", .{});
 }
 
 test "Strategy Selection Logic" {
@@ -54,7 +53,6 @@ test "Strategy Selection Logic" {
     try testing.expect(std.mem.eql(u8, moderate_freq_strategy, "switch_dispatch"));
     try testing.expect(std.mem.eql(u8, low_freq_strategy, "jump_table"));
 
-    std.debug.print("✅ Strategy selection logic verified\n", .{});
 }
 
 test "IR Builder Simulation" {
@@ -80,7 +78,6 @@ test "IR Builder Simulation" {
     try testing.expect(std.mem.indexOf(u8, ir_lines.items[0], "define i32 @test_function") != null);
     try testing.expect(std.mem.indexOf(u8, ir_lines.items[2], "ret i32") != null);
 
-    std.debug.print("✅ IR building simulation working\n", .{});
 }
 
 test "Deterministic Hash Simulation" {
@@ -99,8 +96,6 @@ test "Deterministic Hash Simulation" {
     try testing.expect(hash1 == hash2); // Same content = same hash
     try testing.expect(hash1 != hash3); // Different content = different hash
 
-    std.debug.print("✅ Deterministic hashing simulation verified\n", .{});
-    std.debug.print("Hash1: {d}, Hash2: {d}, Hash3: {d}\n", .{ hash1, hash2, hash3 });
 }
 
 test "AI Auditability Simulation" {
@@ -145,11 +140,9 @@ test "AI Auditability Simulation" {
     try testing.expect(std.mem.eql(u8, decisions.items[1].strategy, "switch_dispatch"));
     try testing.expect(std.mem.eql(u8, decisions.items[2].strategy, "jump_table"));
 
-    std.debug.print("✅ AI auditability simulation verified - {} decisions tracked\n", .{decisions.items.len});
 
     // Print audit trail
     for (decisions.items, 0..) |decision, i| {
-        std.debug.print("Decision {d}: {s} -> {s} (freq: {d})\n", .{
             i + 1,
             decision.function_name,
             decision.strategy,

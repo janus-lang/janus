@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const json_helpers = @import("json_helpers.zig");
 
 pub const Options = struct {
     include_hinge_resolve: bool = false,
@@ -177,7 +178,7 @@ pub fn writeManualJSON(writer: anytype, opts: Options) !void {
 pub fn renderManualToOwnedSlice(allocator: std.mem.Allocator, opts: Options) ![]u8 {
     var buf = std.ArrayList(u8){};
     errdefer buf.deinit(allocator);
-    try writeManualJSON(buf.writer(allocator), opts);
+    try writeManualJSON(json_helpers.arrayListWriter(&buf, allocator), opts);
     return try buf.toOwnedSlice(allocator);
 }
 

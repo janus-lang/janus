@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 const HashMap = std.HashMap;
@@ -410,7 +411,7 @@ pub const DispatchTableOptimizer = struct {
 
     /// Run optimization passes on multiple tables with cross-table optimizations
     pub fn optimizeTableSet(self: *Self, tables: []*OptimizedDispatchTable, config: OptimizationConfig) ![]OptimizationResult {
-        var results = ArrayList(OptimizationResult).init(self.allocator);
+        var results: ArrayList(OptimizationResult) = .empty;
 
         // First pass: Individual table optimizations
         for (tables) |table| {
@@ -423,7 +424,7 @@ pub const DispatchTableOptimizer = struct {
             try self.optimizeTableSharing(results.items, config);
         }
 
-        return results.toOwnedSlice();
+        return try results.toOwnedSlice(alloc);
     }
 
     /// Generate optimization report
@@ -576,8 +577,8 @@ pub const DispatchTableOptimizer = struct {
         }
 
         // Create compressed representation
-        var compressed_entries = ArrayList(CompressedTable.CompressedEntry).init(self.allocator);
-        var lookup_table = ArrayList(u16).init(self.allocator);
+        var compressed_entries: ArrayList(CompressedTable.CompressedEntry) = .empty;
+        var lookup_table: ArrayList(u16) = .empty;
 
         for (table.entries[0..table.entry_count], 0..) |entry, i| {
             const compressed_entry = CompressedTable.CompressedEntry{
@@ -680,8 +681,8 @@ pub const DispatchTableOptimizer = struct {
     fn createSharedTable(self: *Self, table: *OptimizedDispatchTable) !*SharedDispatchTable {
         const shared_table = try self.allocator.create(SharedDispatchTable);
         shared_table.* = SharedDispatchTable{
-            .signature_hashes = ArrayList(u64).init(self.allocator),
-            .shared_entries = ArrayList(SharedDispatchTable.SharedEntry).init(self.allocator),
+            .signature_hashes = .empty,
+            .shared_entries = .empty,
             .reference_count = 1,
         };
 
@@ -691,7 +692,7 @@ pub const DispatchTableOptimizer = struct {
                 .type_pattern = &.{}, // Simplified
                 .implementation_pool_index = 0, // Simplified
                 .usage_count = entry.call_frequency,
-                .last_access_time = @intCast(std.time.timestamp()),
+                .last_access_time = @intCast(compat_time.timestamp()),
             };
 
             try shared_table.shared_entries.append(shared_entry);
@@ -721,7 +722,7 @@ pub const DispatchTableOptimizer = struct {
     /// INTEGRATION: Apply advanced compression directly to OptimizedDispatchTable
     fn integrateAdvancedCompressionIntoTable(self: *Self, table: *OptimizedDispatchTable, config: OptimizationConfig) !void {
         // Convert table entries to compression format
-        var compression_entries = ArrayList(AdvancedDispatchCompression.DispatchEntry).init(self.allocator);
+        var compression_entries: ArrayList(AdvancedDispatchCompression.DispatchEntry) = .empty;
         defer {
             for (compression_entries.items) |entry| {
                 self.allocator.free(entry.type_pattern);
@@ -774,7 +775,7 @@ pub const DispatchTableOptimizer = struct {
         const table_hash = self.calculateTableHash(table);
 
         // Extract type patterns from dispatch entries
-        var type_patterns = ArrayList([]TypeId).init(self.allocator);
+        var type_patterns: ArrayList([]TypeId) = .empty;
         defer {
             for (type_patterns.items) |pattern| {
                 self.allocator.free(pattern);
@@ -792,7 +793,7 @@ pub const DispatchTableOptimizer = struct {
         }
 
         // Convert OptimizedDispatchTable entries to AdvancedDispatchCompression entries
-        var advanced_entries = ArrayList(AdvancedDispatchCompression.DispatchEntry).init(self.allocator);
+        var advanced_entries: ArrayList(AdvancedDispatchCompression.DispatchEntry) = .empty;
         defer advanced_entries.deinit();
 
         for (table.entries[0..table.entry_count]) |entry| {
@@ -827,7 +828,7 @@ pub const DispatchTableOptimizer = struct {
         }
 
         // Serialize the compressed result to bytes
-        var compressed_data = ArrayList(u8).init(self.allocator);
+        var compressed_data: ArrayList(u8) = .empty;
         try self.serializeCompressedTable(&compression_result, &compressed_data);
 
         // Create advanced compressed table

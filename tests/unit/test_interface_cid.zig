@@ -16,7 +16,6 @@ test "interface CID - deterministic generation" {
     // This test verifies that identical interfaces always produce identical CIDs
     // This is CRITICAL for incremental compilation correctness
 
-    std.debug.print("Interfa- deterministic generation\n", .{});
 
     // TODO: Create test cases with:
     // 1. Same interface extracted multiple times should produce same CID
@@ -30,7 +29,6 @@ test "interface CID - implementation changes do not affect CID" {
     // This test verifies the CRITICAL property: implementation changes must NOT change InterfaceCID
     // This is what enables incremental compilation efficiency
 
-    std.debug.print("Interface CID test - implementation changes do not affect CID\n", .{});
 
     // TODO: Test cases:
     // 1. Function with same signature, different implementation -> same InterfaceCID
@@ -45,7 +43,6 @@ test "interface CID - interface changes do affect CID" {
     // This test verifies that true interface changes DO change the InterfaceCID
     // This ensures dependent modules are rebuilt when necessary
 
-    std.debug.print("Interface CID test - interface changes do affect CID\n", .{});
 
     // TODO: Test cases:
     // 1. Function signature change -> different InterfaceCID
@@ -60,7 +57,6 @@ test "interface CID - interface changes do affect CID" {
 test "interface CID - BLAKE3 hash properties" {
     // This test verifies that the BLAKE3 hashing behaves correctly
 
-    std.debug.print("Interface CID test - BLAKE3 hash properties\n", .{});
 
     // TODO: Test cases:
     // 1. Different interfaces produce different hashes (no collisions in test set)
@@ -74,7 +70,6 @@ test "interface CID - BLAKE3 hash properties" {
 test "interface CID - dependency CID generation" {
     // This test verifies that dependency CIDs are generated correctly
 
-    std.debug.print("Interface CID test - dependency CID generation\n", .{});
 
     // TODO: Test cases:
     // 1. Same set of dependencies in different order -> same dependency CID
@@ -88,7 +83,6 @@ test "interface CID - dependency CID generation" {
 test "interface CID - edge cases" {
     // This test verifies handling of edge cases in interface CID generation
 
-    std.debug.print("Interface CID test - edge cases\n", .{});
 
     // TODO: Test cases:
     // 1. Empty interface (no public elements) -> valid CID
@@ -104,7 +98,6 @@ test "interface CID - edge cases" {
 test "interface CID - performance" {
     // This test verifies that InterfaceCID generation is efficient
 
-    std.debug.print("Interface CID test - performance\n", .{});
 
     // TODO: Performance tests:
     // 1. Generate CID for large interface (1000+ elements)
@@ -118,7 +111,6 @@ test "interface CID - performance" {
 test "interface CID - comparison and equality" {
     // This test verifies InterfaceCID comparison operations
 
-    std.debug.print("Interface CID test - comparison and equality\n", .{});
 
     // TODO: Test cases:
     // 1. Identical CIDs compare as equal

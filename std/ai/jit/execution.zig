@@ -6,6 +6,7 @@
 // Doctrine: Temporal Honesty - Compiled code has identical semantics to interpreted
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const semantic = @import("semantic.zig");
 const speculation = @import("speculation.zig");
 
@@ -173,7 +174,7 @@ pub fn compile(
 
     // Record audit trail
     exec_unit.audit_trail = .{
-        .compilation_timestamp = std.time.timestamp(),
+        .compilation_timestamp = compat_time.timestamp(),
         .compilation_duration_ns = 0, // TODO: Measure
         .speculation_level = strategy.level,
         .source_cid = profile.module_cid,

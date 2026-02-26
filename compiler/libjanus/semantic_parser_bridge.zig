@@ -83,8 +83,8 @@ pub const SemanticParserBridge = struct {
             .functions_processed = 0,
             .families_created = 0,
             .calls_resolved = 0,
-            .diagnostics = std.ArrayList(DiagnosticInfo).init(self.allocator),
-            .resolution_results = std.ArrayList(CallResolutionResult).init(self.allocator),
+            .diagnostics = .empty,
+            .resolution_results = .empty,
         };
 
         // Phase 1: Extract function declarations and build dispatch families

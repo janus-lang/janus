@@ -30,7 +30,7 @@ test "parse call expression with named arguments" {
     const unit_id = try astdb_system.addUnit("test.jan", source);
     const unit = astdb_system.getUnit(unit_id) orelse unreachable;
 
-    var astdb_tokens = std.ArrayList(astdb_core.Token).init(unit.arenaAllocator());
+    var astdb_tokens: std.ArrayList(astdb_core.Token) = .empty);
     for (tokens) |old_token| {
         const astdb_token_kind = janus_parser.convertTokenType(old_token.type);
         var str_id: ?astdb_core.StrId = null;
@@ -62,7 +62,7 @@ test "parse call expression with named arguments" {
     // Simulate parsing the function name before calling parseCallExpression
     _ = parser_state.advance(); // Consume 'func_call' identifier
 
-    var nodes = std.ArrayList(astdb_core.AstNode).init(allocator);
+    var nodes: std.ArrayList(astdb_core.AstNode) = .empty;
     defer nodes.deinit();
 
     const call_expr_node = try janus_parser.parseCallExpression(&parser_state, &nodes);

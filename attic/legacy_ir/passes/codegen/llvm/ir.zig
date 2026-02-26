@@ -306,7 +306,7 @@ pub const IRGenerator = struct {
             .llvm_builder = builder,
             .symbol_manager = SymbolManager.init(allocator),
             .type_mapper = TypeMapper.init(allocator),
-            .optimization_decisions = std.ArrayList(OptimizationDecision).init(allocator),
+            .optimization_decisions = .empty,
         };
     }
 

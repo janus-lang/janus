@@ -81,14 +81,14 @@ CallSite → CandidateCollection → CompatibilityAnalysis → Disambiguation �
 
 ```janus
 // Exact match - zero overhead
-func add(a: i32, b: i32) -> i32 { return a + b; }
+func add(a: i32, b: i32) -> i32 do return a + b end
 let result = add(2, 3); // Resolves to add(i32, i32)
 ```
 
 ### Explicit Conversion Required
 
 ```janus
-func sqrt(x: f64) -> f64 { /* ... */ }
+func sqrt(x: f64) -> f64 do /* ... */ end
 
 // This fails - no implicit conversion
 let result = sqrt(4); // ERROR S1102: No matching function
@@ -100,8 +100,8 @@ let result = sqrt(4 as f64); // Resolves with conversion cost=5
 ### Ambiguous Resolution
 
 ```janus
-func add(a: i32, b: f64) -> f64 { /* ... */ }
-func add(a: f64, b: i32) -> f64 { /* ... */ }
+func add(a: i32, b: f64) -> f64 do /* ... */ end
+func add(a: f64, b: i32) -> f64 do /* ... */ end
 
 // This fails - ambiguous
 let result = add(2, 3); // ERROR S1101: Ambiguous call

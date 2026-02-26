@@ -9,7 +9,7 @@ test "ensureLocalGlobalCache creates required layout" {
     defer tmp.cleanup();
 
     const gpa = std.testing.allocator;
-    const base_path = try tmp.dir.realpathAlloc(gpa, ".");
+    const base_path = try tmp.dir.realPathFileAlloc(testing.io, ".", gpa);
     defer gpa.free(base_path);
 
     const cache_root = cache_support.CacheDirectory{

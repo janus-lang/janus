@@ -66,7 +66,6 @@ test "Simple dispatch family integration" {
     const no_match = family.findBestMatch("string,string");
     try std.testing.expect(no_match == null);
 
-    std.debug.print("✅ Simple dispatch integration test passed!\n", .{});
 }
 
 test "Multiple dispatch families" {
@@ -125,5 +124,4 @@ test "Multiple dispatch families" {
     try std.testing.expect(add_family.isSingleFunction());
     try std.testing.expect(multiply_family.isSingleFunction());
 
-    std.debug.print("✅ Multiple dispatch families test passed!\n", .{});
 }

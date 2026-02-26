@@ -45,10 +45,7 @@ test ":service profile: Async function compiles to LLVM IR" {
     try testing.expect(ir_graphs.items.len > 0);
     try testing.expect(ir_graphs.items[0].nodes.items.len > 0);
 
-    std.debug.print("\n=== ASYNC FUNCTION QTJIR ===\n", .{});
-    for (ir_graphs.items[0].nodes.items, 0..) |node, i| {
-        std.debug.print("  [{d}] {s}\n", .{ i, @tagName(node.op) });
-    }
+    try testing.expect(ir_graphs.items[0].nodes.items.len > 0);
 
     // Emit to LLVM IR
     var emitter = try qtjir.llvm_emitter.LLVMEmitter.init(allocator, "async_test");
@@ -59,13 +56,11 @@ test ":service profile: Async function compiles to LLVM IR" {
     const llvm_ir = try emitter.toString();
     defer allocator.free(llvm_ir);
 
-    std.debug.print("\n=== LLVM IR ===\n{s}\n", .{llvm_ir});
 
     // Verify LLVM IR has function definition
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "define") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "main") != null);
 
-    std.debug.print("\n=== ASYNC FUNCTION COMPILES TO LLVM IR ===\n", .{});
 }
 
 test ":service profile: Nursery block generates Begin/End opcodes" {
@@ -96,10 +91,8 @@ test ":service profile: Nursery block generates Begin/End opcodes" {
     var found_begin = false;
     var found_end = false;
 
-    std.debug.print("\n=== NURSERY QTJIR ===\n", .{});
     for (ir_graphs.items) |ir_graph| {
-        for (ir_graph.nodes.items, 0..) |node, i| {
-            std.debug.print("  [{d}] {s}\n", .{ i, @tagName(node.op) });
+        for (ir_graph.nodes.items) |node| {
             if (node.op == .Nursery_Begin) found_begin = true;
             if (node.op == .Nursery_End) found_end = true;
         }
@@ -117,16 +110,15 @@ test ":service profile: Nursery block generates Begin/End opcodes" {
     const llvm_ir = try emitter.toString();
     defer allocator.free(llvm_ir);
 
-    std.debug.print("\n=== NURSERY LLVM IR ===\n{s}\n", .{llvm_ir});
 
     // Should compile without errors
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "define") != null);
 
-    std.debug.print("\n=== NURSERY BLOCK COMPILES TO LLVM IR ===\n", .{});
 }
 
 test ":service profile: Async function E2E execution (blocking model)" {
     const allocator = testing.allocator;
+    const io = testing.io;
 
     // Async function that returns a value
     const source =
@@ -157,28 +149,27 @@ test ":service profile: Async function E2E execution (blocking model)" {
     const llvm_ir = try emitter.toString();
     defer allocator.free(llvm_ir);
 
-    std.debug.print("\n=== ASYNC E2E LLVM IR ===\n{s}\n", .{llvm_ir});
 
     // Write IR to temp file
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const ir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    const ir_path = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", allocator);
     defer allocator.free(ir_path);
 
     const ir_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "async.ll" });
     defer allocator.free(ir_file_path);
 
-    try tmp_dir.dir.writeFile(.{ .sub_path = "async.ll", .data = llvm_ir });
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = "async.ll", .data = llvm_ir });
 
     // Compile to object file
     const obj_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "async.o" });
     defer allocator.free(obj_file_path);
 
-    const llc_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const llc_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "llc",
+            
             "-filetype=obj",
             ir_file_path,
             "-o",
@@ -189,9 +180,8 @@ test ":service profile: Async function E2E execution (blocking model)" {
     defer allocator.free(llc_result.stderr);
 
     switch (llc_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
-                std.debug.print("LLC STDERR: {s}\n", .{llc_result.stderr});
                 return error.LLCFailed;
             }
         },
@@ -211,8 +201,7 @@ test ":service profile: Async function E2E execution (blocking model)" {
     const emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{rt_obj_path});
     defer allocator.free(emit_arg);
 
-    const zig_build_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const zig_build_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "zig",
             "build-obj",
@@ -224,8 +213,7 @@ test ":service profile: Async function E2E execution (blocking model)" {
     defer allocator.free(zig_build_result.stdout);
     defer allocator.free(zig_build_result.stderr);
 
-    if (zig_build_result.term.Exited != 0) {
-        std.debug.print("RUNTIME COMPILATION FAILED: {s}\n", .{zig_build_result.stderr});
+    if (zig_build_result.term.exited != 0) {
         return error.RuntimeCompilationFailed;
     }
 
@@ -233,8 +221,7 @@ test ":service profile: Async function E2E execution (blocking model)" {
     const asm_emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{asm_obj_path});
     defer allocator.free(asm_emit_arg);
 
-    const asm_build_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const asm_build_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "zig",
             "build-obj",
@@ -245,14 +232,12 @@ test ":service profile: Async function E2E execution (blocking model)" {
     defer allocator.free(asm_build_result.stdout);
     defer allocator.free(asm_build_result.stderr);
 
-    if (asm_build_result.term.Exited != 0) {
-        std.debug.print("ASM COMPILATION FAILED: {s}\n", .{asm_build_result.stderr});
+    if (asm_build_result.term.exited != 0) {
         return error.RuntimeCompilationFailed;
     }
 
     // Link (including assembly object for fiber support)
-    const link_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const link_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "cc",
             obj_file_path,
@@ -266,9 +251,8 @@ test ":service profile: Async function E2E execution (blocking model)" {
     defer allocator.free(link_result.stderr);
 
     switch (link_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
-                std.debug.print("LINK STDERR: {s}\n", .{link_result.stderr});
                 return error.LinkFailed;
             }
         },
@@ -276,33 +260,27 @@ test ":service profile: Async function E2E execution (blocking model)" {
     }
 
     // Execute
-    const exec_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const exec_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{exe_file_path},
     });
     defer allocator.free(exec_result.stdout);
     defer allocator.free(exec_result.stderr);
 
     switch (exec_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
-                std.debug.print("EXEC STDERR: {s}\n", .{exec_result.stderr});
-                std.debug.print("Exit code: {d}\n", .{code});
                 return error.ExecutionFailed;
             }
         },
         else => {
-            std.debug.print("EXEC terminated abnormally: {any}\n", .{exec_result.term});
             return error.ExecutionFailed;
         },
     }
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{exec_result.stdout});
 
     // In blocking model, async function should execute and print 42
     try testing.expectEqualStrings("42\n", exec_result.stdout);
 
-    std.debug.print("\n=== ASYNC E2E EXECUTION PASSED (Blocking Model) ===\n", .{});
 }
 
 test ":service profile: Spawn generates janus_nursery_spawn_noarg call (Phase 2.3)" {
@@ -337,19 +315,16 @@ test ":service profile: Spawn generates janus_nursery_spawn_noarg call (Phase 2.
 
     // Check that Spawn node was created in QTJIR
     var found_spawn = false;
-    std.debug.print("\n=== SPAWN QTJIR ===\n", .{});
     for (ir_graphs.items) |ir_graph| {
-        for (ir_graph.nodes.items, 0..) |node, i| {
-            std.debug.print("  [{d}] {s}", .{ i, @tagName(node.op) });
+        for (ir_graph.nodes.items) |node| {
             if (node.op == .Spawn) {
                 found_spawn = true;
                 // Check that function name is stored in data
                 switch (node.data) {
-                    .string => |s| std.debug.print(" -> '{s}'", .{s}),
+                    .string => {},
                     else => {},
                 }
             }
-            std.debug.print("\n", .{});
         }
     }
     try testing.expect(found_spawn);
@@ -363,14 +338,12 @@ test ":service profile: Spawn generates janus_nursery_spawn_noarg call (Phase 2.
     const llvm_ir = try emitter.toString();
     defer allocator.free(llvm_ir);
 
-    std.debug.print("\n=== SPAWN LLVM IR ===\n{s}\n", .{llvm_ir});
 
     // Verify janus_nursery_spawn_noarg is called
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "janus_nursery_spawn_noarg") != null);
     // Verify task function is defined
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "@task") != null);
 
-    std.debug.print("\n=== SPAWN GENERATES janus_nursery_spawn_noarg CALL ===\n", .{});
 }
 
 test ":service profile: Spawn with arguments generates thunk and janus_nursery_spawn call (Phase 2.4)" {
@@ -406,22 +379,18 @@ test ":service profile: Spawn with arguments generates thunk and janus_nursery_s
 
     // Check that Spawn node was created with argument input
     var found_spawn_with_args = false;
-    std.debug.print("\n=== SPAWN WITH ARGS QTJIR ===\n", .{});
     for (ir_graphs.items) |ir_graph| {
-        for (ir_graph.nodes.items, 0..) |node, i| {
-            std.debug.print("  [{d}] {s}", .{ i, @tagName(node.op) });
+        for (ir_graph.nodes.items) |node| {
             if (node.op == .Spawn) {
                 switch (node.data) {
-                    .string => |s| std.debug.print(" -> '{s}'", .{s}),
+                    .string => {},
                     else => {},
                 }
-                std.debug.print(" (args: {d})", .{node.inputs.items.len});
                 // Verify spawn has at least one argument input
                 if (node.inputs.items.len > 0) {
                     found_spawn_with_args = true;
                 }
             }
-            std.debug.print("\n", .{});
         }
     }
     try testing.expect(found_spawn_with_args);
@@ -435,7 +404,6 @@ test ":service profile: Spawn with arguments generates thunk and janus_nursery_s
     const llvm_ir = try emitter.toString();
     defer allocator.free(llvm_ir);
 
-    std.debug.print("\n=== SPAWN WITH ARGS LLVM IR ===\n{s}\n", .{llvm_ir});
 
     // Verify janus_nursery_spawn (not noarg) is called for functions with arguments
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "janus_nursery_spawn") != null);
@@ -444,7 +412,6 @@ test ":service profile: Spawn with arguments generates thunk and janus_nursery_s
     // Verify target function is defined
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "@task_with_arg") != null);
 
-    std.debug.print("\n=== SPAWN WITH ARGS GENERATES THUNK AND janus_nursery_spawn CALL ===\n", .{});
 }
 
 test ":service profile: Multiple spawns in nursery (Phase 2.5)" {
@@ -489,17 +456,14 @@ test ":service profile: Multiple spawns in nursery (Phase 2.5)" {
 
     // Count Spawn nodes in QTJIR
     var spawn_count: usize = 0;
-    std.debug.print("\n=== MULTIPLE SPAWNS QTJIR ===\n", .{});
     for (ir_graphs.items) |ir_graph| {
-        for (ir_graph.nodes.items, 0..) |node, i| {
+        for (ir_graph.nodes.items) |node| {
             if (node.op == .Spawn) {
                 spawn_count += 1;
-                std.debug.print("  [{d}] Spawn", .{i});
                 switch (node.data) {
-                    .string => |s| std.debug.print(" -> '{s}'", .{s}),
+                    .string => {},
                     else => {},
                 }
-                std.debug.print("\n", .{});
             }
         }
     }
@@ -515,7 +479,6 @@ test ":service profile: Multiple spawns in nursery (Phase 2.5)" {
     const llvm_ir = try emitter.toString();
     defer allocator.free(llvm_ir);
 
-    std.debug.print("\n=== MULTIPLE SPAWNS LLVM IR ===\n{s}\n", .{llvm_ir});
 
     // Count janus_nursery_spawn_noarg calls in LLVM IR (not declarations)
     var call_count: usize = 0;
@@ -532,11 +495,11 @@ test ":service profile: Multiple spawns in nursery (Phase 2.5)" {
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "@task_b") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "@task_c") != null);
 
-    std.debug.print("\n=== MULTIPLE SPAWNS GENERATES 3 janus_nursery_spawn_noarg CALLS ===\n", .{});
 }
 
 test ":service profile: Multiple spawns E2E execution (Phase 2.5)" {
     const allocator = testing.allocator;
+    const io = testing.io;
 
     // Multiple tasks that print their values
     const source =
@@ -590,10 +553,10 @@ test ":service profile: Multiple spawns E2E execution (Phase 2.5)" {
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const ir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    const ir_path = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", allocator);
     defer allocator.free(ir_path);
 
-    try tmp_dir.dir.writeFile(.{ .sub_path = "multi.ll", .data = llvm_ir });
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = "multi.ll", .data = llvm_ir });
 
     const ir_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "multi.ll" });
     defer allocator.free(ir_file_path);
@@ -602,10 +565,10 @@ test ":service profile: Multiple spawns E2E execution (Phase 2.5)" {
     const obj_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "multi.o" });
     defer allocator.free(obj_file_path);
 
-    const llc_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const llc_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "llc",
+            
             "-filetype=obj",
             ir_file_path,
             "-o",
@@ -616,9 +579,8 @@ test ":service profile: Multiple spawns E2E execution (Phase 2.5)" {
     defer allocator.free(llc_result.stderr);
 
     switch (llc_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
-                std.debug.print("LLC STDERR: {s}\n", .{llc_result.stderr});
                 return error.LLCFailed;
             }
         },
@@ -638,8 +600,7 @@ test ":service profile: Multiple spawns E2E execution (Phase 2.5)" {
     const emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{rt_obj_path});
     defer allocator.free(emit_arg);
 
-    const zig_build_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const zig_build_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "zig",
             "build-obj",
@@ -651,8 +612,7 @@ test ":service profile: Multiple spawns E2E execution (Phase 2.5)" {
     defer allocator.free(zig_build_result.stdout);
     defer allocator.free(zig_build_result.stderr);
 
-    if (zig_build_result.term.Exited != 0) {
-        std.debug.print("RUNTIME COMPILATION FAILED: {s}\n", .{zig_build_result.stderr});
+    if (zig_build_result.term.exited != 0) {
         return error.RuntimeCompilationFailed;
     }
 
@@ -660,8 +620,7 @@ test ":service profile: Multiple spawns E2E execution (Phase 2.5)" {
     const asm_emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{asm_obj_path});
     defer allocator.free(asm_emit_arg);
 
-    const asm_build_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const asm_build_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "zig",
             "build-obj",
@@ -672,14 +631,12 @@ test ":service profile: Multiple spawns E2E execution (Phase 2.5)" {
     defer allocator.free(asm_build_result.stdout);
     defer allocator.free(asm_build_result.stderr);
 
-    if (asm_build_result.term.Exited != 0) {
-        std.debug.print("ASM COMPILATION FAILED: {s}\n", .{asm_build_result.stderr});
+    if (asm_build_result.term.exited != 0) {
         return error.RuntimeCompilationFailed;
     }
 
     // Link (including assembly object for fiber support)
-    const link_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const link_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "cc",
             obj_file_path,
@@ -693,9 +650,8 @@ test ":service profile: Multiple spawns E2E execution (Phase 2.5)" {
     defer allocator.free(link_result.stderr);
 
     switch (link_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
-                std.debug.print("LINK STDERR: {s}\n", .{link_result.stderr});
                 return error.LinkFailed;
             }
         },
@@ -703,28 +659,23 @@ test ":service profile: Multiple spawns E2E execution (Phase 2.5)" {
     }
 
     // Execute
-    const exec_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const exec_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{exe_file_path},
     });
     defer allocator.free(exec_result.stdout);
     defer allocator.free(exec_result.stderr);
 
     switch (exec_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
-                std.debug.print("EXEC STDERR: {s}\n", .{exec_result.stderr});
-                std.debug.print("Exit code: {d}\n", .{code});
                 return error.ExecutionFailed;
             }
         },
         else => {
-            std.debug.print("EXEC terminated abnormally: {any}\n", .{exec_result.term});
             return error.ExecutionFailed;
         },
     }
 
-    std.debug.print("\n=== MULTI-SPAWN EXECUTION OUTPUT ===\n{s}\n", .{exec_result.stdout});
 
     // All three tasks should have printed (order may vary due to parallelism)
     // Check that we got all three values (1, 2, 3)
@@ -732,7 +683,6 @@ test ":service profile: Multiple spawns E2E execution (Phase 2.5)" {
     try testing.expect(std.mem.indexOf(u8, exec_result.stdout, "2") != null);
     try testing.expect(std.mem.indexOf(u8, exec_result.stdout, "3") != null);
 
-    std.debug.print("\n=== MULTI-SPAWN E2E EXECUTION PASSED ===\n", .{});
 }
 
 test ":service profile: Await expression lowering (Phase 2.6)" {
@@ -766,10 +716,8 @@ test ":service profile: Await expression lowering (Phase 2.6)" {
 
     // Find Await node in QTJIR
     var found_await = false;
-    std.debug.print("\n=== AWAIT QTJIR ===\n", .{});
     for (ir_graphs.items) |ir_graph| {
-        for (ir_graph.nodes.items, 0..) |node, i| {
-            std.debug.print("  [{d}] {s}\n", .{ i, @tagName(node.op) });
+        for (ir_graph.nodes.items) |node| {
             if (node.op == .Await) {
                 found_await = true;
             }
@@ -786,17 +734,16 @@ test ":service profile: Await expression lowering (Phase 2.6)" {
     const llvm_ir = try emitter.toString();
     defer allocator.free(llvm_ir);
 
-    std.debug.print("\n=== AWAIT LLVM IR ===\n{s}\n", .{llvm_ir});
 
     // Verify the main function calls fetch_data and print
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "@fetch_data") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "janus_print") != null);
 
-    std.debug.print("\n=== AWAIT EXPRESSION LOWERING PASSED ===\n", .{});
 }
 
 test ":service profile: Await E2E execution (Phase 2.6)" {
     const allocator = testing.allocator;
+    const io = testing.io;
 
     // Await inside async function
     const source =
@@ -836,10 +783,10 @@ test ":service profile: Await E2E execution (Phase 2.6)" {
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const ir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    const ir_path = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", allocator);
     defer allocator.free(ir_path);
 
-    try tmp_dir.dir.writeFile(.{ .sub_path = "await.ll", .data = llvm_ir });
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = "await.ll", .data = llvm_ir });
 
     const ir_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "await.ll" });
     defer allocator.free(ir_file_path);
@@ -848,10 +795,10 @@ test ":service profile: Await E2E execution (Phase 2.6)" {
     const obj_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "await.o" });
     defer allocator.free(obj_file_path);
 
-    const llc_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const llc_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "llc",
+            
             "-filetype=obj",
             ir_file_path,
             "-o",
@@ -862,9 +809,8 @@ test ":service profile: Await E2E execution (Phase 2.6)" {
     defer allocator.free(llc_result.stderr);
 
     switch (llc_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
-                std.debug.print("LLC STDERR: {s}\n", .{llc_result.stderr});
                 return error.LLCFailed;
             }
         },
@@ -884,8 +830,7 @@ test ":service profile: Await E2E execution (Phase 2.6)" {
     const emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{rt_obj_path});
     defer allocator.free(emit_arg);
 
-    const zig_build_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const zig_build_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "zig",
             "build-obj",
@@ -897,8 +842,7 @@ test ":service profile: Await E2E execution (Phase 2.6)" {
     defer allocator.free(zig_build_result.stdout);
     defer allocator.free(zig_build_result.stderr);
 
-    if (zig_build_result.term.Exited != 0) {
-        std.debug.print("RUNTIME COMPILATION FAILED: {s}\n", .{zig_build_result.stderr});
+    if (zig_build_result.term.exited != 0) {
         return error.RuntimeCompilationFailed;
     }
 
@@ -906,8 +850,7 @@ test ":service profile: Await E2E execution (Phase 2.6)" {
     const asm_emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{asm_obj_path});
     defer allocator.free(asm_emit_arg);
 
-    const asm_build_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const asm_build_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "zig",
             "build-obj",
@@ -918,14 +861,12 @@ test ":service profile: Await E2E execution (Phase 2.6)" {
     defer allocator.free(asm_build_result.stdout);
     defer allocator.free(asm_build_result.stderr);
 
-    if (asm_build_result.term.Exited != 0) {
-        std.debug.print("ASM COMPILATION FAILED: {s}\n", .{asm_build_result.stderr});
+    if (asm_build_result.term.exited != 0) {
         return error.RuntimeCompilationFailed;
     }
 
     // Link (including assembly object for fiber support)
-    const link_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const link_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "cc",
             obj_file_path,
@@ -939,9 +880,8 @@ test ":service profile: Await E2E execution (Phase 2.6)" {
     defer allocator.free(link_result.stderr);
 
     switch (link_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
-                std.debug.print("LINK STDERR: {s}\n", .{link_result.stderr});
                 return error.LinkFailed;
             }
         },
@@ -949,37 +889,32 @@ test ":service profile: Await E2E execution (Phase 2.6)" {
     }
 
     // Execute
-    const exec_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const exec_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{exe_file_path},
     });
     defer allocator.free(exec_result.stdout);
     defer allocator.free(exec_result.stderr);
 
     switch (exec_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
-                std.debug.print("EXEC STDERR: {s}\n", .{exec_result.stderr});
-                std.debug.print("Exit code: {d}\n", .{code});
                 return error.ExecutionFailed;
             }
         },
         else => {
-            std.debug.print("EXEC terminated abnormally: {any}\n", .{exec_result.term});
             return error.ExecutionFailed;
         },
     }
 
-    std.debug.print("\n=== AWAIT E2E OUTPUT ===\n{s}\n", .{exec_result.stdout});
 
     // Should print 100
     try testing.expectEqualStrings("100\n", exec_result.stdout);
 
-    std.debug.print("\n=== AWAIT E2E EXECUTION PASSED ===\n", .{});
 }
 
 test ":service profile: Error propagation in nursery (Phase 2.7)" {
     const allocator = testing.allocator;
+    const io = testing.io;
 
     // One task succeeds, another fails (negative return = error)
     const source =
@@ -1024,16 +959,15 @@ test ":service profile: Error propagation in nursery (Phase 2.7)" {
     const llvm_ir = try emitter.toString();
     defer allocator.free(llvm_ir);
 
-    std.debug.print("\n=== ERROR PROPAGATION LLVM IR ===\n{s}\n", .{llvm_ir});
 
     // Write IR to temp file
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const ir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    const ir_path = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", allocator);
     defer allocator.free(ir_path);
 
-    try tmp_dir.dir.writeFile(.{ .sub_path = "error.ll", .data = llvm_ir });
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = "error.ll", .data = llvm_ir });
 
     const ir_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "error.ll" });
     defer allocator.free(ir_file_path);
@@ -1042,10 +976,10 @@ test ":service profile: Error propagation in nursery (Phase 2.7)" {
     const obj_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, "error.o" });
     defer allocator.free(obj_file_path);
 
-    const llc_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const llc_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "llc",
+            
             "-filetype=obj",
             ir_file_path,
             "-o",
@@ -1056,9 +990,8 @@ test ":service profile: Error propagation in nursery (Phase 2.7)" {
     defer allocator.free(llc_result.stderr);
 
     switch (llc_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
-                std.debug.print("LLC STDERR: {s}\n", .{llc_result.stderr});
                 return error.LLCFailed;
             }
         },
@@ -1078,8 +1011,7 @@ test ":service profile: Error propagation in nursery (Phase 2.7)" {
     const emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{rt_obj_path});
     defer allocator.free(emit_arg);
 
-    const zig_build_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const zig_build_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "zig",
             "build-obj",
@@ -1091,8 +1023,7 @@ test ":service profile: Error propagation in nursery (Phase 2.7)" {
     defer allocator.free(zig_build_result.stdout);
     defer allocator.free(zig_build_result.stderr);
 
-    if (zig_build_result.term.Exited != 0) {
-        std.debug.print("RUNTIME COMPILATION FAILED: {s}\n", .{zig_build_result.stderr});
+    if (zig_build_result.term.exited != 0) {
         return error.RuntimeCompilationFailed;
     }
 
@@ -1100,8 +1031,7 @@ test ":service profile: Error propagation in nursery (Phase 2.7)" {
     const asm_emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{asm_obj_path});
     defer allocator.free(asm_emit_arg);
 
-    const asm_build_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const asm_build_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "zig",
             "build-obj",
@@ -1112,14 +1042,12 @@ test ":service profile: Error propagation in nursery (Phase 2.7)" {
     defer allocator.free(asm_build_result.stdout);
     defer allocator.free(asm_build_result.stderr);
 
-    if (asm_build_result.term.Exited != 0) {
-        std.debug.print("ASM COMPILATION FAILED: {s}\n", .{asm_build_result.stderr});
+    if (asm_build_result.term.exited != 0) {
         return error.RuntimeCompilationFailed;
     }
 
     // Link (including assembly object for fiber support)
-    const link_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const link_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "cc",
             obj_file_path,
@@ -1133,9 +1061,8 @@ test ":service profile: Error propagation in nursery (Phase 2.7)" {
     defer allocator.free(link_result.stderr);
 
     switch (link_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
-                std.debug.print("LINK STDERR: {s}\n", .{link_result.stderr});
                 return error.LinkFailed;
             }
         },
@@ -1143,15 +1070,12 @@ test ":service profile: Error propagation in nursery (Phase 2.7)" {
     }
 
     // Execute
-    const exec_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const exec_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{exe_file_path},
     });
     defer allocator.free(exec_result.stdout);
     defer allocator.free(exec_result.stderr);
 
-    std.debug.print("\n=== ERROR PROPAGATION OUTPUT ===\n{s}\n", .{exec_result.stdout});
-    std.debug.print("Exit term: {any}\n", .{exec_result.term});
 
     // Both tasks should run (1 and 2 printed)
     try testing.expect(std.mem.indexOf(u8, exec_result.stdout, "1") != null);
@@ -1162,5 +1086,4 @@ test ":service profile: Error propagation in nursery (Phase 2.7)" {
     // The nursery awaits all tasks - error is detected but execution continues in blocking model
     // In future: could check that the nursery result is -1 and propagate error
 
-    std.debug.print("\n=== ERROR PROPAGATION TEST PASSED ===\n", .{});
 }

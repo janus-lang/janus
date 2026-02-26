@@ -95,13 +95,10 @@ fn validateUnitColumnIntegrity(unit: *const astdb.CompilationUnit) !void {
 // Basic validation that the ASTDB system works correctly with string interning
 
 test "Simple ASTDB Validation" {
-    std.debug.print("\n🔧 SIMPLE ASTDB VALIDATION\n", .{});
-    std.debug.print("==========================\n", .{});
 
     // Test that we can import the modules
     const interners = @import("compiler/astdb/intern.zig");
 
-    std.debug.print("✅ Successfully imported ASTDB modules\n", .{});
 
     // Test basic string interner
     var str_interner = interners.StrInterner.initWithMode(testing.allocator, true);
@@ -117,7 +114,6 @@ test "Simple ASTDB Validation" {
     try testing.expectEqualStrings("hello", str_interner.getString(hello_id));
     try testing.expectEqualStrings("world", str_interner.getString(world_id));
 
-    std.debug.print("✅ String interner working correctly\n", .{});
 
     // Test ASTDB system
     var db = astdb.AstDB.initWithMode(testing.allocator, true);
@@ -129,7 +125,6 @@ test "Simple ASTDB Validation" {
     try testing.expect(unit != null);
     try testing.expectEqualStrings("test.jan", unit.?.path);
 
-    std.debug.print("✅ ASTDB unit creation working\n", .{});
 
     // Test string interning through ASTDB
     const func_str = try db.internString("function");
@@ -142,7 +137,6 @@ test "Simple ASTDB Validation" {
     try testing.expectEqualStrings("function", db.getString(func_str));
     try testing.expectEqualStrings("main", db.getString(main_str));
 
-    std.debug.print("✅ ASTDB string interning working\n", .{});
 
     // Test CID computation
     const module_cid = try db.computeCID(.{ .module_unit = unit_id }, testing.allocator);
@@ -152,15 +146,10 @@ test "Simple ASTDB Validation" {
     const zero_cid = [_]u8{0} ** 32;
     try testing.expect(!std.mem.eql(u8, &module_cid, &zero_cid));
 
-    std.debug.print("✅ CID computation working\n", .{});
 
-    std.debug.print("\n🎯 SIMPLE ASTDB VALIDATION COMPLETE\n", .{});
-    std.debug.print("✅ All basic functionality working correctly\n", .{});
 }
 
 test "ASTDB Column Integrity Invariants" {
-    std.debug.print("\n🧱 ASTDB COLUMN INTEGRITY CHECK\n", .{});
-    std.debug.print("===============================\n", .{});
 
     const allocator = testing.allocator;
     const Parser = parser.Parser;
@@ -188,12 +177,9 @@ test "ASTDB Column Integrity Invariants" {
         try validateUnitColumnIntegrity(unit);
     }
 
-    std.debug.print("✅ Column integrity validated for parsed compilation unit\n", .{});
 }
 
 test "ASTDB Memory Stress Test" {
-    std.debug.print("\n⚡ ASTDB MEMORY STRESS TEST\n", .{});
-    std.debug.print("===========================\n", .{});
 
     // Multiple cycles to test memory management
     for (0..10) |cycle| {
@@ -214,9 +200,7 @@ test "ASTDB Memory Stress Test" {
         }
 
         if (cycle % 3 == 0) {
-            std.debug.print("   🔄 Cycle {d}/10 completed\n", .{cycle + 1});
         }
     }
 
-    std.debug.print("✅ Memory stress test completed successfully\n", .{});
 }

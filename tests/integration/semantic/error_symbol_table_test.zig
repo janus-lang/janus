@@ -49,7 +49,6 @@ test "Symbol Table: Register error type declaration" {
         }
     }
 
-    std.debug.print("\n✓ Error type 'DivisionError' registered successfully\n", .{});
 }
 
 test "Symbol Table: Register error variants" {
@@ -79,11 +78,8 @@ test "Symbol Table: Register error variants" {
 
     // Verify variants were registered
     // Note: Variants are in the error body scope, need special lookup
-    const variants = [_][]const u8{ "NotFound", "PermissionDenied", "AlreadyExists" };
-
-    // For now, just verify the error type exists
-    // Full variant lookup requires navigating to error body scope
-    std.debug.print("\n✓ Error type 'FileError' with {d} variants registered\n", .{variants.len});
+    // Variant lookup deferred: requires navigating to error body scope
+    // Expected variants: NotFound, PermissionDenied, AlreadyExists
 }
 
 test "Symbol Table: Detect duplicate error declaration" {
@@ -159,5 +155,4 @@ test "Symbol Table: Error type with function declaration" {
     const func_symbol = resolver.symbol_table.lookup("divide");
     try testing.expect(func_symbol != null);
 
-    std.debug.print("\n✓ Error type and function registered together\n", .{});
 }

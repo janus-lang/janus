@@ -17,6 +17,7 @@ const worker_mod = @import("worker.zig");
 const Worker = worker_mod.Worker;
 
 const budget_mod = @import("budget.zig");
+const compat_time = @import("compat_time");
 const Budget = budget_mod.Budget;
 
 // ============================================================================
@@ -100,7 +101,7 @@ test "Worker integration: execute single task" {
     // Wait for task to execute (with timeout)
     var attempts: usize = 0;
     while (!task_executed.load(.seq_cst) and attempts < 1000) : (attempts += 1) {
-        std.Thread.sleep(1_000_000); // 1ms
+        compat_time.sleep(1_000_000); // 1ms
     }
 
     // Signal shutdown
@@ -149,7 +150,7 @@ test "Worker integration: task with argument" {
     // Wait for task to complete
     var attempts: usize = 0;
     while (task.state != .Completed and attempts < 1000) : (attempts += 1) {
-        std.Thread.sleep(1_000_000);
+        compat_time.sleep(1_000_000);
     }
 
     shutdown.store(true, .release);
@@ -195,7 +196,7 @@ test "Worker integration: multiple tasks sequential" {
     // Wait for all tasks to complete
     var attempts: usize = 0;
     while (test_counter.load(.seq_cst) < 3 and attempts < 1000) : (attempts += 1) {
-        std.Thread.sleep(1_000_000);
+        compat_time.sleep(1_000_000);
     }
 
     shutdown.store(true, .release);
@@ -242,7 +243,7 @@ test "Worker integration: task yield and resume" {
     // Wait for task to complete (yields 3 times)
     var attempts: usize = 0;
     while (task.state != .Completed and attempts < 1000) : (attempts += 1) {
-        std.Thread.sleep(1_000_000);
+        compat_time.sleep(1_000_000);
     }
 
     shutdown.store(true, .release);
@@ -288,7 +289,7 @@ test "Worker stats: track execution" {
     // Wait for tasks to complete
     var attempts: usize = 0;
     while (test_counter.load(.seq_cst) < 2 and attempts < 1000) : (attempts += 1) {
-        std.Thread.sleep(1_000_000);
+        compat_time.sleep(1_000_000);
     }
 
     shutdown.store(true, .release);

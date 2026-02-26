@@ -20,7 +20,6 @@ test "String Interner Brutal Stress Test - ComptimeVM Pattern Simulation" {
         defer arena.deinit();
 
         var interner = StrInterner.init(arena.allocator(), false) catch |err| {
-            std.debug.print("Failed to init interner: {}\n", .{err});
             continue;
         };
         defer interner.deinit();
@@ -30,13 +29,11 @@ test "String Interner Brutal Stress Test - ComptimeVM Pattern Simulation" {
         for (0..50) |i| {
             const identifier = try std.fmt.allocPrint(arena.allocator(), "identifier_{d}_{d}", .{ cycle, i });
             _ = interner.get(identifier) catch |err| {
-                std.debug.print("Failed to intern identifier: {}\n", .{err});
                 continue;
             };
 
             const keyword = try std.fmt.allocPrint(arena.allocator(), "keyword_{d}_{d}", .{ cycle, i });
             _ = interner.get(keyword) catch |err| {
-                std.debug.print("Failed to intern keyword: {}\n", .{err});
                 continue;
             };
         }
@@ -45,7 +42,6 @@ test "String Interner Brutal Stress Test - ComptimeVM Pattern Simulation" {
         for (0..25) |i| {
             const duplicate = try std.fmt.allocPrint(arena.allocator(), "duplicate_{d}", .{i % 10});
             _ = interner.get(duplicate) catch |err| {
-                std.debug.print("Failed to intern duplicate: {}\n", .{err});
                 continue;
             };
         }
@@ -57,7 +53,6 @@ test "String Interner Brutal Stress Test - ComptimeVM Pattern Simulation" {
     defer persistent_arena.deinit();
 
     var persistent_interner = StrInterner.init(persistent_arena.allocator(), false) catch |err| {
-        std.debug.print("Failed to init persistent interner: {}\n", .{err});
         return;
     };
     defer persistent_interner.deinit();
@@ -70,7 +65,6 @@ test "String Interner Brutal Stress Test - ComptimeVM Pattern Simulation" {
         // This pattern might cause leaks if interner stores references incorrectly
         const temp_identifier = try std.fmt.allocPrint(temp_arena.allocator(), "temp_cross_ref_{d}", .{cycle});
         const interned_id = persistent_interner.get(temp_identifier) catch |err| {
-            std.debug.print("Failed to intern temp identifier: {}\n", .{err});
             continue;
         };
 
@@ -82,11 +76,9 @@ test "String Interner Brutal Stress Test - ComptimeVM Pattern Simulation" {
     // Check for memory leaks
     const leaked = gpa.deinit();
     if (leaked == .leak) {
-        std.debug.print("❌ MEMORY LEAKS DETECTED - FOUNDATION IS NOT GRANITE-SOLID\n", .{});
         return error.MemoryLeak;
     }
 
-    std.debug.print("✅ BRUTAL STRESS TEST COMPLETED - CHECKING FOR LEAKS...\n", .{});
 }
 
 // BRUTAL STRESS TEST 2 - HashMap and Dynamic Allocation Patterns
@@ -101,7 +93,6 @@ test "String Interner Brutal Stress Test - HashMap Pressure" {
         defer arena.deinit();
 
         var interner = StrInterner.init(arena.allocator(), false) catch |err| {
-            std.debug.print("Failed to init interner: {}\n", .{err});
             continue;
         };
         defer interner.deinit();
@@ -110,7 +101,6 @@ test "String Interner Brutal Stress Test - HashMap Pressure" {
         for (0..1000) |i| {
             const large_identifier = try std.fmt.allocPrint(arena.allocator(), "large_identifier_cycle_{d}_item_{d}_with_long_suffix_to_force_growth", .{ major_cycle, i });
             _ = interner.get(large_identifier) catch |err| {
-                std.debug.print("Failed to intern large identifier: {}\n", .{err});
                 continue;
             };
         }
@@ -127,11 +117,9 @@ test "String Interner Brutal Stress Test - HashMap Pressure" {
     // Check for memory leaks
     const leaked = gpa.deinit();
     if (leaked == .leak) {
-        std.debug.print("❌ HASHMAP MEMORY LEAKS DETECTED\n", .{});
         return error.MemoryLeak;
     }
 
-    std.debug.print("✅ HASHMAP BRUTAL STRESS TEST COMPLETED\n", .{});
 }
 
 // BRUTAL STRESS TEST 3 - String Interner Edge Cases
@@ -144,34 +132,29 @@ test "String Interner Brutal Stress Test - Edge Cases" {
         defer arena.deinit();
 
         var interner = StrInterner.init(arena.allocator(), false) catch |err| {
-            std.debug.print("Failed to init interner: {}\n", .{err});
             continue;
         };
         defer interner.deinit();
 
         // EDGE CASE 1: Empty strings
         _ = interner.get("") catch |err| {
-            std.debug.print("Failed to intern empty string: {}\n", .{err});
         };
 
         // EDGE CASE 2: Very long strings
         const long_string = try arena.allocator().alloc(u8, 10000);
         @memset(long_string, 'x');
         _ = interner.get(long_string) catch |err| {
-            std.debug.print("Failed to intern long string: {}\n", .{err});
         };
 
         // EDGE CASE 3: Duplicate interning stress
         for (0..100) |i| {
             const duplicate = try std.fmt.allocPrint(arena.allocator(), "duplicate_{d}", .{i % 10});
             _ = interner.get(duplicate) catch |err| {
-                std.debug.print("Failed to intern duplicate: {}\n", .{err});
             };
         }
 
         // EDGE CASE 4: Unicode strings
         _ = interner.get("🚀 Unicode test 中文 العربية") catch |err| {
-            std.debug.print("Failed to intern unicode string: {}\n", .{err});
         };
 
         // EDGE CASE 5: Strings with null bytes
@@ -179,16 +162,13 @@ test "String Interner Brutal Stress Test - Edge Cases" {
         @memset(null_string, 'a');
         null_string[5] = 0;
         _ = interner.get(null_string) catch |err| {
-            std.debug.print("Failed to intern null string: {}\n", .{err});
         };
     }
 
     // Check for memory leaks
     const leaked = gpa.deinit();
     if (leaked == .leak) {
-        std.debug.print("❌ STRING INTERNER EDGE CASE MEMORY LEAKS DETECTED\n", .{});
         return error.MemoryLeak;
     }
 
-    std.debug.print("✅ STRING INTERNER EDGE CASE STRESS TEST COMPLETED\n", .{});
 }

@@ -48,9 +48,9 @@ pub const GraphNode = struct {
         return GraphNode{
             .unit = unit,
             .node_id = node_id,
-            .interface_dependencies = std.ArrayList(u32).init(allocator),
-            .implementation_dependencies = std.ArrayList(u32).init(allocator),
-            .dependents = std.ArrayList(u32).init(allocator),
+            .interface_dependencies = .empty,
+            .implementation_dependencies = .empty,
+            .dependents = .empty,
             .topo_order = -1,
             .temp_mark = false,
             .perm_mark = false,
@@ -92,7 +92,7 @@ pub const GraphNode = struct {
 
     /// Get all dependencies (interface + implementation)
     pub fn getAllDependencies(self: *const GraphNode, allocator: std.mem.Allocator) ![]u32 {
-        var all_deps = std.ArrayList(u32).init(allocator);
+        var all_deps: std.ArrayList(u32) = .empty;
         defer all_deps.deinit();
 
         try all_deps.appendSlice(self.interface_dependencies.items);
@@ -108,7 +108,7 @@ pub const GraphNode = struct {
             }
         }
 
-        return all_deps.toOwnedSlice()[0..unique_count];
+        return try all_deps.toOwnedSlice(alloc)[0..unique_count];
     }
 };
 
@@ -137,10 +137,10 @@ pub const DependencyGraph = struct {
     pub fn init(allocator: std.mem.Allocator) DependencyGraph {
         return DependencyGraph{
             .allocator = allocator,
-            .nodes = std.ArrayList(GraphNode).init(allocator),
+            .nodes = .empty,
             .unit_to_node = std.HashMap(*const CompilationUnit, u32).init(allocator),
             .file_to_node = std.HashMap([]const u8, u32).init(allocator),
-            .topological_order = std.ArrayList(u32).init(allocator),
+            .topological_order = .empty,
             .sccs = std.ArrayList(std.ArrayList(u32)).init(allocator),
             .stats = GraphStatistics.init(),
         };
@@ -241,7 +241,7 @@ pub const DependencyGraph = struct {
         }
 
         // Queue for nodes with no incoming edges
-        var queue = std.ArrayList(u32).init(self.allocator);
+        var queue: std.ArrayList(u32) = .empty;
         defer queue.deinit();
 
         // Add nodes with no dependencies
@@ -290,7 +290,7 @@ pub const DependencyGraph = struct {
         defer self.allocator.free(lowlinks);
         const on_stack = try self.allocator.alloc(bool, self.nodes.items.len);
         defer self.allocator.free(on_stack);
-        var stack = std.ArrayList(u32).init(self.allocator);
+        var stack: std.ArrayList(u32) = .empty;
         defer stack.deinit();
 
         // Initialize
@@ -337,7 +337,7 @@ pub const DependencyGraph = struct {
 
         // If node_id is a root node, pop the stack and create an SCC
         if (lowlinks[node_id] == indices[node_id]) {
-            var scc = std.ArrayList(u32).init(self.allocator);
+            var scc: std.ArrayList(u32) = .empty;
 
             while (true) {
                 const w = stack.pop();
@@ -352,7 +352,7 @@ pub const DependencyGraph = struct {
 
     /// Get all nodes that need rebuilding when a specific node changes
     pub fn getRebuildSet(self: *const DependencyGraph, changed_node_id: u32) ![]u32 {
-        var rebuild_set = std.ArrayList(u32).init(self.allocator);
+        var rebuild_set: std.ArrayList(u32) = .empty;
         defer rebuild_set.deinit();
 
         const visited = try self.allocator.alloc(bool, self.nodes.items.len);
@@ -362,7 +362,7 @@ pub const DependencyGraph = struct {
         // DFS through dependents (following reverse edges)
         try self.dfsRebuildSet(changed_node_id, visited, &rebuild_set);
 
-        return rebuild_set.toOwnedSlice();
+        return try rebuild_set.toOwnedSlice(alloc);
     }
 
     /// DFS helper for rebuild set computation
@@ -422,7 +422,7 @@ pub const DependencyGraph = struct {
         const node_count = try reader.readInt(u32, .little);
 
         // Read nodes (first pass - create nodes without dependencies)
-        var source_files = std.ArrayList([]u8).init(allocator);
+        var source_files: std.ArrayList([]u8) = .empty;
         defer {
             for (source_files.items) |file| {
                 allocator.free(file);

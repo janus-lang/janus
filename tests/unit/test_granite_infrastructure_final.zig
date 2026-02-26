@@ -10,14 +10,11 @@ const contracts = @import("compiler/libjanus/integration_contracts.zig");
 // FINAL GRANITE-SOLID INFRASTRUCTURE VALIDATION
 // This test validates our complete revolutionary architecture
 test "Granite-Solid Infrastructure - Complete Zero-Leak Validation" {
-    std.debug.print("\n🚀 === GRANITE-SOLID INFRASTRUCTURE FINAL VALIDATION ===\n", .{});
-    std.debug.print("=========================================================\n", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
     // Test 1: ASTDB System with Granite-Solid String Interner
-    std.debug.print("📋 Test 1: ASTDB System with Granite-Solid Interner\n", .{});
     {
         var astdb_system = try astdb.ASTDBSystem.init(allocator, true);
         defer astdb_system.deinit();
@@ -35,11 +32,9 @@ test "Granite-Solid Infrastructure - Complete Zero-Leak Validation" {
         try testing.expectEqualStrings("hello", astdb_system.str_interner.str(hello_id));
         try testing.expectEqualStrings("world", astdb_system.str_interner.str(world_id));
 
-        std.debug.print("✅ ASTDB with granite-solid interner works perfectly\n", .{});
     }
 
     // Test 2: ComptimeVM with Granite-Solid Architecture
-    std.debug.print("📋 Test 2: ComptimeVM with Granite-Solid Architecture\n", .{});
     {
         var astdb_system = try astdb.ASTDBSystem.init(allocator, true);
         defer astdb_system.deinit();
@@ -50,7 +45,7 @@ test "Granite-Solid Infrastructure - Complete Zero-Leak Validation" {
         // Test const declaration evaluation
         const const_name = try astdb_system.str_interner.get("test_const");
 
-        var dependencies = std.ArrayList(astdb.NodeId).init(allocator);
+        var dependencies: std.ArrayList(astdb.NodeId) = .empty;
         defer dependencies.deinit();
 
         const input_contract = contracts.ComptimeVMInputContract{
@@ -68,11 +63,9 @@ test "Granite-Solid Infrastructure - Complete Zero-Leak Validation" {
         const stored_value = comptime_vm.getConstantValue(const_name);
         try testing.expect(stored_value != null);
 
-        std.debug.print("✅ ComptimeVM with granite-solid architecture works perfectly\n", .{});
     }
 
     // Test 3: Integrated System Stress Test
-    std.debug.print("📋 Test 3: Integrated System Stress Test\n", .{});
     {
         var astdb_system = try astdb.ASTDBSystem.init(allocator, true);
         defer astdb_system.deinit();
@@ -87,7 +80,7 @@ test "Granite-Solid Infrastructure - Complete Zero-Leak Validation" {
 
             const const_name = try astdb_system.str_interner.get(const_name_str);
 
-            var dependencies = std.ArrayList(astdb.NodeId).init(allocator);
+            var dependencies: std.ArrayList(astdb.NodeId) = .empty;
             defer dependencies.deinit();
 
             const input_contract = contracts.ComptimeVMInputContract{
@@ -107,31 +100,23 @@ test "Granite-Solid Infrastructure - Complete Zero-Leak Validation" {
         try testing.expectEqual(@as(u32, 50), stats.total_evaluations);
         try testing.expectEqual(@as(u32, 50), stats.cached_constants);
 
-        std.debug.print("✅ Integrated stress test (50 evaluations) works perfectly\n", .{});
     }
 
     // FINAL VALIDATION: Check for memory leaks
     const leaked = gpa.deinit();
     if (leaked == .ok) {
-        std.debug.print("\n🎉 === GRANITE-SOLID INFRASTRUCTURE VALIDATION COMPLETE ===\n", .{});
-        std.debug.print("🎉 ZERO MEMORY LEAKS ACHIEVED ACROSS ENTIRE SYSTEM!\n", .{});
-        std.debug.print("🎉 REVOLUTIONARY ARCHITECTURE PROVEN EFFECTIVE!\n", .{});
-        std.debug.print("🎉 INFRASTRUCTURE HARDENING: 100% COMPLETE!\n", .{});
     } else {
-        std.debug.print("\n❌ MEMORY LEAKS DETECTED - INVESTIGATION NEEDED\n", .{});
         try testing.expect(false);
     }
 }
 
 // Test individual components for detailed analysis
 test "Granite-Solid Components - Individual Validation" {
-    std.debug.print("\n🔧 === INDIVIDUAL COMPONENT VALIDATION ===\n", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
     // Test granite-solid string interner in isolation
-    std.debug.print("📋 Testing Granite-Solid String Interner\n", .{});
     {
         var astdb_system = try astdb.ASTDBSystem.init(allocator, true);
         defer astdb_system.deinit();
@@ -146,11 +131,9 @@ test "Granite-Solid Components - Individual Validation" {
             try testing.expectEqualStrings(test_str, retrieved);
         }
 
-        std.debug.print("✅ String interner: 100 operations completed\n", .{});
     }
 
     // Test ComptimeVM in isolation
-    std.debug.print("📋 Testing Granite-Solid ComptimeVM\n", .{});
     {
         var astdb_system = try astdb.ASTDBSystem.init(allocator, true);
         defer astdb_system.deinit();
@@ -169,7 +152,7 @@ test "Granite-Solid Components - Individual Validation" {
         for (test_cases, 0..) |expr_type, i| {
             const expr_name = try astdb_system.str_interner.get("test_expr");
 
-            var dependencies = std.ArrayList(astdb.NodeId).init(allocator);
+            var dependencies: std.ArrayList(astdb.NodeId) = .empty;
             defer dependencies.deinit();
 
             const input_contract = contracts.ComptimeVMInputContract{
@@ -185,15 +168,12 @@ test "Granite-Solid Components - Individual Validation" {
             try testing.expect(output.success);
         }
 
-        std.debug.print("✅ ComptimeVM: All expression types evaluated successfully\n", .{});
     }
 
     // Final component validation
     const leaked = gpa.deinit();
     if (leaked == .ok) {
-        std.debug.print("🎉 INDIVIDUAL COMPONENTS: ZERO MEMORY LEAKS!\n", .{});
     } else {
-        std.debug.print("❌ Component memory leaks detected\n", .{});
         try testing.expect(false);
     }
 }

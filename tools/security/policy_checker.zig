@@ -133,7 +133,7 @@ fn parseLockfile(allocator: std.mem.Allocator, lockfile_content: []const u8) ![]
     const root = parsed.value.object;
     const dependencies = root.get("dependencies").?.object;
 
-    var deps = std.ArrayList(DependencyMetadata).init(allocator);
+    var deps: std.ArrayList(DependencyMetadata) = .empty;
 
     var dep_iterator = dependencies.iterator();
     while (dep_iterator.next()) |entry| {
@@ -157,11 +157,11 @@ fn parseLockfile(allocator: std.mem.Allocator, lockfile_content: []const u8) ![]
         });
     }
 
-    return deps.toOwnedSlice();
+    return try deps.toOwnedSlice(alloc);
 }
 
 fn checkSBOMPolicy(allocator: std.mem.Allocator, policy: *const SecurityPolicy, deps: []const DependencyMetadata) ![]PolicyViolation {
-    var violations = std.ArrayList(PolicyViolation).init(allocator);
+    var violations: std.ArrayList(PolicyViolation) = .empty;
 
     for (deps) |dep| {
         // Check if SBOM is required for this dependency
@@ -198,11 +198,11 @@ fn checkSBOMPolicy(allocator: std.mem.Allocator, policy: *const SecurityPolicy, 
         }
     }
 
-    return violations.toOwnedSlice();
+    return try violations.toOwnedSlice(alloc);
 }
 
 fn checkSecurityScorePolicy(allocator: std.mem.Allocator, policy: *const SecurityPolicy, deps: []const DependencyMetadata) ![]PolicyViolation {
-    var violations = std.ArrayList(PolicyViolation).init(allocator);
+    var violations: std.ArrayList(PolicyViolation) = .empty;
 
     for (deps) |dep| {
         if (dep.security_score < policy.min_security_score) {
@@ -219,11 +219,11 @@ fn checkSecurityScorePolicy(allocator: std.mem.Allocator, policy: *const Securit
         }
     }
 
-    return violations.toOwnedSlice();
+    return try violations.toOwnedSlice(alloc);
 }
 
 fn checkLicensePolicy(allocator: std.mem.Allocator, policy: *const SecurityPolicy, deps: []const DependencyMetadata) ![]PolicyViolation {
-    var violations = std.ArrayList(PolicyViolation).init(allocator);
+    var violations: std.ArrayList(PolicyViolation) = .empty;
 
     for (deps) |dep| {
         // Check forbidden licenses
@@ -266,13 +266,13 @@ fn checkLicensePolicy(allocator: std.mem.Allocator, policy: *const SecurityPolic
         }
     }
 
-    return violations.toOwnedSlice();
+    return try violations.toOwnedSlice(alloc);
 }
 
 fn checkSignaturePolicy(allocator: std.mem.Allocator, policy: *const SecurityPolicy, deps: []const DependencyMetadata) ![]PolicyViolation {
-    var violations = std.ArrayList(PolicyViolation).init(allocator);
+    var violations: std.ArrayList(PolicyViolation) = .empty;
 
-    if (!policy.require_signature) return violations.toOwnedSlice();
+    if (!policy.require_signature) return try violations.toOwnedSlice(alloc);
 
     for (deps) |dep| {
         if (!dep.signature_valid) {
@@ -288,7 +288,7 @@ fn checkSignaturePolicy(allocator: std.mem.Allocator, policy: *const SecurityPol
         }
     }
 
-    return violations.toOwnedSlice();
+    return try violations.toOwnedSlice(alloc);
 }
 
 fn runPolicyCheck(allocator: std.mem.Allocator, manifest_path: []const u8, lockfile_path: []const u8) !PolicyCheckResult {
@@ -322,7 +322,7 @@ fn runPolicyCheck(allocator: std.mem.Allocator, manifest_path: []const u8, lockf
     }
 
     // Run policy checks
-    var all_violations = std.ArrayList(PolicyViolation).init(allocator);
+    var all_violations: std.ArrayList(PolicyViolation) = .empty;
 
     // Check SBOM policy
     const sbom_violations = try checkSBOMPolicy(allocator, &policy, deps);

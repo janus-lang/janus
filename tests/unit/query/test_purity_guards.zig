@@ -42,7 +42,7 @@ const PurityGuard = struct {
     pub fn init(allocator: std.mem.Allocator, debug_mode: bool) PurityGuard {
         return PurityGuard{
             .debug_mode = debug_mode,
-            .violations = std.ArrayList(PurityViolation).init(allocator),
+            .violations = .empty,
             .allocator = allocator,
         };
     }

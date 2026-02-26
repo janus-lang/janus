@@ -57,7 +57,7 @@ pub const OracleProofPack = struct {
 
         pub fn init(allocator: std.mem.Allocator) ProofMetrics {
             return ProofMetrics{
-                .build_times_ms = std.ArrayList(u64).init(allocator),
+                .build_times_ms = .empty,
             };
         }
 

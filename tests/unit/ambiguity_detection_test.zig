@@ -98,14 +98,11 @@ test "Ambiguity detection with equal conversion costs" {
 
     switch (result) {
         .ambiguous => {
-            std.debug.print("✅ Ambiguity correctly detected!\n", .{});
         },
         .success => |success| {
-            std.debug.print("❌ Expected ambiguity but got success: {s}\n", .{success.target_function.name});
             try std.testing.expect(false);
         },
         else => {
-            std.debug.print("❌ Expected ambiguity but got other result\n", .{});
             try std.testing.expect(false);
         },
     }
@@ -199,14 +196,11 @@ test "No ambiguity with different conversion costs" {
         .success => |success| {
             try std.testing.expectEqualStrings(success.target_function.parameter_types, "i32,f64");
             try std.testing.expect(success.conversion_path.get().total_cost == 3);
-            std.debug.print("✅ Correctly resolved to lower-cost function!\n", .{});
         },
         .ambiguous => {
-            std.debug.print("❌ Unexpected ambiguity - should have resolved to lower cost function\n", .{});
             try std.testing.expect(false);
         },
         else => {
-            std.debug.print("❌ Expected success but got other result\n", .{});
             try std.testing.expect(false);
         },
     }
@@ -312,8 +306,6 @@ test "Ambiguity diagnostic generation" {
             try std.testing.expect(diagnostic.structured_data.candidates.len == 2);
             try std.testing.expect(diagnostic.structured_data.edit_locations.len > 0);
 
-            std.debug.print("✅ Ambiguity diagnostic generated successfully!\n", .{});
-            std.debug.print("   Summary: {s}\n", .{diagnostic.human_message.summary});
         },
         else => {
             try std.testing.expect(false); // Should be ambiguous

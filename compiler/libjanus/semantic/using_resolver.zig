@@ -182,7 +182,7 @@ pub const UsingResolver = struct {
 
     /// Analyze capability requirements for the resource
     fn analyzeCapabilityRequirements(self: *UsingResolver, using_stmt: *UsingStmt, resource_type: CID) ![]UsingStmt.Capability {
-        var capabilities = std.ArrayList(UsingStmt.Capability).init(self.allocator);
+        var capabilities: std.ArrayList(UsingStmt.Capability) = .empty;
 
         // Get capabilities required for opening the resource
         const open_caps = try self.sema_ctx.getRequiredCapabilities(using_stmt.open_expr);
@@ -220,7 +220,7 @@ pub const UsingResolver = struct {
             }
         }
 
-        return capabilities.toOwnedSlice();
+        return try capabilities.toOwnedSlice(alloc);
     }
 
     /// Generate a unique resource ID for tracking
@@ -368,7 +368,7 @@ const ResourceRegistry = struct {
     }
 
     pub fn getActiveResources(self: *ResourceRegistry) []const *UsingStmt {
-        var resources = std.ArrayList(*UsingStmt).init(self.allocator);
+        var resources: std.ArrayList(*UsingStmt) = .empty;
         defer resources.deinit();
 
         var iterator = self.active_resources.valueIterator();
@@ -376,7 +376,7 @@ const ResourceRegistry = struct {
             resources.append(using_stmt.*) catch {};
         }
 
-        return resources.toOwnedSlice() catch &[_]*UsingStmt{};
+        return try resources.toOwnedSlice(alloc) catch &[_]*UsingStmt{};
     }
 };
 

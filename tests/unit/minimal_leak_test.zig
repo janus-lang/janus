@@ -18,11 +18,9 @@ test "Minimal Arena Test - Understanding the Leak" {
     // Check for memory leaks
     const leaked = gpa.deinit();
     if (leaked == .leak) {
-        std.debug.print("❌ MEMORY LEAK DETECTED IN MINIMAL ARENA TEST\n", .{});
         return error.MemoryLeak;
     }
 
-    std.debug.print("✅ MINIMAL ARENA TEST PASSED - NO LEAKS\n", .{});
 }
 
 test "Even More Minimal Test - Just GPA" {
@@ -37,9 +35,7 @@ test "Even More Minimal Test - Just GPA" {
     // Check for memory leaks
     const leaked = gpa.deinit();
     if (leaked == .leak) {
-        std.debug.print("❌ MEMORY LEAK DETECTED IN MINIMAL GPA TEST\n", .{});
         return error.MemoryLeak;
     }
 
-    std.debug.print("✅ MINIMAL GPA TEST PASSED - NO LEAKS\n", .{});
 }

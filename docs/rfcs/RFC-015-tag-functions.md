@@ -108,20 +108,20 @@ sql(
 
 **The Tag Function Implementation (`std/sql.jan`):**
 ```janus
-func sql(fragments: []string, args: tuple) -> Query {
+func sql(fragments: []string, args: tuple) -> Query do
     // 1. COMPTIME VALIDATION:
     // 'fragments' is a compile-time constant slice
     comptime {
-        if not SqlParser.is_valid(fragments) {
+        if not SqlParser.is_valid(fragments) do
              compile_error("Invalid SQL syntax in query string")
-        }
+        end
     }
 
     // 2. RUNTIME BUILD:
     // We do NOT concatenate. We build a parameterized query object.
     // This makes SQL injection impossible by definition.
     return Query.new(sql: fragments.join("?"), params: args)
-}
+end
 ```
 
 ---

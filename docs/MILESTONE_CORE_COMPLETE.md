@@ -92,36 +92,36 @@ All items overlapped with P0 work.
 ```janus
 use zig "std/ArrayList"
 
-func fibonacci(n: i64) !i64 {
-    if n < 0 {
+func fibonacci(n: i64) !i64 do
+    if n < 0 do
         fail DomainError
-    }
+    end
 
-    if n <= 1 {
+    if n <= 1 do
         return n
-    }
+    end
 
     let a = fibonacci(n - 1) catch 0
     let b = fibonacci(n - 2) catch 0
     return a + b
-}
+end
 
-func main() !void {
+func main() !void do
     var results = zig.ArrayList(i64).init(allocator)
     defer results.deinit()
 
-    for i in 0..20 {
-        let fib = fibonacci(i) catch |err| {
+    for i in 0..20 do
+        let fib = fibonacci(i) catch |err| do
             print("Error calculating fibonacci: ", err)
             continue
-        }
+        end
         try results.append(fib)
-    }
+    end
 
-    for result in results.items {
+    for result in results.items do
         print_int(result)
-    }
-}
+    end
+end
 ```
 
 ### And It COMPILES and RUNS:
@@ -211,19 +211,19 @@ Native Machine Code
 
 ### ✅ CLI Tools
 ```janus
-func main() !void {
+func main() !void do
     let args = std.os.args()
-    for arg in args {
+    for arg in args do
         print(arg)
-    }
-}
+    end
+end
 ```
 
 ### ✅ File Processing
 ```janus
 use zig "std/fs"
 
-func processFile(path: []const u8) !void {
+func processFile(path: []const u8) !void do
     let file = try zig.fs.cwd().openFile(path, .{})
     defer file.close()
 
@@ -231,33 +231,33 @@ func processFile(path: []const u8) !void {
     defer allocator.free(content)
 
     // Process content...
-}
+end
 ```
 
 ### ✅ Data Structures & Algorithms
 ```janus
 use zig "std/ArrayList"
 
-func quicksort(arr: []i64, low: i64, high: i64) void {
-    if low < high {
+func quicksort(arr: []i64, low: i64, high: i64) void do
+    if low < high do
         let pivot = partition(arr, low, high)
         quicksort(arr, low, pivot - 1)
         quicksort(arr, pivot + 1, high)
-    }
-}
+    end
+end
 ```
 
 ### ✅ Web Services (with :service profile - coming soon)
 ```janus
 use zig "std/http"
 
-func handleRequest(req: Request) !Response {
+func handleRequest(req: Request) !Response do
     match req.method {
         .GET => handleGet(req),
         .POST => handlePost(req),
-        else => Response.methodNotAllowed()
+        else => Response.methodNotAllowed(),
     }
-}
+end
 ```
 
 ---

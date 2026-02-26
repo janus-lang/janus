@@ -7,6 +7,7 @@
 //! type system implementation with canonical hashing.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
@@ -26,7 +27,7 @@ test "canonical hashing performance scaling" {
     const large_ops = 10000; // 100x larger
 
     // Small scale benchmark
-    const start_small = std.time.nanoTimestamp();
+    const start_small = compat_time.nanoTimestamp();
     for (0..small_ops) |i| {
         const param_types = [_]TypeId{type_system.getPrimitiveType(.i32)};
         _ = try type_system.createFunctionType(&param_types, type_system.getPrimitiveType(.i32), .janus_call);
@@ -35,11 +36,11 @@ test "canonical hashing performance scaling" {
             _ = try type_system.createPointerType(type_system.getPrimitiveType(.f64), true);
         }
     }
-    const end_small = std.time.nanoTimestamp();
+    const end_small = compat_time.nanoTimestamp();
     const small_time = end_small - start_small;
 
     // Large scale benchmark
-    const start_large = std.time.nanoTimestamp();
+    const start_large = compat_time.nanoTimestamp();
     for (0..large_ops) |i| {
         const param_types = [_]TypeId{type_system.getPrimitiveType(.i32)};
         _ = try type_system.createFunctionType(&param_types, type_system.getPrimitiveType(.i32), .janus_call);
@@ -48,7 +49,7 @@ test "canonical hashing performance scaling" {
             _ = try type_system.createPointerType(type_system.getPrimitiveType(.f64), true);
         }
     }
-    const end_large = std.time.nanoTimestamp();
+    const end_large = compat_time.nanoTimestamp();
     const large_time = end_large - start_large;
 
     // Calculate scaling factor
@@ -119,7 +120,7 @@ test "type deduplication performance" {
 
     const operation_count = 5000;
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Create many identical types to test deduplication efficiency
     for (0..operation_count) |i| {
@@ -142,7 +143,7 @@ test "type deduplication performance" {
         }
     }
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const total_time_ns = end_time - start_time;
     const total_time_ms = @as(f64, @floatFromInt(total_time_ns)) / 1_000_000.0;
     const ops_per_second = @as(f64, @floatFromInt(operation_count)) / (total_time_ms / 1000.0);

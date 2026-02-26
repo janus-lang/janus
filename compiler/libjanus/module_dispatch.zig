@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 const HashMap = std.HashMap;
@@ -178,7 +179,7 @@ pub const MergedDispatchTable = struct {
     pub fn init(allocator: Allocator) Self {
         return Self{
             .allocator = allocator,
-            .implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(allocator),
+            .implementations = .empty,
             .priority_order = &.{},
             .is_consistent = true,
         };
@@ -287,7 +288,7 @@ pub const DispatchConsistencyReport = struct {
     pub fn init(allocator: Allocator) Self {
         return Self{
             .allocator = allocator,
-            .inconsistencies = ArrayList(Inconsistency).init(allocator),
+            .inconsistencies = .empty,
         };
     }
 
@@ -384,7 +385,7 @@ pub const ModuleDispatcher = struct {
             .global_signatures = std.StringHashMap(CrossModuleSignature).init(allocator),
             .module_exports = std.AutoHashMap(u32, ArrayList(ExportedSignature)).init(allocator),
             .module_imports = std.AutoHashMap(u32, ArrayList(ImportedSignature)).init(allocator),
-            .active_conflicts = ArrayList(ModuleConflict).init(allocator),
+            .active_conflicts = .empty,
             .conflict_resolutions = std.StringHashMap(ModuleConflict.ConflictResolution).init(allocator),
             .qualified_call_cache = std.StringHashMap(QualifiedCall).init(allocator),
             // INTEGRATION: Initialize compression system
@@ -467,13 +468,13 @@ pub const ModuleDispatcher = struct {
             .exports = &.{},
             .imports = &.{},
             .is_loaded = false,
-            .load_timestamp = std.time.timestamp(),
+            .load_timestamp = compat_time.timestamp(),
         };
 
         try self.modules.put(module_id, module_info);
         try self.module_name_to_id.put(try self.allocator.dupe(u8, name), module_id);
-        try self.module_exports.put(module_id, ArrayList(ExportedSignature).init(self.allocator));
-        try self.module_imports.put(module_id, ArrayList(ImportedSignature).init(self.allocator));
+        try self.module_exports.put(module_id, ArrayList(ExportedSignature).empty);
+        try self.module_imports.put(module_id, ArrayList(ImportedSignature).empty);
 
         return module_id;
     }
@@ -637,7 +638,7 @@ pub const ModuleDispatcher = struct {
 
     /// List all registered modules
     pub fn getAllModules(self: *Self) ![]const ModuleInfo {
-        var modules = ArrayList(ModuleInfo).init(self.allocator);
+        var modules: ArrayList(ModuleInfo) = .empty;
         defer modules.deinit();
 
         var iter = self.modules.iterator();
@@ -658,7 +659,7 @@ pub const ModuleDispatcher = struct {
 
         // Mark as loaded
         module_info.is_loaded = true;
-        module_info.load_timestamp = std.time.timestamp();
+        module_info.load_timestamp = compat_time.timestamp();
 
         // Update dispatch tables for all signatures this module participates in
         try self.updateDispatchTablesForModule(module_id);
@@ -726,7 +727,7 @@ pub const ModuleDispatcher = struct {
         errdefer merged_table.deinit();
 
         // Collect all implementations from participating modules
-        var all_implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var all_implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer all_implementations.deinit();
 
         for (global_sig.participating_modules.items) |module_id| {
@@ -759,10 +760,10 @@ pub const ModuleDispatcher = struct {
         const global_sig = self.global_signatures.get(signature_name) orelse return error.SignatureNotFound;
 
         // Collect all implementations and create type signature
-        var all_implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var all_implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer all_implementations.deinit();
 
-        var type_signature = ArrayList(TypeId).init(self.allocator);
+        var type_signature: ArrayList(TypeId) = .empty;
         defer type_signature.deinit();
 
         for (global_sig.participating_modules.items) |module_id| {
@@ -903,8 +904,8 @@ pub const ModuleDispatcher = struct {
     ) !void {
         var global_sig = self.global_signatures.get(signature_name) orelse CrossModuleSignature{
             .signature_name = try self.allocator.dupe(u8, signature_name),
-            .participating_modules = ArrayList(u32).init(self.allocator),
-            .merged_implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator),
+            .participating_modules = .empty,
+            .merged_implementations = .empty,
             .resolution_order = &.{},
             .is_ambiguous = false,
         };
@@ -967,7 +968,7 @@ pub const ModuleDispatcher = struct {
 
     /// Record a module conflict
     fn recordConflict(self: *Self, signature_name: []const u8, conflicting_module_ids: []const u32) !void {
-        var conflicting_modules = ArrayList(ModuleConflict.ConflictingModule).init(self.allocator);
+        var conflicting_modules: ArrayList(ModuleConflict.ConflictingModule) = .empty;
         defer conflicting_modules.deinit();
 
         for (conflicting_module_ids, 0..) |module_id, i| {
@@ -997,13 +998,13 @@ pub const ModuleDispatcher = struct {
         calling_module_id: u32,
         signature_name: []const u8,
     ) ![]SignatureAnalyzer.Implementation {
-        var implementations = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(SignatureAnalyzer.Implementation) = .empty;
 
         // Get local implementations first
         // This would integrate with the signature analyzer to get local implementations
 
         // Get imported implementations
-        const imports = self.module_imports.get(calling_module_id) orelse return implementations.toOwnedSlice();
+        const imports = self.module_imports.get(calling_module_id) orelse return try implementations.toOwnedSlice(alloc);
 
         for (imports.items) |import| {
             const import_name = import.local_name orelse import.signature_name;
@@ -1020,7 +1021,7 @@ pub const ModuleDispatcher = struct {
             }
         }
 
-        return implementations.toOwnedSlice();
+        return try implementations.toOwnedSlice(alloc);
     }
 
     /// Resolve a qualified call
@@ -1232,7 +1233,7 @@ pub const ModuleDispatcher = struct {
     fn getConflictingModules(self: *Self, signature_name: []const u8) ![]u32 {
         const global_sig = self.global_signatures.get(signature_name) orelse return &.{};
 
-        var conflicting = ArrayList(u32).init(self.allocator);
+        var conflicting: ArrayList(u32) = .empty;
         defer conflicting.deinit();
 
         // Find modules with implementations of the same specificity
@@ -1248,7 +1249,7 @@ pub const ModuleDispatcher = struct {
         for (global_sig.merged_implementations.items) |impl| {
             const module_id = self.getModuleIdByName(impl.function_id.module) orelse continue;
 
-            var modules_for_specificity = specificity_map.get(impl.specificity_rank) orelse ArrayList(u32).init(self.allocator);
+            var modules_for_specificity = specificity_map.get(impl.specificity_rank) orelse ArrayList(u32).empty;
             try modules_for_specificity.append(module_id);
             try specificity_map.put(impl.specificity_rank, modules_for_specificity);
         }
@@ -1270,7 +1271,7 @@ pub const ModuleDispatcher = struct {
     fn invalidateQualifiedCallCache(self: *Self, module_id: u32) !void {
         const module_name = self.getModuleName(module_id) orelse return;
 
-        var keys_to_remove = ArrayList([]const u8).init(self.allocator);
+        var keys_to_remove: ArrayList([]const u8) = .empty;
         defer keys_to_remove.deinit();
 
         var cache_iter = self.qualified_call_cache.iterator();
@@ -1523,7 +1524,7 @@ test "ModuleDispatcher formatting" {
         .load_timestamp = 1234567890,
     };
 
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit();
 
     try std.fmt.format(buffer.writer(), "{}", .{module_info});

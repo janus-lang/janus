@@ -82,7 +82,7 @@ pub const TypeFlowRecorder = struct {
     pub fn initWithConfig(allocator: Allocator, config: TypeFlowConfig) TypeFlowRecorder {
         return .{
             .allocator = allocator,
-            .events = ArrayList(TypeFlowEvent).init(allocator),
+            .events = .empty,
             .config = config,
             .next_timestamp = 0,
             .enabled = true,
@@ -208,7 +208,7 @@ pub const TypeFlowAnalyzer = struct {
             };
         }
 
-        var steps = ArrayList(InferenceStep).init(self.allocator);
+        var steps: ArrayList(InferenceStep) = .empty;
         errdefer {
             for (steps.items) |*step| {
                 step.deinit(self.allocator);
@@ -260,7 +260,7 @@ pub const TypeFlowAnalyzer = struct {
         actual_type: TypeId,
     ) !TypeFlowChain {
         // Filter events relevant to the mismatch location
-        var relevant_events = ArrayList(TypeFlowEvent).init(self.allocator);
+        var relevant_events: ArrayList(TypeFlowEvent) = .empty;
         defer {
             for (relevant_events.items) |*event| {
                 event.deinit(self.allocator);
@@ -283,7 +283,7 @@ pub const TypeFlowAnalyzer = struct {
         }.lessThan);
 
         // Build chain from filtered events
-        var steps = ArrayList(InferenceStep).init(self.allocator);
+        var steps: ArrayList(InferenceStep) = .empty;
         errdefer {
             for (steps.items) |*step| {
                 step.deinit(self.allocator);
@@ -354,7 +354,7 @@ pub const TypeFlowAnalyzer = struct {
 
     /// Format chain for human-readable output
     pub fn formatChain(self: *TypeFlowAnalyzer, chain: *const TypeFlowChain) ![]const u8 {
-        var output = ArrayList(u8).init(self.allocator);
+        var output: ArrayList(u8) = .empty;
         const writer = output.writer();
 
         try writer.writeAll("Type flow chain:\n\n");
@@ -388,7 +388,7 @@ pub const TypeFlowAnalyzer = struct {
             });
         }
 
-        return output.toOwnedSlice();
+        return try output.toOwnedSlice(alloc);
     }
 
     // =========================================================================
@@ -477,7 +477,7 @@ pub const InferenceContext = struct {
         return .{
             .recorder = recorder,
             .current_file = file,
-            .constraint_stack = ArrayList(SourceSpan).init(allocator),
+            .constraint_stack = .empty,
         };
     }
 

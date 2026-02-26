@@ -111,7 +111,7 @@ pub const LSPServer = struct {
 
         pub fn init(allocator: Allocator) RequestQueue {
             return RequestQueue{
-                .requests = ArrayList(LSPRequest).init(allocator),
+                .requests = .empty,
             };
         }
 
@@ -534,8 +534,8 @@ pub const LSPServer = struct {
     }
 
     fn handleReferencesImpl(self: *LSPServer, params: json.Value) !json.Value {
-        const text_document = params.object.get("textDocument") orelse return json.Value{ .array = std.ArrayList(json.Value).init(self.allocator) };
-        const position = params.object.get("position") orelse return json.Value{ .array = std.ArrayList(json.Value).init(self.allocator) };
+        const text_document = params.object.get("textDocument") orelse return json.Value{ .array = .empty };
+        const position = params.object.get("position") orelse return json.Value{ .array = .empty };
 
         const uri = text_document.object.get("uri").?.string;
         const line: u32 = @intCast(position.object.get("line").?.integer);
@@ -549,7 +549,7 @@ pub const LSPServer = struct {
         };
 
         const locs = try self.oracle.ReferencesAt(uri, line, character, include_decl);
-        var out = std.ArrayList(json.Value).init(self.allocator);
+        var out: std.ArrayList(json.Value) = .empty;
         for (locs) |l| {
             var loc = std.json.ObjectMap.init(self.allocator);
             try loc.put("uri", json.Value{ .string = l.uri });

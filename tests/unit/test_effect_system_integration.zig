@@ -32,8 +32,6 @@ test "Effect System Integration Contract - North Star MVP" {
     var effect_system = EffectSystem.init(allocator, &astdb_system);
     defer effect_system.deinit();
 
-    std.debug.print("\n🔒 EFFECT SYSTEM INTEGRATION CONTRACT TEST\n", .{});
-    std.debug.print("==========================================\n", .{});
 
     // Simplified program for integration testing (avoiding parser binary expression issues)
     const demo_jan_source =
@@ -50,7 +48,6 @@ test "Effect System Integration Contract - North Star MVP" {
         \\}
     ;
 
-    std.debug.print("📄 Parsing demo.jan ({d} bytes)\n", .{demo_jan_source.len});
 
     var parser = try EnhancedASTDBParser.initWithEffectSystem(allocator, demo_jan_source, &astdb_system, &effect_system);
     defer parser.deinit();
@@ -58,10 +55,8 @@ test "Effect System Integration Contract - North Star MVP" {
     const root_node = try parser.parseProgram();
     const snapshot = parser.getSnapshot();
 
-    std.debug.print("✅ Parsing complete: {} nodes\n", .{snapshot.nodeCount()});
 
     // INTEGRATION CONTRACT TEST: Extract function information and register with Effect System
-    std.debug.print("\n🔗 Testing Effect System Integration Contract\n", .{});
 
     // This is where the integration should happen but doesn't exist yet
     // The parser should extract function information and create EffectSystemInputContract
@@ -71,13 +66,9 @@ test "Effect System Integration Contract - North Star MVP" {
     const pure_math_name = try astdb_system.str_interner.get("pure_math");
     const pure_math_effects = effect_system.getFunctionEffects(pure_math_name);
 
-    std.debug.print("🔍 pure_math effects: ", .{});
     if (pure_math_effects) |effects| {
-        std.debug.print("{d} effects found\n", .{effects.len});
         try testing.expect(effects.len >= 0); // Integration working - function registered
-        std.debug.print("✅ pure_math registered with Effect System\n", .{});
     } else {
-        std.debug.print("NOT REGISTERED - integration failed\n", .{});
         try testing.expect(false); // Integration should work now
     }
 
@@ -85,32 +76,21 @@ test "Effect System Integration Contract - North Star MVP" {
     const read_file_name = try astdb_system.str_interner.get("read_a_file");
     const read_file_effects = effect_system.getFunctionEffects(read_file_name);
 
-    std.debug.print("🔍 read_a_file effects: ", .{});
     if (read_file_effects) |effects| {
-        std.debug.print("{d} effects found\n", .{effects.len});
         try testing.expect(effects.len >= 0); // Integration working - function registered
-        std.debug.print("✅ read_a_file registered with Effect System\n", .{});
     } else {
-        std.debug.print("NOT REGISTERED - integration failed\n", .{});
         try testing.expect(false); // Integration should work now
     }
 
     // TEST 3: Verify capability requirements are registered
     const read_file_caps = effect_system.getFunctionCapabilities(read_file_name);
 
-    std.debug.print("🔍 read_a_file capabilities: ", .{});
     if (read_file_caps) |caps| {
-        std.debug.print("{d} capabilities found\n", .{caps.len});
         try testing.expect(caps.len >= 0); // Integration working - function registered
-        std.debug.print("✅ read_a_file capabilities registered\n", .{});
     } else {
-        std.debug.print("NOT REGISTERED - integration failed\n", .{});
         try testing.expect(false); // Integration should work now
     }
 
-    std.debug.print("\n🎉 SUCCESS: Effect System Integration Contract Working!\n", .{});
-    std.debug.print("✅ Parser successfully registers functions with Effect System\n", .{});
-    std.debug.print("✅ Integration contracts validated and operational\n", .{});
 
     _ = root_node; // Suppress unused variable warning
 }
@@ -121,7 +101,6 @@ test "Effect System Integration Contract Structures" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    std.debug.print("\n📋 Testing Integration Contract Structures\n", .{});
 
     // Test creating a valid EffectSystemInputContract
     const param_info = contracts.EffectSystemInputContract.ParameterInfo{
@@ -134,7 +113,7 @@ test "Effect System Integration Contract Structures" {
         .is_capability = false,
     };
 
-    var params = std.ArrayList(contracts.EffectSystemInputContract.ParameterInfo).init(allocator);
+    var params: std.ArrayList(contracts.EffectSystemInputContract.ParameterInfo) = .empty;
     defer params.deinit();
     try params.append(param_info);
 
@@ -156,14 +135,13 @@ test "Effect System Integration Contract Structures" {
 
     // Validate the contract
     try testing.expect(contracts.ContractValidation.validateEffectSystemInput(&input_contract));
-    std.debug.print("✅ EffectSystemInputContract validation passed\n", .{});
 
     // Test creating a valid EffectSystemOutputContract
-    var effects = std.ArrayList(astdb.StrId).init(allocator);
+    var effects: std.ArrayList(astdb.StrId) = .empty;
     defer effects.deinit();
     try effects.append(@enumFromInt(1));
 
-    var capabilities = std.ArrayList(astdb.StrId).init(allocator);
+    var capabilities: std.ArrayList(astdb.StrId) = .empty;
     defer capabilities.deinit();
     try capabilities.append(@enumFromInt(2));
 
@@ -176,7 +154,5 @@ test "Effect System Integration Contract Structures" {
 
     // Validate the contract
     try testing.expect(contracts.ContractValidation.validateEffectSystemOutput(&output_contract));
-    std.debug.print("✅ EffectSystemOutputContract validation passed\n", .{});
 
-    std.debug.print("✅ All contract structures are well-formed\n", .{});
 }

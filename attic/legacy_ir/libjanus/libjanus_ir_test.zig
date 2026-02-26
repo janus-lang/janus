@@ -187,7 +187,7 @@ test "ir: instruction formatting" {
     try module.addInstruction(.StringConst, value, &[_]IR.Value{}, "\"hello\"");
 
     // Test that we can format instructions (basic smoke test)
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit();
 
     const writer = buffer.writer();

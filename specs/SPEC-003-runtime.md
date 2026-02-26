@@ -6,6 +6,11 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 # Janus Specification — Runtime System (SPEC-003)
 
 **Version:** 2.0.0  
+
+## Normative Language (RFC 2119)
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC 2119](https://tools.ietf.org/html/rfc2119).
+
 **Status:** CANONICAL  
 **Authority:** Constitutional  
 **Supersedes:** SPEC-runtime v0.1.0

@@ -17,6 +17,7 @@ const Nursery = nursery_mod.Nursery;
 const NurseryResult = nursery_mod.NurseryResult;
 
 const budget_mod = @import("budget.zig");
+const compat_time = @import("compat_time");
 const Budget = budget_mod.Budget;
 
 /// Shared counter for verification
@@ -69,7 +70,7 @@ test "Nursery + Scheduler: cancellation propagates to all children" {
     }
 
     // Give tasks time to start
-    std.Thread.sleep(10_000_000);
+    compat_time.sleep(10_000_000);
 
     // Cancel the nursery
     nursery.cancel();
@@ -150,7 +151,7 @@ test "Nursery + Scheduler: cancel after completion is safe" {
     // Wait for completion
     var attempts: usize = 0;
     while (test_counter.load(.acquire) < 1 and attempts < 1000) : (attempts += 1) {
-        std.Thread.sleep(1_000_000);
+        compat_time.sleep(1_000_000);
     }
 
     // Cancel after completion

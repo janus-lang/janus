@@ -73,7 +73,7 @@ pub const SourceSpanTracker = struct {
             .allocator = allocator,
             .file_path = try allocator.dupe(u8, file_path),
             .source_text = source_text,
-            .line_starts = std.ArrayList(u32).init(allocator),
+            .line_starts = .empty,
         };
 
         try tracker.buildLineIndex();

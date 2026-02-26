@@ -154,11 +154,11 @@ pub const DependencyGraph = struct {
     pub fn init(allocator: std.mem.Allocator) DependencyGraph {
         return DependencyGraph{
             .allocator = allocator,
-            .compilation_units = std.ArrayList(*const CompilationUnit).init(allocator),
-            .dependencies = std.ArrayList(DependencyRelationship).init(allocator),
+            .compilation_units = .empty,
+            .dependencies = .empty,
             .unit_to_dependencies = std.HashMap(*const CompilationUnit, std.ArrayList(usize)).init(allocator),
             .unit_to_dependents = std.HashMap(*const CompilationUnit, std.ArrayList(usize)).init(allocator),
-            .topological_order = std.ArrayList(*const CompilationUnit).init(allocator),
+            .topological_order = .empty,
         };
     }
 
@@ -185,8 +185,8 @@ pub const DependencyGraph = struct {
     /// Add a compilation unit to the dependency graph
     pub fn addCompilationUnit(self: *DependencyGraph, unit: *const CompilationUnit) !void {
         try self.compilation_units.append(unit);
-        try self.unit_to_dependencies.put(unit, std.ArrayList(usize).init(self.allocator));
-        try self.unit_to_dependents.put(unit, std.ArrayList(usize).init(self.allocator));
+        try self.unit_to_dependencies.put(unit, std.ArrayList(usize).empty);
+        try self.unit_to_dependents.put(unit, std.ArrayList(usize).empty);
     }
 
     /// Add a dependency relationship to the graph
@@ -246,7 +246,7 @@ pub const DependencyGraph = struct {
         }
 
         // Queue for units with no dependencies
-        var queue = std.ArrayList(*const CompilationUnit).init(self.allocator);
+        var queue: std.ArrayList(*const CompilationUnit) = .empty;
         defer queue.deinit();
 
         // Add units with no incoming edges
@@ -304,13 +304,13 @@ pub const DependencyAnalyzer = struct {
 
     /// Analyze dependencies for a single compilation unit using ASTDB queries
     pub fn analyzeDependencies(self: *DependencyAnalyzer, unit: *const CompilationUnit) ![]DependencyRelationship {
-        var dependencies = std.ArrayList(DependencyRelationship).init(self.allocator);
+        var dependencies: std.ArrayList(DependencyRelationship) = .empty;
         defer dependencies.deinit();
 
         // Analyze the root node of the compilation unit
         try self.analyzeNodeDependencies(unit.root_node, unit, &dependencies);
 
-        return dependencies.toOwnedSlice();
+        return try dependencies.toOwnedSlice(alloc);
     }
 
     /// Build complete dependency graph for multiple compilation units

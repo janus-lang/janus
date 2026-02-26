@@ -2,21 +2,18 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 
 /// 🔧 ASTDB VALIDATION - STRING INTERNER INTEGRATION
 /// Validates that the string interner memory leak fixes work correctly with the existing ASTDB system
 
 test "ASTDB String Interner Validation - Memory Management" {
-    std.debug.print("\n🔧 ASTDB STRING INTERNER VALIDATION\n", .{});
-    std.debug.print("====================================\n", .{});
-    std.debug.print("📋 Testing string interner fixes in existing ASTDB system\n", .{});
 
     const allocator = std.testing.allocator;
     const astdb = @import("compiler/astdb/astdb.zig");
 
     // Test 1: Basic ASTDB System with String Interning
-    std.debug.print("\n🧪 Test 1: Basic System Lifecycle\n", .{});
     {
         var db = astdb.AstDB.initWithMode(allocator, true);
         defer db.deinit();
@@ -33,11 +30,9 @@ test "ASTDB String Interner Validation - Memory Management" {
         try testing.expectEqualStrings("hello", db.getString(hello_id));
         try testing.expectEqualStrings("world", db.getString(world_id));
 
-        std.debug.print("   ✅ String interning and deduplication working\n", .{});
     }
 
     // Test 2: Compilation Unit Integration
-    std.debug.print("\n🧪 Test 2: Compilation Unit Integration\n", .{});
     {
         var db = astdb.AstDB.initWithMode(allocator, true);
         defer db.deinit();
@@ -55,11 +50,9 @@ test "ASTDB String Interner Validation - Memory Management" {
         try testing.expect(retrieved_unit2 != null);
         try testing.expectEqualStrings("test2.jan", retrieved_unit2.?.path);
 
-        std.debug.print("   ✅ Compilation unit creation and retrieval working\n", .{});
     }
 
     // Test 3: String Interner Stress Test
-    std.debug.print("\n🧪 Test 3: String Interner Stress Test\n", .{});
     {
         var db = astdb.AstDB.initWithMode(allocator, true);
         defer db.deinit();
@@ -80,11 +73,9 @@ test "ASTDB String Interner Validation - Memory Management" {
             try testing.expectEqualStrings(expected, retrieved);
         }
 
-        std.debug.print("   ✅ Successfully interned and retrieved 1000 strings\n", .{});
     }
 
     // Test 4: Multi-Cycle Memory Management
-    std.debug.print("\n🧪 Test 4: Multi-Cycle Memory Management\n", .{});
     {
         for (0..20) |cycle| {
             var db = astdb.AstDB.initWithMode(allocator, true);
@@ -104,14 +95,11 @@ test "ASTDB String Interner Validation - Memory Management" {
             }
 
             if (cycle % 5 == 0) {
-                std.debug.print("   🔄 Cycle {d}/20 completed\n", .{cycle + 1});
             }
         }
-        std.debug.print("   ✅ All 20 cycles completed without memory issues\n", .{});
     }
 
     // Test 5: CID Computation with String Interning
-    std.debug.print("\n🧪 Test 5: CID Computation Integration\n", .{});
     {
         var db = astdb.AstDB.initWithMode(allocator, true);
         defer db.deinit();
@@ -131,11 +119,9 @@ test "ASTDB String Interner Validation - Memory Management" {
         const zero_cid = [_]u8{0} ** 32;
         try testing.expect(!std.mem.eql(u8, &cid1, &zero_cid));
 
-        std.debug.print("   ✅ CID computation working with string interning\n", .{});
     }
 
     // Test 6: Deterministic String Interning
-    std.debug.print("\n🧪 Test 6: Deterministic String Interning\n", .{});
     {
         var db1 = astdb.AstDB.initWithMode(allocator, true);
         defer db1.deinit();
@@ -159,11 +145,9 @@ test "ASTDB String Interner Validation - Memory Management" {
             try testing.expectEqual(id1, id2);
         }
 
-        std.debug.print("   ✅ Deterministic string interning working correctly\n", .{});
     }
 
     // Test 7: Unit Removal and Memory Cleanup
-    std.debug.print("\n🧪 Test 7: Unit Removal and Memory Cleanup\n", .{});
     {
         var db = astdb.AstDB.initWithMode(allocator, true);
         defer db.deinit();
@@ -183,30 +167,22 @@ test "ASTDB String Interner Validation - Memory Management" {
         }
 
         // Remove units (should be O(1) per unit)
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
         for (units) |unit_id| {
             try db.removeUnit(unit_id);
             try testing.expect(db.getUnit(unit_id) == null);
         }
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const duration_ns = end_time - start_time;
 
         // Should complete very quickly
         try testing.expect(duration_ns < 10_000_000); // 10ms in nanoseconds
 
-        std.debug.print("   ✅ Unit removal completed in {d} ns (O(1) per unit)\n", .{duration_ns});
     }
 
-    std.debug.print("\n🎯 ASTDB STRING INTERNER VALIDATION COMPLETE\n", .{});
-    std.debug.print("=============================================\n", .{});
-    std.debug.print("✅ All tests passed - String interner integration is working\n", .{});
-    std.debug.print("✅ Memory management is hardened and leak-free\n", .{});
-    std.debug.print("✅ ASTDB system is ready for production use\n", .{});
 }
 
 test "ASTDB Performance Validation - Throughput Test" {
-    std.debug.print("\n⚡ ASTDB PERFORMANCE VALIDATION\n", .{});
-    std.debug.print("===============================\n", .{});
 
     const allocator = std.testing.allocator;
     const astdb = @import("compiler/astdb/astdb.zig");
@@ -214,7 +190,7 @@ test "ASTDB Performance Validation - Throughput Test" {
     var db = astdb.AstDB.initWithMode(allocator, true);
     defer db.deinit();
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Create 100 compilation units with string interning
     var buffer: [128]u8 = undefined;
@@ -231,17 +207,12 @@ test "ASTDB Performance Validation - Throughput Test" {
         }
     }
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const duration_ns = end_time - start_time;
     const duration_ms = @as(f64, @floatFromInt(duration_ns)) / 1_000_000.0;
 
-    std.debug.print("📊 Performance Results:\n", .{});
-    std.debug.print("   • Created 100 units with 1000 strings in {d:.2} ms\n", .{duration_ms});
-    std.debug.print("   • Throughput: {d:.0} units/second\n", .{100.0 / (duration_ms / 1000.0)});
-    std.debug.print("   • String interning rate: {d:.0} strings/second\n", .{1000.0 / (duration_ms / 1000.0)});
 
     // Performance assertions
     try testing.expect(duration_ms < 1000.0); // Should complete in under 1 second
 
-    std.debug.print("✅ Performance validation passed\n", .{});
 }

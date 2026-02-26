@@ -6,7 +6,6 @@ const testing = std.testing;
 const granite_interner = @import("compiler/libjanus/astdb/granite_interner.zig");
 
 test "Direct Granite Interner Test" {
-    std.debug.print("\n🔧 DIRECT GRANITE INTERNER TEST\n", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -28,14 +27,11 @@ test "Direct Granite Interner Test" {
     try testing.expectEqualStrings("hello", interner.str(hello_id));
     try testing.expectEqualStrings("world", interner.str(world_id));
 
-    std.debug.print("✅ Direct granite interner works\n", .{});
 
     // Check for memory leaks
     const leaked = gpa.deinit();
     if (leaked == .ok) {
-        std.debug.print("🎉 ZERO MEMORY LEAKS WITH DIRECT GRANITE INTERNER\n", .{});
     } else {
-        std.debug.print("❌ MEMORY LEAKS DETECTED\n", .{});
         try testing.expect(false);
     }
 }

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 const testing = std.testing;
@@ -80,7 +81,7 @@ pub const DispatchBenchmarkSuite = struct {
         defer self.profiler.unregisterTable(&table);
 
         // Create implementations
-        var implementations = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer {
             for (implementations.items) |impl| {
                 self.allocator.free(impl.param_type_ids);
@@ -108,7 +109,7 @@ pub const DispatchBenchmarkSuite = struct {
         }
 
         // Generate test cases
-        var test_cases = ArrayList([]const TypeId).init(self.allocator);
+        var test_cases: ArrayList([]const TypeId) = .empty;
         defer {
             for (test_cases.items) |case| {
                 self.allocator.free(case);
@@ -140,7 +141,7 @@ pub const DispatchBenchmarkSuite = struct {
 
         // Create implementations
         const impl_count = 20;
-        var implementations = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer {
             for (implementations.items) |impl| {
                 self.allocator.free(impl.param_type_ids);
@@ -182,22 +183,22 @@ pub const DispatchBenchmarkSuite = struct {
     /// Benchmark sequential access pattern
     fn benchmarkSequentialAccess(self: *Self, table: *OptimizedDispatchTable, types: []const TypeId) !u64 {
         const iterations = 10000;
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         for (0..iterations) |i| {
             const type_combo = self.generateTypeCombo(types, i % types.len);
             _ = table.lookup(type_combo);
         }
 
-        return @intCast(std.time.nanoTimestamp() - start_time);
+        return @intCast(compat_time.nanoTimestamp() - start_time);
     }
 
     /// Benchmark random access pattern
     fn benchmarkRandomAccess(self: *Self, table: *OptimizedDispatchTable, types: []const TypeId) !u64 {
         const iterations = 10000;
-        var rng = std.rand.DefaultPrng.init(@intCast(std.time.timestamp()));
+        var rng = std.rand.DefaultPrng.init(@intCast(compat_time.timestamp()));
 
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         for (0..iterations) |_| {
             const random_index = rng.random().uintLessThan(usize, types.len);
@@ -205,15 +206,15 @@ pub const DispatchBenchmarkSuite = struct {
             _ = table.lookup(type_combo);
         }
 
-        return @intCast(std.time.nanoTimestamp() - start_time);
+        return @intCast(compat_time.nanoTimestamp() - start_time);
     }
 
     /// Benchmark hot path access pattern (80/20 rule)
     fn benchmarkHotPathAccess(self: *Self, table: *OptimizedDispatchTable, types: []const TypeId) !u64 {
         const iterations = 10000;
-        var rng = std.rand.DefaultPrng.init(@intCast(std.time.timestamp()));
+        var rng = std.rand.DefaultPrng.init(@intCast(compat_time.timestamp()));
 
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         for (0..iterations) |_| {
             // 80% of accesses go to first 20% of implementations
@@ -227,7 +228,7 @@ pub const DispatchBenchmarkSuite = struct {
             _ = table.lookup(type_combo);
         }
 
-        return @intCast(std.time.nanoTimestamp() - start_time);
+        return @intCast(compat_time.nanoTimestamp() - start_time);
     }
 
     /// Generate type combination for testing
@@ -497,7 +498,7 @@ test "PerformanceRegressionTests baseline and regression testing" {
     try testing.expect(baseline.memory_efficiency <= 1.0);
 
     // Run regression tests
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit();
 
     const passed = try regression_tests.runRegressionTests(buffer.writer());
@@ -536,7 +537,7 @@ test "Benchmark result formatting" {
     };
 
     // Test formatting
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit();
 
     try std.fmt.format(buffer.writer(), "{}", .{benchmark_results});

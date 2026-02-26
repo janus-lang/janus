@@ -325,7 +325,7 @@ pub const GenericDispatcher = struct {
         }
 
         // Find all monomorphized instances that could match
-        var matching_instances = ArrayList(MonomorphizedInstance).init(self.allocator);
+        var matching_instances: ArrayList(MonomorphizedInstance) = .empty;
         defer matching_instances.deinit();
 
         var mono_iter = self.monomorphized_instances.iterator();
@@ -369,7 +369,7 @@ pub const GenericDispatcher = struct {
         generic_sig: *const GenericSignature,
         type_arguments: []const TypeId,
     ) !ConstraintSatisfaction {
-        var violations = ArrayList(ConstraintSatisfaction.ConstraintViolation).init(self.allocator);
+        var violations: ArrayList(ConstraintSatisfaction.ConstraintViolation) = .empty;
         defer violations.deinit();
 
         for (generic_sig.constraints) |constraint| {
@@ -465,7 +465,7 @@ pub const GenericDispatcher = struct {
         if (instances.len == 1) return instances[0];
 
         // Convert to SignatureAnalyzer.Implementation for specificity analysis
-        var implementations = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer implementations.deinit();
 
         for (instances) |instance| {
@@ -559,7 +559,7 @@ pub const GenericDispatcher = struct {
 
     /// Get all monomorphized instances for a generic signature
     pub fn getMonomorphizedInstances(self: *Self, signature_name: []const u8) ![]const MonomorphizedInstance {
-        var instances = ArrayList(MonomorphizedInstance).init(self.allocator);
+        var instances: ArrayList(MonomorphizedInstance) = .empty;
         defer instances.deinit();
 
         var iter = self.monomorphized_instances.iterator();
@@ -831,7 +831,7 @@ test "GenericDispatcher formatting" {
         .default_type = 3,
     };
 
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit();
 
     try std.fmt.format(buffer.writer(), "{}", .{param});

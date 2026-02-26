@@ -37,33 +37,31 @@ fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name: []
     const llvm_ir = try emitter.toString();
     defer allocator.free(llvm_ir);
 
-    std.debug.print("\n=== LLVM IR ===\n{s}\n", .{llvm_ir});
 
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const ir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    const ir_path = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", allocator);
     defer allocator.free(ir_path);
 
     const ir_file = try std.fmt.allocPrint(allocator, "{s}.ll", .{test_name});
     defer allocator.free(ir_file);
     const ir_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, ir_file });
     defer allocator.free(ir_file_path);
-    try tmp_dir.dir.writeFile(.{ .sub_path = ir_file, .data = llvm_ir });
+    const io = testing.io;
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = ir_file, .data = llvm_ir });
 
     const obj_file = try std.fmt.allocPrint(allocator, "{s}.o", .{test_name});
     defer allocator.free(obj_file);
     const obj_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, obj_file });
     defer allocator.free(obj_file_path);
 
-    const llc_result = try std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = &[_][]const u8{ "llc", "-filetype=obj", ir_file_path, "-o", obj_file_path },
+    const llc_result = try std.process.run(allocator, io, .{
+        .argv = &[_][]const u8{ "llc",  "-filetype=obj", ir_file_path, "-o", obj_file_path },
     });
     defer allocator.free(llc_result.stdout);
     defer allocator.free(llc_result.stderr);
-    if (llc_result.term.Exited != 0) {
-        std.debug.print("LLC STDERR: {s}\n", .{llc_result.stderr});
+    if (llc_result.term.exited != 0) {
         return error.LLCFailed;
     }
 
@@ -76,28 +74,25 @@ fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name: []
     const emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{rt_obj_path});
     defer allocator.free(emit_arg);
 
-    const zig_build_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const zig_build_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{ "zig", "build-obj", "runtime/janus_rt.zig", emit_arg, "-lc" },
     });
     defer allocator.free(zig_build_result.stdout);
     defer allocator.free(zig_build_result.stderr);
-    if (zig_build_result.term.Exited != 0) return error.RuntimeCompilationFailed;
+    if (zig_build_result.term.exited != 0) return error.RuntimeCompilationFailed;
 
-    const link_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const link_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{ "cc", obj_file_path, rt_obj_path, "-o", exe_file_path },
     });
     defer allocator.free(link_result.stdout);
     defer allocator.free(link_result.stderr);
-    if (link_result.term.Exited != 0) return error.LinkFailed;
+    if (link_result.term.exited != 0) return error.LinkFailed;
 
-    const exec_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const exec_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{exe_file_path},
     });
     defer allocator.free(exec_result.stderr);
-    if (exec_result.term.Exited != 0) {
+    if (exec_result.term.exited != 0) {
         allocator.free(exec_result.stdout);
         return error.ExecutionFailed;
     }
@@ -118,11 +113,9 @@ test "Epic 7.1: Unary minus on literal" {
     const output = try compileAndRun(allocator, source, "unary_minus_lit");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     try testing.expectEqualStrings("-42\n", output);
 
-    std.debug.print("\n=== UNARY MINUS ON LITERAL PASSED ===\n", .{});
 }
 
 test "Epic 7.2: Unary minus on variable" {
@@ -139,11 +132,9 @@ test "Epic 7.2: Unary minus on variable" {
     const output = try compileAndRun(allocator, source, "unary_minus_var");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     try testing.expectEqualStrings("-10\n", output);
 
-    std.debug.print("\n=== UNARY MINUS ON VARIABLE PASSED ===\n", .{});
 }
 
 test "Epic 7.3: Double negation" {
@@ -160,11 +151,9 @@ test "Epic 7.3: Double negation" {
     const output = try compileAndRun(allocator, source, "unary_double_neg");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     try testing.expectEqualStrings("5\n", output);
 
-    std.debug.print("\n=== DOUBLE NEGATION PASSED ===\n", .{});
 }
 
 test "Epic 7.4: Unary minus in expression" {
@@ -182,12 +171,10 @@ test "Epic 7.4: Unary minus in expression" {
     const output = try compileAndRun(allocator, source, "unary_in_expr");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 10 + (-3) = 7
     try testing.expectEqualStrings("7\n", output);
 
-    std.debug.print("\n=== UNARY MINUS IN EXPRESSION PASSED ===\n", .{});
 }
 
 test "Epic 7.5: Boolean not with true" {
@@ -208,12 +195,10 @@ test "Epic 7.5: Boolean not with true" {
     const output = try compileAndRun(allocator, source, "unary_not_true");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // not true = false, so else branch prints 1
     try testing.expectEqualStrings("1\n", output);
 
-    std.debug.print("\n=== BOOLEAN NOT WITH TRUE PASSED ===\n", .{});
 }
 
 test "Epic 7.6: Boolean not with false" {
@@ -234,12 +219,10 @@ test "Epic 7.6: Boolean not with false" {
     const output = try compileAndRun(allocator, source, "unary_not_false");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // not false = true, so then branch prints 1
     try testing.expectEqualStrings("1\n", output);
 
-    std.debug.print("\n=== BOOLEAN NOT WITH FALSE PASSED ===\n", .{});
 }
 
 test "Epic 7.7: Not with comparison result" {
@@ -260,12 +243,10 @@ test "Epic 7.7: Not with comparison result" {
     const output = try compileAndRun(allocator, source, "unary_not_cmp");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 5 > 10 is false, not false = true, so then branch prints 1
     try testing.expectEqualStrings("1\n", output);
 
-    std.debug.print("\n=== NOT WITH COMPARISON PASSED ===\n", .{});
 }
 
 test "Epic 7.8: Unary minus in conditional" {
@@ -285,10 +266,8 @@ test "Epic 7.8: Unary minus in conditional" {
     const output = try compileAndRun(allocator, source, "unary_neg_cond");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 5 is not < 0, so print 5
     try testing.expectEqualStrings("5\n", output);
 
-    std.debug.print("\n=== UNARY MINUS IN CONDITIONAL PASSED ===\n", .{});
 }

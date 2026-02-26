@@ -8,6 +8,7 @@
 //! the same truth in all worlds.
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
@@ -32,8 +33,6 @@ const ASTDBSystem = astdb_api.ASTDBSystem;
 test "Golden IR Harness - End-to-End Forensic Validation" {
     const allocator = testing.allocator;
 
-    std.debug.print("\n🔬 Golden IR Harness - Forensic Validation Test\n", .{});
-    std.debug.print("================================================\n", .{});
 
     // Initialize the forensic system
     var harness = IRHarness.init(allocator);
@@ -51,7 +50,6 @@ test "Golden IR Harness - End-to-End Forensic Validation" {
     defer codegen.deinit();
 
     // Test Case 1: Fibonacci Function - High Frequency Direct Call
-    std.debug.print("\n📋 Test Case 1: Fibonacci Function (High Frequency)\n", .{});
 
     const fibonacci_source =
         \\func fibonacci(n: i32) -> i32 {
@@ -77,7 +75,6 @@ test "Golden IR Harness - End-to-End Forensic Validation" {
     try harness.captureSnapshot("fibonacci_high_freq", fibonacci_source, fibonacci_ir);
 
     // Test Case 2: Event Handler - Switch Dispatch
-    std.debug.print("\n📋 Test Case 2: Event Handler (Switch Dispatch)\n", .{});
 
     const event_source =
         \\func handleEvent(eventType: i32, data: i32) -> i32 {
@@ -104,7 +101,6 @@ test "Golden IR Harness - End-to-End Forensic Validation" {
     try harness.captureSnapshot("event_handler_switch", event_source, event_ir);
 
     // Test Case 3: Complex Dispatcher - Jump Table
-    std.debug.print("\n📋 Test Case 3: Complex Dispatcher (Jump Table)\n", .{});
 
     const dispatcher_source =
         \\func complexDispatch(a: i32, b: i32, c: i32, d: i32, e: i32) -> i32 {
@@ -128,14 +124,11 @@ test "Golden IR Harness - End-to-End Forensic Validation" {
     // Verify we captured all snapshots
     try testing.expect(harness.snapshots.items.len == 3);
 
-    std.debug.print("\n✅ Captured {} golden snapshots\n", .{harness.snapshots.items.len});
 }
 
 test "Golden IR Harness - Cross-Platform Equivalence Validation" {
     const allocator = testing.allocator;
 
-    std.debug.print("\n🌍 Cross-Platform Equivalence Validation\n", .{});
-    std.debug.print("=========================================\n", .{});
 
     var harness = IRHarness.init(allocator);
     defer harness.deinit();
@@ -185,13 +178,10 @@ test "Golden IR Harness - Cross-Platform Equivalence Validation" {
 
     // Should have no differences (deterministic generation)
     if (diffs.len == 0) {
-        std.debug.print("✅ Cross-platform equivalence VERIFIED\n", .{});
     } else {
-        std.debug.print("❌ Cross-platform differences detected: {} diffs\n", .{diffs.len});
         for (diffs) |diff| {
             const formatted = try diff.format(allocator);
             defer allocator.free(formatted);
-            std.debug.print("{s}\n", .{formatted});
         }
     }
 
@@ -202,8 +192,6 @@ test "Golden IR Harness - Cross-Platform Equivalence Validation" {
 test "Golden IR Harness - Performance Contract Enforcement" {
     const allocator = testing.allocator;
 
-    std.debug.print("\n📊 Performance Contract Enforcement\n", .{});
-    std.debug.print("===================================\n", .{});
 
     var harness = IRHarness.init(allocator);
     defer harness.deinit();
@@ -230,9 +218,7 @@ test "Golden IR Harness - Performance Contract Enforcement" {
     }
 
     if (all_passed) {
-        std.debug.print("\n🎉 All performance contracts PASSED!\n", .{});
     } else {
-        std.debug.print("\n❌ Some performance contracts FAILED!\n", .{});
     }
     // Enforce contracts
     try testing.expect(all_passed);
@@ -241,8 +227,6 @@ test "Golden IR Harness - Performance Contract Enforcement" {
 test "Golden IR Harness - Regression Detection" {
     const allocator = testing.allocator;
 
-    std.debug.print("\n🔍 Regression Detection Test\n", .{});
-    std.debug.print("============================\n", .{});
 
     var harness = IRHarness.init(allocator);
     defer harness.deinit();
@@ -295,10 +279,8 @@ test "Golden IR Harness - Regression Detection" {
     }
 
     if (diffs.len > 0) {
-        std.debug.print("🚨 REGRESSION DETECTED: {} differences found\n", .{diffs.len});
 
         for (diffs) |diff| {
-            std.debug.print("   - {s}: {s} -> {s}\n", .{ @tagName(diff.diff_type), diff.expected[0..@min(20, diff.expected.len)], diff.actual[0..@min(20, diff.actual.len)] });
         }
 
         // Check if this is an approved difference
@@ -312,12 +294,9 @@ test "Golden IR Harness - Regression Detection" {
         }
 
         if (approved_count == diffs.len) {
-            std.debug.print("✅ All differences are approved for platform: {s}\n", .{platform});
         } else {
-            std.debug.print("❌ {} unapproved differences detected\n", .{diffs.len - approved_count});
         }
     } else {
-        std.debug.print("✅ No regression detected - IR generation is stable\n", .{});
     }
 
     // For this test, we expect differences (strategy change)
@@ -327,8 +306,6 @@ test "Golden IR Harness - Regression Detection" {
 test "Golden IR Harness - Snapshot Persistence" {
     const allocator = testing.allocator;
 
-    std.debug.print("\n💾 Snapshot Persistence Test\n", .{});
-    std.debug.print("============================\n", .{});
 
     var harness = IRHarness.init(allocator);
     defer harness.deinit();
@@ -369,13 +346,11 @@ test "Golden IR Harness - Snapshot Persistence" {
         file_exists = false;
     };
     if (file_exists) {
-        std.debug.print("✅ Snapshot saved successfully: {s}\n", .{filename});
 
         // Clean up test file
-        std.fs.cwd().deleteFile(filename) catch {};
+        compat_fs.deleteFile(filename) catch {};
         std.fs.cwd().deleteDir(test_dir) catch {};
     } else {
-        std.debug.print("❌ Snapshot file not found: {s}\n", .{filename});
     }
 
     try testing.expect(file_exists);

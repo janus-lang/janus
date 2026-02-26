@@ -5,6 +5,7 @@
 // Task 2.2: Dependency graph & invalidation validation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 
 test "Dependency tracking system integration" {
@@ -111,7 +112,7 @@ test "Performance overhead measurement" {
     const allocator = gpa.allocator();
 
     // Measure dependency tracking overhead
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Simulate dependency recording for 1000 queries
     var all_deps = std.ArrayList(std.ArrayList([32]u8)){};
@@ -135,7 +136,7 @@ test "Performance overhead measurement" {
         try all_deps.append(deps_list);
     }
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const overhead_ns = end_time - start_time;
     const overhead_ms = @as(f64, @floatFromInt(overhead_ns)) / 1_000_000.0;
 

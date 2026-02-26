@@ -101,7 +101,7 @@ const TypeInfo = struct {
 
 /// Find all functions that could match the dispatch
 fn findDispatchCandidates(query_ctx: *QueryCtx, function_name: []const u8, call_site_cid: CID) ![]DispatchCandidate {
-    var candidates = std.ArrayList(DispatchCandidate).init(query_ctx.allocator);
+    var candidates: std.ArrayList(DispatchCandidate) = .empty;
 
     // Get the scope from the call site
     const call_site_node = try query_ctx.astdb.getNode(call_site_cid);
@@ -113,7 +113,7 @@ fn findDispatchCandidates(query_ctx: *QueryCtx, function_name: []const u8, call_
     // Search imported modules
     try searchImportsForFunctions(query_ctx, &candidates, function_name, scope_cid);
 
-    return candidates.toOwnedSlice();
+    return try candidates.toOwnedSlice(alloc);
 }
 
 /// Search a scope and its parents for matching functions
@@ -189,7 +189,7 @@ fn createDispatchCandidate(query_ctx: *QueryCtx, symbol: astdb.Symbol) !Dispatch
 
 /// Get parameter types for a function
 fn getFunctionParameterTypes(query_ctx: *QueryCtx, function_node: astdb.AstNode) ![]TypeInfo {
-    var param_types = std.ArrayList(TypeInfo).init(query_ctx.allocator);
+    var param_types: std.ArrayList(TypeInfo) = .empty;
 
     for (function_node.parameters) |param_cid| {
         const param_node = try query_ctx.astdb.getNode(param_cid);
@@ -197,7 +197,7 @@ fn getFunctionParameterTypes(query_ctx: *QueryCtx, function_node: astdb.AstNode)
         try param_types.append(param_type);
     }
 
-    return param_types.toOwnedSlice();
+    return try param_types.toOwnedSlice(alloc);
 }
 
 /// Get type information for a parameter
@@ -219,7 +219,7 @@ fn getParameterType(query_ctx: *QueryCtx, param_node: astdb.AstNode) !TypeInfo {
 /// Get argument types from the call site
 fn getArgumentTypes(query_ctx: *QueryCtx, arg_types_cid: CID) ![]TypeInfo {
     const arg_list_node = try query_ctx.astdb.getNode(arg_types_cid);
-    var arg_types = std.ArrayList(TypeInfo).init(query_ctx.allocator);
+    var arg_types: std.ArrayList(TypeInfo) = .empty;
 
     for (arg_list_node.children) |arg_cid| {
         const arg_node = try query_ctx.astdb.getNode(arg_cid);
@@ -243,7 +243,7 @@ fn getArgumentTypes(query_ctx: *QueryCtx, arg_types_cid: CID) ![]TypeInfo {
         try arg_types.append(arg_type);
     }
 
-    return arg_types.toOwnedSlice();
+    return try arg_types.toOwnedSlice(alloc);
 }
 
 /// Resolve dispatch among candidates
@@ -253,7 +253,7 @@ fn resolveDispatch(query_ctx: *QueryCtx, candidates: []DispatchCandidate, arg_ty
     }
 
     // Filter candidates by compatibility
-    var compatible = std.ArrayList(DispatchCandidate).init(query_ctx.allocator);
+    var compatible: std.ArrayList(DispatchCandidate) = .empty;
     defer compatible.deinit();
 
     for (candidates) |candidate| {

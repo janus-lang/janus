@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 
 const canonical_allowed = [_][]const u8{
     "compiler/astdb/core.zig",
@@ -31,7 +32,7 @@ pub fn main() !void {
     }
 
     var legacy_seen = [_]bool{false} ** legacy_allowed.len;
-    var root_dir = try std.fs.cwd().openDir(".", .{ .iterate = true });
+    var root_dir = try compat_fs.openDir(".");
     defer root_dir.close();
 
     try scanDir(allocator, &root_dir, "", &violations, &legacy_seen);
@@ -92,7 +93,7 @@ fn findLegacy(path: []const u8) ?usize {
 
 fn scanDir(
     allocator: std.mem.Allocator,
-    dir: *std.fs.Dir,
+    dir: *compat_fs.DirHandle,
     prefix: []const u8,
     violations: *std.ArrayList([]const u8),
     legacy_seen: *[legacy_allowed.len]bool,
@@ -107,7 +108,7 @@ fn scanDir(
                     allocator.free(rel_path);
                     continue;
                 }
-                var child = try dir.openDir(entry.name, .{ .iterate = true });
+                var child = try compat_fs.openDir(rel_path);
                 defer child.close();
                 try scanDir(allocator, &child, rel_path, violations, legacy_seen);
                 allocator.free(rel_path);
@@ -117,7 +118,7 @@ fn scanDir(
                 if (!std.mem.endsWith(u8, rel_path, ".zig")) continue;
                 if (shouldSkip(rel_path)) continue;
 
-                const contents = try dir.readFileAlloc(allocator, entry.name, max_file_bytes);
+                const contents = try compat_fs.readFileAlloc(allocator, rel_path, max_file_bytes);
                 defer allocator.free(contents);
 
                 if (!hasLegacyAstSignature(contents)) continue;

@@ -9,6 +9,7 @@
 // Built upon our proven change detection and dependency graph infrastructure.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const change_detection = @import("change_detection.zig");
 const dependency_graph_mod = @import("dependency_graph.zig");
 const compilation_unit = @import("compilation_unit.zig");
@@ -183,7 +184,7 @@ pub const RebuildOptimizer = struct {
         change_set: *ChangeSet,
         dependency_graph: *const DependencyGraph,
     ) !OptimizationResult {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
         const original_count = change_set.getTotalRebuildCount();
 
         var techniques = OptimizationTechniques{
@@ -229,7 +230,7 @@ pub const RebuildOptimizer = struct {
             metrics.parallel_threads_used = self.parameters.max_parallel_threads;
         }
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         metrics.optimization_time_ns = @as(u64, @intCast(end_time - start_time));
 
         const optimized_count = change_set.getTotalRebuildCount();

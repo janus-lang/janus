@@ -34,33 +34,31 @@ fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name: []
     const llvm_ir = try emitter.toString();
     defer allocator.free(llvm_ir);
 
-    std.debug.print("\n=== LLVM IR ===\n{s}\n", .{llvm_ir});
 
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const ir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    const ir_path = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", allocator);
     defer allocator.free(ir_path);
 
     const ir_file = try std.fmt.allocPrint(allocator, "{s}.ll", .{test_name});
     defer allocator.free(ir_file);
     const ir_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, ir_file });
     defer allocator.free(ir_file_path);
-    try tmp_dir.dir.writeFile(.{ .sub_path = ir_file, .data = llvm_ir });
+    const io = testing.io;
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = ir_file, .data = llvm_ir });
 
     const obj_file = try std.fmt.allocPrint(allocator, "{s}.o", .{test_name});
     defer allocator.free(obj_file);
     const obj_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, obj_file });
     defer allocator.free(obj_file_path);
 
-    const llc_result = try std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = &[_][]const u8{ "llc", "-filetype=obj", ir_file_path, "-o", obj_file_path },
+    const llc_result = try std.process.run(allocator, io, .{
+        .argv = &[_][]const u8{ "llc",  "-filetype=obj", ir_file_path, "-o", obj_file_path },
     });
     defer allocator.free(llc_result.stdout);
     defer allocator.free(llc_result.stderr);
-    if (llc_result.term.Exited != 0) {
-        std.debug.print("LLC STDERR: {s}\n", .{llc_result.stderr});
+    if (llc_result.term.exited != 0) {
         return error.LLCFailed;
     }
 
@@ -73,28 +71,25 @@ fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name: []
     const emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{rt_obj_path});
     defer allocator.free(emit_arg);
 
-    const zig_build_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const zig_build_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{ "zig", "build-obj", "runtime/janus_rt.zig", emit_arg, "-lc" },
     });
     defer allocator.free(zig_build_result.stdout);
     defer allocator.free(zig_build_result.stderr);
-    if (zig_build_result.term.Exited != 0) return error.RuntimeCompilationFailed;
+    if (zig_build_result.term.exited != 0) return error.RuntimeCompilationFailed;
 
-    const link_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const link_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{ "cc", obj_file_path, rt_obj_path, "-o", exe_file_path },
     });
     defer allocator.free(link_result.stdout);
     defer allocator.free(link_result.stderr);
-    if (link_result.term.Exited != 0) return error.LinkFailed;
+    if (link_result.term.exited != 0) return error.LinkFailed;
 
-    const exec_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const exec_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{exe_file_path},
     });
     defer allocator.free(exec_result.stderr);
-    if (exec_result.term.Exited != 0) {
+    if (exec_result.term.exited != 0) {
         allocator.free(exec_result.stdout);
         return error.ExecutionFailed;
     }
@@ -123,12 +118,10 @@ test "Epic 2.2: Continue in for loop - skip even numbers" {
     const output = try compileAndRun(allocator, source, "continue_for");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // Skip 2 and 4, print 1, 3, 5
     try testing.expectEqualStrings("1\n3\n5\n", output);
 
-    std.debug.print("\n=== CONTINUE IN FOR LOOP TEST PASSED ===\n", .{});
 }
 
 test "Epic 2.2: Continue in while loop - skip specific value" {
@@ -149,12 +142,10 @@ test "Epic 2.2: Continue in while loop - skip specific value" {
     const output = try compileAndRun(allocator, source, "continue_while");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // Skip i=1, print 0, 2, 3
     try testing.expectEqualStrings("0\n2\n3\n", output);
 
-    std.debug.print("\n=== CONTINUE IN WHILE-LIKE LOOP TEST PASSED ===\n", .{});
 }
 
 test "Epic 2.2: Continue with nested conditions" {
@@ -178,10 +169,8 @@ test "Epic 2.2: Continue with nested conditions" {
     const output = try compileAndRun(allocator, source, "continue_nested");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // Skip i < 3 (1, 2) and i > 4 (5, 6), print 3, 4
     try testing.expectEqualStrings("3\n4\n", output);
 
-    std.debug.print("\n=== CONTINUE WITH NESTED CONDITIONS TEST PASSED ===\n", .{});
 }

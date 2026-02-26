@@ -34,33 +34,31 @@ fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name: []
     const llvm_ir = try emitter.toString();
     defer allocator.free(llvm_ir);
 
-    std.debug.print("\n=== LLVM IR ===\n{s}\n", .{llvm_ir});
 
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const ir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    const ir_path = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", allocator);
     defer allocator.free(ir_path);
 
     const ir_file = try std.fmt.allocPrint(allocator, "{s}.ll", .{test_name});
     defer allocator.free(ir_file);
     const ir_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, ir_file });
     defer allocator.free(ir_file_path);
-    try tmp_dir.dir.writeFile(.{ .sub_path = ir_file, .data = llvm_ir });
+    const io = testing.io;
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = ir_file, .data = llvm_ir });
 
     const obj_file = try std.fmt.allocPrint(allocator, "{s}.o", .{test_name});
     defer allocator.free(obj_file);
     const obj_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, obj_file });
     defer allocator.free(obj_file_path);
 
-    const llc_result = try std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = &[_][]const u8{ "llc", "-filetype=obj", ir_file_path, "-o", obj_file_path },
+    const llc_result = try std.process.run(allocator, io, .{
+        .argv = &[_][]const u8{ "llc",  "-filetype=obj", ir_file_path, "-o", obj_file_path },
     });
     defer allocator.free(llc_result.stdout);
     defer allocator.free(llc_result.stderr);
-    if (llc_result.term.Exited != 0) {
-        std.debug.print("LLC STDERR: {s}\n", .{llc_result.stderr});
+    if (llc_result.term.exited != 0) {
         return error.LLCFailed;
     }
 
@@ -73,28 +71,25 @@ fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name: []
     const emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{rt_obj_path});
     defer allocator.free(emit_arg);
 
-    const zig_build_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const zig_build_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{ "zig", "build-obj", "runtime/janus_rt.zig", emit_arg, "-lc" },
     });
     defer allocator.free(zig_build_result.stdout);
     defer allocator.free(zig_build_result.stderr);
-    if (zig_build_result.term.Exited != 0) return error.RuntimeCompilationFailed;
+    if (zig_build_result.term.exited != 0) return error.RuntimeCompilationFailed;
 
-    const link_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const link_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{ "cc", obj_file_path, rt_obj_path, "-o", exe_file_path },
     });
     defer allocator.free(link_result.stdout);
     defer allocator.free(link_result.stderr);
-    if (link_result.term.Exited != 0) return error.LinkFailed;
+    if (link_result.term.exited != 0) return error.LinkFailed;
 
-    const exec_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const exec_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{exe_file_path},
     });
     defer allocator.free(exec_result.stderr);
-    if (exec_result.term.Exited != 0) {
+    if (exec_result.term.exited != 0) {
         allocator.free(exec_result.stdout);
         return error.ExecutionFailed;
     }
@@ -120,12 +115,10 @@ test "Epic 2.3: Match on integer literals - simple" {
     const output = try compileAndRun(allocator, source, "match_simple");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // x = 2, so should print 20
     try testing.expectEqualStrings("20\n", output);
 
-    std.debug.print("\n=== SIMPLE MATCH TEST PASSED ===\n", .{});
 }
 
 test "Epic 2.3: Match with wildcard default" {
@@ -146,12 +139,10 @@ test "Epic 2.3: Match with wildcard default" {
     const output = try compileAndRun(allocator, source, "match_wildcard");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // x = 99, doesn't match 1 or 2, falls to wildcard
     try testing.expectEqualStrings("0\n", output);
 
-    std.debug.print("\n=== MATCH WILDCARD TEST PASSED ===\n", .{});
 }
 
 test "Epic 2.3: Match with guard conditions" {
@@ -172,12 +163,10 @@ test "Epic 2.3: Match with guard conditions" {
     const output = try compileAndRun(allocator, source, "match_guard");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // x = 5, first arm fails guard (5 > 10 is false), second arm matches (5 < 10 is true)
     try testing.expectEqualStrings("2\n", output);
 
-    std.debug.print("\n=== MATCH GUARD TEST PASSED ===\n", .{});
 }
 
 test "Epic 2.3: Match with negation pattern !0" {
@@ -197,12 +186,10 @@ test "Epic 2.3: Match with negation pattern !0" {
     const output = try compileAndRun(allocator, source, "match_negation");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // x = 5 which is != 0, so matches !0 pattern
     try testing.expectEqualStrings("1\n", output);
 
-    std.debug.print("\n=== MATCH NEGATION PATTERN TEST PASSED ===\n", .{});
 }
 
 test "Epic 2.3: Match negation with zero value" {
@@ -222,10 +209,8 @@ test "Epic 2.3: Match negation with zero value" {
     const output = try compileAndRun(allocator, source, "match_negation_zero");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // x = 0, !0 means != 0, so it doesn't match, falls to wildcard
     try testing.expectEqualStrings("42\n", output);
 
-    std.debug.print("\n=== MATCH NEGATION ZERO TEST PASSED ===\n", .{});
 }

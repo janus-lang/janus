@@ -7,6 +7,7 @@
 //! type compatibility checking, and type interner functionality.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const print = std.debug.print;
 
@@ -357,7 +358,7 @@ test "Type System - Performance Characteristics" {
     var type_ids = std.ArrayList(TypeId){};
     defer type_ids.deinit();
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     for (0..num_types) |i| {
         const params = [_]TypeId{system.primitives.i32};
@@ -367,7 +368,7 @@ test "Type System - Performance Characteristics" {
         try type_ids.append(func_id);
     }
 
-    const creation_time = std.time.nanoTimestamp();
+    const creation_time = compat_time.nanoTimestamp();
     const creation_duration = @as(f64, @floatFromInt(creation_time - start_time)) / 1_000_000.0;
 
     print("   Type creation time: {d:.2f}ms for {} types\n", .{ creation_duration, num_types });
@@ -382,7 +383,7 @@ test "Type System - Performance Characteristics" {
         }
     }
 
-    const compatibility_time = std.time.nanoTimestamp();
+    const compatibility_time = compat_time.nanoTimestamp();
     const compatibility_duration = @as(f64, @floatFromInt(compatibility_time - creation_time)) / 1_000_000.0;
 
     print("   Compatibility checking time: {d:.2f}ms for {} checks\n", .{ compatibility_duration, compatibility_checks });

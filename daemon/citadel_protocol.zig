@@ -12,6 +12,7 @@
 //! over stdio or Unix sockets.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 
 // Protocol version constants
 pub const PROTOCOL_VERSION_MAJOR: u16 = 1;
@@ -219,7 +220,7 @@ pub const Request = struct {
     timestamp: u64,
 
     pub fn getTimestamp() u64 {
-        return @intCast(std.time.nanoTimestamp());
+        return @intCast(compat_time.nanoTimestamp());
     }
 };
 
@@ -832,7 +833,7 @@ pub const MessagePackEncoder = struct {
     pub fn init(allocator: std.mem.Allocator) MessagePackEncoder {
         return .{
             .allocator = allocator,
-            .buffer = std.ArrayList(u8).init(allocator),
+            .buffer = .empty,
         };
     }
 
@@ -930,7 +931,7 @@ test "request type string conversion" {
 }
 
 test "frame reading and writing" {
-    var buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit();
 
     const test_payload = "Hello, Citadel Protocol!";

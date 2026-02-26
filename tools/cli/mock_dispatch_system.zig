@@ -40,7 +40,7 @@ pub const DispatchFamily = struct {
         return Self{
             .name = name,
             .arity = 0,
-            .implementations = ArrayList(Implementation).init(allocator),
+            .implementations = .empty,
             .strategy = .switch_table,
             .is_static_resolvable = false,
             .ambiguity_count = 0,

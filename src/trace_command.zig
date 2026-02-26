@@ -7,6 +7,8 @@
 //! Integration Protocol: Expose validation_ms, error_dedup_ratio, cache_hit_rate
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const print = std.debug.print;
 
@@ -63,7 +65,7 @@ pub const TraceCommand = struct {
 
     fn traceValidation(self: *TraceCommand, file_path: []const u8, enable_timing: bool) !void {
         // Read source file
-        const source = std.fs.cwd().readFileAlloc(self.allocator, file_path, 1024 * 1024) catch |err| {
+        const source = compat_fs.readFileAlloc(self.allocator, file_path, 1024 * 1024) catch |err| {
             print("Error reading file {s}: {}\n", .{ file_path, err });
             return;
         };
@@ -89,12 +91,12 @@ pub const TraceCommand = struct {
         }
 
         // Perform validation with timing
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
         const result = engine.validateUnit(unit_id) catch |err| {
             print("❌ Validation failed: {}\n", .{err});
             return;
         };
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
 
         // Print results
         if (result.success) {

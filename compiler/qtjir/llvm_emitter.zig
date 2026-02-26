@@ -46,6 +46,20 @@ pub const LLVMEmitter = struct {
     // Function signature mapping: function_name -> return_type
     function_return_types: std.StringHashMap([]const u8),
 
+    // Closure emission state (SPEC-024 Phase B+C)
+    // Tracks the LLVM struct type for the current closure's env (set per-function)
+    current_env_type: ?llvm.Type = null,
+    // Phase C: capture metadata for the current closure (for mutable/immutable dispatch)
+    current_captures: []const graph.CapturedVar = &[_]graph.CapturedVar{},
+    // Maps Closure_Create node ID → function name for emitClosureCall dispatch
+    closure_fn_names: std.AutoHashMap(u32, []const u8),
+
+    // Vtable dispatch state (SPEC-025 Phase C Sprint 3)
+    vtable_globals: std.StringHashMap(VtableGlobalInfo),
+    vtable_specs: []const VtableSpec = &[_]VtableSpec{},
+    // Maps Vtable_Construct node_id → vtable key for Vtable_Lookup resolution
+    fat_ptr_vtable_keys: std.AutoHashMap(u32, []const u8),
+
     const DeferredPhi = struct {
         phi_value: llvm.Value,
         input_ids: []const u32,
@@ -56,6 +70,21 @@ pub const LLVMEmitter = struct {
     const StructInfo = struct {
         llvm_type: llvm.Type,
         field_names: []const u8, // Comma-separated field names
+    };
+
+    // Vtable dispatch types (SPEC-025 Phase C Sprint 3)
+
+    /// Specification for a single vtable (one impl of one trait for one type)
+    pub const VtableSpec = struct {
+        key: []const u8, // "Type_Trait" e.g. "Point_Drawable"
+        method_qualified_names: []const []const u8, // in trait method order
+    };
+
+    /// LLVM metadata for an emitted vtable global
+    const VtableGlobalInfo = struct {
+        global: llvm.Value,
+        method_count: u32,
+        vtable_array_type: llvm.Type,
     };
 
     pub fn init(allocator: std.mem.Allocator, module_name: []const u8) !LLVMEmitter {
@@ -83,6 +112,9 @@ pub const LLVMEmitter = struct {
             .struct_info = std.AutoHashMap(u32, StructInfo).init(allocator),
             .alloca_types = std.AutoHashMap(u32, void).init(allocator),
             .function_return_types = std.StringHashMap([]const u8).init(allocator),
+            .closure_fn_names = std.AutoHashMap(u32, []const u8).init(allocator),
+            .vtable_globals = std.StringHashMap(VtableGlobalInfo).init(allocator),
+            .fat_ptr_vtable_keys = std.AutoHashMap(u32, []const u8).init(allocator),
         };
     }
 
@@ -92,6 +124,12 @@ pub const LLVMEmitter = struct {
         self.extern_registry = registry;
     }
 
+    /// Set vtable specifications for dynamic dispatch (SPEC-025 Phase C Sprint 3)
+    /// Must be called before emit(). Specs must outlive the emit() call.
+    pub fn setVtableSpecs(self: *LLVMEmitter, specs: []const VtableSpec) void {
+        self.vtable_specs = specs;
+    }
+
     pub fn deinit(self: *LLVMEmitter) void {
         self.values.deinit();
         self.label_blocks.deinit();
@@ -99,6 +137,9 @@ pub const LLVMEmitter = struct {
         self.struct_info.deinit();
         self.alloca_types.deinit();
         self.function_return_types.deinit();
+        self.closure_fn_names.deinit();
+        self.vtable_globals.deinit();
+        self.fat_ptr_vtable_keys.deinit();
         for (self.deferred_phis.items) |phi| {
             self.allocator.free(phi.input_ids);
         }
@@ -115,13 +156,55 @@ pub const LLVMEmitter = struct {
             try self.function_return_types.put(g.function_name, g.return_type);
         }
 
-        // Second pass: emit all functions
+        // Second pass (vtable only): pre-declare all function symbols so vtable globals
+        // can reference them. emitFunction reuses existing declarations via LLVMGetNamedFunction.
+        if (self.vtable_specs.len > 0) {
+            for (ir_graphs) |*g| {
+                try self.declareFunctionSymbol(g);
+            }
+            // Third pass: emit vtable globals (needs function symbols from above)
+            try self.emitVtableGlobals();
+        }
+
+        // Main pass: emit all function bodies
         for (ir_graphs) |*g| {
             try self.emitFunction(g);
         }
 
         // Verify the module
         try llvm.verifyModule(self.module);
+    }
+
+    /// Pre-declare a function symbol in the LLVM module (no body).
+    /// Used for vtable construction which needs function references before bodies are emitted.
+    fn declareFunctionSymbol(self: *LLVMEmitter, ir_graph: *const QTJIRGraph) !void {
+        const func_name_z = try self.allocator.dupeZ(u8, ir_graph.function_name);
+        defer self.allocator.free(func_name_z);
+
+        // Skip if already declared
+        if (llvm.c.LLVMGetNamedFunction(self.module, func_name_z.ptr) != null) return;
+
+        const is_main = std.mem.eql(u8, ir_graph.function_name, "main");
+
+        // Build param types
+        var param_types = std.ArrayListUnmanaged(llvm.Type){};
+        defer param_types.deinit(self.allocator);
+        if (!is_main) {
+            for (ir_graph.parameters) |param| {
+                try param_types.append(self.allocator, self.llvmTypeFromStr(param.type_name));
+            }
+        }
+
+        // Build return type
+        const ret_type = if (is_main)
+            llvm.int32TypeInContext(self.context)
+        else if (std.mem.eql(u8, ir_graph.return_type, "i32"))
+            llvm.int32TypeInContext(self.context)
+        else
+            llvm.voidTypeInContext(self.context);
+
+        const func_type = llvm.functionType(ret_type, param_types.items.ptr, @intCast(param_types.items.len), false);
+        _ = llvm.addFunction(self.module, func_name_z.ptr, func_type);
     }
 
     /// Get LLVM IR as text (for debugging)
@@ -149,9 +232,8 @@ pub const LLVMEmitter = struct {
         if (is_main) {
             // main() has no params for now
         } else {
-            const i32_type = llvm.int32TypeInContext(self.context);
-            for (ir_graph.parameters) |_| {
-                try param_types.append(self.allocator, i32_type); // MVP: Assume i32
+            for (ir_graph.parameters) |param| {
+                try param_types.append(self.allocator, self.llvmTypeFromStr(param.type_name));
             }
         }
 
@@ -174,8 +256,9 @@ pub const LLVMEmitter = struct {
 
         const func_type = llvm.functionType(ret_type, param_types.items.ptr, @intCast(param_types.items.len), false);
 
-        // Add function to module
-        const function = llvm.addFunction(self.module, func_name_z.ptr, func_type);
+        // Add function to module (or reuse existing forward declaration)
+        const existing = llvm.c.LLVMGetNamedFunction(self.module, func_name_z.ptr);
+        const function = if (existing) |f| f else llvm.addFunction(self.module, func_name_z.ptr, func_type);
         self.current_function = function;
 
         // Create entry basic block
@@ -191,6 +274,24 @@ pub const LLVMEmitter = struct {
         }
         self.deferred_phis.clearRetainingCapacity();
         self.node_blocks.clearRetainingCapacity();
+
+        // Build env struct type for closures with captures (SPEC-024 Phase B+C)
+        if (ir_graph.captures.len > 0) {
+            const env_fields = try self.allocator.alloc(llvm.Type, ir_graph.captures.len);
+            defer self.allocator.free(env_fields);
+            const i32_type_env = llvm.int32TypeInContext(self.context);
+            const i8_type_env = llvm.c.LLVMInt8TypeInContext(self.context);
+            const ptr_type_env = llvm.c.LLVMPointerType(i8_type_env, 0);
+            for (ir_graph.captures, 0..) |cap, i| {
+                // Phase C: mutable captures store a pointer, immutable store i32
+                env_fields[i] = if (cap.is_mutable) ptr_type_env else i32_type_env;
+            }
+            self.current_env_type = llvm.structTypeInContext(self.context, env_fields.ptr, @intCast(ir_graph.captures.len), false);
+            self.current_captures = ir_graph.captures;
+        } else {
+            self.current_env_type = null;
+            self.current_captures = &[_]graph.CapturedVar{};
+        }
 
         // Emit all nodes, tracking which block each is in
         for (ir_graph.nodes.items) |*node| {
@@ -238,7 +339,6 @@ pub const LLVMEmitter = struct {
     }
 
     fn emitNode(self: *LLVMEmitter, node: *const IRNode, ir_graph: *const QTJIRGraph) !void {
-        _ = ir_graph; // Will be used for more complex operations
         switch (node.op) {
             .Constant => try self.emitConstant(node),
             .Add => try self.emitBinaryOp(node, llvm.buildAdd),
@@ -289,6 +389,17 @@ pub const LLVMEmitter = struct {
             .Error_Union_Is_Error => try self.emitErrorUnionIsError(node),
             .Error_Union_Unwrap => try self.emitErrorUnionUnwrap(node),
             .Error_Union_Get_Error => try self.emitErrorUnionGetError(node),
+            // Tagged unions (SPEC-023 Phase B)
+            .Union_Construct => try self.emitUnionConstruct(node),
+            .Union_Tag_Check => try self.emitUnionTagCheck(node),
+            .Union_Payload_Extract => try self.emitUnionPayloadExtract(node),
+            // Closures (SPEC-024 Phase A)
+            .Fn_Ref => try self.emitFnRef(node),
+            // Closures (SPEC-024 Phase B) — Captured closures
+            .Closure_Create => try self.emitClosureCreate(node),
+            .Closure_Call => try self.emitClosureCall(node, ir_graph),
+            .Closure_Env_Load => try self.emitClosureEnvLoad(node),
+            .Closure_Env_Store => try self.emitClosureEnvStore(node),
             // :service profile - Structured Concurrency (Blocking Model Phase 1)
             .Await => try self.emitAwait(node),
             .Spawn => try self.emitSpawn(node),
@@ -314,6 +425,15 @@ pub const LLVMEmitter = struct {
             .Select_Wait => try self.emitSelectWait(node),
             .Select_Get_Value => try self.emitSelectGetValue(node),
             .Select_End => try self.emitSelectEnd(node),
+
+            // :service profile - Resource Management (Phase 3)
+            .Using_Begin => try self.emitUsingBegin(node),
+            .Using_End => try self.emitUsingEnd(node),
+
+            // Trait dispatch (SPEC-025 Phase C)
+            .Trait_Method_Call => try self.emitCall(node),
+            .Vtable_Construct => try self.emitVtableConstruct(node),
+            .Vtable_Lookup => try self.emitVtableLookup(node),
 
             // Tensor / Quantum (Placeholder)
             .Tensor_Contract => {
@@ -1061,6 +1181,12 @@ pub const LLVMEmitter = struct {
             var args = [_]llvm.Value{ s1_arg, s2_arg };
             const result = llvm.c.LLVMBuildCall2(self.builder, func_type, func_fn, &args, 2, "concat_cstr");
             try self.values.put(node.id, result);
+        } else if (isStrStrIntrinsic(func_name)) {
+            // (i8*, i8*) → i32 string query intrinsics
+            try self.emitPtrPtrToI32Call(node, func_name);
+        } else if (isStrIntrinsic(func_name)) {
+            // (i8*) → i32 string query intrinsics
+            try self.emitPtrToI32Call(node, func_name);
         } else {
             // Check extern registry for native Zig function signatures
             if (self.extern_registry) |registry| {
@@ -1173,6 +1299,57 @@ pub const LLVMEmitter = struct {
         }
     }
 
+    /// Emit a (i8*, i8*) → i32 call for two-arg string intrinsics
+    fn emitPtrPtrToI32Call(self: *LLVMEmitter, node: *const IRNode, func_name: []const u8) !void {
+        if (node.inputs.items.len < 2) return error.MissingArgument;
+        const a_arg = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+        const b_arg = self.values.get(node.inputs.items[1]) orelse return error.MissingOperand;
+
+        const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+        const ptr_type = llvm.c.LLVMPointerType(i8_type, 0);
+        const i32_type = llvm.int32TypeInContext(self.context);
+
+        var param_types = [_]llvm.Type{ ptr_type, ptr_type };
+        const func_type = llvm.functionType(i32_type, &param_types, 2, false);
+
+        const name_z = try self.allocator.dupeZ(u8, func_name);
+        defer self.allocator.free(name_z);
+
+        var func_fn = llvm.c.LLVMGetNamedFunction(self.module, name_z.ptr);
+        if (func_fn == null) {
+            func_fn = llvm.addFunction(self.module, name_z.ptr, func_type);
+        }
+
+        var args = [_]llvm.Value{ a_arg, b_arg };
+        const result = llvm.c.LLVMBuildCall2(self.builder, func_type, func_fn, &args, 2, "str_result");
+        try self.values.put(node.id, result);
+    }
+
+    /// Emit a (i8*) → i32 call for one-arg string intrinsics
+    fn emitPtrToI32Call(self: *LLVMEmitter, node: *const IRNode, func_name: []const u8) !void {
+        if (node.inputs.items.len < 1) return error.MissingArgument;
+        const s_arg = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+        const ptr_type = llvm.c.LLVMPointerType(i8_type, 0);
+        const i32_type = llvm.int32TypeInContext(self.context);
+
+        var param_types = [_]llvm.Type{ptr_type};
+        const func_type = llvm.functionType(i32_type, &param_types, 1, false);
+
+        const name_z = try self.allocator.dupeZ(u8, func_name);
+        defer self.allocator.free(name_z);
+
+        var func_fn = llvm.c.LLVMGetNamedFunction(self.module, name_z.ptr);
+        if (func_fn == null) {
+            func_fn = llvm.addFunction(self.module, name_z.ptr, func_type);
+        }
+
+        var args = [_]llvm.Value{s_arg};
+        const result = llvm.c.LLVMBuildCall2(self.builder, func_type, func_fn, &args, 1, "str_result");
+        try self.values.put(node.id, result);
+    }
+
     /// Convert LLVM type string to actual LLVM type
     fn llvmTypeFromStr(self: *LLVMEmitter, type_str: []const u8) llvm.Type {
         if (std.mem.eql(u8, type_str, "i32")) {
@@ -1190,6 +1367,12 @@ pub const LLVMEmitter = struct {
         } else if (std.mem.eql(u8, type_str, "ptr")) {
             const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
             return llvm.c.LLVMPointerType(i8_type, 0);
+        } else if (std.mem.eql(u8, type_str, "fat_ptr")) {
+            // SPEC-025 Sprint 5: { data_ptr, vtable_ptr } for &dyn Trait params
+            const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+            const ptr_type = llvm.c.LLVMPointerType(i8_type, 0);
+            var field_types = [_]llvm.Type{ ptr_type, ptr_type };
+            return llvm.structTypeInContext(self.context, &field_types, 2, false);
         } else {
             // Default to i32 for unknown types
             return llvm.int32TypeInContext(self.context);
@@ -1797,6 +1980,297 @@ pub const LLVMEmitter = struct {
         const result = llvm.c.LLVMBuildTrunc(self.builder, error_val, i32_type, "error");
 
         try self.values.put(node.id, result);
+    }
+
+    // =========================================================================
+    // Tagged Union Emission (SPEC-023 Phase B+C)
+    // =========================================================================
+    // Tagged unions are { i32 tag, i64 slot0, i64 slot1, ..., i64 slotN }
+    // i32 discriminant supports >256 variants, i64 slots hold ZExt'd i32 or bitcast'd f64
+
+    /// Get tagged union struct type: { i32 tag, i64 * field_count }
+    fn getTaggedUnionType(self: *LLVMEmitter, field_count: u32) llvm.Type {
+        const count = if (field_count == 0) @as(u32, 1) else field_count; // min 1 slot for unit compat
+        const i32_type = llvm.int32TypeInContext(self.context);
+        const i64_type = llvm.c.LLVMInt64TypeInContext(self.context);
+        // { i32, i64, i64, ..., i64 } with `count` i64 slots
+        var member_types_buf: [17]llvm.Type = undefined; // 1 tag + max 16 fields
+        member_types_buf[0] = i32_type;
+        for (1..count + 1) |i| {
+            member_types_buf[i] = i64_type;
+        }
+        return llvm.structTypeInContext(self.context, &member_types_buf, @intCast(1 + count), false);
+    }
+
+    /// Emit Union_Construct: creates { tag, field0, field1, ... }
+    fn emitUnionConstruct(self: *LLVMEmitter, node: *const IRNode) !void {
+        const field_count: u32 = @intCast(node.inputs.items.len);
+        const slot_count = if (field_count == 0) @as(u32, 1) else field_count;
+        const tu_type = self.getTaggedUnionType(slot_count);
+        const i32_type = llvm.int32TypeInContext(self.context);
+        const i64_type = llvm.c.LLVMInt64TypeInContext(self.context);
+
+        // Tag from data.integer
+        const tag_val = switch (node.data) {
+            .integer => |v| llvm.c.LLVMConstInt(i32_type, @bitCast(@as(i64, v)), 0),
+            else => llvm.c.LLVMConstInt(i32_type, 0, 0),
+        };
+
+        var tu_val = llvm.getUndef(tu_type);
+        tu_val = llvm.c.LLVMBuildInsertValue(self.builder, tu_val, tag_val, 0, "tu_tag");
+
+        if (field_count == 0) {
+            // Unit variant — fill single slot with 0
+            tu_val = llvm.c.LLVMBuildInsertValue(self.builder, tu_val, llvm.c.LLVMConstInt(i64_type, 0, 0), 1, "tu_pad");
+        } else {
+            // Insert each payload field at slots 1..N
+            for (node.inputs.items, 0..) |input_id, i| {
+                const input_val = self.values.get(input_id) orelse return error.MissingOperand;
+                const input_type = llvm.c.LLVMTypeOf(input_val);
+                const as_i64 = if (input_type == i64_type)
+                    input_val
+                else if (llvm.c.LLVMGetTypeKind(input_type) == llvm.c.LLVMDoubleTypeKind)
+                    llvm.c.LLVMBuildBitCast(self.builder, input_val, i64_type, "tu_f64_cast")
+                else if (llvm.c.LLVMGetTypeKind(input_type) == llvm.c.LLVMIntegerTypeKind)
+                    llvm.c.LLVMBuildZExt(self.builder, input_val, i64_type, "tu_payload")
+                else
+                    llvm.c.LLVMBuildPtrToInt(self.builder, input_val, i64_type, "tu_payload_ptr");
+                tu_val = llvm.c.LLVMBuildInsertValue(self.builder, tu_val, as_i64, @intCast(1 + i), "tu_field");
+            }
+        }
+
+        try self.values.put(node.id, tu_val);
+    }
+
+    /// Emit Union_Tag_Check: tag == expected_tag → i1
+    fn emitUnionTagCheck(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+        const tu_val = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        const i32_type = llvm.int32TypeInContext(self.context);
+
+        // Extract tag at index 0
+        const tag = llvm.c.LLVMBuildExtractValue(self.builder, tu_val, 0, "tu_tag");
+
+        // Expected tag from data.integer
+        const expected = switch (node.data) {
+            .integer => |v| llvm.c.LLVMConstInt(i32_type, @bitCast(@as(i64, v)), 0),
+            else => llvm.c.LLVMConstInt(i32_type, 0, 0),
+        };
+
+        const result = llvm.c.LLVMBuildICmp(self.builder, llvm.c.LLVMIntEQ, tag, expected, "tag_match");
+        try self.values.put(node.id, result);
+    }
+
+    /// Emit Union_Payload_Extract: extract i64 at field slot, trunc to i32 or bitcast to f64
+    fn emitUnionPayloadExtract(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+        const tu_val = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        // Decode data.integer: lower 32 bits = field_index, bit 32 = is_float
+        const encoded = switch (node.data) {
+            .integer => |v| v,
+            else => @as(i64, 0),
+        };
+        const field_index: u32 = @intCast(encoded & 0xFFFFFFFF);
+        const is_float: bool = (encoded >> 32) & 1 == 1;
+
+        // Extract at slot 1 + field_index
+        const raw = llvm.c.LLVMBuildExtractValue(self.builder, tu_val, @intCast(1 + field_index), "tu_raw");
+
+        const result = if (is_float)
+            llvm.c.LLVMBuildBitCast(self.builder, raw, llvm.c.LLVMDoubleTypeInContext(self.context), "tu_f64")
+        else
+            llvm.c.LLVMBuildTrunc(self.builder, raw, llvm.int32TypeInContext(self.context), "tu_unwrap");
+
+        try self.values.put(node.id, result);
+    }
+
+    // =========================================================================
+    // Closures (SPEC-024 Phase A)
+    // =========================================================================
+
+    /// Emit Fn_Ref: function reference as value
+    /// Phase A (zero-capture): resolves to LLVMGetNamedFunction pointer.
+    /// The actual call dispatch resolves the name at lowering time via Call node,
+    /// so this handler primarily prevents unknown-opcode errors and stores
+    /// the function pointer for future use (Phase B: closures as values).
+    // =========================================================================
+    // Closures — SPEC-024 Phase B (Captured Closures)
+    // =========================================================================
+    //
+    // MVP: Direct call with stack-allocated env struct.
+    // Closure_Create → alloca env + GEP/store captures
+    // Closure_Call   → direct call with env_ptr as first arg
+    // Closure_Env_Load → GEP + load from __env parameter
+    // =========================================================================
+
+    /// Emit Closure_Create: alloca env struct, store captured values via GEP
+    /// Phase C: field types inferred from actual LLVM values (ptr for mutable alloca, i32 for immutable)
+    fn emitClosureCreate(self: *LLVMEmitter, node: *const IRNode) !void {
+        const capture_count = node.inputs.items.len;
+        if (capture_count == 0) return; // Zero-capture → should be Fn_Ref, not Closure_Create
+
+        // Get closure function name from node data
+        const func_name = switch (node.data) {
+            .string => |s| s,
+            else => return,
+        };
+
+        // Build env struct type — infer each field from the actual LLVM value type
+        const env_fields = try self.allocator.alloc(llvm.Type, capture_count);
+        defer self.allocator.free(env_fields);
+        for (node.inputs.items, 0..) |input_id, i| {
+            const val = self.values.get(input_id) orelse return error.MissingOperand;
+            env_fields[i] = llvm.typeof(val);
+        }
+
+        const env_type = llvm.structTypeInContext(self.context, env_fields.ptr, @intCast(capture_count), false);
+
+        // Alloca the env struct on the stack
+        const env_alloca = llvm.buildAlloca(self.builder, env_type, "closure_env");
+
+        // Store each captured value via GEP
+        for (node.inputs.items, 0..) |input_id, i| {
+            const captured_val = self.values.get(input_id) orelse return error.MissingOperand;
+            const field_ptr = llvm.buildStructGEP2(self.builder, env_type, env_alloca, @intCast(i), "env_field");
+            _ = llvm.buildStore(self.builder, captured_val, field_ptr);
+        }
+
+        // Store env_alloca in values map (Closure_Call retrieves it)
+        try self.values.put(node.id, env_alloca);
+
+        // Record function name for Closure_Call dispatch
+        try self.closure_fn_names.put(node.id, func_name);
+    }
+
+    /// Emit Closure_Call: direct call with env_ptr as first argument
+    fn emitClosureCall(self: *LLVMEmitter, node: *const IRNode, ir_graph: *const QTJIRGraph) !void {
+        _ = ir_graph;
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+
+        const closure_create_id = node.inputs.items[0];
+
+        // Get env pointer (the alloca from Closure_Create)
+        const env_ptr = self.values.get(closure_create_id) orelse return error.MissingOperand;
+
+        // Get function name from Closure_Create
+        const func_name = self.closure_fn_names.get(closure_create_id) orelse return error.MissingOperand;
+
+        // Build argument list: [env_ptr, user_arg1, user_arg2, ...]
+        var args = std.ArrayListUnmanaged(llvm.Value){};
+        defer args.deinit(self.allocator);
+        var call_param_types = std.ArrayListUnmanaged(llvm.Type){};
+        defer call_param_types.deinit(self.allocator);
+
+        // First arg: env pointer (opaque ptr)
+        const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+        const ptr_type = llvm.c.LLVMPointerType(i8_type, 0);
+        try args.append(self.allocator, env_ptr);
+        try call_param_types.append(self.allocator, ptr_type);
+
+        // Remaining args: user arguments (MVP: all i32)
+        const i32_type = llvm.int32TypeInContext(self.context);
+        for (node.inputs.items[1..]) |input_id| {
+            const val = self.values.get(input_id) orelse return error.MissingOperand;
+            try args.append(self.allocator, val);
+            try call_param_types.append(self.allocator, i32_type);
+        }
+
+        // Look up return type from function signature map
+        const return_type_str = self.function_return_types.get(func_name) orelse "i32";
+        const return_type = self.llvmTypeFromStr(return_type_str);
+
+        const func_type = llvm.functionType(return_type, call_param_types.items.ptr, @intCast(call_param_types.items.len), false);
+
+        // Get or declare the closure function
+        const name_z = try self.allocator.dupeZ(u8, func_name);
+        defer self.allocator.free(name_z);
+
+        var func_fn = llvm.c.LLVMGetNamedFunction(self.module, name_z.ptr);
+        if (func_fn == null) {
+            func_fn = llvm.addFunction(self.module, name_z.ptr, func_type);
+        }
+
+        const result = llvm.c.LLVMBuildCall2(self.builder, func_type, func_fn, args.items.ptr, @intCast(args.items.len), "");
+        try self.values.put(node.id, result);
+    }
+
+    /// Emit Closure_Env_Load: GEP + load from __env parameter (param 0)
+    /// Phase C: mutable captures require double deref (GEP → load ptr → load i32 through ptr)
+    fn emitClosureEnvLoad(self: *LLVMEmitter, node: *const IRNode) !void {
+        const capture_index: u32 = @intCast(node.data.integer);
+
+        // __env is always parameter 0 of the current closure function
+        const env_param = llvm.c.LLVMGetParam(self.current_function, 0);
+
+        // Use env struct type set during emitFunction
+        const env_type = self.current_env_type orelse return error.MissingOperand;
+
+        const i32_type = llvm.int32TypeInContext(self.context);
+
+        // Phase C: check if this capture is mutable
+        const is_mutable = if (capture_index < self.current_captures.len)
+            self.current_captures[capture_index].is_mutable
+        else
+            false;
+
+        const field_ptr = llvm.buildStructGEP2(self.builder, env_type, env_param, capture_index, "env_load");
+
+        if (is_mutable) {
+            // Double deref: load pointer from env, then load value through pointer
+            const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+            const ptr_type = llvm.c.LLVMPointerType(i8_type, 0);
+            const var_ptr = llvm.buildLoad2(self.builder, ptr_type, field_ptr, "capture_ptr");
+            const value = llvm.buildLoad2(self.builder, i32_type, var_ptr, "captured_val");
+            try self.values.put(node.id, value);
+        } else {
+            // Immutable: single load (unchanged from Phase B)
+            const value = llvm.buildLoad2(self.builder, i32_type, field_ptr, "captured_val");
+            try self.values.put(node.id, value);
+        }
+    }
+
+    /// Emit Closure_Env_Store: store value through mutable capture's pointer in env (Phase C)
+    /// GEP → load ptr from env → store value through ptr
+    fn emitClosureEnvStore(self: *LLVMEmitter, node: *const IRNode) !void {
+        const capture_index: u32 = @intCast(node.data.integer);
+
+        // __env is always parameter 0
+        const env_param = llvm.c.LLVMGetParam(self.current_function, 0);
+        const env_type = self.current_env_type orelse return error.MissingOperand;
+
+        // Get the value to store (inputs[0])
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+        const value = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        // GEP to get the pointer field in the env struct
+        const field_ptr = llvm.buildStructGEP2(self.builder, env_type, env_param, capture_index, "env_store");
+
+        // Load the pointer to the parent's alloca
+        const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+        const ptr_type = llvm.c.LLVMPointerType(i8_type, 0);
+        const var_ptr = llvm.buildLoad2(self.builder, ptr_type, field_ptr, "capture_ptr");
+
+        // Store value through the pointer
+        _ = llvm.buildStore(self.builder, value, var_ptr);
+    }
+
+    fn emitFnRef(self: *LLVMEmitter, node: *const IRNode) !void {
+        const func_name = switch (node.data) {
+            .string => |s| s,
+            else => return,
+        };
+
+        const name_z = try self.allocator.dupeZ(u8, func_name);
+        defer self.allocator.free(name_z);
+
+        const func = llvm.c.LLVMGetNamedFunction(self.module, name_z.ptr);
+        if (func) |f| {
+            try self.values.put(node.id, f);
+        }
+        // If null, the function hasn't been emitted yet — Phase A relies on
+        // Call node name resolution, so this is non-fatal
     }
 
     // =========================================================================
@@ -2600,4 +3074,240 @@ pub const LLVMEmitter = struct {
             "",
         );
     }
+
+    /// Emit Using_Begin: Begin using statement (acquire resource)
+    /// inputs[0] = resource value from open expression
+    fn emitUsingBegin(self: *LLVMEmitter, node: *const IRNode) !void {
+        if (node.inputs.items.len < 1) return error.InvalidUsingBegin;
+
+        const resource_val = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        // For now, just register the resource value
+        // Full implementation will track resource for cleanup
+        try self.values.put(node.id, resource_val);
+    }
+
+    /// Emit Using_End: End using statement (cleanup resource)
+    /// inputs[0] = Using_Begin node id
+    /// inputs[1] = resource value
+    fn emitUsingEnd(self: *LLVMEmitter, node: *const IRNode) !void {
+        _ = self;
+        if (node.inputs.items.len < 2) return error.InvalidUsingEnd;
+
+        // In the full implementation, this would call resource.close()
+        // For now, this is a placeholder that ensures proper LLVM generation
+        // The actual cleanup code generation will be added in Phase 3 completion
+
+        // Mark this node as processed (no LLVM code generated yet for cleanup)
+        // The resource cleanup will be implemented when we have:
+        // 1. Runtime support for resource registry
+        // 2. LIFO cleanup ordering
+        // 3. Error aggregation during cleanup
+    }
+
+    // === VTABLE DYNAMIC DISPATCH (SPEC-025 Phase C Sprint 3) ===
+
+    /// Emit vtable globals from vtable specs.
+    /// For each spec, creates a private constant [N x ptr] array of function pointers.
+    fn emitVtableGlobals(self: *LLVMEmitter) !void {
+        if (self.vtable_specs.len == 0) return;
+
+        const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+        const ptr_type = llvm.c.LLVMPointerType(i8_type, 0);
+
+        for (self.vtable_specs) |spec| {
+            const method_count: u32 = @intCast(spec.method_qualified_names.len);
+            if (method_count == 0) continue;
+
+            // Build array of function pointers in trait method order
+            const fn_ptrs = try self.allocator.alloc(llvm.Value, method_count);
+            defer self.allocator.free(fn_ptrs);
+
+            for (spec.method_qualified_names, 0..) |qname, i| {
+                const fn_name_z = try self.allocator.dupeZ(u8, qname);
+                defer self.allocator.free(fn_name_z);
+
+                const fn_val = llvm.c.LLVMGetNamedFunction(self.module, fn_name_z.ptr);
+                if (fn_val) |f| {
+                    fn_ptrs[i] = f;
+                } else {
+                    // Function not found — should not happen if impls are emitted first
+                    return error.MissingFunction;
+                }
+            }
+
+            // Create constant array type and value
+            const arr_type = llvm.arrayType(ptr_type, method_count);
+            const vtable_const = llvm.c.LLVMConstArray(ptr_type, fn_ptrs.ptr, method_count);
+
+            // Create global: @__vtable_<key> = private constant [N x ptr] [...]
+            // Build null-terminated name: "__vtable_" ++ key
+            const prefix = "__vtable_";
+            const name_buf = try self.allocator.alloc(u8, prefix.len + spec.key.len + 1);
+            defer self.allocator.free(name_buf);
+            @memcpy(name_buf[0..prefix.len], prefix);
+            @memcpy(name_buf[prefix.len .. prefix.len + spec.key.len], spec.key);
+            name_buf[prefix.len + spec.key.len] = 0;
+            const vtable_name: [*:0]const u8 = name_buf[0 .. prefix.len + spec.key.len :0];
+
+            const global = llvm.c.LLVMAddGlobal(self.module, arr_type, vtable_name);
+            llvm.c.LLVMSetInitializer(global, vtable_const);
+            llvm.c.LLVMSetGlobalConstant(global, 1);
+            llvm.c.LLVMSetLinkage(global, llvm.c.LLVMPrivateLinkage);
+
+            try self.vtable_globals.put(spec.key, .{
+                .global = global,
+                .method_count = method_count,
+                .vtable_array_type = arr_type,
+            });
+        }
+    }
+
+    /// Emit fat pointer construction: { data_ptr, vtable_ptr }
+    /// data.string = vtable key (e.g., "Point_Drawable")
+    /// inputs[0] = data value (pointer to concrete struct)
+    fn emitVtableConstruct(self: *LLVMEmitter, node: *const IRNode) !void {
+        const vtable_key = switch (node.data) {
+            .string => |s| s,
+            else => return error.InvalidNode,
+        };
+
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+        const data_val = self.values.get(node.inputs.items[0]) orelse return error.MissingOperand;
+
+        const vtable_info = self.vtable_globals.get(vtable_key) orelse return error.MissingVtable;
+
+        // Build fat pointer type: { ptr, ptr }
+        const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+        const ptr_type = llvm.c.LLVMPointerType(i8_type, 0);
+        var field_types = [_]llvm.Type{ ptr_type, ptr_type };
+        const fat_ptr_type = llvm.structTypeInContext(self.context, &field_types, 2, false);
+
+        // insertvalue { ptr, ptr } undef, %data, 0
+        const undef_val = llvm.getUndef(fat_ptr_type);
+        const step1 = llvm.buildInsertValue(self.builder, undef_val, data_val, 0, "fat.data");
+        // insertvalue { ptr, ptr } %step1, @__vtable_Key, 1
+        const fat_ptr = llvm.buildInsertValue(self.builder, step1, vtable_info.global, 1, "fat.vtable");
+
+        try self.values.put(node.id, fat_ptr);
+        // Track vtable key for Vtable_Lookup resolution
+        try self.fat_ptr_vtable_keys.put(node.id, vtable_key);
+    }
+
+    /// Emit vtable lookup + indirect call
+    /// data.integer = method slot index
+    /// inputs[0] = fat pointer (from Vtable_Construct)
+    /// inputs[1..N] = call arguments
+    fn emitVtableLookup(self: *LLVMEmitter, node: *const IRNode) !void {
+        const slot_index = switch (node.data) {
+            .integer => |i| @as(u32, @intCast(i)),
+            else => return error.InvalidNode,
+        };
+
+        if (node.inputs.items.len < 1) return error.MissingOperand;
+        const construct_node_id = node.inputs.items[0];
+        const fat_ptr = self.values.get(construct_node_id) orelse return error.MissingOperand;
+
+        // Look up vtable info via the construct node's key
+        // SPEC-025 Sprint 5: Fallback for parameter-sourced fat pointers (no concrete vtable key)
+        var vtable_array_type: llvm.Type = undefined;
+        if (self.fat_ptr_vtable_keys.get(construct_node_id)) |vtable_key| {
+            const vtable_info = self.vtable_globals.get(vtable_key) orelse return error.MissingVtable;
+            vtable_array_type = vtable_info.vtable_array_type;
+        } else {
+            // Parameter-sourced fat pointer: build generic vtable array type from slot_index
+            const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+            const ptr_type = llvm.c.LLVMPointerType(i8_type, 0);
+            vtable_array_type = llvm.c.LLVMArrayType(ptr_type, slot_index + 1);
+        }
+
+        // Extract vtable pointer (index 1 of { data, vtable })
+        const vtable_ptr = llvm.buildExtractValue(self.builder, fat_ptr, 1, "vtable.ptr");
+
+        // GEP to method slot: getelementptr inbounds [N x ptr], ptr %vtable, i64 0, i64 slot
+        const i64_type = llvm.c.LLVMInt64TypeInContext(self.context);
+        var gep_indices = [_]llvm.Value{
+            llvm.constInt(i64_type, 0, false),
+            llvm.constInt(i64_type, @intCast(slot_index), false),
+        };
+        const slot_ptr = llvm.buildInBoundsGEP2(
+            self.builder,
+            vtable_array_type,
+            vtable_ptr,
+            &gep_indices,
+            2,
+            "vtable.slot",
+        );
+
+        // Load function pointer
+        const i8_type = llvm.c.LLVMInt8TypeInContext(self.context);
+        const ptr_type = llvm.c.LLVMPointerType(i8_type, 0);
+        const fn_ptr = llvm.buildLoad2(self.builder, ptr_type, slot_ptr, "fn.ptr");
+
+        // Extract data pointer from fat pointer for self parameter
+        const data_ptr = llvm.buildExtractValue(self.builder, fat_ptr, 0, "self.ptr");
+
+        // Cast data pointer to i32 for MVP type uniformity
+        const i32_type = llvm.int32TypeInContext(self.context);
+        const self_as_i32 = llvm.c.LLVMBuildPtrToInt(self.builder, data_ptr, i32_type, "self.i32");
+
+        // Build function type for indirect call (MVP: all i32, self prepended)
+        const explicit_arg_count = node.inputs.items.len - 1; // exclude fat ptr
+        const total_arg_count = explicit_arg_count + 1; // self + explicit args
+        const param_types = try self.allocator.alloc(llvm.Type, total_arg_count);
+        defer self.allocator.free(param_types);
+        for (param_types) |*pt| pt.* = i32_type;
+
+        const func_type = llvm.functionType(i32_type, param_types.ptr, @intCast(total_arg_count), false);
+
+        // Collect arguments: self first, then explicit args
+        const args = try self.allocator.alloc(llvm.Value, total_arg_count);
+        defer self.allocator.free(args);
+        args[0] = self_as_i32;
+        for (node.inputs.items[1..], 0..) |input_id, i| {
+            args[i + 1] = self.values.get(input_id) orelse return error.MissingOperand;
+        }
+
+        // Indirect call
+        const result = llvm.c.LLVMBuildCall2(
+            self.builder,
+            func_type,
+            fn_ptr,
+            args.ptr,
+            @intCast(total_arg_count),
+            "dyn.call",
+        );
+
+        try self.values.put(node.id, result);
+    }
 };
+
+/// Check if func_name is a two-arg (i8*, i8*) → i32 string intrinsic
+fn isStrStrIntrinsic(name: []const u8) bool {
+    const names = [_][]const u8{
+        "janus_str_contains",
+        "janus_str_starts_with",
+        "janus_str_ends_with",
+        "janus_str_equals",
+        "janus_str_compare",
+        "janus_str_index_of",
+    };
+    for (&names) |n| {
+        if (std.mem.eql(u8, name, n)) return true;
+    }
+    return false;
+}
+
+/// Check if func_name is a one-arg (i8*) → i32 string intrinsic
+fn isStrIntrinsic(name: []const u8) bool {
+    const names = [_][]const u8{
+        "janus_str_length",
+        "janus_str_is_empty",
+        "janus_str_char_count",
+        "janus_str_is_valid_utf8",
+    };
+    for (&names) |n| {
+        if (std.mem.eql(u8, name, n)) return true;
+    }
+    return false;
+}

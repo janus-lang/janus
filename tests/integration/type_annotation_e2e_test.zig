@@ -34,33 +34,31 @@ fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name: []
     const llvm_ir = try emitter.toString();
     defer allocator.free(llvm_ir);
 
-    std.debug.print("\n=== LLVM IR ===\n{s}\n", .{llvm_ir});
 
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const ir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    const ir_path = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", allocator);
     defer allocator.free(ir_path);
 
     const ir_file = try std.fmt.allocPrint(allocator, "{s}.ll", .{test_name});
     defer allocator.free(ir_file);
     const ir_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, ir_file });
     defer allocator.free(ir_file_path);
-    try tmp_dir.dir.writeFile(.{ .sub_path = ir_file, .data = llvm_ir });
+    const io = testing.io;
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = ir_file, .data = llvm_ir });
 
     const obj_file = try std.fmt.allocPrint(allocator, "{s}.o", .{test_name});
     defer allocator.free(obj_file);
     const obj_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, obj_file });
     defer allocator.free(obj_file_path);
 
-    const llc_result = try std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = &[_][]const u8{ "llc", "-filetype=obj", ir_file_path, "-o", obj_file_path },
+    const llc_result = try std.process.run(allocator, io, .{
+        .argv = &[_][]const u8{ "llc",  "-filetype=obj", ir_file_path, "-o", obj_file_path },
     });
     defer allocator.free(llc_result.stdout);
     defer allocator.free(llc_result.stderr);
-    if (llc_result.term.Exited != 0) {
-        std.debug.print("LLC STDERR: {s}\n", .{llc_result.stderr});
+    if (llc_result.term.exited != 0) {
         return error.LLCFailed;
     }
 
@@ -73,28 +71,25 @@ fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name: []
     const emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{rt_obj_path});
     defer allocator.free(emit_arg);
 
-    const zig_build_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const zig_build_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{ "zig", "build-obj", "runtime/janus_rt.zig", emit_arg, "-lc" },
     });
     defer allocator.free(zig_build_result.stdout);
     defer allocator.free(zig_build_result.stderr);
-    if (zig_build_result.term.Exited != 0) return error.RuntimeCompilationFailed;
+    if (zig_build_result.term.exited != 0) return error.RuntimeCompilationFailed;
 
-    const link_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const link_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{ "cc", obj_file_path, rt_obj_path, "-o", exe_file_path },
     });
     defer allocator.free(link_result.stdout);
     defer allocator.free(link_result.stderr);
-    if (link_result.term.Exited != 0) return error.LinkFailed;
+    if (link_result.term.exited != 0) return error.LinkFailed;
 
-    const exec_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const exec_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{exe_file_path},
     });
     defer allocator.free(exec_result.stderr);
-    if (exec_result.term.Exited != 0) {
+    if (exec_result.term.exited != 0) {
         allocator.free(exec_result.stdout);
         return error.ExecutionFailed;
     }
@@ -115,11 +110,9 @@ test "Epic 5.1: let with i32 type annotation" {
     const output = try compileAndRun(allocator, source, "type_let_i32");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     try testing.expectEqualStrings("42\n", output);
 
-    std.debug.print("\n=== LET WITH I32 ANNOTATION PASSED ===\n", .{});
 }
 
 test "Epic 5.2: var with i32 type annotation" {
@@ -137,11 +130,9 @@ test "Epic 5.2: var with i32 type annotation" {
     const output = try compileAndRun(allocator, source, "type_var_i32");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     try testing.expectEqualStrings("10\n20\n", output);
 
-    std.debug.print("\n=== VAR WITH I32 ANNOTATION PASSED ===\n", .{});
 }
 
 test "Epic 5.3: Multiple typed declarations" {
@@ -159,11 +150,9 @@ test "Epic 5.3: Multiple typed declarations" {
     const output = try compileAndRun(allocator, source, "type_multi");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     try testing.expectEqualStrings("3\n", output);
 
-    std.debug.print("\n=== MULTIPLE TYPED DECLARATIONS PASSED ===\n", .{});
 }
 
 test "Epic 5.4: Mixed typed and untyped" {
@@ -180,11 +169,9 @@ test "Epic 5.4: Mixed typed and untyped" {
     const output = try compileAndRun(allocator, source, "type_mixed");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     try testing.expectEqualStrings("15\n", output);
 
-    std.debug.print("\n=== MIXED TYPED AND UNTYPED PASSED ===\n", .{});
 }
 
 test "Epic 5.5: Type annotation in function parameter" {
@@ -205,9 +192,7 @@ test "Epic 5.5: Type annotation in function parameter" {
     const output = try compileAndRun(allocator, source, "type_func_param");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     try testing.expectEqualStrings("49\n", output);
 
-    std.debug.print("\n=== TYPE ANNOTATION IN FUNCTION PASSED ===\n", .{});
 }

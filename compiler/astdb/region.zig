@@ -65,11 +65,11 @@ pub const RegionParser = struct {
             .arena = std.heap.ArenaAllocator.init(allocator),
             .tokens = tokens,
             .current = 0,
-            .nodes = ArrayList(AstNode).init(allocator),
-            .edges = ArrayList(NodeId).init(allocator),
-            .diagnostics = ArrayList(Diagnostic).init(allocator),
+            .nodes = .empty,
+            .edges = .empty,
+            .diagnostics = .empty,
             .str_interner = str_interner,
-            .node_spans = ArrayList(SourceSpan).init(allocator),
+            .node_spans = .empty,
             .s0_profile = false, // S0 bootstrap gate removed - always disabled
         };
     }

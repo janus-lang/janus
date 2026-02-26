@@ -180,26 +180,26 @@ A language where humans and AI collaborate naturally—humans focus on design an
 
 **1. Hello World (30 seconds)**
 ```janus
-func main() {
+func main() do
     print("Hello, Janus!")
-}
+end
 ```
 *Compile and run. Show native binary.*
 
 **2. Error Handling (1 minute)**
 ```janus
-func divide(a: i64, b: i64) !i64 {
-    if b == 0 { fail DivisionByZero }
+func divide(a: i64, b: i64) !i64 do
+    if b == 0 do fail DivisionByZero end
     return a / b
-}
+end
 
-func main() {
-    let result = divide(10, 0) catch |err| {
+func main() do
+    let result = divide(10, 0) catch |err| do
         print("Error: ", err)
         return
-    }
+    end
     print_int(result)
-}
+end
 ```
 *Compile, run, show error handling.*
 
@@ -207,14 +207,14 @@ func main() {
 ```janus
 use zig "std/ArrayList"
 
-func main() !void {
+func main() !void do
     var numbers = zig.ArrayList(i64).init(allocator)
     defer numbers.deinit()
 
-    for i in 0..10 {
+    for i in 0..10 do
         try numbers.append(i * i)
-    }
-}
+    end
+end
 ```
 *Show zero-cost access to Zig stdlib.*
 

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
@@ -351,10 +352,10 @@ pub const DispatchErrorValidationTests = struct {
         // Test 1: Excessive dispatch table size
         const int_type = try self.type_registry.registerType("int", .primitive, &.{});
 
-        var large_implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var large_implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer large_implementations.deinit();
 
-        var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer impl_storage.deinit();
 
         // Create a very large number of implementations
@@ -374,11 +375,11 @@ pub const DispatchErrorValidationTests = struct {
 
         // Test dispatch performance with large table
         const test_args = &[_]TypeRegistry.TypeId{int_type};
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         const result = try self.specificity_analyzer.findMostSpecific(large_implementations.items, test_args);
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const dispatch_time = end_time - start_time;
 
         switch (result) {

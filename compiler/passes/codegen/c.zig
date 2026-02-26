@@ -11,7 +11,7 @@ pub fn escape_c_string(allocator: std.mem.Allocator, raw: []const u8) ![]u8 {
         src = src[1 .. src.len - 1];
     }
 
-    var out = std.ArrayList(u8).init(allocator);
+    var out: std.ArrayList(u8) = .empty;
     // Surrounding quote
     try out.append('"');
     for (src) |b| {
@@ -49,7 +49,7 @@ pub fn escape_c_string(allocator: std.mem.Allocator, raw: []const u8) ![]u8 {
     }
     try out.append('"');
 
-    return out.toOwnedSlice();
+    return try out.toOwnedSlice(alloc);
 }
 
 pub fn emit_c(module: *IR.Module, out_path: []const u8, allocator: std.mem.Allocator) !void {
@@ -104,7 +104,7 @@ pub fn emit_c(module: *IR.Module, out_path: []const u8, allocator: std.mem.Alloc
                 fname = instr.metadata;
             }
             // sanitize function name: allow alnum and underscore, else replace with underscore
-            var name_buf_list = std.ArrayList(u8).init(allocator);
+            var name_buf_list: std.ArrayList(u8) = .empty;
             defer name_buf_list.deinit();
             for (fname) |c| {
                 if ((c >= '0' and c <= '9') or (c >= 'A' and c <= 'Z') or (c >= 'a' and c <= 'z') or c == '_') {

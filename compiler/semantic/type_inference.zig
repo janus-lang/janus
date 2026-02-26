@@ -225,7 +225,7 @@ pub const TypeInference = struct {
         }
 
         // Infer types of all elements
-        var element_types = ArrayList(TypeId).init(self.allocator);
+        var element_types: ArrayList(TypeId) = ArrayList(TypeId).init(self.allocator);
         defer element_types.deinit();
 
         for (elements) |element_node| {
@@ -410,7 +410,7 @@ pub const TypeInference = struct {
         const func_type = self.getNodeType(func_expr);
 
         // Infer argument types
-        var arg_types = ArrayList(TypeId).init(self.allocator);
+        var arg_types: ArrayList(TypeId) = ArrayList(TypeId).init(self.allocator);
         defer arg_types.deinit();
 
         for (args) |arg_node| {
@@ -508,7 +508,7 @@ pub const TypeInference = struct {
         const body = accessors.getFunctionBody(self.astdb, self.unit_id, node_id);
 
         // Collect parameter types
-        var param_types = ArrayList(TypeId).init(self.allocator);
+        var param_types: ArrayList(TypeId) = ArrayList(TypeId).init(self.allocator);
         defer param_types.deinit();
 
         if (params) |param_list| {

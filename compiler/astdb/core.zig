@@ -2,8 +2,10 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const interners = @import("intern.zig");
 const cid = @import("cid.zig");
+const doc_types_mod = @import("doc_types.zig");
 
 // Re-export common types to avoid module conflicts
 pub const StrId = interners.StrId;
@@ -109,6 +111,7 @@ pub const Token = struct {
         await_,   // await expr - wait for async result
         nursery_, // nursery { } - structured concurrency scope
         spawn_,   // spawn task - launch concurrent task
+        shared_,  // using shared resource - shared resource management
         select_,  // select { } - CSP multi-channel wait
         timeout_, // timeout(duration) - select timeout case
 
@@ -121,6 +124,7 @@ pub const Token = struct {
         union_,
         trait,
         impl,
+        dyn_,
         export_,
         import_,
         as_,
@@ -169,6 +173,7 @@ pub const Token = struct {
         assign, // =
         equal, // = (for compatibility with existing code)
         walrus_assign, // :=
+        colon_equal, // := (alias for walrus_assign for :service profile)
         plus_assign, // +=
         minus_assign, // -=
         star_assign, // *=
@@ -293,6 +298,8 @@ pub const AstNode = struct {
         block_stmt,
         fail_stmt, // Error handling: fail ErrorType.Variant (:core profile)
         nursery_stmt, // :service profile - nursery { spawn tasks }
+        using_resource_stmt, // :service profile - using resource = open() do ... end
+        using_shared_stmt, // :service profile - using shared resource = open() do ... end
         select_stmt,  // :service profile - select { case ch.recv() ... }
         select_case,  // :service profile - case in select (recv/send)
         select_timeout, // :service profile - timeout case in select
@@ -339,6 +346,7 @@ pub const AstNode = struct {
         error_union_type, // Error handling: T ! E (:core profile)
         function_type,
         named_type,
+        dyn_trait_ref, // &dyn Trait — fat pointer trait object
 
         // Patterns
         identifier_pattern,
@@ -496,6 +504,9 @@ pub const CompilationUnit = struct {
     diags: []Diagnostic,
     cids: [][32]u8,
 
+    // RFC-025: 10th columnar array — structured documentation
+    docs: doc_types_mod.DocStore,
+
     // Span indexing for this unit
     token_spans: SpanIndex(TokenId),
     node_spans: SpanIndex(NodeId),
@@ -517,6 +528,7 @@ pub const CompilationUnit = struct {
             .refs = &.{},
             .diags = &.{},
             .cids = &.{},
+            .docs = doc_types_mod.DocStore.init(alloc),
             .token_spans = SpanIndex(TokenId).init(alloc),
             .node_spans = SpanIndex(NodeId).init(alloc),
         };
@@ -526,6 +538,7 @@ pub const CompilationUnit = struct {
     pub fn deinit(self: *CompilationUnit, alloc: std.mem.Allocator) void {
         self.node_spans.deinit();
         self.token_spans.deinit();
+        self.docs.deinit();
         self.arena.deinit(); // O(1) cleanup of all unit-specific data
         alloc.free(self.path);
         alloc.free(self.source);
@@ -675,7 +688,10 @@ pub const Snapshot = struct {
             const index = @intFromEnum(node_id);
             if (index < unit.nodes.len) {
                 const node = &unit.nodes[index];
-                return unit.edges[node.child_lo..node.child_hi];
+                // Bounds check: child_lo/child_hi must be valid edge indices
+                if (node.child_lo <= node.child_hi and node.child_hi <= unit.edges.len) {
+                    return unit.edges[node.child_lo..node.child_hi];
+                }
             }
         }
         return &.{};
@@ -996,7 +1012,7 @@ fn SpanIndex(comptime IdType: type) type {
 
 // Tests
 test "AstDB basic functionality" {
-    var db = AstDB.init(std.testing.allocator, false);
+    var db = try AstDB.init(std.testing.allocator, false);
     defer db.deinit();
 
     // Test adding units
@@ -1034,7 +1050,7 @@ test "SpanIndex functionality" {
 }
 
 test "AstDB node relationships" {
-    var db = AstDB.init(std.testing.allocator, false);
+    var db = try AstDB.init(std.testing.allocator, false);
     defer db.deinit();
 
     const unit_id = try db.addUnit("test.jan", "func main() { struct Foo {} }");
@@ -1085,7 +1101,7 @@ test "AstDB node relationships" {
 }
 
 test "AstDB O(1) unit teardown" {
-    var db = AstDB.init(std.testing.allocator, false);
+    var db = try AstDB.init(std.testing.allocator, false);
     defer db.deinit();
 
     // Create multiple units with significant data
@@ -1114,21 +1130,21 @@ test "AstDB O(1) unit teardown" {
     }
 
     // Measure teardown time (should be O(1) per unit)
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Remove all units
     for (units) |unit_id| {
         try db.removeUnit(unit_id);
     }
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const duration_ns = end_time - start_time;
 
     // Should complete very quickly (< 1ms for 10 units)
     try std.testing.expect(duration_ns < 1_000_000); // 1ms in nanoseconds
 }
 test "AstDB string interning integration" {
-    var db = AstDB.init(std.testing.allocator, false);
+    var db = try AstDB.init(std.testing.allocator, false);
     defer db.deinit();
 
     // Test string interning

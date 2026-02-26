@@ -156,12 +156,12 @@ pub const InterfaceExtractor = struct {
     /// Extract all interface elements from a compilation unit
     /// This is the CRITICAL function that determines interface vs implementation
     pub fn extractInterface(self: *InterfaceExtractor, root_node: NodeId) ![]InterfaceElement {
-        var interface_elements = std.ArrayList(InterfaceElement).init(self.allocator);
+        var interface_elements: std.ArrayList(InterfaceElement) = .empty;
         defer interface_elements.deinit();
 
         try self.extractFromNode(root_node, &interface_elements);
 
-        return interface_elements.toOwnedSlice();
+        return try interface_elements.toOwnedSlice(alloc);
     }
 
     /// Recursively extract interface elements from AST nodes

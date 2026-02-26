@@ -33,33 +33,31 @@ fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name: []
     const llvm_ir = try emitter.toString();
     defer allocator.free(llvm_ir);
 
-    std.debug.print("\n=== LLVM IR ===\n{s}\n", .{llvm_ir});
 
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const ir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    const ir_path = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", allocator);
     defer allocator.free(ir_path);
 
     const ir_file = try std.fmt.allocPrint(allocator, "{s}.ll", .{test_name});
     defer allocator.free(ir_file);
     const ir_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, ir_file });
     defer allocator.free(ir_file_path);
-    try tmp_dir.dir.writeFile(.{ .sub_path = ir_file, .data = llvm_ir });
+    const io = testing.io;
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = ir_file, .data = llvm_ir });
 
     const obj_file = try std.fmt.allocPrint(allocator, "{s}.o", .{test_name});
     defer allocator.free(obj_file);
     const obj_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, obj_file });
     defer allocator.free(obj_file_path);
 
-    const llc_result = try std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = &[_][]const u8{ "llc", "-filetype=obj", ir_file_path, "-o", obj_file_path },
+    const llc_result = try std.process.run(allocator, io, .{
+        .argv = &[_][]const u8{ "llc",  "-filetype=obj", ir_file_path, "-o", obj_file_path },
     });
     defer allocator.free(llc_result.stdout);
     defer allocator.free(llc_result.stderr);
-    if (llc_result.term.Exited != 0) {
-        std.debug.print("LLC STDERR: {s}\n", .{llc_result.stderr});
+    if (llc_result.term.exited != 0) {
         return error.LLCFailed;
     }
 
@@ -72,28 +70,25 @@ fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name: []
     const emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{rt_obj_path});
     defer allocator.free(emit_arg);
 
-    const zig_build_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const zig_build_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{ "zig", "build-obj", "runtime/janus_rt.zig", emit_arg, "-lc" },
     });
     defer allocator.free(zig_build_result.stdout);
     defer allocator.free(zig_build_result.stderr);
-    if (zig_build_result.term.Exited != 0) return error.RuntimeCompilationFailed;
+    if (zig_build_result.term.exited != 0) return error.RuntimeCompilationFailed;
 
-    const link_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const link_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{ "cc", obj_file_path, rt_obj_path, "-o", exe_file_path },
     });
     defer allocator.free(link_result.stdout);
     defer allocator.free(link_result.stderr);
-    if (link_result.term.Exited != 0) return error.LinkFailed;
+    if (link_result.term.exited != 0) return error.LinkFailed;
 
-    const exec_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const exec_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{exe_file_path},
     });
     defer allocator.free(exec_result.stderr);
-    if (exec_result.term.Exited != 0) {
+    if (exec_result.term.exited != 0) {
         allocator.free(exec_result.stdout);
         return error.ExecutionFailed;
     }
@@ -114,12 +109,10 @@ test "Epic 11.1: Hex literal" {
     const output = try compileAndRun(allocator, source, "hex_literal");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 0xFF = 255
     try testing.expectEqualStrings("255\n", output);
 
-    std.debug.print("\n=== HEX LITERAL PASSED ===\n", .{});
 }
 
 test "Epic 11.2: Hex literal lowercase" {
@@ -135,12 +128,10 @@ test "Epic 11.2: Hex literal lowercase" {
     const output = try compileAndRun(allocator, source, "hex_lower");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 0x1a2b = 6699
     try testing.expectEqualStrings("6699\n", output);
 
-    std.debug.print("\n=== HEX LOWERCASE PASSED ===\n", .{});
 }
 
 test "Epic 11.3: Binary literal" {
@@ -156,12 +147,10 @@ test "Epic 11.3: Binary literal" {
     const output = try compileAndRun(allocator, source, "binary_literal");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 0b1010 = 10
     try testing.expectEqualStrings("10\n", output);
 
-    std.debug.print("\n=== BINARY LITERAL PASSED ===\n", .{});
 }
 
 test "Epic 11.4: Binary literal byte" {
@@ -177,12 +166,10 @@ test "Epic 11.4: Binary literal byte" {
     const output = try compileAndRun(allocator, source, "binary_byte");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 0b11111111 = 255
     try testing.expectEqualStrings("255\n", output);
 
-    std.debug.print("\n=== BINARY BYTE PASSED ===\n", .{});
 }
 
 test "Epic 11.5: Octal literal" {
@@ -198,12 +185,10 @@ test "Epic 11.5: Octal literal" {
     const output = try compileAndRun(allocator, source, "octal_literal");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 0o777 = 511
     try testing.expectEqualStrings("511\n", output);
 
-    std.debug.print("\n=== OCTAL LITERAL PASSED ===\n", .{});
 }
 
 test "Epic 11.6: Hex in expression" {
@@ -221,12 +206,10 @@ test "Epic 11.6: Hex in expression" {
     const output = try compileAndRun(allocator, source, "hex_expr");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 0x1234 & 0xFF = 0x34 = 52
     try testing.expectEqualStrings("52\n", output);
 
-    std.debug.print("\n=== HEX IN EXPRESSION PASSED ===\n", .{});
 }
 
 test "Epic 11.7: Binary flags" {
@@ -245,12 +228,10 @@ test "Epic 11.7: Binary flags" {
     const output = try compileAndRun(allocator, source, "binary_flags");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 0b001 | 0b010 | 0b100 = 0b111 = 7
     try testing.expectEqualStrings("7\n", output);
 
-    std.debug.print("\n=== BINARY FLAGS PASSED ===\n", .{});
 }
 
 test "Epic 11.8: Mixed bases" {
@@ -273,12 +254,10 @@ test "Epic 11.8: Mixed bases" {
     const output = try compileAndRun(allocator, source, "mixed_bases");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // All represent 100, should print 1
     try testing.expectEqualStrings("1\n", output);
 
-    std.debug.print("\n=== MIXED BASES PASSED ===\n", .{});
 }
 
 test "Epic 11.9: Underscore separators in decimal" {
@@ -294,12 +273,10 @@ test "Epic 11.9: Underscore separators in decimal" {
     const output = try compileAndRun(allocator, source, "underscore_decimal");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 1_000_000 = 1000000
     try testing.expectEqualStrings("1000000\n", output);
 
-    std.debug.print("\n=== UNDERSCORE DECIMAL PASSED ===\n", .{});
 }
 
 test "Epic 11.10: Underscore separators in hex" {
@@ -315,12 +292,10 @@ test "Epic 11.10: Underscore separators in hex" {
     const output = try compileAndRun(allocator, source, "underscore_hex");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 0xFF_FF_FF = 16777215
     try testing.expectEqualStrings("16777215\n", output);
 
-    std.debug.print("\n=== UNDERSCORE HEX PASSED ===\n", .{});
 }
 
 test "Epic 11.11: Underscore separators in binary" {
@@ -336,12 +311,10 @@ test "Epic 11.11: Underscore separators in binary" {
     const output = try compileAndRun(allocator, source, "underscore_binary");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 0b1111_0000 = 240
     try testing.expectEqualStrings("240\n", output);
 
-    std.debug.print("\n=== UNDERSCORE BINARY PASSED ===\n", .{});
 }
 
 test "Epic 11.12: Underscore in expression" {
@@ -359,12 +332,10 @@ test "Epic 11.12: Underscore in expression" {
     const output = try compileAndRun(allocator, source, "underscore_expr");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 1_000 + 2_000 = 3000
     try testing.expectEqualStrings("3000\n", output);
 
-    std.debug.print("\n=== UNDERSCORE EXPRESSION PASSED ===\n", .{});
 }
 
 test "Epic 11.13: Character literal simple" {
@@ -380,12 +351,10 @@ test "Epic 11.13: Character literal simple" {
     const output = try compileAndRun(allocator, source, "char_simple");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 'A' = 65
     try testing.expectEqualStrings("65\n", output);
 
-    std.debug.print("\n=== CHARACTER LITERAL SIMPLE PASSED ===\n", .{});
 }
 
 test "Epic 11.14: Character literal escape newline" {
@@ -401,12 +370,10 @@ test "Epic 11.14: Character literal escape newline" {
     const output = try compileAndRun(allocator, source, "char_newline");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // '\n' = 10
     try testing.expectEqualStrings("10\n", output);
 
-    std.debug.print("\n=== CHARACTER LITERAL NEWLINE PASSED ===\n", .{});
 }
 
 test "Epic 11.15: Character literal escape tab" {
@@ -422,12 +389,10 @@ test "Epic 11.15: Character literal escape tab" {
     const output = try compileAndRun(allocator, source, "char_tab");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // '\t' = 9
     try testing.expectEqualStrings("9\n", output);
 
-    std.debug.print("\n=== CHARACTER LITERAL TAB PASSED ===\n", .{});
 }
 
 test "Epic 11.16: Character arithmetic" {
@@ -444,12 +409,10 @@ test "Epic 11.16: Character arithmetic" {
     const output = try compileAndRun(allocator, source, "char_arithmetic");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 'a' - 'A' = 97 - 65 = 32
     try testing.expectEqualStrings("32\n", output);
 
-    std.debug.print("\n=== CHARACTER ARITHMETIC PASSED ===\n", .{});
 }
 
 test "Epic 11.17: Power operator basic" {
@@ -465,12 +428,10 @@ test "Epic 11.17: Power operator basic" {
     const output = try compileAndRun(allocator, source, "power_basic");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 2^10 = 1024
     try testing.expectEqualStrings("1024\n", output);
 
-    std.debug.print("\n=== POWER OPERATOR BASIC PASSED ===\n", .{});
 }
 
 test "Epic 11.18: Power operator precedence" {
@@ -486,12 +447,10 @@ test "Epic 11.18: Power operator precedence" {
     const output = try compileAndRun(allocator, source, "power_prec");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 2 + (3^2) = 2 + 9 = 11 (power has higher precedence than addition)
     try testing.expectEqualStrings("11\n", output);
 
-    std.debug.print("\n=== POWER OPERATOR PRECEDENCE PASSED ===\n", .{});
 }
 
 test "Epic 11.19: Power operator with multiplication" {
@@ -507,12 +466,10 @@ test "Epic 11.19: Power operator with multiplication" {
     const output = try compileAndRun(allocator, source, "power_mul");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 2 * (3^2) = 2 * 9 = 18 (power has higher precedence than multiplication)
     try testing.expectEqualStrings("18\n", output);
 
-    std.debug.print("\n=== POWER OPERATOR WITH MUL PASSED ===\n", .{});
 }
 
 test "Epic 11.20: Power of zero" {
@@ -528,10 +485,8 @@ test "Epic 11.20: Power of zero" {
     const output = try compileAndRun(allocator, source, "power_zero");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 5^0 = 1
     try testing.expectEqualStrings("1\n", output);
 
-    std.debug.print("\n=== POWER OF ZERO PASSED ===\n", .{});
 }

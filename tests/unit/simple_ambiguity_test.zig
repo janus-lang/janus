@@ -59,7 +59,6 @@ test "Debug: Check if functions are found" {
     try scope_manager.current_scope.addFunction(&add_func1);
     try scope_manager.current_scope.addFunction(&add_func2);
 
-    std.debug.print("Added 2 functions to scope\n", .{});
 
     // Try to call with exact match first
     const call_site_exact = CallSite{
@@ -79,16 +78,12 @@ test "Debug: Check if functions are found" {
 
     switch (result_exact) {
         .success => |success| {
-            std.debug.print("✅ Exact match resolved to: {s}\n", .{success.target_function.parameter_types});
         },
         .no_matches => {
-            std.debug.print("❌ No matches found for exact call\n", .{});
         },
         .ambiguous => {
-            std.debug.print("❌ Unexpected ambiguity for exact match\n", .{});
         },
         else => {
-            std.debug.print("❌ Other result for exact match\n", .{});
         },
     }
 }
@@ -115,8 +110,6 @@ test "Debug: Check conversion path finding" {
     var path = try conversion_registry.findConversionPath(from_types[0..], to_types[0..], std.testing.allocator);
     if (path) |*p| {
         defer p.deinit();
-        std.debug.print("✅ Conversion path found: cost = {d}\n", .{p.total_cost});
     } else {
-        std.debug.print("❌ No conversion path found\n", .{});
     }
 }

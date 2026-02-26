@@ -240,7 +240,7 @@ pub fn runDispatchPerformanceDemo(allocator: Allocator, writer: anytype) !void {
 test "Dispatch performance demo runs without errors" {
     const allocator = testing.allocator;
 
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit();
 
     try runDispatchPerformanceDemo(allocator, buffer.writer());

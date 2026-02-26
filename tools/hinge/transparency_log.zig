@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 
 pub const TL = struct {
     path: []const u8,
@@ -20,9 +21,9 @@ pub const TL = struct {
     pub fn append(self: *TL, statement: []const u8) !void {
         // Ensure directory
         if (std.fs.path.dirname(self.path)) |dirp| {
-            try std.fs.cwd().makePath(dirp);
+            try compat_fs.makeDir(dirp);
         }
-        var f = std.fs.cwd().createFile(self.path, .{ .truncate = false }) catch |e| switch (e) {
+        var f = compat_fs.createFile(self.path, .{ .truncate = false }) catch |e| switch (e) {
             error.PathAlreadyExists => try std.fs.cwd().openFile(self.path, .{ .mode = .read_write }),
             else => return e,
         };

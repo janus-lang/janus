@@ -33,33 +33,31 @@ fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name: []
     const llvm_ir = try emitter.toString();
     defer allocator.free(llvm_ir);
 
-    std.debug.print("\n=== LLVM IR ===\n{s}\n", .{llvm_ir});
 
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    const ir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    const ir_path = try tmp_dir.dir.realPathFileAlloc(testing.io, ".", allocator);
     defer allocator.free(ir_path);
 
     const ir_file = try std.fmt.allocPrint(allocator, "{s}.ll", .{test_name});
     defer allocator.free(ir_file);
     const ir_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, ir_file });
     defer allocator.free(ir_file_path);
-    try tmp_dir.dir.writeFile(.{ .sub_path = ir_file, .data = llvm_ir });
+    const io = testing.io;
+    try tmp_dir.dir.writeFile(io, .{ .sub_path = ir_file, .data = llvm_ir });
 
     const obj_file = try std.fmt.allocPrint(allocator, "{s}.o", .{test_name});
     defer allocator.free(obj_file);
     const obj_file_path = try std.fs.path.join(allocator, &[_][]const u8{ ir_path, obj_file });
     defer allocator.free(obj_file_path);
 
-    const llc_result = try std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = &[_][]const u8{ "llc", "-filetype=obj", ir_file_path, "-o", obj_file_path },
+    const llc_result = try std.process.run(allocator, io, .{
+        .argv = &[_][]const u8{ "llc",  "-filetype=obj", ir_file_path, "-o", obj_file_path },
     });
     defer allocator.free(llc_result.stdout);
     defer allocator.free(llc_result.stderr);
-    if (llc_result.term.Exited != 0) {
-        std.debug.print("LLC STDERR: {s}\n", .{llc_result.stderr});
+    if (llc_result.term.exited != 0) {
         return error.LLCFailed;
     }
 
@@ -72,28 +70,25 @@ fn compileAndRun(allocator: std.mem.Allocator, source: []const u8, test_name: []
     const emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{rt_obj_path});
     defer allocator.free(emit_arg);
 
-    const zig_build_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const zig_build_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{ "zig", "build-obj", "runtime/janus_rt.zig", emit_arg, "-lc" },
     });
     defer allocator.free(zig_build_result.stdout);
     defer allocator.free(zig_build_result.stderr);
-    if (zig_build_result.term.Exited != 0) return error.RuntimeCompilationFailed;
+    if (zig_build_result.term.exited != 0) return error.RuntimeCompilationFailed;
 
-    const link_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const link_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{ "cc", obj_file_path, rt_obj_path, "-o", exe_file_path },
     });
     defer allocator.free(link_result.stdout);
     defer allocator.free(link_result.stderr);
-    if (link_result.term.Exited != 0) return error.LinkFailed;
+    if (link_result.term.exited != 0) return error.LinkFailed;
 
-    const exec_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const exec_result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{exe_file_path},
     });
     defer allocator.free(exec_result.stderr);
-    if (exec_result.term.Exited != 0) {
+    if (exec_result.term.exited != 0) {
         allocator.free(exec_result.stdout);
         return error.ExecutionFailed;
     }
@@ -116,12 +111,10 @@ test "Epic 10.1: Bitwise AND" {
     const output = try compileAndRun(allocator, source, "bitwise_and");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 12 = 1100, 10 = 1010, AND = 1000 = 8
     try testing.expectEqualStrings("8\n", output);
 
-    std.debug.print("\n=== BITWISE AND PASSED ===\n", .{});
 }
 
 test "Epic 10.2: Bitwise OR" {
@@ -139,12 +132,10 @@ test "Epic 10.2: Bitwise OR" {
     const output = try compileAndRun(allocator, source, "bitwise_or");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 12 = 1100, 10 = 1010, OR = 1110 = 14
     try testing.expectEqualStrings("14\n", output);
 
-    std.debug.print("\n=== BITWISE OR PASSED ===\n", .{});
 }
 
 test "Epic 10.3: Bitwise XOR" {
@@ -162,12 +153,10 @@ test "Epic 10.3: Bitwise XOR" {
     const output = try compileAndRun(allocator, source, "bitwise_xor");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 12 = 1100, 10 = 1010, XOR = 0110 = 6
     try testing.expectEqualStrings("6\n", output);
 
-    std.debug.print("\n=== BITWISE XOR PASSED ===\n", .{});
 }
 
 test "Epic 10.4: Left shift" {
@@ -184,12 +173,10 @@ test "Epic 10.4: Left shift" {
     const output = try compileAndRun(allocator, source, "bitwise_shl");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 5 << 2 = 5 * 4 = 20
     try testing.expectEqualStrings("20\n", output);
 
-    std.debug.print("\n=== LEFT SHIFT PASSED ===\n", .{});
 }
 
 test "Epic 10.5: Right shift" {
@@ -206,12 +193,10 @@ test "Epic 10.5: Right shift" {
     const output = try compileAndRun(allocator, source, "bitwise_shr");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 20 >> 2 = 20 / 4 = 5
     try testing.expectEqualStrings("5\n", output);
 
-    std.debug.print("\n=== RIGHT SHIFT PASSED ===\n", .{});
 }
 
 test "Epic 10.6: Combined bitwise operations" {
@@ -232,12 +217,10 @@ test "Epic 10.6: Combined bitwise operations" {
     const output = try compileAndRun(allocator, source, "bitwise_combined");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // combined = 1 | 2 = 3, has_a = 3 & 1 = 1
     try testing.expectEqualStrings("3\n1\n", output);
 
-    std.debug.print("\n=== COMBINED BITWISE PASSED ===\n", .{});
 }
 
 test "Epic 10.7: Bit flags pattern" {
@@ -265,12 +248,10 @@ test "Epic 10.7: Bit flags pattern" {
     const output = try compileAndRun(allocator, source, "bitwise_flags");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // Has READ (prints 1), doesn't have EXEC (prints 0)
     try testing.expectEqualStrings("1\n0\n", output);
 
-    std.debug.print("\n=== BIT FLAGS PATTERN PASSED ===\n", .{});
 }
 
 test "Epic 10.8: Shift and mask pattern" {
@@ -289,10 +270,8 @@ test "Epic 10.8: Shift and mask pattern" {
     const output = try compileAndRun(allocator, source, "bitwise_mask");
     defer allocator.free(output);
 
-    std.debug.print("\n=== EXECUTION OUTPUT ===\n{s}\n", .{output});
 
     // 4660 = 0x1234: low byte = 0x34 = 52, high byte = 0x12 = 18
     try testing.expectEqualStrings("52\n18\n", output);
 
-    std.debug.print("\n=== SHIFT AND MASK PASSED ===\n", .{});
 }

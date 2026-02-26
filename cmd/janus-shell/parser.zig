@@ -138,7 +138,7 @@ pub const Parser = struct {
     pub fn init(allocator: std.mem.Allocator) !Parser {
         return Parser{
             .allocator = allocator,
-            .tokens = std.ArrayList(Token).init(allocator),
+            .tokens = .empty,
         };
     }
 
@@ -197,7 +197,7 @@ pub const Parser = struct {
         }
 
         // Parse as simple command or pipeline
-        var commands = std.ArrayList(types.Command).init(self.allocator);
+        var commands: std.ArrayList(types.Command) = .empty;
         defer commands.deinit();
 
         // Parse first command
@@ -225,10 +225,10 @@ pub const Parser = struct {
     }
 
     fn parseSimpleCommand(self: *Parser) !types.Command {
-        var argv = std.ArrayList([]const u8).init(self.allocator);
+        var argv: std.ArrayList([]const u8) = .empty;
         defer argv.deinit();
 
-        var redirections = std.ArrayList(types.Redirection).init(self.allocator);
+        var redirections: std.ArrayList(types.Redirection) = .empty;
         defer redirections.deinit();
 
         // Parse command and arguments
@@ -314,7 +314,7 @@ pub const Parser = struct {
         const name_token = self.currentToken().?;
         self.advance();
 
-        var args = std.ArrayList([]const u8).init(self.allocator);
+        var args: std.ArrayList([]const u8) = .empty;
         defer args.deinit();
 
         // Parse arguments

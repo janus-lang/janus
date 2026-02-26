@@ -57,6 +57,20 @@ pub const OpCode = enum {
     Error_Union_Unwrap, // Unwrap payload (asserts not error, panics if error)
     Error_Union_Get_Error, // Extract error value (asserts is_error)
 
+    // --- Tagged Unions (SPEC-023 Phase B+C) ---
+    Union_Construct, // inputs[0..N] = payload values, data.integer = tag index → { i32, i64*N }
+    Union_Tag_Check, // inputs[0] = union value, data.integer = expected tag → i1 (bool)
+    Union_Payload_Extract, // inputs[0] = union value, data.integer = field_index|(is_float<<32) → i32 or f64
+
+    // --- Closures (SPEC-024 Phase A) ---
+    Fn_Ref, // Function reference as value. data.string = function name. No inputs.
+
+    // --- Closures (SPEC-024 Phase B) ---
+    Closure_Create, // inputs[0..N] = captured values. data.string = fn_name. Produces { fn_ptr, env_ptr }
+    Closure_Env_Load, // Load capture from env. data.integer = capture_index. No inputs.
+    Closure_Env_Store, // Store to mutable capture. data.integer = capture_index. inputs[0] = value.
+    Closure_Call, // inputs[0] = Closure_Create node, inputs[1..N] = args. Indirect call via env.
+
     // --- Control Flow ---
     Call, // Function call
     Return,
@@ -132,6 +146,16 @@ pub const OpCode = enum {
     Select_Wait, // Wait for one case to become ready (returns case index)
     Select_Get_Value, // Get received value from completed recv case
     Select_End, // End select statement (cleanup select context)
+
+    // --- :service Profile - Resource Management (Phase 3) ---
+    Using_Begin, // Begin using statement (acquire resource)
+    Using_End, // End using statement (cleanup resource)
+
+    // --- Trait/Impl Dispatch (SPEC-025) ---
+    Trait_Method_Call, // Static dispatch to impl method (Phase B: lowered as Call)
+    Vtable_Lookup, // Dynamic dispatch via vtable (Phase C — placeholder)
+    Vtable_Construct, // Construct vtable for trait impl (Phase C — placeholder)
+    Impl_Method_Ref, // Reference to impl method by qualified name
 };
 
 /// Data types supported by tensor operations
@@ -367,6 +391,15 @@ pub const Parameter = struct {
     type_name: []const u8,
 };
 
+/// Captured variable metadata (SPEC-024 Phase B+C)
+/// Describes a variable captured from an enclosing scope by a closure.
+pub const CapturedVar = struct {
+    name: []const u8, // Variable name in the parent scope
+    parent_alloca_id: u32, // The Alloca node ID in the parent graph
+    index: u32, // Position in the environment struct
+    is_mutable: bool = false, // Phase C: true for `var` captures (by-reference via pointer)
+};
+
 /// The Sovereign Graph.
 pub const QTJIRGraph = struct {
     nodes: std.ArrayListUnmanaged(IRNode),
@@ -374,8 +407,13 @@ pub const QTJIRGraph = struct {
 
     // Function metadata
     function_name: []const u8 = "main",
+    name_owned: bool = false, // true if function_name was heap-allocated and must be freed
     return_type: []const u8 = "i32",
     parameters: []const Parameter = &[_]Parameter{},
+
+    // Closure capture metadata (SPEC-024 Phase B)
+    // Non-null for closures that capture variables from enclosing scopes
+    captures: []const CapturedVar = &[_]CapturedVar{},
 
     pub fn init(allocator: std.mem.Allocator) QTJIRGraph {
         return QTJIRGraph{
@@ -404,6 +442,17 @@ pub const QTJIRGraph = struct {
             // type_name is currently constant string, not allocated
         }
         self.allocator.free(self.parameters);
+
+        // Free capture metadata (SPEC-024 Phase B)
+        for (self.captures) |cap| {
+            self.allocator.free(cap.name);
+        }
+        self.allocator.free(self.captures);
+
+        // Free owned function name (closures, test graphs)
+        if (self.name_owned) {
+            self.allocator.free(self.function_name);
+        }
     }
 
     /// Revealed Complexity: Dump the graph topology to stdout.
@@ -507,13 +556,18 @@ pub const QTJIRGraph = struct {
                 // Build cycle description
                 var cycle_desc = std.ArrayListUnmanaged(u8){};
                 defer cycle_desc.deinit(self.allocator);
-                const writer = cycle_desc.writer(self.allocator);
 
-                try writer.print("Cycle detected: ", .{});
+                try cycle_desc.appendSlice(self.allocator, "Cycle detected: ");
                 for (path.items[cycle_start..]) |pid| {
-                    try writer.print("{d} -> ", .{pid});
+                    var buf: [32]u8 = undefined;
+                    const s = std.fmt.bufPrint(&buf, "{d} -> ", .{pid}) catch break;
+                    try cycle_desc.appendSlice(self.allocator, s);
                 }
-                try writer.print("{d}", .{input_id});
+                {
+                    var buf: [32]u8 = undefined;
+                    const s = std.fmt.bufPrint(&buf, "{d}", .{input_id}) catch "";
+                    try cycle_desc.appendSlice(self.allocator, s);
+                }
 
                 const msg = try cycle_desc.toOwnedSlice(self.allocator);
                 try result.addError(msg, node_id, input_id);
@@ -953,6 +1007,53 @@ pub const IRBuilder = struct {
         return id;
     }
 
+    /// Create a function reference node (function pointer to a named function)
+    /// Phase A: Zero-capture closures only — references a generated anonymous function
+    pub fn createFnRef(self: *IRBuilder, func_name: []const u8) !u32 {
+        const id = try self.createNode(.Fn_Ref);
+        var node = &self.graph.nodes.items[id];
+        node.data = .{ .string = try self.graph.allocator.dupeZ(u8, func_name) };
+        return id;
+    }
+
+    /// Create a Closure_Create node (SPEC-024 Phase B)
+    /// inputs[0..N] = captured value nodes from the parent scope
+    /// data.string = anonymous function name
+    pub fn createClosureCreate(self: *IRBuilder, func_name: []const u8, captured_ids: []const u32) !u32 {
+        const id = try self.createNode(.Closure_Create);
+        var node = &self.graph.nodes.items[id];
+        node.data = .{ .string = try self.graph.allocator.dupeZ(u8, func_name) };
+        try node.inputs.appendSlice(self.graph.allocator, captured_ids);
+        return id;
+    }
+
+    /// Create a Closure_Call node (SPEC-024 Phase B)
+    /// inputs[0] = Closure_Create node, inputs[1..N] = call arguments
+    pub fn createClosureCall(self: *IRBuilder, closure_id: u32, args: []const u32) !u32 {
+        const id = try self.createNode(.Closure_Call);
+        var node = &self.graph.nodes.items[id];
+        try node.inputs.append(self.graph.allocator, closure_id);
+        try node.inputs.appendSlice(self.graph.allocator, args);
+        return id;
+    }
+
+    /// Create a Closure_Env_Load node (SPEC-024 Phase B)
+    /// Loads a captured variable from the environment struct at the given index
+    pub fn createClosureEnvLoad(self: *IRBuilder, capture_index: u32) !u32 {
+        const id = try self.createNode(.Closure_Env_Load);
+        self.graph.nodes.items[id].data = .{ .integer = @intCast(capture_index) };
+        return id;
+    }
+
+    /// Create a Closure_Env_Store node (SPEC-024 Phase C)
+    /// Stores a value through a mutable capture's pointer in the environment struct
+    pub fn createClosureEnvStore(self: *IRBuilder, capture_index: u32, value_id: u32) !u32 {
+        const id = try self.createNode(.Closure_Env_Store);
+        self.graph.nodes.items[id].data = .{ .integer = @intCast(capture_index) };
+        try self.graph.nodes.items[id].inputs.append(self.graph.allocator, value_id);
+        return id;
+    }
+
     /// Create phi node for SSA
     pub fn createPhi(self: *IRBuilder, incoming: []const struct { value: u32, block: u32 }) !u32 {
         const id = try self.createNode(.Phi);
@@ -1012,6 +1113,44 @@ pub const IRBuilder = struct {
         try node.inputs.append(self.graph.allocator, error_union_id);
         return id;
     }
+
+    // =========================================================================
+    // Tagged Union Operations (SPEC-023 Phase B+C)
+    // =========================================================================
+
+    /// Construct tagged union: { tag_index, payload_0, payload_1, ... }
+    /// For unit variants (no payload), pass empty slice
+    pub fn createUnionConstruct(self: *IRBuilder, tag_index: i64, payload_ids: []const u32) !u32 {
+        const id = try self.createNode(.Union_Construct);
+        var node = &self.graph.nodes.items[id];
+        node.data = .{ .integer = tag_index };
+        for (payload_ids) |pid| {
+            try node.inputs.append(self.graph.allocator, pid);
+        }
+        return id;
+    }
+
+    /// Check if tagged union has expected tag: tag == expected
+    /// Returns: boolean (true if tag matches)
+    pub fn createUnionTagCheck(self: *IRBuilder, union_id: u32, expected_tag: i64) !u32 {
+        const id = try self.createNode(.Union_Tag_Check);
+        var node = &self.graph.nodes.items[id];
+        node.data = .{ .integer = expected_tag };
+        try node.inputs.append(self.graph.allocator, union_id);
+        return id;
+    }
+
+    /// Extract payload field from tagged union by index
+    /// field_index selects which field slot (0-based), is_float triggers f64 bitcast
+    pub fn createUnionPayloadExtract(self: *IRBuilder, union_id: u32, field_index: u32, is_float: bool) !u32 {
+        const id = try self.createNode(.Union_Payload_Extract);
+        var node = &self.graph.nodes.items[id];
+        // Encode: lower 32 bits = field_index, bit 32 = is_float
+        const encoded: i64 = @as(i64, @intCast(field_index)) | (if (is_float) @as(i64, 1) << 32 else 0);
+        node.data = .{ .integer = encoded };
+        try node.inputs.append(self.graph.allocator, union_id);
+        return id;
+    }
 };
 
 // --- Tests ---
@@ -1039,8 +1178,7 @@ test "QTJIR: Graph Construction and Topology" {
     try std.testing.expectEqual(str_node, graph.nodes.items[call_node].inputs.items[0]);
     try std.testing.expectEqual(Tenancy.CPU_Serial, graph.nodes.items[call_node].tenancy);
 
-    // Visual Inspection
-    graph.dump();
+    // Visual inspection: graph.dump() removed for IPC compat
 }
 
 test "QTJIR: Future Tenancy Hinge" {

@@ -27,8 +27,8 @@ const SBOMVerificationResult = struct {
 };
 
 fn verifyCycloneDX(allocator: std.mem.Allocator, file_path: []const u8) !SBOMVerificationResult {
-    var errors = std.ArrayList([]const u8).init(allocator);
-    var warnings = std.ArrayList([]const u8).init(allocator);
+    var errors: std.ArrayList([]const u8) = .empty;
+    var warnings: std.ArrayList([]const u8) = .empty;
 
     // Read and parse the CycloneDX SBOM file
     const file = std.fs.cwd().openFile(file_path, .{}) catch |err| {
@@ -120,8 +120,8 @@ fn verifyCycloneDX(allocator: std.mem.Allocator, file_path: []const u8) !SBOMVer
 }
 
 fn verifySPDX(allocator: std.mem.Allocator, file_path: []const u8) !SBOMVerificationResult {
-    var errors = std.ArrayList([]const u8).init(allocator);
-    var warnings = std.ArrayList([]const u8).init(allocator);
+    var errors: std.ArrayList([]const u8) = .empty;
+    var warnings: std.ArrayList([]const u8) = .empty;
 
     // Read and parse the SPDX SBOM file
     const file = std.fs.cwd().openFile(file_path, .{}) catch |err| {

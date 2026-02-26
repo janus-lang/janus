@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
@@ -365,11 +366,11 @@ pub const ComprehensiveDispatchIntegrationTests = struct {
         );
 
         // Create multiple implementations to stress test
-        var implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer implementations.deinit();
 
         // Create implementations on the heap so they persist
-        var impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer impl_storage.deinit();
 
         const type_combinations = [_][2]TypeRegistry.TypeId{
@@ -413,14 +414,14 @@ pub const ComprehensiveDispatchIntegrationTests = struct {
         const iterations = 10000;
         const test_args = &[_]TypeRegistry.TypeId{ int_type, int_type };
 
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         for (0..iterations) |_| {
             const result = try dispatch_table.compressedLookup(test_args);
             try testing.expect(result != null);
         }
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const total_time_ns = end_time - start_time;
         const avg_time_ns = total_time_ns / iterations;
 
@@ -440,10 +441,10 @@ pub const ComprehensiveDispatchIntegrationTests = struct {
 
         // Scalability test: Verify O(1) or O(log n) lookup performance
         // Create a larger table and verify performance doesn't degrade significantly
-        var large_implementations = ArrayList(*const SignatureAnalyzer.Implementation).init(self.allocator);
+        var large_implementations: ArrayList(*const SignatureAnalyzer.Implementation) = .empty;
         defer large_implementations.deinit();
 
-        var large_impl_storage = ArrayList(SignatureAnalyzer.Implementation).init(self.allocator);
+        var large_impl_storage: ArrayList(SignatureAnalyzer.Implementation) = .empty;
         defer large_impl_storage.deinit();
 
         // Create 50 implementations to test scalability
@@ -470,14 +471,14 @@ pub const ComprehensiveDispatchIntegrationTests = struct {
 
         const large_dispatch_table = try self.module_dispatcher.createCompressedDispatchTable("large_op");
 
-        const large_start_time = std.time.nanoTimestamp();
+        const large_start_time = compat_time.nanoTimestamp();
 
         for (0..iterations) |_| {
             const result = try large_dispatch_table.compressedLookup(test_args);
             try testing.expect(result != null);
         }
 
-        const large_end_time = std.time.nanoTimestamp();
+        const large_end_time = compat_time.nanoTimestamp();
         const large_total_time_ns = large_end_time - large_start_time;
         const large_avg_time_ns = large_total_time_ns / iterations;
 

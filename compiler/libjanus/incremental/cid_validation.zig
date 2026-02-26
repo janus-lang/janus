@@ -8,6 +8,7 @@
 // integrity verification, logging, diagnostics, and performance benchmarking.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const astdb = @import("../astdb.zig");
 const compilation_unit = @import("compilation_unit.zig");
 const interface_cid_mod = @import("interface_cid.zig");
@@ -94,12 +95,12 @@ pub const CIDValidator = struct {
         current_cid: InterfaceCID,
         cached_cid: InterfaceCID,
     ) !CIDComparisonResult {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         const are_equal = current_cid.eql(cached_cid);
         const hash_diff_count = self.countHashDifferences(&current_cid.hash, &cached_cid.hash);
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
 
         return CIDComparisonResult{
             .are_equal = are_equal,
@@ -125,12 +126,12 @@ pub const CIDValidator = struct {
         current_cid: SemanticCID,
         cached_cid: SemanticCID,
     ) !CIDComparisonResult {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         const are_equal = current_cid.eql(cached_cid);
         const hash_diff_count = self.countHashDifferences(&current_cid.hash, &cached_cid.hash);
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
 
         return CIDComparisonResult{
             .are_equal = are_equal,
@@ -156,7 +157,7 @@ pub const CIDValidator = struct {
         current_unit: *const CompilationUnit,
         cached_unit: *const CompilationUnit,
     ) !CIDComparisonResult {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         const interface_changed = current_unit.interfaceChanged(cached_unit.interface_cid);
         const implementation_changed = current_unit.implementationChanged(cached_unit.semantic_cid);
@@ -164,7 +165,7 @@ pub const CIDValidator = struct {
 
         const are_equal = !interface_changed and !implementation_changed and !dependencies_changed;
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
 
         return CIDComparisonResult{
             .are_equal = are_equal,
@@ -234,11 +235,11 @@ pub const CIDValidator = struct {
         var diagnostics = CIDDiagnostics{
             .comparison_type = comparison_result.comparison_type,
             .summary = if (comparison_result.are_equal) "CIDs are identical" else "CIDs differ",
-            .recommendations = std.ArrayList([]const u8).init(self.allocator),
+            .recommendations = .empty,
             .performance_analysis = PerformanceAnalysis{
                 .is_fast = comparison_result.metrics.comparison_time_ns < 1000000, // < 1ms
                 .memory_efficient = comparison_result.metrics.memory_used_bytes < 1024,
-                .optimization_suggestions = std.ArrayList([]const u8).init(self.allocator),
+                .optimization_suggestions = .empty,
             },
         };
 
@@ -302,7 +303,7 @@ pub const CIDValidator = struct {
         cid1: anytype,
         cid2: anytype,
     ) !BenchmarkResult {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
         var total_operations: u64 = 0;
 
         var i: u32 = 0;
@@ -312,7 +313,7 @@ pub const CIDValidator = struct {
             total_operations += 1;
         }
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const total_time_ns = @as(u64, @intCast(end_time - start_time));
 
         return BenchmarkResult{

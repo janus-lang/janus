@@ -40,7 +40,6 @@ test "semantic pipeline - basic validation" {
     );
     defer validation_engine.deinit();
 
-    std.debug.print("✅ Semantic pipeline basic validation test passed\n", .{});
 }
 
 test "semantic pipeline - ASTDB integration" {
@@ -59,7 +58,6 @@ test "semantic pipeline - ASTDB integration" {
     try testing.expect(unit != null);
     try testing.expect(std.mem.eql(u8, unit.?.source, source));
 
-    std.debug.print("✅ Semantic pipeline ASTDB integration test passed\n", .{});
 }
 
 test "semantic pipeline - type system integration" {
@@ -85,7 +83,6 @@ test "semantic pipeline - type system integration" {
     const incompatible = type_system.areTypesCompatible(i32_type, bool_type);
     try testing.expect(!incompatible);
 
-    std.debug.print("✅ Semantic pipeline type system integration test passed\n", .{});
 }
 
 test "semantic pipeline - profile management" {
@@ -102,7 +99,6 @@ test "semantic pipeline - profile management" {
     const is_sovereign = profile_manager.current_profile == .sovereign;
     try testing.expect(!is_sovereign);
 
-    std.debug.print("✅ Semantic pipeline profile management test passed\n", .{});
 }
 
 test "semantic pipeline - memory efficiency" {
@@ -123,7 +119,6 @@ test "semantic pipeline - memory efficiency" {
         try testing.expect(unit != null);
     }
 
-    std.debug.print("✅ Semantic pipeline memory efficiency test passed\n", .{});
 }
 
 test "semantic pipeline - validation engine" {
@@ -164,5 +159,4 @@ test "semantic pipeline - validation engine" {
     // As the semantic engine matures, we'll add more specific checks
     try testing.expect(result.is_valid or result.errors.items.len >= 0);
 
-    std.debug.print("✅ Semantic pipeline validation engine test passed\n", .{});
 }

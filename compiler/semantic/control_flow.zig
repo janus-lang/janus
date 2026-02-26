@@ -45,8 +45,8 @@ pub const ControlFlowAnalyzer = struct {
             .astdb = astdb_system,
             .unit_id = unit_id,
             .allocator = allocator,
-            .unreachable_nodes = std.ArrayList(NodeId).init(allocator),
-            .missing_returns = std.ArrayList(NodeId).init(allocator),
+            .unreachable_nodes = .empty,
+            .missing_returns = .empty,
         };
     }
 

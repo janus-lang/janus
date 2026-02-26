@@ -7,6 +7,11 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 
 
 
+## Normative Language (RFC 2119)
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC 2119](https://tools.ietf.org/html/rfc2119).
+
+
 # Janus Specification — Quantum-Tensor Janus IR (SPEC-009)
 
 **Version:** 2.0.0  
@@ -148,18 +153,18 @@ QTJIR lowers to multiple backends simultaneously:
 ## 6. Example Graph
 
 ```janus
-func entanglement() -> bool {
+func entanglement() -> bool do
     // tenancy: CPU
     let q0 = qpu.alloc(1) // -> QPU
     let q1 = qpu.alloc(1) // -> QPU
-    
+
     // tenancy: QPU
     qpu.h(q0)             // Hadamard
     qpu.cnot(q0, q1)      // Entangle
-    
+
     // tenancy: CPU (via Measurement)
     return qpu.measure(q1) // Collapse
-}
+end
 ```
 
 **Generates:**

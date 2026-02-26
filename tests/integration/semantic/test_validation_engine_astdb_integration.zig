@@ -7,6 +7,7 @@
 //! and the ASTDB query system, ensuring validated AST nodes are properly stored and queryable.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
@@ -85,7 +86,6 @@ test "validation engine ASTDB query integration" {
     const symbols = try context.query_engine.getSymbolsInScope(unit_id, add_function);
     try testing.expect(symbols.len >= 2); // x and y parameters
 
-    std.debug.print("✅ Validation Engine ASTDB integration test passed\n", .{});
 }
 
 test "validation engine error reporting through ASTDB" {
@@ -118,7 +118,6 @@ test "validation engine error reporting through ASTDB" {
         try testing.expect(err.location.column > 0);
     }
 
-    std.debug.print("✅ Validation Engine error reporting integration test passed\n", .{});
 }
 
 test "incremental validation with ASTDB updates" {
@@ -157,7 +156,6 @@ test "incremental validation with ASTDB updates" {
     const current_unit = context.astdb.getUnit(unit_id).?;
     try testing.expectEqualStrings(updated_source, current_unit.source);
 
-    std.debug.print("✅ Incremental validation integration test passed\n", .{});
 }
 
 test "validation engine performance with large ASTDB" {
@@ -165,10 +163,10 @@ test "validation engine performance with large ASTDB" {
     var context = try ValidationAstDBContext.init(allocator);
     defer context.deinit();
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Create multiple compilation units
-    var unit_ids = std.ArrayList(AstDB.UnitId).init(allocator);
+    var unit_ids: std.ArrayList(AstDB.UnitId) = .empty;
     defer unit_ids.deinit();
 
     for (0..10) |i| {
@@ -193,11 +191,10 @@ test "validation engine performance with large ASTDB" {
         try testing.expect(validation_result.success);
     }
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const duration_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
 
     // Performance requirement: < 100ms for 10 units
     try testing.expect(duration_ms < 100.0);
 
-    std.debug.print("✅ Validation performance test passed: {d:.2}ms for 10 units\n", .{duration_ms});
 }

@@ -191,7 +191,7 @@ fn simulateASTDBOperations(allocator: std.mem.Allocator) !void {
     // Simulate typical ASTDB operations that must not leak memory
 
     // 1. String interning
-    var strings = std.ArrayList([]u8).init(allocator);
+    var strings: std.ArrayList([]u8) = .empty;
     defer {
         for (strings.items) |str| {
             allocator.free(str);
@@ -205,7 +205,7 @@ fn simulateASTDBOperations(allocator: std.mem.Allocator) !void {
     }
 
     // 2. CID computation
-    var cids = std.ArrayList([32]u8).init(allocator);
+    var cids: std.ArrayList([32]u8) = .empty;
     defer cids.deinit();
 
     for (0..50) |i| {

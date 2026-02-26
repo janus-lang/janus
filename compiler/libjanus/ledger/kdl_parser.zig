@@ -275,8 +275,8 @@ pub const Parser = struct {
 
     pub fn parseManifest(self: *Parser) !manifest.Manifest {
         var result = manifest.Manifest.init(self.allocator);
-        var dependencies = std.ArrayList(manifest.PackageRef).init(self.allocator);
-        var dev_dependencies = std.ArrayList(manifest.PackageRef).init(self.allocator);
+        var dependencies: std.ArrayList(manifest.PackageRef) = .empty;
+        var dev_dependencies: std.ArrayList(manifest.PackageRef) = .empty;
 
         while (self.current_token.type != .eof) {
             if (std.mem.eql(u8, self.current_token.value, "name")) {
@@ -327,7 +327,7 @@ pub const Parser = struct {
         try self.advance();
 
         var source: ?manifest.PackageRef.Source = null;
-        var capabilities = std.ArrayList(manifest.Capability).init(self.allocator);
+        var capabilities: std.ArrayList(manifest.Capability) = .empty;
 
         while (self.current_token.type != .right_brace) {
             if (std.mem.eql(u8, self.current_token.value, "git")) {

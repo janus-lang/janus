@@ -26,12 +26,12 @@ Janus grows with you through three carefully designed profiles that eliminate th
 
 **Example:**
 ```janus
-func fibonacci(n: number) -> number {
-    if n <= 1 {
+func fibonacci(n: number) -> number do
+    if n <= 1 do
         return n
-    }
+    end
     return fibonacci(n - 1) + fibonacci(n - 2)
-}
+end
 
 let result = fibonacci(10)
 print("Fibonacci(10) =", result)
@@ -56,21 +56,21 @@ type User = {
     email: string,
 }
 
-func (u: User) validate() -> error {
-    if u.email == "" {
+func (u: User) validate() -> error do
+    if u.email == "" do
         return Error.new("email required")
-    }
+    end
     return null
-}
+end
 
-func process_user(data: string) -> (User, error) {
+func process_user(data: string) -> (User, error) do
     let user = parse_user(data) or return (User{}, err)
     let validation_err = user.validate()
-    if validation_err != null {
+    if validation_err != null do
         return (User{}, validation_err)
-    }
+    end
     return (user, null)
-}
+end
 ```
 
 ## ⚡ `:sovereign` - Mastering & Optimizing
@@ -91,12 +91,12 @@ func process_user(data: string) -> (User, error) {
 actor UserManager {
     var users: Table[UserId, User] = {}
 
-    handle CreateUser(data: UserData, cap: Cap[DbWrite]) -> User!ValidationError {
+    handle CreateUser(data: UserData, cap: Cap[DbWrite]) -> User!ValidationError do
         let user = try validate_user_data(data)
         let saved_user = try database.save(user, cap)
         users[saved_user.id] = saved_user
         return saved_user
-    }
+    end
 }
 
 comptime {
@@ -105,16 +105,16 @@ comptime {
     emit_code(user_manager_api)
 }
 
-func main() {
+func main() do
     with context.with_capabilities(.db_read, .db_write) do
         let manager = spawn_actor(UserManager.new())
 
-        nursery {
+        nursery do
             spawn handle_http_requests(manager)
             spawn periodic_cleanup(manager)
-        }
+        end
     end
-}
+end
 ```
 
 ## The Magic: Seamless Compatibility

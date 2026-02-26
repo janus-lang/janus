@@ -53,9 +53,9 @@ The `///` prefix is **not a comment**. It is a **string literal** attached to th
 /// ```janus
 /// assert("Janus" |> frequencies() == {"J": 1, "a": 1, "n": 1, "u": 1, "s": 1})
 /// ```
-func frequencies(input: String) -> Map<String, i64> {
+func frequencies(input: String) -> Map<String, i64> do
     // Implementation...
-}
+end
 ```
 
 **Storage:** The ASTDB stores documentation as structured metadata:
@@ -122,9 +122,9 @@ When you run `janus test`, the compiler:
 /// assert("" |> reverse() == "")
 /// assert("a" |> reverse() == "a")
 /// ```
-pub func reverse(input: String) -> String {
+pub func reverse(input: String) -> String do
     // Implementation...
-}
+end
 ```
 
 **Test Output:**
@@ -207,9 +207,9 @@ Documentation uses **Markdown** with semantic sections:
 ///
 /// - `process_batch` — For processing multiple inputs
 /// - `validate` — For input validation without processing
-pub func process(input: String, options: Options) -> Result<Output, ProcessError> {
+pub func process(input: String, options: Options) -> Result<Output, ProcessError> do
     // ...
-}
+end
 ```
 
 ### Required Sections for Public API

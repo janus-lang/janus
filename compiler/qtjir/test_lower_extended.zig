@@ -121,11 +121,6 @@ test "Lower: Nested Expressions" {
 
     const ir_graph = &ir_graphs.items[0];
 
-    std.debug.print("\n=== Nested Graph Nodes ===\n", .{});
-    for (ir_graph.nodes.items, 0..) |node, i| {
-        std.debug.print("{d}: {s}\n", .{ i, @tagName(node.op) });
-    }
-
     // Should have 1 Add and 1 Mul
     var add_count: usize = 0;
     var mul_count: usize = 0;
@@ -212,11 +207,6 @@ test "Lower: Function Calls" {
     }
 
     const ir_graph = &ir_graphs.items[0];
-
-    std.debug.print("\n=== Call Graph Nodes ===\n", .{});
-    for (ir_graph.nodes.items, 0..) |node, i| {
-        std.debug.print("{d}: {s}\n", .{ i, @tagName(node.op) });
-    }
 
     // Find Call node
     var call_node_idx: ?usize = null;

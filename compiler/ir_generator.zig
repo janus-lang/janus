@@ -175,8 +175,8 @@ pub const IRGenerator = struct {
             .astdb = astdb,
             .next_register = 0,
             .next_block_id = 0,
-            .current_instructions = std.ArrayList(JanusIR.Instruction).init(allocator),
-            .current_blocks = std.ArrayList(JanusIR.BasicBlock).init(allocator),
+            .current_instructions = .empty,
+            .current_blocks = .empty,
         };
     }
 
@@ -252,7 +252,7 @@ pub const IRGenerator = struct {
 
     /// Generate parameter list from function node
     fn generateParameters(self: *Self, function_node: *const AstNode) IRGeneratorError![]JanusIR.Parameter {
-        var parameters = std.ArrayList(JanusIR.Parameter).init(self.allocator);
+        var parameters: std.ArrayList(JanusIR.Parameter) = .empty;
         defer parameters.deinit();
 
         // Find parameter list in function node children
@@ -479,7 +479,7 @@ pub const IRGenerator = struct {
         }
 
         // Generate arguments for standard functions
-        var args = std.ArrayList(u32).init(self.allocator);
+        var args: std.ArrayList(u32) = .empty;
         defer args.deinit();
 
         // Skip first child (function name) and process arguments

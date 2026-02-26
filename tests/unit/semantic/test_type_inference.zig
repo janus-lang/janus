@@ -7,6 +7,7 @@
 //! type inference, constraint generation, unification, and error detection.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const print = std.debug.print;
 
@@ -407,7 +408,7 @@ test "Type Inference - Performance Characteristics" {
 
     const num_constraints = 1000;
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Generate many constraints
     for (0..num_constraints) |i| {
@@ -434,7 +435,7 @@ test "Type Inference - Performance Characteristics" {
         }
     }
 
-    const generation_time = std.time.nanoTimestamp();
+    const generation_time = compat_time.nanoTimestamp();
     const generation_duration = @as(f64, @floatFromInt(generation_time - start_time)) / 1_000_000.0;
 
     print("   Constraint generation time: {d:.2f}ms for {} constraints\n", .{ generation_duration, num_constraints });
@@ -442,7 +443,7 @@ test "Type Inference - Performance Characteristics" {
     // Test constraint solving performance
     try inference.solveConstraints();
 
-    const solving_time = std.time.nanoTimestamp();
+    const solving_time = compat_time.nanoTimestamp();
     const solving_duration = @as(f64, @floatFromInt(solving_time - generation_time)) / 1_000_000.0;
 
     print("   Constraint solving time: {d:.2f}ms\n", .{solving_duration});

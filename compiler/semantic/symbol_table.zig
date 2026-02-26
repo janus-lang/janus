@@ -11,7 +11,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.array_list.Managed;
 // HashMap will be used with full std.HashMap syntax
-const Mutex = std.Thread.Mutex;
+const Mutex = @import("compat_mutex").Mutex;
 
 const astdb = @import("astdb");
 const Blake3 = std.crypto.hash.Blake3;

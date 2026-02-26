@@ -8,6 +8,7 @@
 //! rule enforcement.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 const print = std.debug.print;
 
@@ -357,7 +358,7 @@ test "Semantic Validator - Performance Characteristics" {
 
     const num_validations = 1000;
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Perform many profile checks
     for (0..num_validations) |i| {
@@ -380,7 +381,7 @@ test "Semantic Validator - Performance Characteristics" {
         try validator.control_flow.reachable_nodes.put(node_id, true);
     }
 
-    const validation_time = std.time.nanoTimestamp();
+    const validation_time = compat_time.nanoTimestamp();
     const validation_duration = @as(f64, @floatFromInt(validation_time - start_time)) / 1_000_000.0;
 
     print("   Validation time: {d:.2f}ms for {} checks\n", .{ validation_duration, num_validations });

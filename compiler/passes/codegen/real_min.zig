@@ -15,6 +15,7 @@
 //! - Integrates with existing ASTDB infrastructure
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const astdb_core = @import("astdb_core");
 
 /// ValueExtractor - Extracts real literal values from ASTDB tokens
@@ -101,7 +102,7 @@ pub const ValueExtractor = struct {
 
     /// Escape string for C literal (basic: \" \\ \n \t)
     pub fn escapeCString(self: *ValueExtractor, input: []const u8) ![]u8 {
-        var escaped = std.ArrayList(u8).init(self.allocator);
+        var escaped: std.ArrayList(u8) = .empty;
         defer escaped.deinit(); // But return duped
 
         for (input) |c| {
@@ -207,7 +208,7 @@ pub const RealMinCodegen = struct {
     pub fn init(allocator: std.mem.Allocator) RealMinCodegen {
         return RealMinCodegen{
             .allocator = allocator,
-            .output = std.ArrayList(u8).init(allocator),
+            .output = .empty,
             .source_text = null,
             .value_extractor = ValueExtractor.init(allocator),
             .identifier_extractor = IdentifierExtractor.init(allocator),
@@ -255,7 +256,7 @@ pub const RealMinCodegen = struct {
         const c_file_path = try std.fmt.allocPrint(self.allocator, "{s}.c", .{output_path});
         defer self.allocator.free(c_file_path);
 
-        const c_file = try std.fs.cwd().createFile(c_file_path, .{});
+        const c_file = try compat_fs.createFile(c_file_path, .{});
         defer c_file.close();
         try c_file.writeAll(self.output.items);
 
@@ -862,7 +863,7 @@ pub const RealMinCodegen = struct {
         defer self.allocator.free(exe_path);
 
         // Use zig cc for portable C compilation
-        var args = std.ArrayList([]const u8).init(self.allocator);
+        var args: std.ArrayList([]const u8) = .empty;
         defer args.deinit();
 
         try args.appendSlice(&[_][]const u8{ "zig", "cc", "-o", exe_path, c_file_path, "-std=c99", "-Wall", "-Wextra" });

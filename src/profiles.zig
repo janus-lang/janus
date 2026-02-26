@@ -142,8 +142,8 @@ pub const ProfileDetector = struct {
             }
         }
 
-        // Check environment variable
-        if (std.process.getEnvVarOwned(std.heap.page_allocator, "JANUS_PROFILE")) |env_profile| {
+        // Check environment variable (Zig 0.16: use Environ)
+        if (std.process.Environ.getAlloc(.empty, std.heap.page_allocator, "JANUS_PROFILE")) |env_profile| {
             defer std.heap.page_allocator.free(env_profile);
             if (Profile.fromString(env_profile)) |profile| {
                 return profile;

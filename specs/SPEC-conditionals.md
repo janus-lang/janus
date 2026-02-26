@@ -6,6 +6,11 @@
 
 ## 1. Introduction
 
+
+## Normative Language (RFC 2119)
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC 2119](https://tools.ietf.org/html/rfc2119).
+
 Conditional statements allow the execution of different code paths based on a boolean condition. In Janus, this is primarily achieved through the `if` and `else` keywords. [COND-01]
 
 ## 2. Syntax
@@ -13,11 +18,11 @@ Conditional statements allow the execution of different code paths based on a bo
 The syntax for a conditional statement is: [COND-02]
 
 ```janus
-if condition {
+if condition do
     // true path
-} else {
+else do
     // false path (optional)
-}
+end
 ```
 
 ## 3. Semantics

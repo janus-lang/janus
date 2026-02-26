@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Self Sovereign Society Foundation
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
+const compat_time = @import("compat_time");
 const packer = @import("packer.zig");
 
 pub const Entry = struct {
@@ -31,7 +33,7 @@ pub fn append(op: []const u8, pkg_name: []const u8, version: []const u8, pkg_pat
     defer allocator.free(path);
     // Ensure directory exists
     if (std.fs.path.dirname(path)) |dirp| {
-        try std.fs.cwd().makePath(dirp);
+        try compat_fs.makeDir(dirp);
     }
 
     var prev_hash_hex: []u8 = &[_]u8{};
@@ -61,7 +63,7 @@ pub fn append(op: []const u8, pkg_name: []const u8, version: []const u8, pkg_pat
     // Build canonical buffer for hashing
     var data = std.io.Writer.Allocating.init(allocator);
     defer data.deinit();
-    try data.writer.print("{s}|{s}|{s}|{s}|{s}|{?d}|{?d}|{d}|{s}", .{ op, pkg_name, version, pkg_path, hash_hex, sigs_valid, sigs_total, std.time.timestamp(), prev_hash_hex });
+    try data.writer.print("{s}|{s}|{s}|{s}|{s}|{?d}|{?d}|{d}|{s}", .{ op, pkg_name, version, pkg_path, hash_hex, sigs_valid, sigs_total, compat_time.timestamp(), prev_hash_hex });
 
     var h = std.crypto.hash.Blake3.init(.{});
     h.update(data.written());
@@ -80,7 +82,7 @@ pub fn append(op: []const u8, pkg_name: []const u8, version: []const u8, pkg_pat
     try obj.put("hash_b3", .{ .string = hash_hex });
     if (sigs_valid) |v| try obj.put("sigs_valid", .{ .integer = @intCast(v) });
     if (sigs_total) |v| try obj.put("sigs_total", .{ .integer = @intCast(v) });
-    try obj.put("timestamp", .{ .integer = @intCast(std.time.timestamp()) });
+    try obj.put("timestamp", .{ .integer = @intCast(compat_time.timestamp()) });
     try obj.put("prev_hash", .{ .string = prev_hash_hex });
     try obj.put("entry_hash", .{ .string = entry_hash_hex });
 
@@ -90,7 +92,7 @@ pub fn append(op: []const u8, pkg_name: []const u8, version: []const u8, pkg_pat
     try std.json.Stringify.value(root, .{ .whitespace = .minified }, &buf.writer);
 
     // Append line
-    var file = std.fs.cwd().createFile(path, .{ .truncate = false, .read = true }) catch |e| switch (e) {
+    var file = compat_fs.createFile(path, .{ .truncate = false, .read = true }) catch |e| switch (e) {
         error.PathAlreadyExists => try std.fs.cwd().openFile(path, .{ .mode = .read_write }),
         else => return e,
     };

@@ -5,6 +5,7 @@
 // Write helpers with close-on-drop guarantees and content integrity verification
 
 const std = @import("std");
+const compat_fs = @import("compat_fs");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const Context = @import("std_context.zig").Context;
@@ -164,7 +165,7 @@ pub const FileWriter = struct {
         if (options.exclusive) flags.create = .exclusive;
         if (options.append) flags.append = true;
 
-        const file = std.fs.cwd().createFile(path, flags) catch |err| switch (err) {
+        const file = compat_fs.createFile(path, flags) catch |err| switch (err) {
             error.FileNotFound => return FsError.FileNotFound,
             error.AccessDenied => return FsError.PermissionDenied,
             error.NotDir => return FsError.NotDir,
@@ -459,7 +460,7 @@ test "FileWriter basic functionality" {
     const test_file = "/tmp/file_writer_test.txt";
     const test_data = "File writer test data";
 
-    defer std.fs.cwd().deleteFile(test_file) catch {};
+    defer compat_fs.deleteFile(test_file) catch {};
 
     // Test basic writing
     var writer = try FileWriter.init(test_file, WriteOptions{
@@ -476,7 +477,7 @@ test "FileWriter basic functionality" {
     try testing.expect(result.cid != null);
 
     // Verify file content
-    const content = try std.fs.cwd().readFileAlloc(allocator, test_file, 1024);
+    const content = try compat_fs.readFileAlloc(allocator, test_file, 1024);
     defer allocator.free(content);
 
     try testing.expect(std.mem.eql(u8, content, test_data));
@@ -489,7 +490,7 @@ test "CID file verification" {
     const test_file = "/tmp/cid_verify_test.txt";
     const test_data = "CID verification test";
 
-    defer std.fs.cwd().deleteFile(test_file) catch {};
+    defer compat_fs.deleteFile(test_file) catch {};
 
     // Create file and get its CID
     const expected_cid = try createTestFileWithCid(test_file, test_data, allocator);
@@ -510,7 +511,7 @@ test "Tri-signature pattern for write operations" {
     const test_file = "/tmp/write_tri_sig.txt";
     const test_data = "Tri-signature write test";
 
-    defer std.fs.cwd().deleteFile(test_file) catch {};
+    defer compat_fs.deleteFile(test_file) catch {};
 
     // Test :min profile
     {
@@ -548,7 +549,7 @@ test "CID round-trip integrity" {
     const test_file = "/tmp/cid_roundtrip.txt";
     const test_data = "Round-trip integrity test";
 
-    defer std.fs.cwd().deleteFile(test_file) catch {};
+    defer compat_fs.deleteFile(test_file) catch {};
 
     // Test complete round-trip
     try testing.expect(try testCidRoundTrip(test_file, test_data, allocator));
@@ -560,13 +561,13 @@ test "Write options behavior" {
 
     const test_file = "/tmp/write_options_test.txt";
 
-    defer std.fs.cwd().deleteFile(test_file) catch {};
+    defer compat_fs.deleteFile(test_file) catch {};
 
     // Test append mode
     try writeFile(test_file, "First", WriteOptions{ .create = true }, allocator);
     try writeFile(test_file, "Second", WriteOptions{ .append = true }, allocator);
 
-    const content = try std.fs.cwd().readFileAlloc(allocator, test_file, 1024);
+    const content = try compat_fs.readFileAlloc(allocator, test_file, 1024);
     defer allocator.free(content);
 
     try testing.expect(std.mem.eql(u8, content, "FirstSecond"));

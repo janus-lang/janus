@@ -19,7 +19,7 @@ pub fn main() !void {
     std.debug.print("🧪 Simple MessagePack Protocol Test\n", .{});
 
     // Create a simple ping request manually
-    var msgpack_data = std.ArrayList(u8).init(allocator);
+    var msgpack_data: std.ArrayList(u8) = .empty;
     defer msgpack_data.deinit();
 
     // Create: {"id": 1, "type": "ping", "timestamp": 1000000000, "payload": {"echo_data": "test"}}

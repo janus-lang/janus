@@ -32,37 +32,37 @@ Code flows like water. You dig the canals.
 
 ### `if / else` (The Fork)
 ```janus
-if atoms > 0 {
+if atoms > 0 do
     print("Matter exists.")
-} else {
+else do
     print("Void.")
-}
+end
 ```
 
 ### `for` (The Cycle)
  Iterate over known bounds.
 ```janus
-for i in 0..10 {
+for i in 0..10 do
     print("Iteration", i)
-}
+end
 ```
 
 ### `while` (The Siege)
 Iterate until a condition breaks.
 ```janus
 let power = 1
-while power < 1000 {
+while power < 1000 do
     power = power * 2
-}
+end
 ```
 
 ## 3. The Verbs (Functions)
 Encapsulate logic. Input -> Output.
 
 ```janus
-func calculate_force(mass: number, accel: number) -> number {
+func calculate_force(mass: number, accel: number) -> number do
     return mass * accel
-}
+end
 ```
 
 ## 4. The Exercise: FizzBuzz (The Gatekeeper)
@@ -74,19 +74,19 @@ Write a program that prints numbers 1 to 100.
 **Why?** Because if you can control flow and logic, you can build anything.
 
 ```janus
-func fizzbuzz(n: number) {
-    for i in 1..n {
-        if i % 15 == 0 {
+func fizzbuzz(n: number) do
+    for i in 1..n do
+        if i % 15 == 0 do
             print("FizzBuzz")
-        } else if i % 3 == 0 {
+        else if i % 3 == 0 do
             print("Fizz")
-        } else if i % 5 == 0 {
+        else if i % 5 == 0 do
             print("Buzz")
-        } else {
+        else do
             print(i)
-        }
-    }
-}
+        end
+    end
+end
 ```
 
 This is the foundation. Master it.

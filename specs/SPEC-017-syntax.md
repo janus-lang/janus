@@ -6,11 +6,13 @@ Copyright (c) 2026 Self Sovereign Society Foundation
 # SPEC-017: Janus Language Grammar Specification
 
 **Status**: Active
-**Version**: 1.1.0
-**Date**: 2026-01-25
-**Supersedes**: specs/legacy/syntax.md
+**Version**: 1.3.0
+**Date**: 2026-02-23
+**Supersedes**: SPEC-017 v1.2.0, RFC-017 (Rebinding)
 
-The **Janus Surface Grammar v1.1.0 (Immutable Lock-in)** — hardened for a decade of evolution. This specification prioritizes **comprehension over keystrokes** and **predictability over flexibility**, based on cognitive science and human factors engineering.
+The **Janus Surface Grammar v1.3.0 (Immutable Lock-in)** — hardened for a decade of evolution. This specification prioritizes **comprehension over keystrokes** and **predictability over flexibility**, based on cognitive science and human factors engineering.
+
+**v1.3.0 Changelog:** Absorbed RFC-017 (Rebinding) as Law 10. Rebinding is a *scoping mechanism*, not syntactic sugar. RFC-017 is retired.
 
 ---
 
@@ -49,13 +51,104 @@ A call with **zero arguments** MUST use `()`, regardless of context.
 
 We codify the psychological separation of "Doing" vs "Defining" for visual parsing.
 
-| Context | Delimiter | Shape Goal |
-|:--------|:----------|:-----------|
-| `if`, `else`, `while`, `for`, `using`, `func body` | `do..end` | Vertical, linear, imperative flow |
-| `match`, `enum`, `struct`, `flags`, table/map literals | `{ }` | Contained, set-based, declarative |
+> **The One Rule:** Does this construct *execute statements in sequence* (imperative) or *describe a shape/set* (declarative)?
+> `do..end` = imperative. `{ }` = declarative. No exceptions.
 
-- **Imperative Flow** creates a vertical "tunnel" shape.
-- **Declarative Structure** creates a "container" shape.
+#### Decision Algorithm (For Parsers, Humans, and AI Agents)
+
+```
+1. Does the construct body contain EXECUTABLE STATEMENTS?
+   (assignments, returns, control flow, side effects, function calls)
+   ├─ YES → do...end
+   └─ NO  → { }  (body contains only declarations, signatures, field lists, or patterns)
+
+2. Can you REORDER the items inside without changing semantics?
+   ├─ YES (it's a set/shape)  → { }
+   └─ NO  (it's a sequence)   → do...end
+
+3. A construct uses { } but CONTAINS sub-constructs that use do...end?
+   → CORRECT. The container is structural; the contents are imperative.
+     Example: impl { } wrapping func do...end bodies.
+```
+
+#### `{ }` — Declarative / Structural ("What IS this thing?")
+
+| Construct | Why `{ }` | Example |
+|:----------|:----------|:--------|
+| `struct` | Pure data layout. Field declarations. No logic. | `struct Point { x: f64, y: f64 }` |
+| `enum` | Variant set. "One of these shapes." | `enum Color { Red, Green, Blue }` |
+| `flags` | Bit-field set. Named positions in a bitmask. | `flags Perms { Read = 1, Write = 2 }` |
+| `match` | Pattern mapping. Input → output by shape. | `match expr { Pat => result }` |
+| `trait` | Interface shape. Method signatures as contract. No code executes. | `trait Hash { func hash(self) -> u64 }` |
+| `impl` | Method collection. Maps methods → type. Declarative container. | `impl Hash for Point { func hash(self) -> u64 do ... end }` |
+| table/map literal | Data container. Key-value shape. | `{ name: "Janus", ver: 1 }` |
+| variant payload | Nested structure inside enum variant. | `Connected { ip: String, port: u16 }` |
+
+#### `do ... end` — Imperative / Flow ("What does this thing DO?")
+
+| Construct | Why `do...end` | Example |
+|:----------|:---------------|:--------|
+| `func` body | Statements execute. Side effects happen. | `func run() do ... end` |
+| `if` / `else` | Conditional branching. Control flow. | `if ready do ... end` |
+| `for` | Iteration. Sequential execution. | `for x in items do ... end` |
+| `while` | Loop. Repeated execution. | `while alive do ... end` |
+| `using` / `with` | Scoped resource management. | `with ctx do ... end` |
+| `test` | Test body. Imperative assertions. | `test "it works" do ... end` |
+| `spec` | BDD spec body. Imperative verification. | `spec "behavior" do ... end` |
+| `foreign` | FFI block. Imperative binding. | `foreign libc as C do ... end` |
+| method body inside `impl` | The method *does things*. | `func hash(self) -> u64 do ... end` |
+
+#### The `trait` / `impl` Clarification (Common Source of Confusion)
+
+A `trait` block is **not** imperative. It declares a *contract shape*; a set of method signatures that must exist. No code executes. The signatures are structural constraints, not sequential operations. Reordering the signatures changes nothing.
+
+```janus
+// trait = "what methods must this type have?"
+// That's a SHAPE. Declarative. { }
+trait Serializable {
+  func serialize(self) -> string
+  func deserialize(data: []u8) -> !Self
+}
+```
+
+An `impl` block is a *collection*; it maps method implementations to a type. The impl block itself is structural ("these methods belong to this type"). But individual method bodies *inside* it are imperative; so those use `do...end`. This nesting is the rule *working correctly*:
+
+```janus
+// impl = declarative container { }
+//   └─ each func body = imperative do...end
+impl Serializable for User {
+  func serialize(self) -> string do
+    return $"{self.name}:{self.age}"
+  end
+
+  func deserialize(data: []u8) -> !User do
+    let parts = string.split(data, ":")
+    return User { name: parts[0], age: parse_int(parts[1])? }
+  end
+}
+```
+
+#### Standalone `impl` (Methods Without a Trait)
+
+```janus
+// Attaching methods directly to a type. Still declarative container.
+impl Point {
+  func distance(self, other: Point) -> f64 do
+    let dx = self.x - other.x
+    let dy = self.y - other.y
+    return math.sqrt(dx * dx + dy * dy)
+  end
+}
+```
+
+#### Why `struct` Is Never `do...end`
+
+A struct is a *data layout*. Fields are not statements. You cannot "execute" a field declaration. There is no temporal ordering; `{ x: i32, y: i32 }` and `{ y: i32, x: i32 }` are semantically identical at the declaration level. Memory layout is a backend concern, not a syntax concern.
+
+```janus
+struct Point { x: f64, y: f64 }           // ✅ Declarative shape
+struct Rect { origin: Point, size: Size }  // ✅ Still just a shape
+```
 
 ---
 
@@ -109,7 +202,138 @@ These are the ONLY syntactic sugars. No others will be added post-1.0.
 4.  **String Interpolation:** `$"Value: {x}"` (Compile-time validated)
 5.  **Pipeline:** `data |> transform()` (Left-to-right composition)
 
+---
 
+### Law 10: Binding Shadowing (Immutable Rebinding)
+
+A `let` declaration may shadow a previously declared binding of the same name within a scope. This is a **scoping mechanism**, not syntactic sugar. Each `let` creates a genuinely new, independent binding; the previous binding becomes inaccessible but continues to exist for its remaining lifetime.
+
+> **Rebinding is immutable value refinement. It looks like mutation; it behaves like values.**
+
+#### The Rule
+
+```janus
+let x = 1       // x: i32 = 1
+let x = x + 1   // x: i32 = 2 (NEW binding, shadows previous)
+let x = $"{x}"  // x: string = "2" (NEW binding, different type allowed)
+```
+
+#### Why This Is a Mechanism, Not Sugar
+
+Rebinding is how *all* scoping works internally; shadowing is the scoping rule being permissive rather than restrictive. The compiler assigns unique SSA names to each binding. There is no transformation, no rewrite, no desugar step. The name resolution simply allows a new binding to occlude a previous one in the same scope. This is *mechanism*.
+
+The internal representation is equivalent to:
+
+```
+let x_0 = 1
+let x_1 = x_0 + 1
+let x_2 = $"{x_1}"
+// x refers to x_2 after this point
+```
+
+This can be inspected with `janus query desugar`:
+
+```bash
+$ janus query desugar file.jan
+# Shows unique internal names for each binding
+```
+
+#### Type Change Is Allowed
+
+Because each `let` creates a genuinely new binding, the type may change:
+
+```janus
+let data = "123"            // data: string
+let data = i32.parse(data)  // data: i32 (different type)
+```
+
+#### `var` Interaction Rules
+
+These rules prevent confusion between mutable and immutable bindings:
+
+| Shadow Source | Shadow Target | Allowed? | Rationale |
+|:-------------|:-------------|:---------|:----------|
+| `let` | `let` | ✅ Yes | Core rebinding mechanism |
+| `var` | `var` | ✅ Yes | New mutable binding |
+| `var` → `let` | — | ❌ No | Ambiguous: does `x` refer to mutable or immutable? |
+| `let` → `var` | — | ❌ No | Same ambiguity; pick one and stick with it |
+
+```janus
+// ✅ let shadows let
+let x = 1
+let x = x + 1
+
+// ✅ var shadows var
+var x = 1
+var x = x + 1    // New mutable binding
+
+// ❌ Cross-kind shadowing is forbidden
+var x = 1
+let x = 2        // Error: Cannot shadow mutable 'var x' with 'let x'
+
+let y = 1
+var y = 2        // Error: Cannot shadow immutable 'let y' with 'var y'
+```
+
+#### Scope Rules
+
+Block scope is standard. Inner shadows do not leak:
+
+```janus
+let x = 1
+if condition do
+    let x = 100   // Shadows outer x within this block
+    print(x)      // Prints: 100
+end
+print(x)          // Prints: 1 (outer x unchanged)
+```
+
+Function parameters may be shadowed:
+
+```janus
+func process(input: string) -> string do
+    let input = input.trim()      // Shadows parameter
+    let input = input.to_upper()  // Shadows previous
+    return input
+end
+```
+
+#### Idiomatic Usage: Data Transformation Pipelines
+
+Rebinding eliminates naming fatigue in sequential transformations:
+
+```janus
+func fetch_user(id: i32) -> User!Error do
+    let response = http.get($"/api/users/{id}")
+    let response = response?             // Propagate error
+    let response = json.parse(response)?
+    let user = User.from_json(response)?
+    let user = user.validate()?
+    return user
+end
+```
+
+```janus
+let config = Config.defaults()
+let config = config.merge(file_config)?
+let config = config.merge(env_config)?
+let config = config.merge(cli_config)?
+use_config(config)
+```
+
+#### Profile Availability
+
+Rebinding is available in **all profiles** (`:core`, `:script`, `:service`, `:sovereign`). It reinforces immutability, simplifies code, and has zero runtime cost.
+
+#### Diagnostics
+
+| Condition | Diagnostic |
+|:----------|:-----------|
+| Shadowed binding never used | Warning: unused shadow (linter) |
+| Cross-kind shadow (`let`/`var` mixing) | Error: cannot shadow `{kind} {name}` with `{other_kind}` |
+| Shadow hides capture in closure | Warning: shadow occludes captured binding |
+
+---
 
 ## Core Grammar (Concise PEG/EBNF)
 
@@ -133,7 +357,7 @@ KW          <- 'let'/'var'/'func'/'type'/'if'/'else'/'for'/'in'/'match'
              / 'do'/'end'/'return'/'comptime'/'export'/'import'
              / 'and'/'or'/'not'/'true'/'false'/'null'
              / 'with'/'using'/'while'/'where'/'when'/'as'/'use'/'enum'/'flags'
-             / 'yield'/'test'/'spec'/'assert'
+             / 'yield'/'test'/'spec'/'assert'/'trait'/'impl'/'self'/'Self'
 
 
 KW_NPU      <- 'tensor'/'stream'/'event'/'on'
@@ -156,7 +380,9 @@ import_path <- STRING / IDENT ( '::' IDENT )*
 ### Top-Level Declarations
 
 ```peg
-toplevel_decl <- const_decl / var_decl / func_decl / type_decl / enum_decl / test_decl / spec_decl / graft_decl / foreign_decl / comptime_block
+toplevel_decl <- const_decl / var_decl / func_decl / type_decl / enum_decl
+              / trait_decl / impl_decl
+              / test_decl / spec_decl / graft_decl / foreign_decl / comptime_block
 
 const_decl  <- 'let' IDENT ( ':' type )? ':=' expr NL
              / 'let' IDENT ':' type '=' expr NL
@@ -165,6 +391,18 @@ func_decl   <- attr? 'func' IDENT param_list? ret_type? where_clause? contract_b
              / attr? 'func' IDENT param_list? ret_type? capability_clause? contract_block? block
 type_decl   <- 'type' IDENT '=' type NL
 enum_decl   <- 'enum' IDENT generic_params? '{' enum_variants '}'
+
+# === TRAIT / IMPL: Declarative containers (Law 2: { } for shapes) ===
+# trait = interface contract. Method signatures only. No executable code.
+# impl  = method collection. Maps methods to a type. Contains func decls with do..end bodies.
+trait_decl  <- 'trait' IDENT generic_params? '{' trait_members '}'
+trait_members <- ( trait_method ( NL trait_method )* )?
+trait_method <- attr? 'func' IDENT param_list? ret_type?       # signature only, no body
+
+impl_decl   <- 'impl' IDENT 'for' IDENT '{' impl_members '}'  # trait impl
+             / 'impl' IDENT '{' impl_members '}'               # standalone impl
+impl_members <- ( impl_method ( NL impl_method )* )?
+impl_method  <- attr? 'func' IDENT param_list? ret_type? block # full method with do..end body
 
 # === PROBATIO: Integrated Verification ===
 # Tests and specs are first-class top-level declarations (Amendment 1).
@@ -237,6 +475,26 @@ simple_stmt <- assign / return / expr
 assign      <- lvalue '=' expr
 lvalue      <- primary ( '.' IDENT | '[' expr ']' )*
 return      <- 'return' expr?
+```
+
+### Binding Declarations & Shadowing (Law 10)
+
+```peg
+# Law 10: let-shadows-let, var-shadows-var, no cross-kind shadowing.
+# The parser accepts all let/var declarations normally.
+# Semantic analysis enforces shadow legality:
+#   - let IDENT where IDENT already bound by let → legal (new binding)
+#   - var IDENT where IDENT already bound by var → legal (new binding)
+#   - let IDENT where IDENT already bound by var → ERROR
+#   - var IDENT where IDENT already bound by let → ERROR
+
+const_decl  <- 'let' IDENT ( ':' type )? ':=' expr NL
+             / 'let' IDENT ':' type '=' expr NL
+var_decl    <- 'var' IDENT ( ':' type )? ':=' expr NL
+
+# Each declaration creates a new symbol table entry.
+# Previous same-name entries in the same scope are occluded, not replaced.
+# The occluded binding's lifetime is unaffected.
 ```
 
 ### Expressions (No Cryptic Soup)
@@ -534,6 +792,7 @@ end
 - **Paren-less calls** terminate at newline or before trailing block
 - **Range operators** are non-chainable: `a..b..c` is a parse error
 - **Module paths** use dot separator: `import std.http` (not `std::http`)
+- **Binding shadowing** (Law 10) requires no parser changes; enforced in semantic analysis
 
 ## Semantic Clarifications
 
@@ -556,6 +815,15 @@ end
 - `enum Color { Red, Green, Blue }` ≡ closed sum with nullary constructors
 - `flags Perm { Read=1<<0, Write=1<<1 }` ≡ typed bitmask with named operations
 - No operator overloading: use `perm.has(.Read)`, `perm.add(.Write)` methods
+
+### Binding Shadow Semantics (Law 10 Implementation Detail)
+
+Shadow resolution in semantic analysis follows these rules:
+
+1. When a `let` or `var` declaration is encountered, check if the name already exists in the *current scope* (not parent scopes; those are normal nested shadowing).
+2. If the existing binding and new binding are the same kind (`let`/`let` or `var`/`var`), create a new symbol table entry. The previous entry is marked *occluded* but retains its lifetime.
+3. If the kinds differ, emit a cross-kind shadow error with the locations of both declarations.
+4. The optimizer may eliminate dead occluded bindings when no references remain.
 
 ### Token Precedence for Lexing
 - Lex longest first: `...` (bit-pattern), then `..<` (half-open), then `..`, then `.`
@@ -636,6 +904,27 @@ database.transaction do |txn|
 end
 ```
 
+### Rebinding in Action (Law 10)
+
+```janus
+// Data transformation pipeline — no naming hell
+func load_config(path: string) -> Config!Error do
+    let content = fs.read(path)?
+    let content = content.trim()
+    let config = toml.parse(content)?
+    let config = config.validate()?
+    return config
+end
+
+// Numeric processing — always 'n', always refined
+let n = read_input()
+let n = n.trim()
+let n = i32.parse(n)?
+let n = n * 2
+let n = n.abs()
+print($"Result: {n}")
+```
+
 ### Tables vs Blocks (No Ambiguity)
 
 ```janus
@@ -664,6 +953,38 @@ cfg := read_file "/etc/app.conf", cap: fs_read or do |err|
 end
 
 user := try database.find_user id
+```
+
+### Traits & Impl: Law 2 in Action (Declarative Container, Imperative Bodies)
+
+```janus
+// trait = shape contract. { } because it's a set of signatures.
+trait Hashable {
+  func hash(self) -> u64
+  func eq(self, other: Self) -> bool
+}
+
+// struct = data layout. { } because it's a field set.
+struct User { name: string, id: u64 }
+
+// impl = method collection. { } because it maps methods to a type.
+// Each method body = imperative. do...end because code executes.
+impl Hashable for User {
+  func hash(self) -> u64 do
+    return self.id
+  end
+
+  func eq(self, other: User) -> bool do
+    return self.id == other.id
+  end
+}
+
+// Standalone impl (no trait). Same rules apply.
+impl User {
+  func display(self) -> string do
+    return $"User({self.name}, #{self.id})"
+  end
+}
 ```
 
 ### Algebraic Data Types: The Doctrine of Revealed Complexity
@@ -929,7 +1250,8 @@ log.info("User action", action: "login", **tags)
 - **Ruby/Smalltalk feel**: optional parens for readability, keyword-ish named args, `{…}` / `do…end` blocks that read like prose
 - **No lies**: zero-arg calls need `()`. Fields are not methods. Curly blocks are unambiguous (`|…|`)
 - **Parser-ready**: you can implement this grammar as-is (recursive descent or PEG). No whitespace magic, no operator overloading traps
-- **Architectural Clarity**: `do..end` for imperative flow, `{}` for declarative structures
+- **Architectural Clarity**: `do..end` for imperative flow, `{}` for declarative structures. `trait { }` / `impl { }` are declarative containers; method bodies inside are `do..end`. The nesting is the rule working correctly, not an exception.
+- **Value Refinement**: Rebinding (Law 10) eliminates naming hell while reinforcing immutability. No mutation; just new values.
 
 ## Implementation Notes
 
@@ -940,8 +1262,10 @@ log.info("User action", action: "login", **tags)
 - This grammar can be implemented directly with recursive descent or PEG parsers
 - No context-sensitive parsing required - all ambiguities resolved syntactically
 - **Match statement**: ONLY `match expr { ... }` is valid. No `do ... end` variant.
+- **Trait/Impl blocks**: ONLY `trait Name { ... }` and `impl Name { ... }` are valid. They are declarative containers (Law 2). Method bodies inside impl use `do...end` per normal function rules.
+- **Binding shadowing** (Law 10): No parser changes required. Enforced entirely in semantic analysis. Each shadowed binding gets a unique SSA name in codegen. The optimizer eliminates dead occluded bindings.
 
-This specification provides the complete syntactic foundation for implementing a Janus parser with unambiguous tokenization, precedence rules, and honest semantic mapping.
+This specification provides the complete syntactic foundation for implementing a Janus parser with unambiguous tokenization, precedence rules, honest semantic mapping, and principled binding semantics.
 
 ---
 
@@ -985,6 +1309,14 @@ The mitigation (profiles are **vertical**, not thematic) is sound _if enforced_.
 
 This is Law. Write it into governance. Enforce it without exception.
 
+### On Rebinding — Mechanism, Not Sugar
+
+> Rebinding is the scoping rule being *permissive*. The absence of rebinding would be the *policy*.
+
+The decision to classify rebinding as a mechanism (Law 10) rather than syntactic sugar (Law 9) follows from first principles. Sugar implies a transformation from one surface form to another. Rebinding involves no transformation; it is the natural behavior of lexical scoping when same-name declarations are permitted. Every language with lexical scoping *already* supports nested-scope shadowing. Law 10 simply extends this permission to the same scope level.
+
+The cross-kind prohibition (`let` cannot shadow `var` and vice versa) is the *policy* layer on top of the mechanism. This is **Mechanism > Policy** in action: the scoping mechanism permits shadowing; the policy restricts it at kind boundaries to prevent ambiguity.
+
 ### The "Ethical" Frame — This is the Bet
 
 > That's not "ergonomic". That's _ethical_.
@@ -1005,5 +1337,7 @@ Janus refuses to hide. The capability clause is a _confession_. The error type i
 ---
 
 **IMMUTABLE LOCK-IN v1.0.0 — December 12, 2025**
+**Amendment v1.2.0 — February 23, 2026: Law 2 Exhaustive Taxonomy & trait/impl Grammar**
+**Amendment v1.3.0 — February 23, 2026: Law 10 (Binding Shadowing). Absorbs RFC-017. Rebinding classified as mechanism.**
 
-This syntax is now frozen. Changes after this point require RFC process and community consensus. The Command/Call Law (Law 1) and Structural Divide (Law 2) are the defining characteristics of Janus and will not change.
+This syntax is now frozen. Changes after this point require RFC process and community consensus. The Command/Call Law (Law 1) and Structural Divide (Law 2) are the defining characteristics of Janus and will not change. The v1.3.0 amendment adds Law 10 (Binding Shadowing), absorbing and retiring RFC-017-rebinding.md. No new syntax is introduced; the amendment formalizes same-scope shadowing semantics and cross-kind prohibition rules.

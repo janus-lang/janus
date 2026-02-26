@@ -24,31 +24,31 @@ This RFC formalizes **Postfix Guard Clauses** — allowing `when` and `unless` t
 
 ### The Problem: Pyramid of Doom
 ```janus
-func process(user: User?) -> Result {
-    if user == null {
+func process(user: User?) -> Result do
+    if user == null do
         return Error.NotFound
-    }
-    if not user.is_active {
+    end
+    if not user.is_active do
         return Error.Inactive
-    }
-    if user.balance < 0 {
+    end
+    if user.balance < 0 do
         return Error.InsufficientFunds
-    }
+    end
     // Finally, the actual logic
     return do_work(user)
-}
+end
 ```
 
 ### The Postfix Solution
 ```janus
-func process(user: User?) -> Result {
+func process(user: User?) -> Result do
     return Error.NotFound when user == null
     return Error.Inactive when not user.is_active
     return Error.InsufficientFunds when user.balance < 0
-    
+
     // Linear flow, no nesting
     return do_work(user)
-}
+end
 ```
 
 ### Strategic Value (The "Sticky" Part)
@@ -79,14 +79,14 @@ return Error.NotFound when user == null
 
 ### Multiple Guards
 ```janus
-func validate(request: Request) -> Result {
+func validate(request: Request) -> Result do
     return Error.MissingAuth when request.auth == null
     return Error.BadMethod when request.method != "POST"
     return Error.TooLarge when request.body.len > MAX_SIZE
-    return Error.RateLimited when rate_limiter.check(request.ip) 
-    
+    return Error.RateLimited when rate_limiter.check(request.ip)
+
     return process(request)
-}
+end
 ```
 
 ### With `unless` (Inverse Logic)

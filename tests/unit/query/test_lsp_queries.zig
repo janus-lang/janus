@@ -5,6 +5,7 @@
 // Task 2.4: NodeAt, DefOf, RefsOf, TypeOf, Diag queries for VSCode integration
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const testing = std.testing;
 
 // Source position for LSP queries
@@ -543,7 +544,7 @@ test "LSP queries performance within latency targets" {
         });
     }
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Perform multiple queries
     const position = SourcePosition{ .line = 1, .column = 5, .byte_offset = 4 };
@@ -557,7 +558,7 @@ test "LSP queries performance within latency targets" {
     const diagnostics = try engine.diag();
     defer allocator.free(diagnostics);
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const duration_ms = @as(f64, @floatFromInt(end_time - start_time)) / 1_000_000.0;
 
     // Should complete within 10ms for 1000 nodes

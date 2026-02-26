@@ -173,6 +173,86 @@ export fn janus_string_concat_cstr(s1: [*:0]const u8, s2: [*:0]const u8) callcon
 }
 
 // ============================================================================
+// String Query Intrinsics (C-string, null-terminated)
+// ============================================================================
+
+/// str_contains(s, sub) → 1 if s contains sub, 0 otherwise
+export fn janus_str_contains(a: [*:0]const u8, b: [*:0]const u8) callconv(.c) i32 {
+    const ha = std.mem.span(a);
+    const ne = std.mem.span(b);
+    return if (std.mem.indexOf(u8, ha, ne) != null) 1 else 0;
+}
+
+/// str_starts_with(s, prefix) → 1 if s starts with prefix, 0 otherwise
+export fn janus_str_starts_with(a: [*:0]const u8, b: [*:0]const u8) callconv(.c) i32 {
+    const ha = std.mem.span(a);
+    const pre = std.mem.span(b);
+    return if (std.mem.startsWith(u8, ha, pre)) 1 else 0;
+}
+
+/// str_ends_with(s, suffix) → 1 if s ends with suffix, 0 otherwise
+export fn janus_str_ends_with(a: [*:0]const u8, b: [*:0]const u8) callconv(.c) i32 {
+    const ha = std.mem.span(a);
+    const suf = std.mem.span(b);
+    return if (std.mem.endsWith(u8, ha, suf)) 1 else 0;
+}
+
+/// str_equals(a, b) → 1 if equal, 0 otherwise
+export fn janus_str_equals(a: [*:0]const u8, b: [*:0]const u8) callconv(.c) i32 {
+    return if (std.mem.eql(u8, std.mem.span(a), std.mem.span(b))) 1 else 0;
+}
+
+/// str_compare(a, b) → -1 if a < b, 0 if equal, 1 if a > b
+export fn janus_str_compare(a: [*:0]const u8, b: [*:0]const u8) callconv(.c) i32 {
+    const order = std.mem.order(u8, std.mem.span(a), std.mem.span(b));
+    return switch (order) {
+        .lt => -1,
+        .eq => 0,
+        .gt => 1,
+    };
+}
+
+/// str_index_of(s, needle) → byte index of first occurrence, or -1
+export fn janus_str_index_of(a: [*:0]const u8, b: [*:0]const u8) callconv(.c) i32 {
+    const ha = std.mem.span(a);
+    const ne = std.mem.span(b);
+    return if (std.mem.indexOf(u8, ha, ne)) |idx| @intCast(idx) else -1;
+}
+
+/// str_length(s) → byte length
+export fn janus_str_length(s: [*:0]const u8) callconv(.c) i32 {
+    return @intCast(std.mem.span(s).len);
+}
+
+/// str_is_empty(s) → 1 if length == 0, 0 otherwise
+export fn janus_str_is_empty(s: [*:0]const u8) callconv(.c) i32 {
+    return if (std.mem.span(s).len == 0) 1 else 0;
+}
+
+/// str_char_count(s) → number of UTF-8 codepoints, or -1 on invalid UTF-8
+export fn janus_str_char_count(s: [*:0]const u8) callconv(.c) i32 {
+    const slice = std.mem.span(s);
+    var count: i32 = 0;
+    var i: usize = 0;
+    while (i < slice.len) {
+        const byte_len = std.unicode.utf8ByteSequenceLength(slice[i]) catch return -1;
+        if (i + byte_len > slice.len) return -1;
+        if (byte_len > 1) {
+            _ = std.unicode.utf8Decode(slice[i..][0..byte_len]) catch return -1;
+        }
+        count += 1;
+        i += byte_len;
+    }
+    return count;
+}
+
+/// str_is_valid_utf8(s) → 1 if valid UTF-8, 0 otherwise
+export fn janus_str_is_valid_utf8(s: [*:0]const u8) callconv(.c) i32 {
+    const slice = std.mem.span(s);
+    return if (std.unicode.utf8ValidateSlice(slice)) 1 else 0;
+}
+
+// ============================================================================
 // I/O API - Using C stdio for compatibility
 // ============================================================================
 
@@ -498,40 +578,57 @@ export fn janus_readFile(path: [*:0]const u8) callconv(.c) ?[*:0]u8 {
     const allocator = gpa.allocator();
     const path_slice = std.mem.span(path);
 
-    // Use std.fs.cwd() for blocking file read
-    const content = std.fs.cwd().readFileAlloc(
-        allocator,
-        path_slice,
-        std.math.maxInt(usize),
-    ) catch {
+    // Use POSIX openat for blocking file read (compatible with Zig 0.16)
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path_slice, .{}, 0) catch {
         return null;
     };
+    defer _ = std.os.linux.close(fd);
+
+    // fstat removed in Zig 0.16 — use statx with AT_EMPTY_PATH
+    var stx: std.os.linux.Statx = undefined;
+    if (std.os.linux.statx(fd, "", 0x1000, std.os.linux.STATX.BASIC_STATS, &stx) != 0) return null;
+    const size: usize = @intCast(stx.size);
+
+    const buffer = allocator.alloc(u8, size + 1) catch {
+        return null;
+    };
+
+    const bytes_read = std.os.linux.read(fd, buffer[0..size].ptr, size);
+    if (bytes_read != size) {
+        allocator.free(buffer);
+        return null;
+    }
+    
+    if (bytes_read != size) {
+        allocator.free(buffer);
+        return null;
+    }
+    buffer[size] = 0;
 
     // Allocate with C allocator for lifetime management
-    const c_buffer = std.c.malloc(content.len + 1) orelse {
-        allocator.free(content);
+    const c_buffer = std.c.malloc(size + 1) orelse {
+        allocator.free(buffer);
         return null;
     };
 
-    const result_slice: [*]u8 = @ptrCast(c_buffer);
-    @memcpy(result_slice[0..content.len], content);
-    result_slice[content.len] = 0;
-
-    allocator.free(content);
-    return @ptrCast(result_slice);
+    @memcpy(@as([*]u8, @ptrCast(c_buffer))[0 .. size + 1], buffer[0 .. size + 1]);
+    allocator.free(buffer);
+    return @ptrCast(c_buffer);
 }
 
 export fn janus_writeFile(path: [*:0]const u8, content: [*:0]const u8) callconv(.c) i32 {
     const path_slice = std.mem.span(path);
     const content_slice = std.mem.span(content);
 
-    // Use std.fs.cwd() for blocking file write
-    std.fs.cwd().writeFile(.{
-        .sub_path = path_slice,
-        .data = content_slice,
-    }) catch {
+    // Use POSIX openat for blocking file write (compatible with Zig 0.16)
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path_slice, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, 0o644) catch {
         return -1;
     };
+    defer _ = std.os.linux.close(fd);
+
+    // write removed from std.posix in 0.16 — use linux syscall
+    const written = std.os.linux.write(fd, content_slice.ptr, content_slice.len);
+    if (@as(isize, @bitCast(written)) < 0) return -1;
 
     return 0;
 }
@@ -888,12 +985,10 @@ pub fn Channel(comptime T: type) type {
         count: usize, // Current items in buffer
         capacity: usize,
 
-        // Synchronization
-        mutex: std.Thread.Mutex,
-        not_empty: std.Thread.Condition, // Signaled when data available
-        not_full: std.Thread.Condition, // Signaled when space available
-
-        // State
+        // Synchronization (compat Mutex/Condition for Zig 0.16 — std.Thread.Mutex removed)
+        mutex: @import("compat/mutex.zig").Mutex,
+        not_empty: @import("compat/mutex.zig").Condition,
+        not_full: @import("compat/mutex.zig").Condition,
         closed: std.atomic.Value(bool),
         allocator: std.mem.Allocator,
 
@@ -1302,8 +1397,10 @@ pub const SelectContext = struct {
     /// Wait for one case to become ready
     /// Returns the index of the ready case, or -1 on error
     fn wait(self: *SelectContext) i32 {
-        // Record start time for timeout handling
-        const start_time = std.time.nanoTimestamp();
+        // Record start time for timeout handling (Zig 0.16: use linux syscall directly)
+        var ts: std.os.linux.timespec = .{ .sec = 0, .nsec = 0 };
+        _ = std.os.linux.clock_gettime(.REALTIME, &ts);
+        const start_time = @as(u64, @intCast(ts.sec)) * 1_000_000_000 + @as(u64, @intCast(ts.nsec));
 
         // Find maximum timeout and set deadline
         var max_timeout_ns: u64 = 0;
@@ -1353,7 +1450,9 @@ pub const SelectContext = struct {
                         }
                     },
                     .timeout => {
-                        const now: u64 = @intCast(std.time.nanoTimestamp());
+                        var now_ts: std.os.linux.timespec = .{ .sec = 0, .nsec = 0 };
+                        _ = std.os.linux.clock_gettime(.REALTIME, &now_ts);
+                        const now: u64 = @as(u64, @intCast(now_ts.sec)) * 1_000_000_000 + @as(u64, @intCast(now_ts.nsec));
                         const elapsed = now -| @as(u64, @intCast(start_time));
                         if (elapsed >= c.timeout_ns) {
                             c.ready = true;
@@ -1379,7 +1478,9 @@ pub const SelectContext = struct {
 
             // Check timeout deadline
             if (self.has_timeout) {
-                const now: u64 = @intCast(std.time.nanoTimestamp());
+                var deadline_ts: std.os.linux.timespec = .{ .sec = 0, .nsec = 0 };
+                _ = std.os.linux.clock_gettime(.REALTIME, &deadline_ts);
+                const now: u64 = @as(u64, @intCast(deadline_ts.sec)) * 1_000_000_000 + @as(u64, @intCast(deadline_ts.nsec));
                 if (now >= self.timeout_deadline) {
                     // Find and return timeout case
                     for (self.cases[0..self.case_count], 0..) |*c, i| {
@@ -1391,8 +1492,8 @@ pub const SelectContext = struct {
                 }
             }
 
-            // Sleep with exponential backoff
-            std.Thread.sleep(sleep_ns);
+            // Sleep with exponential backoff (use nanosleep for blocking)
+            _ = std.c.nanosleep(&.{ .sec = 0, .nsec = @intCast(sleep_ns) }, null);
             sleep_ns = @min(sleep_ns * 2, max_sleep_ns);
         }
     }

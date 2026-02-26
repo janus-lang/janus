@@ -8,6 +8,7 @@
 //! focusing on simplicity, performance, and zero-overhead resource management.
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const Allocator = std.mem.Allocator;
 const UsingStmt = @import("../ast/using_stmt.zig").UsingStmt;
 
@@ -122,23 +123,23 @@ pub const ResourceRegistryMin = struct {
 
     /// Execute cleanup for a frame in LIFO order
     fn cleanupFrame(self: *Self, frame: *ResourceFrame) !void {
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         // Sort resources by registration order (descending for LIFO)
         frame.sortResourcesLIFO();
 
-        var cleanup_errors = std.ArrayList(CleanupError).init(self.allocator);
+        var cleanup_errors: std.ArrayList(CleanupError) = .empty;
         defer cleanup_errors.deinit();
 
         // Execute cleanup in LIFO order
         for (frame.resources.items) |resource| {
-            const cleanup_start = std.time.nanoTimestamp();
+            const cleanup_start = compat_time.nanoTimestamp();
 
             resource.cleanup_fn(resource.resource_ptr) catch |err| {
                 try cleanup_errors.append(CleanupError{
                     .resource_id = resource.resource_id,
                     .error_type = err,
-                    .cleanup_time_ns = std.time.nanoTimestamp() - cleanup_start,
+                    .cleanup_time_ns = compat_time.nanoTimestamp() - cleanup_start,
                 });
                 self.stats.cleanup_errors += 1;
             };
@@ -146,7 +147,7 @@ pub const ResourceRegistryMin = struct {
             self.stats.total_cleanups_executed += 1;
         }
 
-        const total_cleanup_time = std.time.nanoTimestamp() - start_time;
+        const total_cleanup_time = compat_time.nanoTimestamp() - start_time;
         self.updateCleanupStats(total_cleanup_time, cleanup_errors.items.len);
 
         // Handle cleanup errors if any occurred
@@ -231,7 +232,7 @@ const ResourceFrame = struct {
     pub fn init(allocator: Allocator) ResourceFrame {
         return ResourceFrame{
             .parent = null,
-            .resources = std.ArrayList(ResourceEntry).init(allocator),
+            .resources = .empty,
             .next_order_id = 0,
             .created_at = std.time.milliTimestamp(),
             .allocator = allocator,
@@ -329,8 +330,8 @@ const FrameStack = struct {
 
     pub fn init(allocator: Allocator) FrameStack {
         return FrameStack{
-            .frame_pool = std.ArrayList(*ResourceFrame).init(allocator),
-            .free_frames = std.ArrayList(*ResourceFrame).init(allocator),
+            .frame_pool = .empty,
+            .free_frames = .empty,
             .allocator = allocator,
         };
     }
@@ -545,7 +546,7 @@ test "ResourceRegistryMin - LIFO cleanup order" {
     var registry = ResourceRegistryMin.init(allocator);
     defer registry.deinit();
 
-    var cleanup_order = std.ArrayList(u32).init(allocator);
+    var cleanup_order: std.ArrayList(u32) = .empty;
     defer cleanup_order.deinit();
 
     const frame = try registry.pushFrame();
@@ -585,7 +586,7 @@ test "ResourceRegistryMin - performance validation" {
     var registry = ResourceRegistryMin.init(allocator);
     defer registry.deinit();
 
-    const start_time = std.time.nanoTimestamp();
+    const start_time = compat_time.nanoTimestamp();
 
     // Simulate rapid frame operations
     var i: u32 = 0;
@@ -594,7 +595,7 @@ test "ResourceRegistryMin - performance validation" {
         try registry.popFrame();
     }
 
-    const end_time = std.time.nanoTimestamp();
+    const end_time = compat_time.nanoTimestamp();
     const elapsed_ms = @intToFloat(f64, end_time - start_time) / 1_000_000.0;
 
     // Should complete 1000 frame operations in under 1ms
@@ -633,7 +634,7 @@ test "ResourceRegistryMin - O(1) operations validation" {
             _ = try registry.pushFrame();
         }
 
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat_time.nanoTimestamp();
 
         // These operations should be O(1)
         _ = try registry.pushFrame();
@@ -644,7 +645,7 @@ test "ResourceRegistryMin - O(1) operations validation" {
         }.cleanup, @intToPtr(*anyopaque, 0x1000));
         try registry.popFrame();
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat_time.nanoTimestamp();
         const elapsed_ns = end_time - start_time;
 
         // Should complete in under 1000ns regardless of depth

@@ -70,9 +70,9 @@ fn analyzeNodeEffects(query_ctx: *QueryCtx, node: astdb.AstNode) !EffectsInfo {
 
 /// Analyze effects of a function declaration
 fn analyzeFunctionEffects(query_ctx: *QueryCtx, node: astdb.AstNode) !EffectsInfo {
-    var effects = std.ArrayList([]const u8).init(query_ctx.allocator);
-    var capabilities_required = std.ArrayList([]const u8).init(query_ctx.allocator);
-    var capabilities_granted = std.ArrayList([]const u8).init(query_ctx.allocator);
+    var effects: std.ArrayList([]const u8) = .empty;
+    var capabilities_required: std.ArrayList([]const u8) = .empty;
+    var capabilities_granted: std.ArrayList([]const u8) = .empty;
 
     // Check for explicit effect annotations
     if (node.effect_annotations) |annotations| {
@@ -139,8 +139,8 @@ fn analyzeFunctionCallEffects(query_ctx: *QueryCtx, node: astdb.AstNode) !Effect
     const function_effects_result = try effectsOf(query_ctx, function_effects_args);
 
     // Analyze argument effects
-    var combined_effects = std.ArrayList([]const u8).init(query_ctx.allocator);
-    var combined_capabilities = std.ArrayList([]const u8).init(query_ctx.allocator);
+    var combined_effects: std.ArrayList([]const u8) = .empty;
+    var combined_capabilities: std.ArrayList([]const u8) = .empty;
 
     // Add function effects
     for (function_effects_result.effects_info.effects) |effect| {
@@ -177,7 +177,7 @@ fn analyzeFunctionCallEffects(query_ctx: *QueryCtx, node: astdb.AstNode) !Effect
 
 /// Analyze effects of variable assignment
 fn analyzeAssignmentEffects(query_ctx: *QueryCtx, node: astdb.AstNode) !EffectsInfo {
-    var effects = std.ArrayList([]const u8).init(query_ctx.allocator);
+    var effects: std.ArrayList([]const u8) = .empty;
 
     // Assignment always has memory write effect
     try effects.append("memory.write");
@@ -210,7 +210,7 @@ fn analyzeMemberAccessEffects(query_ctx: *QueryCtx, node: astdb.AstNode) !Effect
 
     // Check if this is a property access that triggers methods
     if (node.is_property_access) {
-        var effects = std.ArrayList([]const u8).init(query_ctx.allocator);
+        var effects: std.ArrayList([]const u8) = .empty;
 
         // Add object effects
         for (object_effects.effects) |effect| {
@@ -250,7 +250,7 @@ fn analyzeArrayAccessEffects(query_ctx: *QueryCtx, node: astdb.AstNode) !Effects
     const array_effects = try analyzeNodeEffects(query_ctx, array_node);
     const index_effects = try analyzeNodeEffects(query_ctx, index_node);
 
-    var combined_effects = std.ArrayList([]const u8).init(query_ctx.allocator);
+    var combined_effects: std.ArrayList([]const u8) = .empty;
 
     // Add array effects
     for (array_effects.effects) |effect| {
@@ -280,8 +280,8 @@ fn analyzeArrayAccessEffects(query_ctx: *QueryCtx, node: astdb.AstNode) !Effects
 
 /// Analyze effects of a block statement
 fn analyzeBlockEffects(query_ctx: *QueryCtx, node: astdb.AstNode) !EffectsInfo {
-    var combined_effects = std.ArrayList([]const u8).init(query_ctx.allocator);
-    var combined_capabilities = std.ArrayList([]const u8).init(query_ctx.allocator);
+    var combined_effects: std.ArrayList([]const u8) = .empty;
+    var combined_capabilities: std.ArrayList([]const u8) = .empty;
 
     var is_pure = true;
     var is_deterministic = true;
@@ -334,7 +334,7 @@ fn analyzeConditionalEffects(query_ctx: *QueryCtx, node: astdb.AstNode) !Effects
     }
 
     // Combine all effects
-    var combined_effects = std.ArrayList([]const u8).init(query_ctx.allocator);
+    var combined_effects: std.ArrayList([]const u8) = .empty;
 
     // Add condition effects (always executed)
     for (condition_effects.effects) |effect| {
@@ -366,7 +366,7 @@ fn analyzeConditionalEffects(query_ctx: *QueryCtx, node: astdb.AstNode) !Effects
 /// Analyze effects of loop statements
 fn analyzeLoopEffects(query_ctx: *QueryCtx, node: astdb.AstNode) !EffectsInfo {
     // Loops can have unbounded effects due to iteration
-    var effects = std.ArrayList([]const u8).init(query_ctx.allocator);
+    var effects: std.ArrayList([]const u8) = .empty;
 
     // Analyze loop body
     const body_effects = try analyzeNodeEffects(query_ctx, try query_ctx.astdb.getNode(node.body));
@@ -390,7 +390,7 @@ fn analyzeLoopEffects(query_ctx: *QueryCtx, node: astdb.AstNode) !EffectsInfo {
 
 /// Analyze effects of return statements
 fn analyzeReturnEffects(query_ctx: *QueryCtx, node: astdb.AstNode) !EffectsInfo {
-    var effects = std.ArrayList([]const u8).init(query_ctx.allocator);
+    var effects: std.ArrayList([]const u8) = .empty;
 
     // Return has control flow effect
     try effects.append("control.return");

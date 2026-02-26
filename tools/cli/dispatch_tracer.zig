@@ -5,6 +5,7 @@
 // Implements real-time dispatch monitoring and performance analysis
 
 const std = @import("std");
+const compat_time = @import("compat_time");
 const print = std.debug.print;
 const ArrayList = std.array_list.Managed;
 const HashMap = std.HashMap;
@@ -96,7 +97,7 @@ pub const DispatchTracer = struct {
     pub fn init(allocator: Allocator, config: TracingConfig) !Self {
         return Self{
             .allocator = allocator,
-            .trace_buffer = ArrayList(TraceEntry).init(allocator),
+            .trace_buffer = .empty,
             .active_traces = HashMap(u64, *ActiveTrace, std.hash_map.AutoContext(u64), std.hash_map.default_max_load_percentage).init(allocator),
             .performance_counters = PerformanceCounters{
                 .total_dispatches = 0,
@@ -135,10 +136,10 @@ pub const DispatchTracer = struct {
             const active_trace = try self.allocator.create(ActiveTrace);
             active_trace.* = ActiveTrace{
                 .call_id = call_id,
-                .start_time = std.time.nanoTimestamp(),
+                .start_time = compat_time.nanoTimestamp(),
                 .function_name = try self.allocator.dupe(u8, function_name),
                 .argument_types = try self.duplicateStringArray(argument_types),
-                .resolution_steps = ArrayList(ActiveTrace.ResolutionStep).init(self.allocator),
+                .resolution_steps = .empty,
             };
 
             try self.active_traces.put(call_id, active_trace);
@@ -156,7 +157,7 @@ pub const DispatchTracer = struct {
     // Add a resolution step to an active trace
     pub fn addResolutionStep(self: *Self, call_id: u64, step_name: []const u8, details: []const u8) !void {
         if (self.active_traces.get(call_id)) |active_trace| {
-            const now = std.time.nanoTimestamp();
+            const now = compat_time.nanoTimestamp();
             const duration = if (active_trace.resolution_steps.items.len > 0)
                 @as(u64, @intCast(now - active_trace.resolution_steps.items[active_trace.resolution_steps.items.len - 1].timestamp))
             else
@@ -184,7 +185,7 @@ pub const DispatchTracer = struct {
         cache_hit: bool,
     ) !void {
         if (self.active_traces.get(call_id)) |active_trace| {
-            const end_time = std.time.nanoTimestamp();
+            const end_time = compat_time.nanoTimestamp();
             const total_time = @as(u64, @intCast(end_time - active_trace.start_time));
 
             // Create trace entry
